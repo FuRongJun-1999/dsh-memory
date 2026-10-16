@@ -26,6 +26,7 @@ import hashlib
 import os
 import re
 import time
+from collections import deque
 
 from .fsutil import append_jsonl
 
@@ -206,9 +207,9 @@ def parent_of(cg, nid):
     return ps[0] if ps else None
 
 
-# 生效条件：max_depth 非 None 时先 max(0, min(int(max_depth), MAX_DEPTH_HARD)) 收敛；以 nid 为根迭代 DFS，已入 seen 的节点跳过，len(seen) >= max_nodes（max_nodes 传 0 时首次循环即成立）置 truncated=True 并 break，depth >= max_depth 且 children 非空时置 truncated=True 并 continue，否则对 children(cg,cur) 逆序、对未出现过的 (ch,cur) 追加 part_of 边并压栈；返回 {'root','nodes','paths','edges','n_nodes','n_edges','truncated'}；
+# 生效条件：max_depth 按 int 收敛到 0..MAX_DEPTH_HARD，max_nodes 按 int 收敛且非有限值拒绝；按层级 FIFO 遍历，入队前占节点预算、仅对已接纳两端登记边，深度或节点预算阻断时标记 truncated；冷邻接构建与输出路径字节成本另计。
 def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
-    """递归展开子树（迭代 DFS，防递归深度爆栈）。
+    """按最短层级展开子图（迭代 BFS，节点在入队前占用预算）。
 
     返回 `{"root","nodes","paths","edges","n_nodes","n_edges","truncated"}`；
     `paths` 为 `节点 id → "根/子/孙"` 层级路径（flatten 后仍可定位来源）。
@@ -216,31 +217,37 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
     """
     if max_depth is not None:
         max_depth = max(0, min(int(max_depth), MAX_DEPTH_HARD))
+    max_nodes = int(max_nodes)
     seen, edges, truncated = {}, [], False
     seen_edges = set()
-    stack = [(nid, 0, nid)]
-    while stack:
-        cur, depth, path = stack.pop()
-        if cur in seen:
-            continue
-        if len(seen) >= max_nodes:
-            truncated = True
-            break
-        seen[cur] = path
+    if max_nodes <= 0:
+        return {"root": nid, "nodes": [], "paths": {}, "edges": [],
+                "n_nodes": 0, "n_edges": 0, "truncated": True}
+    seen[nid] = nid
+    queue = deque([(nid, 0)])
+    # Borrow this internal adjacency without copying a high-fanout child list.
+    # Its cold construction remains separate from the bounded traversal cost.
+    adjacency = children_index(cg)
+    while queue:
+        cur, depth = queue.popleft()
+        kids = adjacency.get(cur) or ()
         if max_depth is not None and depth >= max_depth:
-            if children(cg, cur):
+            if kids:
                 truncated = True
             continue
-        kids = children(cg, cur)
-        for ch in reversed(kids):
+        for ch in kids:
+            if ch not in seen:
+                if len(seen) >= max_nodes:
+                    truncated = True
+                    break  # No unbounded frontier or edges to unadmitted IDs.
+                seen[ch] = f"{seen[cur]}/{ch}"
+                queue.append((ch, depth + 1))
             key = (ch, cur)
             if key not in seen_edges:
                 seen_edges.add(key)
                 edges.append({"source": ch, "target": cur,
                               "relation_type": "part_of",
                               "confidence": 1.0, "verified": 0})
-            if ch not in seen:
-                stack.append((ch, depth + 1, f"{path}/{ch}"))
     return {"root": nid, "nodes": list(seen.keys()), "paths": seen,
             "edges": edges, "n_nodes": len(seen), "n_edges": len(edges),
             "truncated": truncated}

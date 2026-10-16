@@ -1,0 +1,664 @@
+{
+  "baseline_commit": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 12,
+        "passed": 6,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_cycles_terminate_with_closed_edges (md_cg._replay_subgraph_bounded_bfs.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_limited_shared_child_uses_shorter_route) ... FAIL\ntest_edges_are_closed_over_admitted_nodes (md_cg._replay_subgraph_bounded_bfs.Guards.test_edges_are_closed_over_admitted_nodes) ... FAIL\ntest_exact_tree_budget_is_not_truncated (md_cg._replay_subgraph_bounded_bfs.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (md_cg._replay_subgraph_bounded_bfs.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (md_cg._replay_subgraph_bounded_bfs.Guards.test_flatten_respects_closed_budget_projection) ... FAIL\ntest_frontier_does_not_copy_a_wide_child_list (md_cg._replay_subgraph_bounded_bfs.Guards.test_frontier_does_not_copy_a_wide_child_list) ... FAIL\ntest_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) ... \n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=1) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=2) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=3) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=4) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=5) ... FAIL\ntest_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... \n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='nan') ... FAIL\n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='inf') ... FAIL\n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='-inf') ... FAIL\ntest_same_depth_tie_keeps_declaration_order (md_cg._replay_subgraph_bounded_bfs.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (md_cg._replay_subgraph_bounded_bfs.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n======================================================================\nFAIL: test_depth_limited_shared_child_uses_shorter_route (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_limited_shared_child_uses_shorter_route)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 140, in test_depth_limited_shared_child_uses_shorter_route\n    self.assertIn('tail',result['nodes'])\nAssertionError: 'tail' not found in ['r', 'a', 'x', 'c', 'b']\n\n======================================================================\nFAIL: test_edges_are_closed_over_admitted_nodes (md_cg._replay_subgraph_bounded_bfs.Guards.test_edges_are_closed_over_admitted_nodes)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 151, in test_edges_are_closed_over_admitted_nodes\n    self.assertEqual(result['edges'],[])\nAssertionError: Lists differ: [{'source': 'b', 'target': 'r', 'relation_[141 chars]: 0}] != []\n\nFirst list contains 2 additional elements.\nFirst extra element 0:\n{'source': 'b', 'target': 'r', 'relation_type': 'part_of', 'confidence': 1.0, 'verified': 0}\n\n+ []\n- [{'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'b',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'a',\n-   'target': 'r',\n-   'verified': 0}]\n\n======================================================================\nFAIL: test_flatten_respects_closed_budget_projection (md_cg._replay_subgraph_bounded_bfs.Guards.test_flatten_respects_closed_budget_projection)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 178, in test_flatten_respects_closed_budget_projection\n    self.assertEqual(result['edges'],[])\nAssertionError: Lists differ: [{'source': 'b', 'target': 'r', 'relation_[333 chars]: 0}] != []\n\nFirst list contains 4 additional elements.\nFirst extra element 0:\n{'source': 'b', 'target': 'r', 'relation_type': 'part_of', 'confidence': 1.0, 'verified': 0}\n\n+ []\n- [{'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'b',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'parent_of',\n-   'source': 'r',\n-   'target': 'b',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'a',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'parent_of',\n-   'source': 'r',\n-   'target': 'a',\n-   'verified': 0}]\n\n======================================================================\nFAIL: test_frontier_does_not_copy_a_wide_child_list (md_cg._replay_subgraph_bounded_bfs.Guards.test_frontier_does_not_copy_a_wide_child_list)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 169, in test_frontier_does_not_copy_a_wide_child_list\n    self.assertLessEqual(len(visits),2)\nAssertionError: 10000 not less than or equal to 2\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=1)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=2)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=3)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=4)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=5)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='nan')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='inf')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='-inf')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n----------------------------------------------------------------------\nRan 12 tests in 0.293s\n\nFAILED (failures=12)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_cycles_terminate_with_closed_edges (__main__.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... ok\ntest_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... ok\ntest_exact_tree_budget_is_not_truncated (__main__.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (__main__.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (__main__.Guards.test_flatten_respects_closed_budget_projection) ... ok\ntest_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... ok\ntest_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... ok\ntest_nonfinite_node_budget_cannot_disable_the_bound (__main__.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... ok\ntest_same_depth_tie_keeps_declaration_order (__main__.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (__main__.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.196s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "B1 use a LIFO frontier again",
+            "test": "Guards.test_depth_limited_shared_child_uses_shorter_route",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... FAIL\n\n======================================================================\nFAIL: test_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 145, in test_depth_limited_shared_child_uses_shorter_route\n    self.assertIn('tail',alternative['nodes'])\nAssertionError: 'tail' not found in ['r', 'b', 'a', 'x', 'c']\n\n----------------------------------------------------------------------\nRan 1 test in 0.114s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B2 ignore the node admission budget",
+            "test": "Guards.test_node_budget_is_never_exceeded",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... \n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=1) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=2) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=3) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=4) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=5) ... FAIL\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=1)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\nAssertionError: 6 not less than or equal to 1\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=2)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\nAssertionError: 6 not less than or equal to 2\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=3)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\nAssertionError: 6 not less than or equal to 3\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=4)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\nAssertionError: 6 not less than or equal to 4\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=5)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\nAssertionError: 6 not less than or equal to 5\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=5)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B3 copy the whole child list before checking budget",
+            "test": "Guards.test_frontier_does_not_copy_a_wide_child_list",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... FAIL\n\n======================================================================\nFAIL: test_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 169, in test_frontier_does_not_copy_a_wide_child_list\n    self.assertLessEqual(len(visits),2)\nAssertionError: 10000 not less than or equal to 2\n\n----------------------------------------------------------------------\nRan 1 test in 0.011s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B4 admit an edge before its child node",
+            "test": "Guards.test_edges_are_closed_over_admitted_nodes",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... FAIL\n\n======================================================================\nFAIL: test_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 151, in test_edges_are_closed_over_admitted_nodes\n    self.assertEqual(result['edges'],[])\nAssertionError: Lists differ: [{'source': 'a', 'target': 'r', 'relation_type': 'part_of'}] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n{'source': 'a', 'target': 'r', 'relation_type': 'part_of'}\n\n- [{'relation_type': 'part_of', 'source': 'a', 'target': 'r'}]\n+ []\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B5 expand one layer past the depth boundary",
+            "test": "Guards.test_depth_boundary_does_not_include_grandchildren",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... FAIL\n\n======================================================================\nFAIL: test_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-traverse-20261016\\md_cg\\test_subgraph_bounded_bfs.py\", line 173, in test_depth_boundary_does_not_include_grandchildren\n    self.assertEqual(set(result['nodes']),{'r','a'})\nAssertionError: Items in the first set but not the second:\n'b'\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_cycles_terminate_with_closed_edges (__main__.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... ok\ntest_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... ok\ntest_exact_tree_budget_is_not_truncated (__main__.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (__main__.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (__main__.Guards.test_flatten_respects_closed_budget_projection) ... ok\ntest_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... ok\ntest_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... ok\ntest_nonfinite_node_budget_cannot_disable_the_bound (__main__.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... ok\ntest_same_depth_tie_keeps_declaration_order (__main__.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (__main__.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.203s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux": {
+      "baseline": {
+        "tests": 12,
+        "passed": 6,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_cycles_terminate_with_closed_edges (md_cg._replay_subgraph_bounded_bfs.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_limited_shared_child_uses_shorter_route) ... FAIL\ntest_edges_are_closed_over_admitted_nodes (md_cg._replay_subgraph_bounded_bfs.Guards.test_edges_are_closed_over_admitted_nodes) ... FAIL\ntest_exact_tree_budget_is_not_truncated (md_cg._replay_subgraph_bounded_bfs.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (md_cg._replay_subgraph_bounded_bfs.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (md_cg._replay_subgraph_bounded_bfs.Guards.test_flatten_respects_closed_budget_projection) ... FAIL\ntest_frontier_does_not_copy_a_wide_child_list (md_cg._replay_subgraph_bounded_bfs.Guards.test_frontier_does_not_copy_a_wide_child_list) ... FAIL\ntest_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) ... \n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=1) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=2) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=3) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=4) ... FAIL\n  test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=5) ... FAIL\ntest_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... \n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='nan') ... FAIL\n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='inf') ... FAIL\n  test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='-inf') ... FAIL\ntest_same_depth_tie_keeps_declaration_order (md_cg._replay_subgraph_bounded_bfs.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (md_cg._replay_subgraph_bounded_bfs.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n======================================================================\nFAIL: test_depth_limited_shared_child_uses_shorter_route (md_cg._replay_subgraph_bounded_bfs.Guards.test_depth_limited_shared_child_uses_shorter_route)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 140, in test_depth_limited_shared_child_uses_shorter_route\n    self.assertIn('tail',result['nodes'])\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' not found in ['r', 'a', 'x', 'c', 'b']\n\n======================================================================\nFAIL: test_edges_are_closed_over_admitted_nodes (md_cg._replay_subgraph_bounded_bfs.Guards.test_edges_are_closed_over_admitted_nodes)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 151, in test_edges_are_closed_over_admitted_nodes\n    self.assertEqual(result['edges'],[])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [{'source': 'b', 'target': 'r', 'relation_[141 chars]: 0}] != []\n\nFirst list contains 2 additional elements.\nFirst extra element 0:\n{'source': 'b', 'target': 'r', 'relation_type': 'part_of', 'confidence': 1.0, 'verified': 0}\n\n+ []\n- [{'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'b',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'a',\n-   'target': 'r',\n-   'verified': 0}]\n\n======================================================================\nFAIL: test_flatten_respects_closed_budget_projection (md_cg._replay_subgraph_bounded_bfs.Guards.test_flatten_respects_closed_budget_projection)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 178, in test_flatten_respects_closed_budget_projection\n    self.assertEqual(result['edges'],[])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [{'source': 'b', 'target': 'r', 'relation_[333 chars]: 0}] != []\n\nFirst list contains 4 additional elements.\nFirst extra element 0:\n{'source': 'b', 'target': 'r', 'relation_type': 'part_of', 'confidence': 1.0, 'verified': 0}\n\n+ []\n- [{'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'b',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'parent_of',\n-   'source': 'r',\n-   'target': 'b',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'part_of',\n-   'source': 'a',\n-   'target': 'r',\n-   'verified': 0},\n-  {'confidence': 1.0,\n-   'relation_type': 'parent_of',\n-   'source': 'r',\n-   'target': 'a',\n-   'verified': 0}]\n\n======================================================================\nFAIL: test_frontier_does_not_copy_a_wide_child_list (md_cg._replay_subgraph_bounded_bfs.Guards.test_frontier_does_not_copy_a_wide_child_list)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 169, in test_frontier_does_not_copy_a_wide_child_list\n    self.assertLessEqual(len(visits),2)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\nAssertionError: 10000 not less than or equal to 2\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=1)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=2)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=3)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=4)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (md_cg._replay_subgraph_bounded_bfs.Guards.test_node_budget_is_never_exceeded) (budget=5)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 159, in test_node_budget_is_never_exceeded\n    self.assertTrue(all(e['source'] in result['nodes'] and e['target'] in result['nodes'] for e in result['edges']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='nan')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='inf')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n======================================================================\nFAIL: test_nonfinite_node_budget_cannot_disable_the_bound (md_cg._replay_subgraph_bounded_bfs.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) (value='-inf')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 206, in test_nonfinite_node_budget_cannot_disable_the_bound\n    with self.assertRaises((ValueError,OverflowError)):\n         ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: (<class 'ValueError'>, <class 'OverflowError'>) not raised\n\n----------------------------------------------------------------------\nRan 12 tests in 0.172s\n\nFAILED (failures=12)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_cycles_terminate_with_closed_edges (__main__.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... ok\ntest_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... ok\ntest_exact_tree_budget_is_not_truncated (__main__.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (__main__.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (__main__.Guards.test_flatten_respects_closed_budget_projection) ... ok\ntest_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... ok\ntest_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... ok\ntest_nonfinite_node_budget_cannot_disable_the_bound (__main__.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... ok\ntest_same_depth_tie_keeps_declaration_order (__main__.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (__main__.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.088s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "B1 use a LIFO frontier again",
+            "test": "Guards.test_depth_limited_shared_child_uses_shorter_route",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... FAIL\n\n======================================================================\nFAIL: test_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 145, in test_depth_limited_shared_child_uses_shorter_route\n    self.assertIn('tail',alternative['nodes'])\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' not found in ['r', 'b', 'a', 'x', 'c']\n\n----------------------------------------------------------------------\nRan 1 test in 0.016s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B2 ignore the node admission budget",
+            "test": "Guards.test_node_budget_is_never_exceeded",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... \n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=1) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=2) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=3) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=4) ... FAIL\n  test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=5) ... FAIL\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=1)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 6 not less than or equal to 1\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=2)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 6 not less than or equal to 2\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=3)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 6 not less than or equal to 3\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=4)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 6 not less than or equal to 4\n\n======================================================================\nFAIL: test_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) (budget=5)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 158, in test_node_budget_is_never_exceeded\n    self.assertLessEqual(result['n_nodes'],budget)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 6 not less than or equal to 5\n\n----------------------------------------------------------------------\nRan 1 test in 0.015s\n\nFAILED (failures=5)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B3 copy the whole child list before checking budget",
+            "test": "Guards.test_frontier_does_not_copy_a_wide_child_list",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... FAIL\n\n======================================================================\nFAIL: test_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 169, in test_frontier_does_not_copy_a_wide_child_list\n    self.assertLessEqual(len(visits),2)\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^\nAssertionError: 10000 not less than or equal to 2\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B4 admit an edge before its child node",
+            "test": "Guards.test_edges_are_closed_over_admitted_nodes",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... FAIL\n\n======================================================================\nFAIL: test_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 151, in test_edges_are_closed_over_admitted_nodes\n    self.assertEqual(result['edges'],[])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [{'source': 'a', 'target': 'r', 'relation_type': 'part_of'}] != []\n\nFirst list contains 1 additional elements.\nFirst extra element 0:\n{'source': 'a', 'target': 'r', 'relation_type': 'part_of'}\n\n- [{'relation_type': 'part_of', 'source': 'a', 'target': 'r'}]\n+ []\n\n----------------------------------------------------------------------\nRan 1 test in 0.007s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          },
+          {
+            "name": "B5 expand one layer past the depth boundary",
+            "test": "Guards.test_depth_boundary_does_not_include_grandchildren",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... FAIL\n\n======================================================================\nFAIL: test_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-traverse-20261016/md_cg/test_subgraph_bounded_bfs.py\", line 173, in test_depth_boundary_does_not_include_grandchildren\n    self.assertEqual(set(result['nodes']),{'r','a'})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Items in the first set but not the second:\n'b'\n\n----------------------------------------------------------------------\nRan 1 test in 0.007s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_cycles_terminate_with_closed_edges (__main__.Guards.test_cycles_terminate_with_closed_edges) ... ok\ntest_depth_boundary_does_not_include_grandchildren (__main__.Guards.test_depth_boundary_does_not_include_grandchildren) ... ok\ntest_depth_limited_shared_child_uses_shorter_route (__main__.Guards.test_depth_limited_shared_child_uses_shorter_route) ... ok\ntest_edges_are_closed_over_admitted_nodes (__main__.Guards.test_edges_are_closed_over_admitted_nodes) ... ok\ntest_exact_tree_budget_is_not_truncated (__main__.Guards.test_exact_tree_budget_is_not_truncated) ... ok\ntest_exhaustive_short_walk_oracle (__main__.Guards.test_exhaustive_short_walk_oracle) ... ok\ntest_flatten_respects_closed_budget_projection (__main__.Guards.test_flatten_respects_closed_budget_projection) ... ok\ntest_frontier_does_not_copy_a_wide_child_list (__main__.Guards.test_frontier_does_not_copy_a_wide_child_list) ... ok\ntest_node_budget_is_never_exceeded (__main__.Guards.test_node_budget_is_never_exceeded) ... ok\ntest_nonfinite_node_budget_cannot_disable_the_bound (__main__.Guards.test_nonfinite_node_budget_cannot_disable_the_bound) ... ok\ntest_same_depth_tie_keeps_declaration_order (__main__.Guards.test_same_depth_tie_keeps_declaration_order) ... ok\ntest_zero_budget_does_not_prepare_adjacency (__main__.Guards.test_zero_budget_does_not_prepare_adjacency) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.065s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    }
+  },
+  "regressions": {
+    "windows": {
+      "key": "traverse",
+      "platform": "windows",
+      "source_head": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+      "source_tree_dirty": true,
+      "production_sha256": {
+        "md_cg/mdcg.py": "20e9cf81981cd4dce5ad92d081e5da9fc2fef6d0f450912fd7e1c88a3022cb8f",
+        "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+        "md_cg/subgraph.py": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/readcache.py": "3407799dffbb42986ea8053e7ce081031ae7c2651d56b5fbd64282e56724c1ae"
+      },
+      "passed": 6,
+      "partial": 0,
+      "skipped": 0,
+      "failed": 0,
+      "results": [
+        {
+          "module": "test_p8_subgraph_chain",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.984,
+          "log": "reg-traverse-windows-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_chain_best_first",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.469,
+          "log": "reg-traverse-windows-test_chain_best_first.log"
+        },
+        {
+          "module": "test_lifecycle_retire_leak",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_lifecycle_retire_leak"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 2.234,
+          "log": "reg-traverse-windows-test_lifecycle_retire_leak.log"
+        },
+        {
+          "module": "test_n212_n213_n224_generation_gates",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_n212_n213_n224_generation_gates"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 2.0,
+          "log": "reg-traverse-windows-test_n212_n213_n224_generation_gates.log"
+        },
+        {
+          "module": "test_retr_s9_edges",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_retr_s9_edges"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.594,
+          "log": "reg-traverse-windows-test_retr_s9_edges.log"
+        },
+        {
+          "module": "test_h4_sustain_snapshot",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_h4_sustain_snapshot"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 320.25,
+          "log": "reg-traverse-windows-test_h4_sustain_snapshot.log"
+        }
+      ]
+    },
+    "linux": {
+      "key": "traverse",
+      "platform": "linux",
+      "source_head": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+      "source_tree_dirty": true,
+      "production_sha256": {
+        "md_cg/mdcg.py": "20e9cf81981cd4dce5ad92d081e5da9fc2fef6d0f450912fd7e1c88a3022cb8f",
+        "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+        "md_cg/subgraph.py": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/readcache.py": "3407799dffbb42986ea8053e7ce081031ae7c2651d56b5fbd64282e56724c1ae"
+      },
+      "passed": 6,
+      "partial": 0,
+      "skipped": 0,
+      "failed": 0,
+      "results": [
+        {
+          "module": "test_p8_subgraph_chain",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 6.844,
+          "log": "reg-traverse-linux-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_chain_best_first",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.593,
+          "log": "reg-traverse-linux-test_chain_best_first.log"
+        },
+        {
+          "module": "test_lifecycle_retire_leak",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_lifecycle_retire_leak"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.61,
+          "log": "reg-traverse-linux-test_lifecycle_retire_leak.log"
+        },
+        {
+          "module": "test_n212_n213_n224_generation_gates",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_n212_n213_n224_generation_gates"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.265,
+          "log": "reg-traverse-linux-test_n212_n213_n224_generation_gates.log"
+        },
+        {
+          "module": "test_retr_s9_edges",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_retr_s9_edges"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.797,
+          "log": "reg-traverse-linux-test_retr_s9_edges.log"
+        },
+        {
+          "module": "test_h4_sustain_snapshot",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-traverse-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-three-expert-traverse-20261016",
+            "GIT_WORK_TREE=<work>/memory-three-expert-traverse-20261016",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_h4_sustain_snapshot"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 177.672,
+          "log": "reg-traverse-linux-test_h4_sustain_snapshot.log"
+        }
+      ]
+    }
+  },
+  "native": {
+    "windows": {
+      "baseline": {
+        "traversal": {
+          "actual_markdown_nodes": 6,
+          "depth3_ids": [
+            "r",
+            "a",
+            "x",
+            "c",
+            "b"
+          ],
+          "tail_recalled": false,
+          "tail_path": null,
+          "max_nodes_one": 1,
+          "edges_at_budget_one": 2,
+          "edges_closed": false
+        }
+      },
+      "fixed": {
+        "traversal": {
+          "actual_markdown_nodes": 6,
+          "depth3_ids": [
+            "r",
+            "a",
+            "b",
+            "x",
+            "c",
+            "tail"
+          ],
+          "tail_recalled": true,
+          "tail_path": "r/b/c/tail",
+          "max_nodes_one": 1,
+          "edges_at_budget_one": 0,
+          "edges_closed": true
+        }
+      },
+      "command": {
+        "key": "traverse",
+        "platform": "windows",
+        "command": [
+          "py",
+          "-3.12",
+          "-X",
+          "utf8",
+          "scripts/probe_subgraph_bounded_bfs.py",
+          "--repo",
+          "<work>\\memory-three-expert-traverse-20261016",
+          "--output",
+          "<evidence>\\traverse-native-fixed-windows.json",
+          "--case",
+          "traverse"
+        ],
+        "returncode": 0,
+        "log": "traverse-native-fixed-windows.log",
+        "production_sha256": {
+          "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/subgraph.py": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+        }
+      }
+    },
+    "linux": {
+      "baseline": {
+        "traversal": {
+          "actual_markdown_nodes": 6,
+          "depth3_ids": [
+            "r",
+            "a",
+            "x",
+            "c",
+            "b"
+          ],
+          "tail_recalled": false,
+          "tail_path": null,
+          "max_nodes_one": 1,
+          "edges_at_budget_one": 2,
+          "edges_closed": false
+        }
+      },
+      "fixed": {
+        "traversal": {
+          "actual_markdown_nodes": 6,
+          "depth3_ids": [
+            "r",
+            "a",
+            "b",
+            "x",
+            "c",
+            "tail"
+          ],
+          "tail_recalled": true,
+          "tail_path": "r/b/c/tail",
+          "max_nodes_one": 1,
+          "edges_at_budget_one": 0,
+          "edges_closed": true
+        }
+      },
+      "command": {
+        "key": "traverse",
+        "platform": "linux",
+        "command": [
+          "wsl",
+          "-d",
+          "kali-linux",
+          "--cd",
+          "<work>/memory-three-expert-traverse-20261016",
+          "--",
+          "env",
+          "TMPDIR=/tmp",
+          "python3",
+          "-X",
+          "utf8",
+          "scripts/probe_subgraph_bounded_bfs.py",
+          "--repo",
+          "<work>/memory-three-expert-traverse-20261016",
+          "--output",
+          "<evidence>/traverse-native-fixed-linux.json",
+          "--case",
+          "traverse"
+        ],
+        "returncode": 0,
+        "log": "traverse-native-fixed-linux.log",
+        "production_sha256": {
+          "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/subgraph.py": "77e802d1ac43a72524773017d81fac17f6efe3814b25c3ef65af296d7fcfe235"
+        }
+      }
+    }
+  },
+  "integration": [
+    {
+      "key": "hydrate",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "traverse",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "topology",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "hydrate",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "traverse",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "topology",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    }
+  ]
+}
