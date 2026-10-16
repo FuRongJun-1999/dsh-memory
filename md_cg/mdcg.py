@@ -5402,7 +5402,8 @@ class MdCG:
         return max(0.0, 1.0 - accept / len(cands))
 
 # 生效条件：to_layer 不属于模块级 LAYERS 时抛 ValueError；self.get(node_id) 取不到节点或当前层（fm.layer 或路径首段）等于 to_layer 时返回 None；否则先对**源层与目标层**各调 protect.require_layer（N209：principal 层写闸，越权抛 AccessDenied），再调 protect.guard_move 后写入 demotion 审计、搬文件到目标层并按新层 _stage、重算 buckets，返回 {id, from, to, path, reason}；
-    def _move_layer(self, node_id: str, to_layer: str, reason: str = ""):
+    def _move_layer(self, node_id: str, to_layer: str, reason: str = "",
+                    override: bool = False, actor: str = None):
         """把节点搬到另一层（可信度降级用），同步索引与 demotion 审计字段。"""
         if to_layer not in LAYERS:
             raise ValueError(f"未知层：{to_layer}")
@@ -5423,7 +5424,13 @@ class MdCG:
                               sensitivity=fm.get("sensitivity"))
         protect.require_layer(self, node_id, layer=to_layer,
                               sensitivity=fm.get("sensitivity"))
-        protect.guard_move(self, node_id, to_layer)
+        # #469：原为裸调用 `guard_move(self, node_id, to_layer)`——**未透传
+        # `override`**。于是 scrub.decontaminate(override=True) 在
+        # skip-gate 放行、weaken 成功后，demote 必然死在 ProtectionError（layer
+        # 不变），却仍进幂等名单 ⇒ 后续有权限者也不再能 demote（#411 是无权者
+        # 毒化，本条是有权者 override 漏传）。覆写路径本就透传 override/actor，
+        # 此处补齐同一口径。
+        protect.guard_move(self, node_id, to_layer, override=override, actor=actor)
         fm["layer"] = to_layer
         fm["demotion"] = {"t": time.time(), "from": from_layer,
                           "to": to_layer, "reason": reason}
