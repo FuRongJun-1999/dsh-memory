@@ -52,6 +52,11 @@ import sys
 import tempfile
 import time
 
+try:
+    from .atomic_append import append_line
+except ImportError:                              # 脚本式直跑（python hive/orch.py）
+    from atomic_append import append_line
+
 # ---------------------------------------------------------------- 入口自保证 UTF-8
 # 约束（工作纪律第 15 条）：本调用必须在**任何文件/库 I/O 之前**——utf8_boot.ensure_utf8
 # 在解释器未开 UTF-8 模式时以相同 argv 重启自身（-X utf8），早于它的任何 open/stdio
@@ -714,8 +719,8 @@ def _record_adjudication(args: dict) -> dict:
            "session": f"hive_orch_{_CFG.get('job_id') or 'unknown'}"}
     path = os.path.join(_CFG.get("job_dir") or "", _ADJ_FILE)
     try:
-        with open(path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+        # issue #465：跨进程原子追加单点（池级互斥 + 单次 write）；权威台账失败 fail-closed。
+        append_line(path, json.dumps(rec, ensure_ascii=False))
     except OSError as e:
         return {"ok": False, "error": f"裁决台账写入失败: {e}"}
     _ex.progress(_CFG.get("job_dir"), **{**rec, "kind": "adjudication"})
