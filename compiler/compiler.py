@@ -10,6 +10,8 @@ AST（protocol-compiler parser）→ VM 指令（condition_vm）：
 若则=if——VM 执行结果与声明语义一致。
 """
 
+import math
+
 from .lexer import tokenize, TokenType
 from .parser import parse_tokens, NodeType
 from .name_checker import NameChecker
@@ -178,11 +180,20 @@ class Compiler:
             self._emit(Opcode.DAO, val if val is not None else "无名路径")
         elif op == TokenType.DE:
             try:
-                self._emit(Opcode.DE, float(val) if val is not None else 0.0)
+                num = float(val) if val is not None else 0.0
             except (TypeError, ValueError):
                 # 以名举实：非数值操作数（未声明标识符）编译期拦截——名实不符
                 raise SyntaxError(
                     f"L{s.line} 德 的操作数必须是数值，得到 '{val}'（名实不符）")
+            # #435：`float('inf')`/`float('nan')` 是**合法转换**、不抛异常，故单靠
+            # 上面 try 拦不住——「必须是数值」的闸会被 inf/nan 穿透。而它们进信任
+            # 寄存器后**永久毒化**：NaN 破坏相等自反性（`x == x` 恒 False ⇒ 「止」
+            # 永不触发）、inf 恒超任何阈值（「知足」恒早退 ⇒ 其后的「止」全被跳过）。
+            # 故此处按「有限」判定，与「名实不符」同一口径拒绝。
+            if not math.isfinite(num):
+                raise SyntaxError(
+                    f"L{s.line} 德 的操作数必须是有限数值，得到 '{val}'（名实不符）")
+            self._emit(Opcode.DE, num)
         elif op == TokenType.ZIRAN:
             self._emit(Opcode.ZIRAN)
         elif op == TokenType.WUWEI:
@@ -190,7 +201,16 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            threshold = float(val) if val is not None else 0.0
+            # #435：与「德」同一处闸——`float(inf/nan)` 不抛异常，裸 `float()` 会让
+            # 阈值变成 inf/nan，使「知足」恒早退或恒不早退。同口径拦「非有限」。
+            try:
+                threshold = float(val) if val is not None else 0.0
+            except (TypeError, ValueError):
+                raise SyntaxError(
+                    f"L{s.line} 知足 的操作数必须是数值，得到 '{val}'（名实不符）")
+            if not math.isfinite(threshold):
+                raise SyntaxError(
+                    f"L{s.line} 知足 的操作数必须是有限数值，得到 '{val}'（名实不符）")
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))
