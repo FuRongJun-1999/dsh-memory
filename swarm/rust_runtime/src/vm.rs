@@ -423,7 +423,18 @@ impl VM {
                             BUILTIN_TRUST_VALUE, v
                         )));
                     }
-                    self.trust_value = as_f64(&v);
+                    let f = as_f64(&v);
+                    // #435：inf/nan 是合法 f64 却非有限——类型闸放行即毒化
+                    // 信任寄存器（NaN 破坏 == 自反性、inf 恒过 知足 阈值）。
+                    // 写面契约「须数值」收紧为「须有限数值」，与 Python
+                    // condition_vm.py STORE_NAME 同判（两台 VM 不另立判据）。
+                    if !f.is_finite() {
+                        return Err(VmError::Error(format!(
+                            "{} 只能写有限数值，得到 {:?}（inf/nan 非有限）",
+                            BUILTIN_TRUST_VALUE, v
+                        )));
+                    }
+                    self.trust_value = f;
                 } else if key == BUILTIN_CONDITION_SPACE {
                     match v {
                         Value::Str(s) => self.switch_condition_space(&s),
@@ -440,7 +451,15 @@ impl VM {
                     if !is_num(&v) {
                         return Err(VmError::Error(format!("{} 只能写数值", key)));
                     }
-                    *slot = as_f64(&v);
+                    // #435：与 信任值 写闸同判——分量寄存器同受有限性保护
+                    let f = as_f64(&v);
+                    if !f.is_finite() {
+                        return Err(VmError::Error(format!(
+                            "{} 只能写有限数值（inf/nan 非有限）",
+                            key
+                        )));
+                    }
+                    *slot = f;
                 } else if is_readonly_builtin(&key) {
                     // N272：SEMANTICS.md §1 写面「—」的只读内建名——写入即
                     // 结构化拒（修复前落 symbols 静默遮蔽内建读取；与 Python
@@ -474,7 +493,18 @@ impl VM {
                     Arg::Int(i) => *i as f64,
                     _ => return Err(VmError::Error("DE 参数需数值".into())),
                 };
-                self.trust_value += d;
+                // #435：先算后验，非有限即拒（NaN/inf 操作数或溢出的累积
+                // 结果）——编译期闸单点在 compiler.py 的 float() 后 isfinite，
+                // 此处为运行期第二闸，覆盖 pbc 落盘往返与手搓字节码；
+                // 与 Python condition_vm.py DE 同判，拒绝时寄存器保持有限值。
+                let cand = self.trust_value + d;
+                if !cand.is_finite() {
+                    return Err(VmError::Error(format!(
+                        "德 的信任累积结果非有限：{} + {}（inf/nan 拒）",
+                        self.trust_value, d
+                    )));
+                }
+                self.trust_value = cand;
             }
             "ZIRAN" => {
                 // 恢复默认条件空间：弹栈到根（保留首帧；空栈保持空）
@@ -924,5 +954,100 @@ mod trust_round_tests {
             terminal_trust(-0.0).is_sign_negative(),
             "负零应保持符号（round(-0.0,3) == -0.0）"
         );
+    }
+}
+
+#[cfg(test)]
+mod nonfinite_gate_tests {
+    //! #435 守卫（缺陷：Python `float()` 接受 `'inf'/'nan'/'infinity'` 全形态，
+    //! 编译期「必须是数值」闸被穿透；两台 VM 的写闸只判数值类型、DE 直接
+    //! `+=`——信任寄存器被毒化且不可观测：NaN 破坏等式自反性使 止 永不
+    //! 触发、inf 恒过 知足 阈值使其恒早退）。
+    //! Rust 侧守**运行期双闸**（STORE_NAME 写闸 + DE 累积）；编译期闸单点
+    //! 在 compiler.py（float() 后 isfinite），由 Python 侧守卫
+    //! compiler/tests/test_issue435_nonfinite_gate.py 双入口同判覆盖。
+    //! 纯行为断言（不做源码文本匹配）。
+    use super::*;
+
+    fn ins(op: &str, arg: Arg) -> Instr {
+        Instr {
+            op: op.to_string(),
+            arg,
+        }
+    }
+
+    fn run_code(code: &[Instr]) -> Result<State, VmError> {
+        VM::new().run(code, HashMap::new(), 0.0, Vec::new(), 100_000)
+    }
+
+    /// 非有限写/累积必须得真错误——不是落寄存器后静默毒化。
+    fn expect_nonfinite_error(tag: &str, code: &[Instr]) {
+        match run_code(code) {
+            Ok(st) => panic!("{tag}：应结构化拒却成功返回（trust={}）", st.trust),
+            Err(VmError::Error(e)) => {
+                assert!(e.contains("有限"), "{tag}：错误应指明非有限，得 {e:?}")
+            }
+            Err(VmError::Halted(kind, _)) => {
+                panic!("{tag}：期望 VmError::Error，得 Halted({kind})")
+            }
+        }
+    }
+
+    /// 写闸：信任值/信任分量写 inf/nan → 结构化拒（对照 finite 值不误伤）
+    #[test]
+    fn store_name_rejects_nonfinite() {
+        expect_nonfinite_error(
+            "信任值=inf",
+            &[ins("PUSH_CONST", Arg::Float(f64::INFINITY)),
+              ins("STORE_NAME", Arg::Str(BUILTIN_TRUST_VALUE.into()))],
+        );
+        expect_nonfinite_error(
+            "信任值=nan",
+            &[ins("PUSH_CONST", Arg::Float(f64::NAN)),
+              ins("STORE_NAME", Arg::Str(BUILTIN_TRUST_VALUE.into()))],
+        );
+        expect_nonfinite_error(
+            "信任分量=inf",
+            &[ins("PUSH_CONST", Arg::Float(f64::INFINITY)),
+              ins("STORE_NAME", Arg::Str("P_trust".into()))],
+        );
+        expect_nonfinite_error(
+            "情感权重=nan",
+            &[ins("PUSH_CONST", Arg::Float(f64::NAN)),
+              ins("STORE_NAME", Arg::Str("情感权重".into()))],
+        );
+    }
+
+    /// DE：非有限操作数与溢出累积 → 结构化拒
+    #[test]
+    fn de_rejects_nonfinite_and_overflow() {
+        expect_nonfinite_error("德 inf", &[ins("DE", Arg::Float(f64::INFINITY))]);
+        expect_nonfinite_error("德 nan", &[ins("DE", Arg::Float(f64::NAN))]);
+        expect_nonfinite_error(
+            "德 1e308×2 溢出",
+            &[ins("DE", Arg::Float(1e308)), ins("DE", Arg::Float(1e308))],
+        );
+    }
+
+    /// 对照：有限值的写/累积不误伤（0.9 落寄存器、0.5+0.25=0.75）
+    #[test]
+    fn finite_values_unharmed() {
+        let st = match run_code(&[
+            ins("PUSH_CONST", Arg::Float(0.9)),
+            ins("STORE_NAME", Arg::Str(BUILTIN_TRUST_VALUE.into())),
+            ins("DE", Arg::Float(0.1)),
+        ]) {
+            Ok(st) => st,
+            Err(VmError::Error(e)) => panic!("有限值路径必须成功，得错误 {e:?}"),
+            Err(VmError::Halted(kind, _)) => panic!("有限值路径应正常终态，得 Halted({kind})"),
+        };
+        assert!((st.trust - 1.0).abs() < 1e-12, "trust 应为 1.0，得 {}", st.trust);
+
+        let st2 = match run_code(&[ins("DE", Arg::Float(0.5)), ins("DE", Arg::Float(0.25))]) {
+            Ok(st) => st,
+            Err(VmError::Error(e)) => panic!("有限累积必须成功，得错误 {e:?}"),
+            Err(VmError::Halted(kind, _)) => panic!("有限累积应正常终态，得 Halted({kind})"),
+        };
+        assert!((st2.trust - 0.75).abs() < 1e-12, "trust 应为 0.75，得 {}", st2.trust);
     }
 }

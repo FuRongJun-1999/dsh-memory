@@ -24,7 +24,8 @@
 
 写面标「—」的集（`信任阈值`、`伴侣`/`工作`/`默认`/`恢复默认`/`default`）
 **不可写**：编译期 error + 运行期结构化拒，两 VM 同判（N272，见 §6.3）；
-写类型闸（信任值/信任分量须数值、条件空间须字符串）亦两 VM 同判。
+写类型闸（信任值/信任分量须**有限数值**（inf/nan 拒，#435）、条件空间须
+字符串）亦两 VM 同判。
 
 关键不变式：**`德`(DE) 与 `信任值` 指向同一处存储**。
 修复前 `德` 只改寄存器、`信任值` 读符号表，二者互不通信
@@ -180,6 +181,21 @@ python -m swarm.tests.test_swarm_condition_space     # 条件空间卡（10 项�
 `STORE_NAME`/`reset`，对齐 `vm.rs` STORE_NAME 分支）：`信任值`/信任分量
 写非数值、`条件空间` 写非字符串 → 拒；注入初值同口径（信任值须数值、
 条件空间非字符串不切换）。
+
+非有限闸（#435）：Python `float()` 接受 `'inf'/'nan'/'infinity'`（含大小写
+与符号全形态）——`float('inf')` 正是 float，类型闸放行即毒化信任寄存器
+（NaN 破坏等式自反性使 止 永不触发、inf 恒过 知足 阈值使其恒早退，
+静默错答）。收口为双闸：
+- **编译期单点**：`compiler._instr`——`德`/`知足` 操作数 `float()` 后
+  `math.isfinite` 拒（`SyntaxError` 名实不符）；双入口
+  （`compile_source` strict=True / `pbc.compile_to_pbc` strict=False）同拒，
+  非数值阈值同收（修复前 `知足 abc` 的裸 `ValueError` 穿透窄捕获）。
+- **运行期双闸**：`STORE_NAME` 写闸补 `math.isfinite`（`德` 与 `知足`
+  溢出面）；`德`(DE) 累积先算后验——NaN/inf 操作数与溢出累积（1e308+1e308）
+  同拒（`VMBuiltinError('nonfinite')`）。两 VM 同判（Rust `vm.rs`）。
+
+守卫：`compiler/tests/test_issue435_nonfinite_gate.py` +
+`swarm/tests/test_rust_vm_nonfinite_gate_435.py`（Rust 面与双后端同判）。
 
 修复前：`信任阈值 = 0.9` 落 `symbols` 遮蔽内建读取（两 VM 皆漏）、
 `条件空间 = 0.9` Python 数字成空间名（Rust 拒）、`信任值 = "0.9"`

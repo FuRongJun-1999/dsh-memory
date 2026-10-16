@@ -7,6 +7,7 @@ condition_vm.py · 智能论字节码 VM（第六阶段 C1 · 原生编译地基
 零 Python 依赖运行时（VM 自足）——「完全使用智能论的分析方法和逻辑」的 VM 层。
 """
 
+import math
 import time
 from enum import IntEnum
 
@@ -101,12 +102,17 @@ class VMBuiltinError(Exception):
     `VmError::Error`（vm.rs STORE_NAME 分支与 run 初值归一）同判据。
 
     kind: "type"（写类型不符：信任值/信任分量须数值、条件空间须字符串）
-          | "readonly"（SEMANTICS.md §1 写面「—」的只读内建名写入）。
+          | "readonly"（SEMANTICS.md §1 写面「—」的只读内建名写入）
+          | "nonfinite"（#435：inf/nan 非有限——信任寄存器只收**有限**数值；
+            `德`(DE) 累积结果溢出/NaN 同判。修复前 `float('inf')` 正是
+            float、类型闸放行，信任寄存器被毒化且不可观测：NaN 破坏等式
+            自反性使 止 永不触发、inf 恒过 知足 阈值使其恒早退）。
     修复前：条件空间写数值静默成空间名（cond_name=0.9）、信任值写字符串
     裸 TypeError（末态 round 崩）、信任阈值/空间名写入落 symbols 静默遮蔽
     内建读取——两 VM 皆漏。
-    单点收口：写闸在 STORE_NAME（编译期同判由 name_checker 保护面扩展），
-    初值闸在 reset——不另立第二份判据。
+    单点收口：写闸在 STORE_NAME（编译期同判由 name_checker 保护面扩展，
+    非有限编译期闸单点在 compiler._instr），初值闸在 reset——不另立第二份
+    判据。
     """
 # 生效条件：kind 存入 self.kind，message 交 super().__init__。
     def __init__(self, kind, message):
@@ -382,6 +388,15 @@ class ConditionVM:
                     raise VMBuiltinError(
                         "type",
                         f"{BUILTIN_TRUST_VALUE} 只能写数值，得到 {_val!r}")
+                if not math.isfinite(_val):
+                    # #435：`float('inf')`/`float('nan')` 正是 float——类型闸
+                    # 放行即毒化信任寄存器（NaN 破坏 == 自反性、inf 恒过
+                    # 知足 阈值）。写面契约「须数值」收紧为「须有限数值」，
+                    # 与 Rust vm.rs STORE_NAME 同判（两台 VM 不另立判据）。
+                    raise VMBuiltinError(
+                        "nonfinite",
+                        f"{BUILTIN_TRUST_VALUE} 只能写有限数值，得到 {_val!r}"
+                        f"（inf/nan 非有限）")
                 self.trust_value = _val
             elif arg == BUILTIN_CONDITION_SPACE: # 写条件空间 → 切换
                 if not isinstance(_val, str):
@@ -394,6 +409,11 @@ class ConditionVM:
                 if not isinstance(_val, (int, float)):
                     raise VMBuiltinError(
                         "type", f"{arg} 只能写数值，得到 {_val!r}")
+                if not math.isfinite(_val):
+                    # #435：与 信任值 写闸同判——分量寄存器同受有限性保护
+                    raise VMBuiltinError(
+                        "nonfinite",
+                        f"{arg} 只能写有限数值，得到 {_val!r}（inf/nan 非有限）")
                 self.trust_parts[arg] = _val
             elif arg in READONLY_BUILTIN_NAMES:  # 只读内建名（写面「—」）
                 raise VMBuiltinError(
@@ -411,8 +431,18 @@ class ConditionVM:
             # 道：创建协议路径 → 条件空间栈压入（对应灵枢条件路由）
             self.condition_stack.append({"name": arg, "trust_at_create": self.trust_value})
         elif op == Opcode.DE:
-            # 德：信任值累积（信任引擎内建）
-            self.trust_value += arg
+            # 德：信任值累积（信任引擎内建）——#435：先算后验，非有限即拒。
+            # 编译期单点闸在 compiler._instr（float() 后 isfinite）；此处为
+            # 运行期第二闸，覆盖 pbc 落盘往返（8 字节 double 保真）与手搓
+            # 字节码：NaN 操作数/溢出累积（1e308+1e308）同样毒化寄存器。
+            # 与 Rust vm.rs DE 同判；拒绝时寄存器保持拒绝前的有限值。
+            _cand = self.trust_value + arg
+            if not math.isfinite(_cand):
+                raise VMBuiltinError(
+                    "nonfinite",
+                    f"德 的信任累积结果非有限：{self.trust_value!r} + {arg!r}"
+                    f"（inf/nan 拒——信任寄存器不被毒化）")
+            self.trust_value = _cand
         elif op == Opcode.ZIRAN:
             # 自然：恢复默认条件空间（弹栈到根）
             self.condition_stack = self.condition_stack[:1]
