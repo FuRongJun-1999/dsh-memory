@@ -463,6 +463,7 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_LEGACY_ENV_AUTH / MDCG_CAN_ADMIN / MDCG_LEGACY_ENV_ADMIN', 'env', 'lingshu', 'bool 语义', ''),
     ('MDCG_ROOT', 'env', 'lingshu', '路径', ''),
     ('PYTHONUTF8 / PYTHONIOENCODING', 'env', 'lingshu', '字符串', ''),
+    ('MDCG_REPLAY_NEG_MAX_COVERAGE', 'env', 'dsh-memory-main', 'float（正数；非法/非正回落默认）', 'issue #278：consolidate neg_separated 的词面覆盖率阈值（默认 0.5）'),
 ]
 # fmt: on
 

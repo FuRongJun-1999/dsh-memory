@@ -79,7 +79,7 @@ def _cov(term):
 
 
 def _passes_both(term):
-    return _g(term) >= C.DEFAULT_GROUNDING["不适用条件"] and _cov(term) < 0.5
+    return _g(term) >= C.DEFAULT_GROUNDING["不适用条件"] and _cov(term) < C._neg_max_coverage()
 
 
 def w1():
@@ -88,8 +88,9 @@ def w1():
                   encoding="utf-8", errors="replace").read()
     ok("grounding_score" in src and "def grounding_filter" in src,
        "W1a 闸门 1（grounding）在场")
-    ok("_weighted_coverage(tw_neg, body) < 0.5" in src,
-       "W1b 闸门 2（neg vs body 覆盖率 <0.5）在场")
+    ok("and _weighted_coverage(tw_neg, body) < _neg_max_coverage()" in src
+       and abs(C._REPLAY_NEG_MAX_DEFAULT - 0.5) < 1e-12,
+       "W1b 闸门 2（neg vs body 覆盖率 < 0.5，经单点 _neg_max_coverage()）在场")
     # 方向相反：同一候选，grounding 越大 ⇒ coverage 越大（同向），
     # 但**判据方向相反**（一个要 >= 一个要 <）⇒ 夹缝
     t = "依赖写 caret"
@@ -151,8 +152,9 @@ def w6():
        C.DEFAULT_GROUNDING.get("不适用条件"))
     src = io.open(os.path.join(_REPO, "md_cg", "consolidate.py"),
                   encoding="utf-8", errors="replace").read()
-    ok("_weighted_coverage(tw_neg, body) < 0.5" in src,
-       "W6b 闸门 2 阈值 = 0.5（硬编码，与 0.34 成对）")
+    ok("and _weighted_coverage(tw_neg, body) < _neg_max_coverage()" in src
+       and abs(C._REPLAY_NEG_MAX_DEFAULT - 0.5) < 1e-12,
+       "W6b 闸门 2 阈值 = 0.5（单点默认值，与 0.34 成对；issue #278 后不再是字面硬编码）")
     ok("平移窗口" in src or "成对" in src or "一对" in src,
        "W6c 源码已写明两者成对（改一个须一起看）")
 
@@ -218,7 +220,7 @@ def main() -> int:
 
 _MUTATIONS = (
     ("V1 闸门 2 阈值放宽到 0.9（窗口右移，prompt 口径也能过）",
-     "        and _weighted_coverage(tw_neg, body) < 0.5",
+     "        and _weighted_coverage(tw_neg, body) < _neg_max_coverage()",
      "        and _weighted_coverage(tw_neg, body) < 0.9", "W2"),
     ("V2 闸门 1 对不适用条件的阈值降到 0.0（窗口左移，完全域外也能过）",
      'DEFAULT_GROUNDING = {"生效条件": 0.5, "子功能": 0.5, "执行": 0.5, "不适用条件": 0.34}',

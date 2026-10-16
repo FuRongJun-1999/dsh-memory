@@ -11,6 +11,32 @@
     再重跑本脚本补齐登记（或手工改登记，两者都会过守卫）；
   · 改登记体例 → 改本脚本 + `md_cg/config_registry.py` 的 SCHEMA，重跑。
 
+★ 加一个 env 变量的完整清单（task-15 两轮实测得出，**照做即可，不必再踩**）
+------------------------------------------------------------------
+本仓的「配置面」有 **3 个生成件**，**两个是派生的、一个是冻结的**，处置不同：
+
+  [1] md_cg/config_registry_bulk.py     ← 本脚本产物，但属**冻结快照**：
+      ⚠ 实测（task-15）：当前 inventory 重跑本脚本会**丢策展内容**
+        （477 → 430 行，丢 63 行 `issue #138 · C6` 字段语义注释）。
+        ⇒ **不要为加一个 env 而整体重跑本脚本**。正确做法是**手工补两处**：
+        · 本文件的 `CURATED_ENV_NAMES` += 变量名（durable 源，保证 ENV_ROWS 侧）；
+        · `config_registry_bulk.py::ENV_CATEGORY_ROWS` += 一行（分类登记侧）。
+  [2] docs/reference/配置参数表_v0.1.md  ← `python -X utf8 scripts/gen_config_doc.py`
+  [3] md_cg/config_validate.py           ← `python -X utf8 scripts/gen_config_validate.py`
+
+  两步生成器（[2][3]）各自带 `--check`：陈旧即非零退出，正是守卫
+  `md_cg/config_registry_guard.py::G3 生成件新鲜度` 的判据面（**G3 只覆盖 [2][3]**，
+  不覆盖 [1]——[1] 的守卫面是 `scripts/check_config_env_registry.py` 的 C1）。
+
+  加/改一个 env 变量的**顺序**（照抄）：
+      ① 改源码读取点 → ② `CURATED_ENV_NAMES` += 名 → ③ 手工补 ENV_CATEGORY_ROWS 行
+      → ④ `python -X utf8 scripts/gen_config_doc.py`
+      → ⑤ `python -X utf8 scripts/gen_config_validate.py`
+      → ⑥ 跑 `md_cg.test_config_registry` + `scripts.test_check_config_env_registry`
+         + `scripts/check_config_env_registry.py` + `-k config`（**四组都要绿**）
+  理由：**族回归（`-k …`）按名字取样，看不到「生成件新鲜度 / env 登记面 / 导入面 /
+  编码面」这类全仓面跨面不变量**——task-15 连续两轮都栽在这上面。
+
 为什么不直接进运行期：本批**只加机制**（登记／生成／守卫），读取点一律不动；
 registry 不是运行时取值源，故生成器不进 import 链。
 
@@ -83,6 +109,8 @@ CURATED_ENV_NAMES = [
     "MDCG_REACH_TTL", "MDCG_POOLING",
     # 自治/预算族
     "MDCG_PROPOSAL_EMOTION", "MDCG_EXPLORE_BUDGET_MAX", "MDCG_EXPLORE_BUDGET_WINDOW",
+    # 反思/闸门阈值族（issue #278，task-15）
+    "MDCG_REPLAY_NEG_MAX_COVERAGE",
     # 叙事/状态族
     "MDCG_D_META", "MDCG_STATUS_HEAD", "MDCG_FRESHNESS", "MDCG_SUSTAIN",
     "MDCG_HEARTBEAT_LEDGER",

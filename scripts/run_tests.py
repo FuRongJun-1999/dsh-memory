@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import concurrent.futures
 import os
 import subprocess
@@ -167,13 +168,40 @@ def _run_one(name, argvs, timeout, parallel=False):
                                text=True, encoding="utf-8", errors="replace",
                                env=env, shell=False, timeout=timeout)
         except subprocess.TimeoutExpired:
-            return name, False, f"超时（>{timeout}s）"
+            return name, False, f"超时（>{timeout}s）", ""
         if not (r.returncode != 0 and "No module named" in (r.stderr or "")
                 and len(argvs) > 1):
             tail = ((r.stdout or "") + (r.stderr or ""))[-800:]
-            return name, r.returncode == 0, tail
+            # issue #284（量具失效）：**模块内 SKIP 不得冒充 PASS**。修前判据只有
+            # `rc == 0`，而守卫在缺依赖时「打印 SKIP + return 0」⇒ 汇总记 PASS、
+            # SKIP 行不进日志（`:368` 只在 not ok 时打印尾部）⇒ CI 假绿。本仓自己的
+            # 口径（`docs/eval/优化第三批_…_v1.0.md:530`）是「SKIP 一律配『计入通过数
+            # 0』且永不出 [PASS]」——这里补齐它在主入口上的未覆盖面。
+            # 判据：**rc==0 且 stdout/stderr 里有行首 SKIP 行** ⇒ 记 SKIP（带原因）；
+            # rc!=0 时一律真失败（**不掩盖真红**，见 K 组）。
+            if r.returncode == 0:
+                _reason = _module_skip_reason(r.stdout, r.stderr)
+                if _reason:
+                    return name, False, tail, _reason
+            return name, r.returncode == 0, tail, ""
         last = (r.stderr or "")[-300:]
-    return name, False, last
+    return name, False, last, ""
+
+
+#: 模块内 SKIP 的 canonical 行式（**行首**才算，防正文里出现「SKIP」被误判——issue #284 的
+#: K 组两条方向都钉在这里）：`SKIP  <名>：<原因>` / `SKIP: <原因>` / `[SKIP] <原因>`。
+_SKIP_LINE_RE = re.compile(r"^[ \t]*(?:\[SKIP\]|SKIP)[:：\s]", re.M)
+
+
+# 生效条件：stdout/stderr 任一非空且其中存在**行首** SKIP 行时，返回该行（截断 160 字符）作为跳过原因；否则返回 ""。不做 IO、不看环境变量。
+def _module_skip_reason(stdout, stderr):
+    """模块内 SKIP 的识别（issue #284）：命中返回原因文本，否则 ""。"""
+    text = (stdout or "") + chr(10) + (stderr or "")
+    m = _SKIP_LINE_RE.search(text)
+    if not m:
+        return ""
+    line = text[m.start():].splitlines()[0].strip()
+    return line[:160]
 
 
 # 生效条件：当模块级常量 _REPO 下 md_cg/whitebox_kb/wisdom/wisdom-book-cloud.db 存在、可读且 nodes 表有行时返回 None，否则返回依赖缺失/空壳说明字符串；
@@ -358,21 +386,33 @@ def main():
             runnable.append((g, n, a))
 
     bad = []
+    mod_skips = []                     # 模块内跳过（issue #284）：**不计入通过数**
     with concurrent.futures.ThreadPoolExecutor(
             max_workers=max(1, args.jobs)) as ex:
         _par = max(1, args.jobs) > 1
         futs = {ex.submit(_run_one, n, a, args.timeout, _par): (g, n)
                 for g, n, a in runnable}
         for fu in concurrent.futures.as_completed(futs):
-            name, ok, tail = fu.result()
+            name, ok, tail, skip_reason = fu.result()
+            if skip_reason:
+                # 模块内 SKIP：出 SKIP 行（带原因）+ 计入跳过集，**绝不出 PASS**。
+                mod_skips.append((name, skip_reason))
+                print(f"SKIP  {name}  （{skip_reason}）", flush=True)
+                continue
             print(("PASS  " if ok else "FAIL  ") + name, flush=True)
             if not ok:
                 bad.append(name)
                 for ln in tail.splitlines()[-6:]:
                     print("      " + ln, flush=True)
 
-    print(f"\n===== SUMMARY {len(runnable) - len(bad)}/{len(runnable)} 通过，"
-          f"{len(skipped)} 跳过（依赖缺失/平台不符） =====")
+    if mod_skips:
+        print("模块内跳过（**不计入通过数**，issue #284）：", flush=True)
+        for _n, _why in mod_skips:
+            print(f"  SKIP  {_n}  （{_why}）", flush=True)
+    print(f"\n===== SUMMARY {len(runnable) - len(bad) - len(mod_skips)}/{len(runnable)} 通过，"
+          f"{len(skipped) + len(mod_skips)} 跳过（依赖缺失/平台不符"
+          + (f"；其中模块内跳过 {len(mod_skips)} 条" if mod_skips else "")
+          + "） =====")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1

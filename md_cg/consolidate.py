@@ -521,6 +521,29 @@ def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     return kept, detail
 
 
+#: neg_separated 的「负条件与正文最大词面覆盖率」阈值。issue #278：本模块自己的注释
+#: （见下方 replay_check 内 `⚠ 改 0.34 …或下面这个 0.5 都会平移窗口`）**已承认它是旋钮**，
+#: 却硬编码在函数体内 ⇒ 按库特性调参必须改源码。此处暴露为环境变量，**默认仍 0.5**
+#: （取值不变 ⇒ 行为逐位不变；只把「调参要改源码」变成「调参要设环境变量」）。
+_REPLAY_NEG_MAX_DEFAULT = 0.5
+_REPLAY_NEG_MAX_ENV = "MDCG_REPLAY_NEG_MAX_COVERAGE"
+
+
+# 生效条件：环境变量 MDCG_REPLAY_NEG_MAX_COVERAGE 可解析为正浮点时返回它，否则返回默认 0.5；
+# 不做 IO、不看库内容。
+def _neg_max_coverage() -> float:
+    """neg_separated 的覆盖率阈值（issue #278：唯一读取点）。"""
+    raw = os.environ.get(_REPLAY_NEG_MAX_ENV)
+    if raw:
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return _REPLAY_NEG_MAX_DEFAULT
+        if v > 0:
+            return v
+    return _REPLAY_NEG_MAX_DEFAULT
+
+
 # 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典；pos_recall 只认「生效条件在正文上有覆盖率」，不含负条件一票否决。
 def replay_check(pos_terms, neg_terms, body: str) -> dict:
     """回放生产判定：正例召回 + 负例剔除 + 无自相矛盾。
@@ -558,7 +581,7 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
     #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。
     if neg_terms:
         neg_separated = _neg_hit(tw_neg, neg_terms) \
-            and _weighted_coverage(tw_neg, body) < 0.5
+            and _weighted_coverage(tw_neg, body) < _neg_max_coverage()
     else:
         neg_separated = True
 

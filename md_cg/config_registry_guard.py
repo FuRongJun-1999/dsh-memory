@@ -19,6 +19,10 @@
   G4 **分区表覆盖完整**——三张既有真源表的每个键都必须在 registry 里登记
      （漏登 ⇒ 红）。
 
+# 不适用条件（补 · task-15）：**不覆盖 `md_cg/config_registry_bulk.py` 的「生成件新鲜度」**
+#   —— 它是**冻结快照**（实测：整体重跑生成器会丢策展注释），守卫面在
+#   `scripts/check_config_env_registry.py` 的 C1。加/改 env 变量的完整清单见
+#   `scripts/gen_config_registry.py` 模块注释「★ 加一个 env 变量的完整清单」。
 不适用条件
 ----------
 · 不判「缺省值是否合理」（那是标定/裁定的活，见设计文档 §5）；
