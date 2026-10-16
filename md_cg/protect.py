@@ -212,6 +212,50 @@ def is_protected(cg, node_id):
     return False, ""
 
 
+# ------------------------------------------------- 纯函数判据（拿不到 cg 的面）
+
+#: 裸 frontmatter 探针的假 node_id（`is_protected` 的 `(cg, node_id)` 形态所需；
+#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
+_FM_PROBE_ID = "\x00fm-probe"
+
+
+class _FmProbe:
+    """裸 frontmatter 映射 → `is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
+
+    #430（2026-10-16）收口：#377/#378 曾在 lifecycle / trust / freshness 三处各放
+    一份**逐字同构**的探针（issue #430「同根第四次分叉」，D3）——本类是那份载体
+    的**唯一单点**。判据本体仍是 `is_protected`，这里不复制任何规则，只把调用方
+    手里已有的 frontmatter / 索引条目映射摆成判据所需的索引快照形态（唯一索引
+    条目＝该映射本身）。刻意**不提供** `_maybe_reload_index`（`_entry` 的探活分支
+    取不到即跳过）且 `get()` 恒返回 None（`_fm` 门控字段回退读文件的分支在此无
+    文件可读、**不抛异常**）⇒ 判定 100% 基于传入映射：零 IO、零副作用（调用方是
+    就地改 fm 的纯函数面 / 检索热路径）。
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self, fm):
+        self.index = {"nodes": {_FM_PROBE_ID: fm if isinstance(fm, dict) else {}}}
+
+    def get(self, node_id=None):        # protect._fm 的探活分支：探针无文件可读
+        return None
+
+
+# 生效条件：把传入映射原样装进 _FmProbe 后交给 is_protected 判定并返回其 (是否受保护, 原因) 二元组，本函数自身不带任何规则分支、不做任何 IO。
+def is_protected_fm(fm) -> tuple:
+    """裸 frontmatter / 索引条目映射的「不可遗忘」判定 → `(是否受保护, 原因)`。
+
+    判据单点＝`is_protected`（层保护 self/anchor ∪ 显式 protected 位 ∪ 按分保护
+    ≥0.70 且来源缺省/hint，含其全部既有边界如 issue50-e 来源口径）；本函数只负责
+    把映射喂给判据，不自带任何规则。**供一切「拿不到 `cg` 的纯函数」共用**
+    （#430：`lifecycle.stamp` / `trust.stamp` 的受保护豁免降级判据、
+    `freshness.protected_floor` 的衰减下界判据）——同一映射形态不再在调用方
+    各养一份探针（#377/#378 各自为战的三份载体由此收口成单点）。
+    """
+    return is_protected(_FmProbe(fm), _FM_PROBE_ID)
+
+
+
 # 生效条件：cg 索引无 node_id 条目时返回 (False, '')；有条目时若 self_state is True 一律返回 (False, '')（自我状态豁免）；否则 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 immutable is True 返回 (True, protection_reason 或 '显式不可覆盖标记')；其余返回 (False, '')。
 def is_immutable(cg, node_id):
     """**不可覆盖**判定 → (是否不可篡改, 原因)。比不可遗忘更窄，只认强信号。

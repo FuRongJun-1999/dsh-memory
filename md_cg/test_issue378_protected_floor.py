@@ -18,6 +18,9 @@ anchor/self 或「缺省来源高分（importance ≥ 0.70）」的节点拿到�
 （层保护 self/anchor ∪ 显式位 ∪ 按分保护 ≥0.70 且来源缺省/hint），取数键集补上
 `layer` 与 `importance_source`。衰减公式、`IMPORTANCE_PROTECT` 取值、
 `refresh_factor` 三档与返回体结构**一律不动**。
+#430（2026-10-16）后续收口：本模块的探针载体收进 `protect.is_protected_fm`
+单点（与 lifecycle / trust 的同构载体一并）；本守卫 E 组随之改钉新接线形态
+（E01/E02/E04），行为腿（A/K 组）一字不动。
 
 **⚠ 这是一次检索行为变更（不是纯 bug fix）**：importance ≥ 0.70 且来源缺省的
 节点，其衰减下界从 `0.001` 抬到 `0.70/importance`。本守卫的 K01/K02/K03/K04
@@ -181,18 +184,20 @@ _check("K14 取数优先级未变：缺 created_at 仍判无穷远、由 floor �
        _why7.get("dt_days") == float("inf") and _close(_w7, _PFLOOR_09),
        (_w7, _why7))
 
-print("== E 组：接线单点存在性 ==")
+print("== E 组：接线单点存在性（#430 后形态：判据载体收口 protect.is_protected_fm） ==")
 _src = inspect.getsource(F.protected_floor)
-_check("E01 protected_floor 体内经 _is_protected_entry 接入判据（接线未脱焊）",
-       "_is_protected_entry(e)" in _src, [l for l in _src.splitlines()
-                                          if "_is_protected_entry" in l])
-_check("E02 探针交给 protect.is_protected（判据本体不在本模块复制）",
-       "protect.is_protected(" in inspect.getsource(F._is_protected_entry), "")
+_check("E01 protected_floor 体内经 protect.is_protected_fm 接入判据（接线未脱焊）",
+       "protect.is_protected_fm(e)" in _src, [l for l in _src.splitlines()
+                                              if "is_protected" in l])
+_check("E02 判据本体不在本模块复制：protect.is_protected_fm 委托 is_protected，"
+       "且 freshness 不再自养探针载体（#430 分叉收敛）",
+       "return is_protected(" in inspect.getsource(P.is_protected_fm)
+       and "class _EntryProbe" not in inspect.getsource(F), "")
 _src_w = inspect.getsource(F.entry_weight)
 _check("E03 entry_weight 取数键集含 layer 与 importance_source",
        '"layer"' in _src_w and '"importance_source"' in _src_w, "")
-_probe = F._EntryProbe({"layer": "anchor"})
-_check("E04 取数面不读盘：探针提供 get()（保护面回退分支得 None）且无 _maybe_reload_index（检索热路径零 IO）",
+_probe = P._FmProbe({"layer": "anchor"})
+_check("E04 取数面不读盘：载体提供 get()（保护面回退分支得 None）且无 _maybe_reload_index（检索热路径零 IO）",
        callable(getattr(_probe, "get", None)) and _probe.get("x") is None
        and not hasattr(_probe, "_maybe_reload_index"), "")
 
@@ -205,7 +210,7 @@ else:
 
 _MUTATIONS = (
     ("M1 回缺陷：下界只读显式 protected 位", "md_cg/freshness.py",
-     ('    if not (e.get("protected") or _is_protected_entry(e)[0]):',
+     ('    if not (e.get("protected") or protect.is_protected_fm(e)[0]):',
       '    if not e.get("protected"):'),
      # 机制：旧判据只认显式位 ⇒ 层保护/按分保护两支全断（A 组正题），
      # 依据读数与乘子同步回落 0.001（K01/K04/K14 的享有侧亦随之转红）；
@@ -220,7 +225,7 @@ _MUTATIONS = (
      # E03 是源码形态腿。
      ("A09", "E03", "K10", "K11")),
     ("M3 过度收紧：恒判受保护", "md_cg/freshness.py",
-     ('    if not (e.get("protected") or _is_protected_entry(e)[0]):',
+     ('    if not (e.get("protected") or protect.is_protected_fm(e)[0]):',
       '    if not (e.get("protected") or True):'),
      # 机制：恒判受保护 ⇒ 不享有侧全部被误保护（K 组判别力自证）；
      # E01 是源码形态腿（判据块被整体替换）。
