@@ -1,0 +1,819 @@
+{
+  "baseline_commit": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 12,
+        "passed": 6,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_causal_edges_do_not_become_hierarchy (md_cg._replay_hierarchy_audit_graph.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (md_cg._replay_hierarchy_audit_graph.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (md_cg._replay_hierarchy_audit_graph.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_edge_only_multiple_parents_are_detected) ... FAIL\ntest_explicit_dangling_parent_is_reported (md_cg._replay_hierarchy_audit_graph.Guards.test_explicit_dangling_parent_is_reported) ... FAIL\ntest_historical_relation_and_target_aliases (md_cg._replay_hierarchy_audit_graph.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (md_cg._replay_hierarchy_audit_graph.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (md_cg._replay_hierarchy_audit_graph.Guards.test_malformed_edge_container_is_a_diagnostic) ... FAIL\ntest_real_edge_only_cycle_is_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_real_edge_only_cycle_is_detected) ... FAIL\ntest_report_cap_and_zero_limit_keep_old_counts (md_cg._replay_hierarchy_audit_graph.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (md_cg._replay_hierarchy_audit_graph.Guards.test_resolved_tails_have_linear_source_line_work) ... FAIL\ntest_scan_prefix_does_not_invent_a_dangling_child (md_cg._replay_hierarchy_audit_graph.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... FAIL\n\n======================================================================\nFAIL: test_edge_only_multiple_parents_are_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_edge_only_multiple_parents_are_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 162, in test_edge_only_multiple_parents_are_detected\n    self.assertIn('multi_parent',{i['issue'] for i in result['items']})\nAssertionError: 'multi_parent' not found in set()\n\n======================================================================\nFAIL: test_explicit_dangling_parent_is_reported (md_cg._replay_hierarchy_audit_graph.Guards.test_explicit_dangling_parent_is_reported)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 166, in test_explicit_dangling_parent_is_reported\n    self.assertIn('dangling_parent',{i['issue'] for i in self.cg.subgraph_validate()['items']})\nAssertionError: 'dangling_parent' not found in set()\n\n======================================================================\nFAIL: test_malformed_edge_container_is_a_diagnostic (md_cg._replay_hierarchy_audit_graph.Guards.test_malformed_edge_container_is_a_diagnostic)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 192, in test_malformed_edge_container_is_a_diagnostic\n    self.assertIn('invalid_edges',{i['issue'] for i in result['items']})\nAssertionError: 'invalid_edges' not found in set()\n\n======================================================================\nFAIL: test_real_edge_only_cycle_is_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_real_edge_only_cycle_is_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 156, in test_real_edge_only_cycle_is_detected\n    self.assertTrue(any(i['issue']=='cycle' for i in result['items']))\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_resolved_tails_have_linear_source_line_work (md_cg._replay_hierarchy_audit_graph.Guards.test_resolved_tails_have_linear_source_line_work)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 232, in test_resolved_tails_have_linear_source_line_work\n    self.assertLessEqual(counts[1],4*counts[0])\nAssertionError: 189294 not less than or equal to 92376\n\n======================================================================\nFAIL: test_scan_prefix_does_not_invent_a_dangling_child (md_cg._replay_hierarchy_audit_graph.Guards.test_scan_prefix_does_not_invent_a_dangling_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 188, in test_scan_prefix_does_not_invent_a_dangling_child\n    self.assertEqual(result['issues'],0)\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 12 tests in 0.338s\n\nFAILED (failures=6)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_causal_edges_do_not_become_hierarchy (__main__.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (__main__.Guards.test_edge_only_multiple_parents_are_detected) ... ok\ntest_explicit_dangling_parent_is_reported (__main__.Guards.test_explicit_dangling_parent_is_reported) ... ok\ntest_historical_relation_and_target_aliases (__main__.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (__main__.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (__main__.Guards.test_malformed_edge_container_is_a_diagnostic) ... ok\ntest_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... ok\ntest_report_cap_and_zero_limit_keep_old_counts (__main__.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... ok\ntest_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.174s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "A1 omit explicit parent-to-child hierarchy edges",
+            "test": "Guards.test_real_edge_only_cycle_is_detected",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... FAIL\n\n======================================================================\nFAIL: test_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 156, in test_real_edge_only_cycle_is_detected\n    self.assertTrue(any(i['issue']=='cycle' for i in result['items']))\nAssertionError: False is not true\n\n----------------------------------------------------------------------\nRan 1 test in 0.057s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A2 reverse historical part-of edge direction",
+            "test": "Guards.test_declared_and_explicit_inverse_agree",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... FAIL\n\n======================================================================\nFAIL: test_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 171, in test_declared_and_explicit_inverse_agree\n    self.assertEqual(subgraph.children_index(cg),{'p':['c']})\nAssertionError: {'p': ['c'], 'c': ['p']} != {'p': ['c']}\n- {'c': ['p'], 'p': ['c']}\n+ {'p': ['c']}\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A3 do not memoize resolved ancestor tails",
+            "test": "Guards.test_resolved_tails_have_linear_source_line_work",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... FAIL\n\n======================================================================\nFAIL: test_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 232, in test_resolved_tails_have_linear_source_line_work\n    self.assertLessEqual(counts[1],4*counts[0])\nAssertionError: 330730 not less than or equal to 160920\n\n----------------------------------------------------------------------\nRan 1 test in 0.125s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A4 discard discovered cycles",
+            "test": "Guards.test_cycle_tail_enters_at_the_correct_member",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... FAIL\n\n======================================================================\nFAIL: test_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 210, in test_cycle_tail_enters_at_the_correct_member\n    self.assertEqual(result,legacy_declared_report(graph,50))\nAssertionError: {'sca[15 chars]es': 0, 'items': [], 'truncated': False} != {'sca[15 chars]es': 4, 'items': [{'id': 'p', 'issue': 'cycle'[231 chars]alse}\n- {'issues': 0, 'items': [], 'scanned': 4, 'truncated': False}\n+ {'issues': 4,\n+  'items': [{'id': 'p', 'issue': 'cycle', 'path': ['p', 'q', 'r', 'p']},\n+            {'id': 'q', 'issue': 'cycle', 'path': ['q', 'r', 'p', 'q']},\n+            {'id': 'r', 'issue': 'cycle', 'path': ['r', 'p', 'q', 'r']},\n+            {'id': 'q', 'issue': 'cycle', 'path': ['q', 'r', 'p', 'q']}],\n+  'scanned': 4,\n+  'truncated': False}\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A5 confuse the scan prefix with the entire graph",
+            "test": "Guards.test_scan_prefix_does_not_invent_a_dangling_child",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... FAIL\n\n======================================================================\nFAIL: test_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-expert-topology-20261016\\md_cg\\test_hierarchy_audit_graph.py\", line 188, in test_scan_prefix_does_not_invent_a_dangling_child\n    self.assertEqual(result['issues'],0)\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.009s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_causal_edges_do_not_become_hierarchy (__main__.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (__main__.Guards.test_edge_only_multiple_parents_are_detected) ... ok\ntest_explicit_dangling_parent_is_reported (__main__.Guards.test_explicit_dangling_parent_is_reported) ... ok\ntest_historical_relation_and_target_aliases (__main__.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (__main__.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (__main__.Guards.test_malformed_edge_container_is_a_diagnostic) ... ok\ntest_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... ok\ntest_report_cap_and_zero_limit_keep_old_counts (__main__.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... ok\ntest_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.159s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux": {
+      "baseline": {
+        "tests": 12,
+        "passed": 6,
+        "failed": 6,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_causal_edges_do_not_become_hierarchy (md_cg._replay_hierarchy_audit_graph.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (md_cg._replay_hierarchy_audit_graph.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (md_cg._replay_hierarchy_audit_graph.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_edge_only_multiple_parents_are_detected) ... FAIL\ntest_explicit_dangling_parent_is_reported (md_cg._replay_hierarchy_audit_graph.Guards.test_explicit_dangling_parent_is_reported) ... FAIL\ntest_historical_relation_and_target_aliases (md_cg._replay_hierarchy_audit_graph.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (md_cg._replay_hierarchy_audit_graph.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (md_cg._replay_hierarchy_audit_graph.Guards.test_malformed_edge_container_is_a_diagnostic) ... FAIL\ntest_real_edge_only_cycle_is_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_real_edge_only_cycle_is_detected) ... FAIL\ntest_report_cap_and_zero_limit_keep_old_counts (md_cg._replay_hierarchy_audit_graph.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (md_cg._replay_hierarchy_audit_graph.Guards.test_resolved_tails_have_linear_source_line_work) ... FAIL\ntest_scan_prefix_does_not_invent_a_dangling_child (md_cg._replay_hierarchy_audit_graph.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... FAIL\n\n======================================================================\nFAIL: test_edge_only_multiple_parents_are_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_edge_only_multiple_parents_are_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 162, in test_edge_only_multiple_parents_are_detected\n    self.assertIn('multi_parent',{i['issue'] for i in result['items']})\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'multi_parent' not found in set()\n\n======================================================================\nFAIL: test_explicit_dangling_parent_is_reported (md_cg._replay_hierarchy_audit_graph.Guards.test_explicit_dangling_parent_is_reported)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 166, in test_explicit_dangling_parent_is_reported\n    self.assertIn('dangling_parent',{i['issue'] for i in self.cg.subgraph_validate()['items']})\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'dangling_parent' not found in set()\n\n======================================================================\nFAIL: test_malformed_edge_container_is_a_diagnostic (md_cg._replay_hierarchy_audit_graph.Guards.test_malformed_edge_container_is_a_diagnostic)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 192, in test_malformed_edge_container_is_a_diagnostic\n    self.assertIn('invalid_edges',{i['issue'] for i in result['items']})\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'invalid_edges' not found in set()\n\n======================================================================\nFAIL: test_real_edge_only_cycle_is_detected (md_cg._replay_hierarchy_audit_graph.Guards.test_real_edge_only_cycle_is_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 156, in test_real_edge_only_cycle_is_detected\n    self.assertTrue(any(i['issue']=='cycle' for i in result['items']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n======================================================================\nFAIL: test_resolved_tails_have_linear_source_line_work (md_cg._replay_hierarchy_audit_graph.Guards.test_resolved_tails_have_linear_source_line_work)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 232, in test_resolved_tails_have_linear_source_line_work\n    self.assertLessEqual(counts[1],4*counts[0])\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 189294 not less than or equal to 92376\n\n======================================================================\nFAIL: test_scan_prefix_does_not_invent_a_dangling_child (md_cg._replay_hierarchy_audit_graph.Guards.test_scan_prefix_does_not_invent_a_dangling_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 188, in test_scan_prefix_does_not_invent_a_dangling_child\n    self.assertEqual(result['issues'],0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 12 tests in 0.230s\n\nFAILED (failures=6)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_causal_edges_do_not_become_hierarchy (__main__.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (__main__.Guards.test_edge_only_multiple_parents_are_detected) ... ok\ntest_explicit_dangling_parent_is_reported (__main__.Guards.test_explicit_dangling_parent_is_reported) ... ok\ntest_historical_relation_and_target_aliases (__main__.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (__main__.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (__main__.Guards.test_malformed_edge_container_is_a_diagnostic) ... ok\ntest_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... ok\ntest_report_cap_and_zero_limit_keep_old_counts (__main__.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... ok\ntest_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.093s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "A1 omit explicit parent-to-child hierarchy edges",
+            "test": "Guards.test_real_edge_only_cycle_is_detected",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... FAIL\n\n======================================================================\nFAIL: test_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 156, in test_real_edge_only_cycle_is_detected\n    self.assertTrue(any(i['issue']=='cycle' for i in result['items']))\n    ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: False is not true\n\n----------------------------------------------------------------------\nRan 1 test in 0.013s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A2 reverse historical part-of edge direction",
+            "test": "Guards.test_declared_and_explicit_inverse_agree",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... FAIL\n\n======================================================================\nFAIL: test_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 171, in test_declared_and_explicit_inverse_agree\n    self.assertEqual(subgraph.children_index(cg),{'p':['c']})\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'p': ['c'], 'c': ['p']} != {'p': ['c']}\n- {'c': ['p'], 'p': ['c']}\n+ {'p': ['c']}\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A3 do not memoize resolved ancestor tails",
+            "test": "Guards.test_resolved_tails_have_linear_source_line_work",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... FAIL\n\n======================================================================\nFAIL: test_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 232, in test_resolved_tails_have_linear_source_line_work\n    self.assertLessEqual(counts[1],4*counts[0])\n    ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 330730 not less than or equal to 160920\n\n----------------------------------------------------------------------\nRan 1 test in 0.067s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A4 discard discovered cycles",
+            "test": "Guards.test_cycle_tail_enters_at_the_correct_member",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... FAIL\n\n======================================================================\nFAIL: test_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 210, in test_cycle_tail_enters_at_the_correct_member\n    self.assertEqual(result,legacy_declared_report(graph,50))\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: {'sca[15 chars]es': 0, 'items': [], 'truncated': False} != {'sca[15 chars]es': 4, 'items': [{'id': 'p', 'issue': 'cycle'[231 chars]alse}\n- {'issues': 0, 'items': [], 'scanned': 4, 'truncated': False}\n+ {'issues': 4,\n+  'items': [{'id': 'p', 'issue': 'cycle', 'path': ['p', 'q', 'r', 'p']},\n+            {'id': 'q', 'issue': 'cycle', 'path': ['q', 'r', 'p', 'q']},\n+            {'id': 'r', 'issue': 'cycle', 'path': ['r', 'p', 'q', 'r']},\n+            {'id': 'q', 'issue': 'cycle', 'path': ['q', 'r', 'p', 'q']}],\n+  'scanned': 4,\n+  'truncated': False}\n\n----------------------------------------------------------------------\nRan 1 test in 0.008s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          },
+          {
+            "name": "A5 confuse the scan prefix with the entire graph",
+            "test": "Guards.test_scan_prefix_does_not_invent_a_dangling_child",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... FAIL\n\n======================================================================\nFAIL: test_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-expert-topology-20261016/md_cg/test_hierarchy_audit_graph.py\", line 188, in test_scan_prefix_does_not_invent_a_dangling_child\n    self.assertEqual(result['issues'],0)\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.007s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_causal_edges_do_not_become_hierarchy (__main__.Guards.test_causal_edges_do_not_become_hierarchy) ... ok\ntest_cycle_tail_enters_at_the_correct_member (__main__.Guards.test_cycle_tail_enters_at_the_correct_member) ... ok\ntest_declared_and_explicit_inverse_agree (__main__.Guards.test_declared_and_explicit_inverse_agree) ... ok\ntest_edge_only_multiple_parents_are_detected (__main__.Guards.test_edge_only_multiple_parents_are_detected) ... ok\ntest_explicit_dangling_parent_is_reported (__main__.Guards.test_explicit_dangling_parent_is_reported) ... ok\ntest_historical_relation_and_target_aliases (__main__.Guards.test_historical_relation_and_target_aliases) ... ok\ntest_legacy_declared_reports_remain_identical (__main__.Guards.test_legacy_declared_reports_remain_identical) ... ok\ntest_malformed_edge_container_is_a_diagnostic (__main__.Guards.test_malformed_edge_container_is_a_diagnostic) ... ok\ntest_real_edge_only_cycle_is_detected (__main__.Guards.test_real_edge_only_cycle_is_detected) ... ok\ntest_report_cap_and_zero_limit_keep_old_counts (__main__.Guards.test_report_cap_and_zero_limit_keep_old_counts) ... ok\ntest_resolved_tails_have_linear_source_line_work (__main__.Guards.test_resolved_tails_have_linear_source_line_work) ... ok\ntest_scan_prefix_does_not_invent_a_dangling_child (__main__.Guards.test_scan_prefix_does_not_invent_a_dangling_child) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.076s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    }
+  },
+  "regressions": {
+    "windows": {
+      "key": "topology",
+      "platform": "windows",
+      "source_head": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+      "source_tree_dirty": true,
+      "production_sha256": {
+        "md_cg/mdcg.py": "20e9cf81981cd4dce5ad92d081e5da9fc2fef6d0f450912fd7e1c88a3022cb8f",
+        "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+        "md_cg/subgraph.py": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/readcache.py": "3407799dffbb42986ea8053e7ce081031ae7c2651d56b5fbd64282e56724c1ae"
+      },
+      "passed": 7,
+      "partial": 0,
+      "skipped": 0,
+      "failed": 0,
+      "results": [
+        {
+          "module": "test_p8_subgraph_chain",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.969,
+          "log": "reg-topology-windows-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_chain_best_first",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.468,
+          "log": "reg-topology-windows-test_chain_best_first.log"
+        },
+        {
+          "module": "test_lifecycle_retire_leak",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_lifecycle_retire_leak"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 2.282,
+          "log": "reg-topology-windows-test_lifecycle_retire_leak.log"
+        },
+        {
+          "module": "test_n212_n213_n224_generation_gates",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_n212_n213_n224_generation_gates"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.953,
+          "log": "reg-topology-windows-test_n212_n213_n224_generation_gates.log"
+        },
+        {
+          "module": "test_retr_s9_edges",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_retr_s9_edges"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.609,
+          "log": "reg-topology-windows-test_retr_s9_edges.log"
+        },
+        {
+          "module": "test_h4_sustain_snapshot",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_h4_sustain_snapshot"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 321.547,
+          "log": "reg-topology-windows-test_h4_sustain_snapshot.log"
+        },
+        {
+          "module": "test_p25_weights",
+          "command": [
+            "py",
+            "-3.12",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p25_weights"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.344,
+          "log": "reg-topology-windows-test_p25_weights.log"
+        }
+      ]
+    },
+    "linux": {
+      "key": "topology",
+      "platform": "linux",
+      "source_head": "4cc069b3c608ca68fd9efb249343f1c7c46d185d",
+      "source_tree_dirty": true,
+      "production_sha256": {
+        "md_cg/mdcg.py": "20e9cf81981cd4dce5ad92d081e5da9fc2fef6d0f450912fd7e1c88a3022cb8f",
+        "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+        "md_cg/subgraph.py": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953",
+        "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+        "md_cg/readcache.py": "3407799dffbb42986ea8053e7ce081031ae7c2651d56b5fbd64282e56724c1ae"
+      },
+      "passed": 7,
+      "partial": 0,
+      "skipped": 0,
+      "failed": 0,
+      "results": [
+        {
+          "module": "test_p8_subgraph_chain",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p8_subgraph_chain"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 6.844,
+          "log": "reg-topology-linux-test_p8_subgraph_chain.log"
+        },
+        {
+          "module": "test_chain_best_first",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_chain_best_first"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.64,
+          "log": "reg-topology-linux-test_chain_best_first.log"
+        },
+        {
+          "module": "test_lifecycle_retire_leak",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_lifecycle_retire_leak"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.594,
+          "log": "reg-topology-linux-test_lifecycle_retire_leak.log"
+        },
+        {
+          "module": "test_n212_n213_n224_generation_gates",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_n212_n213_n224_generation_gates"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 1.281,
+          "log": "reg-topology-linux-test_n212_n213_n224_generation_gates.log"
+        },
+        {
+          "module": "test_retr_s9_edges",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_retr_s9_edges"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.782,
+          "log": "reg-topology-linux-test_retr_s9_edges.log"
+        },
+        {
+          "module": "test_h4_sustain_snapshot",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "GIT_DIR=/mnt/e/Codex/2026-10-08/referenced-chatgpt-conversation-this-is-an/work/dsh-memory-pr77/.git/worktrees/memory-three-expert-topology-20261016",
+            "GIT_WORK_TREE=<work>/memory-three-expert-topology-20261016",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_h4_sustain_snapshot"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 178.422,
+          "log": "reg-topology-linux-test_h4_sustain_snapshot.log"
+        },
+        {
+          "module": "test_p25_weights",
+          "command": [
+            "wsl",
+            "-d",
+            "kali-linux",
+            "--cd",
+            "<work>/memory-three-expert-topology-20261016",
+            "--",
+            "env",
+            "TMPDIR=/tmp",
+            "python3",
+            "-X",
+            "utf8",
+            "-m",
+            "md_cg.test_p25_weights"
+          ],
+          "returncode": 0,
+          "status": "PASS",
+          "skip_lines": [],
+          "seconds": 0.75,
+          "log": "reg-topology-linux-test_p25_weights.log"
+        }
+      ]
+    }
+  },
+  "native": {
+    "windows": {
+      "baseline": {
+        "edge_only_audit": {
+          "actual_markdown_nodes": 2,
+          "children": {
+            "p": [
+              "q"
+            ],
+            "q": [
+              "p"
+            ]
+          },
+          "cycle_detected": false,
+          "report": {
+            "scanned": 2,
+            "issues": 0,
+            "items": [],
+            "truncated": false
+          }
+        },
+        "audit_scaling": {
+          "fixture": "synthetic metadata only; CPython source-line execution counts, not file I/O benchmark",
+          "readings": [
+            {
+              "n": 100,
+              "line_events": 23094,
+              "seconds": 0.006589200000007622,
+              "issues": 0
+            },
+            {
+              "n": 300,
+              "line_events": 189294,
+              "seconds": 0.07263810000017656,
+              "issues": 0
+            }
+          ]
+        }
+      },
+      "fixed": {
+        "edge_only_audit": {
+          "actual_markdown_nodes": 2,
+          "children": {
+            "p": [
+              "q"
+            ],
+            "q": [
+              "p"
+            ]
+          },
+          "cycle_detected": true,
+          "report": {
+            "scanned": 2,
+            "issues": 2,
+            "items": [
+              {
+                "id": "p",
+                "issue": "cycle",
+                "path": [
+                  "p",
+                  "q",
+                  "p"
+                ]
+              },
+              {
+                "id": "q",
+                "issue": "cycle",
+                "path": [
+                  "q",
+                  "p",
+                  "q"
+                ]
+              }
+            ],
+            "truncated": false
+          }
+        },
+        "audit_scaling": {
+          "fixture": "synthetic metadata only; CPython source-line execution counts, not file I/O benchmark",
+          "readings": [
+            {
+              "n": 100,
+              "line_events": 5587,
+              "seconds": 0.002390600000126142,
+              "issues": 0
+            },
+            {
+              "n": 300,
+              "line_events": 16787,
+              "seconds": 0.006128800000169576,
+              "issues": 0
+            }
+          ]
+        }
+      },
+      "command": {
+        "key": "topology",
+        "platform": "windows",
+        "command": [
+          "py",
+          "-3.12",
+          "-X",
+          "utf8",
+          "scripts/probe_hierarchy_audit_graph.py",
+          "--repo",
+          "<work>\\memory-three-expert-topology-20261016",
+          "--output",
+          "<evidence>\\topology-native-fixed-windows.json",
+          "--case",
+          "topology"
+        ],
+        "returncode": 0,
+        "log": "topology-native-fixed-windows.log",
+        "production_sha256": {
+          "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/subgraph.py": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+        }
+      }
+    },
+    "linux": {
+      "baseline": {
+        "edge_only_audit": {
+          "actual_markdown_nodes": 2,
+          "children": {
+            "p": [
+              "q"
+            ],
+            "q": [
+              "p"
+            ]
+          },
+          "cycle_detected": false,
+          "report": {
+            "scanned": 2,
+            "issues": 0,
+            "items": [],
+            "truncated": false
+          }
+        },
+        "audit_scaling": {
+          "fixture": "synthetic metadata only; CPython source-line execution counts, not file I/O benchmark",
+          "readings": [
+            {
+              "n": 100,
+              "line_events": 23094,
+              "seconds": 0.0037530330000006273,
+              "issues": 0
+            },
+            {
+              "n": 300,
+              "line_events": 189294,
+              "seconds": 0.0501695419999999,
+              "issues": 0
+            }
+          ]
+        }
+      },
+      "fixed": {
+        "edge_only_audit": {
+          "actual_markdown_nodes": 2,
+          "children": {
+            "p": [
+              "q"
+            ],
+            "q": [
+              "p"
+            ]
+          },
+          "cycle_detected": true,
+          "report": {
+            "scanned": 2,
+            "issues": 2,
+            "items": [
+              {
+                "id": "p",
+                "issue": "cycle",
+                "path": [
+                  "p",
+                  "q",
+                  "p"
+                ]
+              },
+              {
+                "id": "q",
+                "issue": "cycle",
+                "path": [
+                  "q",
+                  "p",
+                  "q"
+                ]
+              }
+            ],
+            "truncated": false
+          }
+        },
+        "audit_scaling": {
+          "fixture": "synthetic metadata only; CPython source-line execution counts, not file I/O benchmark",
+          "readings": [
+            {
+              "n": 100,
+              "line_events": 5587,
+              "seconds": 0.0011410589999911736,
+              "issues": 0
+            },
+            {
+              "n": 300,
+              "line_events": 16787,
+              "seconds": 0.0035343619999963494,
+              "issues": 0
+            }
+          ]
+        }
+      },
+      "command": {
+        "key": "topology",
+        "platform": "linux",
+        "command": [
+          "wsl",
+          "-d",
+          "kali-linux",
+          "--cd",
+          "<work>/memory-three-expert-topology-20261016",
+          "--",
+          "env",
+          "TMPDIR=/tmp",
+          "python3",
+          "-X",
+          "utf8",
+          "scripts/probe_hierarchy_audit_graph.py",
+          "--repo",
+          "<work>/memory-three-expert-topology-20261016",
+          "--output",
+          "<evidence>/topology-native-fixed-linux.json",
+          "--case",
+          "topology"
+        ],
+        "returncode": 0,
+        "log": "topology-native-fixed-linux.log",
+        "production_sha256": {
+          "md_cg/mdcos.py": "843ab33525bb242eb68a9f8188fb6858b66895f2a878eae5d76437811ce33669",
+          "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+          "md_cg/subgraph.py": "403c5d1d256a914bbdbc140984bc1a72659547d5023e31d5b50fd3033f505953"
+        }
+      }
+    }
+  },
+  "integration": [
+    {
+      "key": "hydrate",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "traverse",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "topology",
+      "platform": "windows",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "hydrate",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "traverse",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    },
+    {
+      "key": "topology",
+      "platform": "linux",
+      "guards": 12,
+      "mutants": 5,
+      "errors": 0,
+      "skips": 0
+    }
+  ]
+}
