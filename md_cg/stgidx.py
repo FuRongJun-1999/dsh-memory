@@ -176,14 +176,16 @@ def _hashable(value):
 def time_of(entry):
     """条目 → 观察轴区间**起点**（epoch 秒）；不可判定 → None。
 
-    与 `stg._interval` **同一单点**：`_scan` 把快照条目拼成 fm 后取到的区间，
-    与直接对条目取逐位一致——`_scan` 把 `time_window` 平铺进 `condition_space`
+    与 `stg._interval` **同一解析单点**：有限时间逐位一致；非有限数值只在
+    本索引保留为保守候选，不视为合法查询端点。`_scan` 把 `time_window` 平铺进 `condition_space`
     而 `time_window_of` 两种载体都读（见其「兼容两种载体形态」注释），
     `temporal` 优先级与毫秒归一也同一份 `trust.parse_time`。
     """
     if not isinstance(entry, dict):
         return None
-    s, e = trust.time_window_of(entry, "observed")
+    # Preserve the index's conservative NaN/inf bucket. These are not legal
+    # query endpoints; the derived candidate superset must retain uncertainty.
+    s, e = trust.time_window_of(entry, "observed", _allow_nonfinite=True)
     if s is None or e is None:
         return None
     return float(s)
