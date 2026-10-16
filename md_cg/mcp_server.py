@@ -3699,8 +3699,17 @@ def _dispatch(cg, name, args):
         from . import nodefile as _nf418
         _role418 = a.get("role")
         if not _nf418.valid_role(_role418):
-            return {"ok": False, "error": "role_not_str",
-                    "node_id": nid, "committed": False,
+            # 返回体形态**照协议声明面**（test_write_return_shape / op_table_parity 面）：
+            #   · WRITE_TRIO = (ok, id, committed) —— 键名是 `id` 不是 `node_id`；
+            #   · 声明形态取 `gate_hard_reject`（「契约缺失硬拒」，required = ok/id/committed/
+            #     gate/error/verdict/hint）——本支正是「前置契约硬拒」，与 E050/E051 同类；
+            #   · 未 committed ⇒ 必须给去向（本处给 gate）；
+            #   · `verdict: None` 是**盲区声明**（协议 VERDICT_BLINDSPOT：本路径没有 audit
+            #     裁决可透出，用键在场+值 None 表达，而不是让键缺席）。
+            # got_type 是形态声明之外的**附加诊断键**（判据不禁止附加键，且可机器判读）。
+            return {"ok": False, "id": nid, "committed": False,
+                    "gate": "role_type", "error": "role_not_str",
+                    "verdict": None,
                     "got_type": type(_role418).__name__,
                     "hint": "role 须为字符串（省略该参数即合法，缺省 None 合法）；"
                             "非字符串会让节点落盘后被自家装载器判 frontmatter 损坏而"
