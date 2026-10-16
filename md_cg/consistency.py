@@ -186,6 +186,53 @@ EMO_APPROACH = 0.30  # 冲突强度 ≤ 此值 → approaching
 # 纪律节点识别（tag 或 id 前缀；不硬编码具体纪律条目）
 DISCIPLINE_TAGS = ("discipline", "纪律", "work_discipline", "rule", "规则", "戒律")
 
+# #412：**词形归一**与**命名空间**——生产者与判据必须同指（唯一实现，勿在他处再写一份 replace）。
+DISCIPLINE_TAG_NS = "discipline"                 # 命名空间前缀（生产者的 `discipline:N`）
+DISCIPLINE_ID_PREFIXES = ("discipline_", "work_discipline")   # 归一后比较（含 work-discipline 写法）
+
+
+# 生效条件：对任意值返回 str(t or "") 去首尾空白、小写、并把 "-" 与空格折成 "_" 后的字符串；恒不抛。
+def _norm_discipline_token(t) -> str:
+    """纪律识别用的**词形归一单点**。
+
+    #412 根因（2026-10-16，本函数即为此而设）：真实生产者
+    `scripts/discipline_nodes.py:434` 写的 tag 是 `work-discipline`（**连字符**），
+    而 `DISCIPLINE_TAGS` 里是 `work_discipline`（下划线）⇒ **精确求交恒为空** ⇒
+    纪律闸对真实生产者**恒不命中**（完全空转，守卫因测试自造 id 而长期绿）。
+    同一生产者的第二个字面量 `discipline:N` 是**命名空间**形态，精确相等同样不命中。
+    归一让「同义异写」在**一处**收敛，而不是各判据各写一份 replace。
+    """
+    return str(t or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+_DISCIPLINE_TAGS_NORM = frozenset(_norm_discipline_token(t) for t in DISCIPLINE_TAGS)
+
+
+# 生效条件：fm 与 node_id 给出时——tags 归一后命中「∈ DISCIPLINE_TAGS 归一集」或「以命名空间 `discipline:` 起」，或 node_id 归一后以 DISCIPLINE_ID_PREFIXES 起，返回 True；否则返回 False；fm 非映射/缺键/假值按空处理，恒不抛。
+def is_discipline_node(fm, node_id=None) -> bool:
+    """**纪律节点识别的唯一单点**（#412）：生产者与判据同用本谓词。
+
+    命中（任一）：① tags 归一后 ∈ DISCIPLINE_TAGS 归一集（`work-discipline` 与
+    `work_discipline` 因此同指）；② tags 归一后以命名空间 `discipline:` 起（生产者的
+    `discipline:N`）；③ node_id 归一后以 `discipline_` / `work_discipline` 起。
+
+    **明确不纳入**（同词不同义——本仓 `discipline` 是多义词，吞掉会造成误伤）：
+      · `discipline_type` / `track`（`crosscheck.classify_track`）＝**学科/赛道**分类；
+      · `meta_discipline`（`whitebox_kb/wisdom/migrate_wisdom.py` 的**元学科聚合卡**）＝学科面。
+    二者由守卫的反例组钉住（防「过度收紧」：把学科卡当纪律 ⇒ 「学科卡被引用」会走硬冲突）。
+    """
+    try:
+        tags = (fm or {}).get("tags") or []
+    except AttributeError:                       # fm 非映射 ⇒ 按无 tags 处理，不抛
+        tags = []
+    for t in tags:
+        n = _norm_discipline_token(t)
+        if not n:
+            continue
+        if n in _DISCIPLINE_TAGS_NORM or n.startswith(DISCIPLINE_TAG_NS + ":"):
+            return True
+    return _norm_discipline_token(node_id).startswith(DISCIPLINE_ID_PREFIXES)
+
 VERDICTS = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
 
 #: 自动建单（飞轮）**唯一**的触发态——只有真冲突才落 unresolved（H11⑥，2026-09-30）。
@@ -243,12 +290,10 @@ def _edge_targets(fm):
     return out
 
 
-# 生效条件：fm 与 node_id 给出时，若 fm.get("tags")（缺键/假值按空）小写后与 DISCIPLINE_TAGS 有交集，或 str(node_id) 以 "discipline_" 或 "work_discipline" 开头，返回 True；否则返回 False；
+# 生效条件：同 `is_discipline_node(fm, node_id)`——本函数是它的**薄别名**（#412：判据单点化后保留既有名，
+# 4 个调用点与公开面一字不动；逻辑不在此处第二份）。
 def _is_discipline(fm, node_id):
-    tags = {str(t).lower() for t in (fm.get("tags") or [])}
-    if tags & set(DISCIPLINE_TAGS):
-        return True
-    return str(node_id).startswith(("discipline_", "work_discipline"))
+    return is_discipline_node(fm, node_id)
 
 
 # --------------------------------------------------------------------------

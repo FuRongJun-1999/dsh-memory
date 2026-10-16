@@ -74,6 +74,23 @@ def __getattr__(name):
     raise AttributeError("module %r has no attribute %r" % (__name__, name))
 
 
+# 生效条件：无入参（惰性 import，cost 只在生成投影节点 fm 时支付）；把仓根补进 sys.path 后返回
+# md_cg.consistency.is_discipline_node（纪律节点判据单点）。
+def discipline_predicate():
+    """纪律判据单点（#412 **生产者侧正向自证**）：复用 md_cg.consistency.is_discipline_node，
+    本文件**不再**复制一份词形表（同 `line_names()` 的真源引用体例）。
+
+    #412 根因：本生产者写的 tag 是 `work-discipline`（连字符）+ `discipline:N`（命名空间），
+    而判据当时只做「小写后精确求交 + id 前缀」⇒ **恒不命中**（闸门空转）。归一回判据侧后，
+    这里再加一道 fail-closed 自证：词形再漂移就当场炸，不静默。
+    """
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from md_cg.consistency import is_discipline_node  # noqa: PLC0415 —— 惰性：仅生成 fm 时付导入成本
+    return is_discipline_node
+
+
 _CARRIER_RE = re.compile(r"载体/位置：(.*?)；时间：(.*?)；方法：", re.S)
 
 
@@ -413,6 +430,16 @@ def _new_node_fm(exp, now):
     # 静默只留最后一条（2026-09-20 实测：18 条全进同一个 mem_*.md，17 条丢失）。
     # 尾部 3 位编码条号，故同批次唯一、跨批次靠毫秒位区分。
     nid = "mem_%d%03d" % (int(now * 1000), exp["no"])
+    tags_line = 'tags: ["work-discipline", "discipline:%d", "harness:all", "v1.1"]' % exp["no"]
+    # #412 生产者**正向自证**（fail-closed）：本条投影节点必须被判据单点认出。词形一旦漂移
+    # （连字符/下划线、命名空间 `discipline:N`），纪律闸会对本生产者**恒不命中**而静默空转
+    # ——历史缺陷正是如此，且因既有守卫用**自造 id**（`discipline_prod`）而长期绿。
+    # 只加自检：tags 字面量**逐位不变**（既有产物与 drift 守卫不受扰），投影语义不动。
+    _tags = json.loads(tags_line.split("tags: ", 1)[1])
+    if not discipline_predicate()({"tags": _tags}):
+        raise RuntimeError(
+            "纪律投影节点未被判据单点识别（#412 词形一致性）：%s —— 闸门会对该生产者恒不命中"
+            % tags_line)
     fm = [
         "access_count: 0",
         "condition_space: " + cs,
@@ -431,7 +458,7 @@ def _new_node_fm(exp, now):
         "protected: true",
         'protection_reason: "importance=0.85≥0.7"',
         'sensitivity: "internal"',
-        'tags: ["work-discipline", "discipline:%d", "harness:all", "v1.1"]' % exp["no"],
+        tags_line,
         'verification_basis: "data"',
     ]
     return nid, fm

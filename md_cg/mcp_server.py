@@ -3683,6 +3683,28 @@ def _dispatch(cg, name, args):
         # 铸出同一 id → add 的 upsert 语义静默顶替（返回 committed 却 0 命中）。
         from .mdcg import mint_auto_id
         nid = a.get("node_id") or mint_auto_id(cg)
+        # ★issue #418（2026-10-16 DSH 端）：**role 类型闸**。
+        # 病象：工具面接受 role=[1,2,3]（声明为 string 却传 list）→ 节点照常落盘、
+        # 回执 {"ok": true, "committed": true}；而下次装载时 nodefile.frontmatter_problem
+        # 判「role 类型非法」⇒ 该节点进**隔离**（不进索引、不改盘）⇒ get 返回 not_found、
+        # search 扫不到，而四个运维读面（health/health_os/mdcg_health/service_info）
+        # **都不报隔离** —— 用户视角＝「说存住了，其实读不到」。
+        # 处置：**入口 fail-closed 拒收**（与 check_recent_event 的 docstring 逐字同款：
+        # 「类型错 ⇒ 不静默降级，写面抛异常」；同族先例另有 #355 content 类型、
+        # bounty #88 recent 事件、add 拒 node_id=True）。**不选「回执改为落盘后回读」**：
+        # 回读只是把「不可达」变可见，脏值仍落盘、仍被隔离、仍污染读数。
+        # 判据走**单点谓词** nodefile.valid_role（三处引用同一实现，不各写 isinstance）。
+        # 位置口径：与 #212 的写入上限闸同——在**分支分叉之前**（gated 与直写两条
+        # 出口共用），按**原始入参**判。
+        from . import nodefile as _nf418
+        _role418 = a.get("role")
+        if not _nf418.valid_role(_role418):
+            return {"ok": False, "error": "role_not_str",
+                    "node_id": nid, "committed": False,
+                    "got_type": type(_role418).__name__,
+                    "hint": "role 须为字符串（省略该参数即合法，缺省 None 合法）；"
+                            "非字符串会让节点落盘后被自家装载器判 frontmatter 损坏而"
+                            "**隔离**（不进索引、get/search 都读不到）——故写入前 fail-closed 拒收。"}
         # issue #212 缺口 1（2026-10-13 DSH 端）：**工具面此前完全不过写入硬上限**。
         # 同一内容走 cg(op=write) 被 writepipe 入口的 MAX_WRITE_BYTES 闸硬拒
         # （gate='writelimit_size'），走 mdcg_remember 却 committed=True 落盘

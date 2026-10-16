@@ -115,7 +115,9 @@ def check_recent_event(role, text, window=DEFAULT_RECENT_WINDOW) -> None:
     形态与仓库既有「类型错 ⇒ 不静默降级」一致：写面抛异常（同族读面闸见
     mcp_server 的 `node_id_not_str` 结构化 error 一族），不静默降级。
     """
-    if role and not isinstance(role, str):
+    # issue #418：类型判据走单点 nodefile.valid_role（此前三处各写一遍
+    # isinstance，本处是其中之一）——判据语义逐位不变。
+    if role and not nodefile.valid_role(role):
         raise ValueError("recent: role 须为字符串（收到 %s）" % type(role).__name__)
     if text and not isinstance(text, str):
         raise ValueError("recent: text 须为字符串（收到 %s）" % type(text).__name__)
@@ -142,8 +144,9 @@ def recent_record_ok(r) -> bool:
         return False
     if not isinstance(r.get("text"), str):
         return False
-    role = r.get("role")
-    return role is None or isinstance(role, str)
+    # issue #418：读侧容错同源走单点（语义与 role is None or
+    # isinstance(role, str) 逐位相同）。
+    return nodefile.valid_role(r.get("role"))
 
 
 # 全量回退的读取上限，对齐 sqlite 版 `ORDER BY importance DESC, created_at DESC LIMIT 500`

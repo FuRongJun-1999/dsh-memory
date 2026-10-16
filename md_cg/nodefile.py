@@ -378,6 +378,20 @@ def loads(text: str):
     return fm, content
 
 
+# 生效条件：x 为任意值时，x is None（未声明）或 isinstance(x, str) 返回 True，否则 False；无副作用、不抛异常。
+def valid_role(x) -> bool:
+    """role 的**类型判据单点**（issue #418）。
+
+    仓内此前把「role 须为 str」这条类型判据**写了三遍**，分布在三个不同载体上：
+      · 本模块 frontmatter_problem（**节点 frontmatter** 载体，本单点的定义处）；
+      · mdcg.check_recent_event（**recent 事件行**的写入闸）；
+      · mdcg.recent_record_ok（**recent 事件行**的读侧容错）。
+    三处载体不同（fm 契约 vs 事件行契约）⇒ **不合并实现**；但**类型判据这一条**
+    收成单点：三处都调本函数。缺省（None）一律合法（存量节点/旁路写入不带 role）。
+    """
+    return x is None or isinstance(x, str)
+
+
 # 生效条件：fm 为任意值、content 为节点正文（str 或 None，仅供后续扩展使用，当前判据不读它）时——fm 非 dict 返回单元素问题清单；否则逐项校验**下游按类型直接消费**的字段（condition_space/subgraph 须 dict，tags/non_applicable_conditions 须 list/tuple，importance/confidence/created_at/access_count/last_access/evidence_count 须 number，id/layer/role/sensitivity/verification_basis 须 str，bool 一律不算 number），返回按发现顺序的问题描述列表；全部合法（含字段缺省）返回空列表 []。无副作用、不抛异常。
 def frontmatter_problem(fm, content=None) -> list:
     """单节点 frontmatter 的**类型可用性**判据（唯一单点，issue #146）。
@@ -459,7 +473,12 @@ def frontmatter_problem(fm, content=None) -> list:
     for _key in ("layer", "role", "sensitivity", "verification_basis",
                  "writer", "session", "content_kind"):
         _v = fm.get(_key)
-        if _v is not None and not isinstance(_v, str):
+        if _v is None:
+            continue
+        # issue #418：role 走**类型判据单点** valid_role（与写面入参闸、recent
+        # 事件面同源）——同一判据不在这里再写一遍 isinstance。
+        _ok = valid_role(_v) if _key == "role" else isinstance(_v, str)
+        if not _ok:
             _bad(_key, "str", _v)
     return problems
 

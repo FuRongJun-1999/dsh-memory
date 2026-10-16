@@ -163,6 +163,37 @@ def _log(cg, op: str, **rec) -> dict:
     return rec
 
 
+#: 处置动作的**失败标记**（写侧 `done` 列表里的实际字面串，**单点**）。
+#: 判据按实际字符串定，不用通配占位——新增动作若引入新的失败形态，必须回到这里登记。
+#: 三态来源（`decontaminate` 的实修段）：
+#:   `weaken_failed:<Type>`   —— `_weaken` → `cg.verify` 抛异常（越权 / 保护 / 冲突）
+#:   `demote_failed:<Type>`   —— `cg._move_layer` 抛异常（保护闸 / 层闸）
+#:   `demote_state:<error>`   —— 层降级成功但生命周期状态推进失败（负路由，不抛）
+#: 第三条不以 `_failed:` 结尾，故**不能用 `*_failed:` 通配**——只认前缀会把它漏成「成功」。
+#: **为什么是显式三项而不是通配**：四项 `done.append` 落点已逐一枚举（成功两项
+#: "weaken"/"demote" + 失败三项），三项就是已知的**全部**失败形态；换成通配（如
+#: 匹配任意 `*failed*` 或 `state:`）会把**语义无关的合法动作名**也判成失败——那是
+#: **过度收紧方向**（合法成功处置被误判 ⇒ 幂等名单永不记账 ⇒ 每轮重复处置）。
+#: 新增动作必须回来登记：这是「枚举完备性」而不是「模式匹配」的取舍。
+ACTION_FAIL_MARKS = ("weaken_failed:", "demote_failed:", "demote_state:")
+
+
+# 生效条件：actions 为可迭代（None/空按无动作计）时，任一动作的字符串形式以 ACTION_FAIL_MARKS 之一开头即返回 False，否则返回 True；不抛（非字符串项先 str()）；
+def _actions_ok(actions) -> bool:
+    """本批处置动作是否**全部成功**（issue #411，**唯一判据单点**）。
+
+    为什么必须抽成单点：改前写侧无条件写 `ok=True`（`_log(cg, "decontaminate",
+    …, ok=True, …)`），而读侧 `_handled` 只认 `op=="decontaminate" and ok`——
+    失败只以字符串留在 `actions` 里，于是**无权身份跑一次就能把 (节点, 污染类型)
+    永久钉成「已处置」**，污染此后**永久不再被处置**（幂等名单被失败污染）。
+
+    这里只做「动作结果 → 布尔」这一件事；写侧把该布尔写进 `ok`，读侧（`_handled`
+    / `summary`）照旧**只读 `ok`**——**收成单点**，读侧不另写第二份判据。
+    """
+    return not any(str(a).startswith(ACTION_FAIL_MARKS)
+                   for a in (actions or ()))
+
+
 # 生效条件：仅当 read_jsonl(cg.root 下 SCRUB_LOG) 的记录 op=="decontaminate" 且 ok 为真时，把 (rec.get("node_id"), rec.get("kind")) 收进返回集合；无此类记录返回空集。
 def _handled(cg) -> set:
     """已处置过的 (node_id, kind)：保证去污染幂等（审计即状态）。"""
@@ -681,6 +712,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
     handled = _handled(cg)
     actions = []
     n_applied = n_prot = n_done = n_hint = n_planned = 0
+    n_failed = 0                     # #411：本轮动作**未全成功**的条数（写进批次 ok）
 
     for issue in rep["issues"]:
         nid, kind = issue["node_id"], issue["kind"]
@@ -735,7 +767,10 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             except Exception as exc:                      # noqa: BLE001
                 done.append(f"demote_failed:{type(exc).__name__}")
         n_applied += 1
-        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=True,
+        _ok = _actions_ok(done)          # #411：失败不得写成「已处置」
+        if not _ok:
+            n_failed += 1
+        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=_ok,
              actions=done, severity=issue["severity"], actor=actor)
         actions.append({"node_id": nid, "kind": kind, "action": "applied",
                         "done": done, "detail": issue["detail"],
@@ -759,7 +794,10 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                  "planned_dry_run": n_planned, "protected": n_prot,
                  "hint": n_hint}
     if not dry_run:
-        _log(cg, "decontaminate_batch", ok=True, applied=n_applied,
+        # #411：批次 ok 同样必须是**真实结果**（任一子条失败即 False），
+        # 否则 `summary` 的 batches/decontaminated 会把失败批次算成成功轮。
+        _log(cg, "decontaminate_batch", ok=(n_failed == 0), applied=n_applied,
+             failed_actions=n_failed,
              # 覆盖账（issue #66）：分类明细只读数不回喂 `_handled`；
              # `already_handled` 为 `skipped_done` 的正名（二者恒等）。
              already_handled=n_done, planned_dry_run=n_planned,
@@ -771,7 +809,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             # 兼容键保留（值恒等），新读数请用 `already_handled`。
             "already_handled": n_done, "skipped_done": n_done,
             "planned_dry_run": n_planned,
-            "hints": n_hint, "actions": actions,
+            "hints": n_hint, "failed_actions": n_failed, "actions": actions,
             "checked_breakdown": breakdown,
             "audit": rep, "t": time.time()}
 

@@ -32,6 +32,17 @@ import time
 from typing import Dict, List, Optional
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+# 生效条件：包内相对导入成功时返回 md_cg.consistency.is_discipline_node；失败（无包上下文/导入面异常）
+# 返回 None——**退化可见**：调用方必须显式判 None 并把结论写进 phase（不静默假装通过）。
+def _discipline_predicate():
+    """纪律判据单点（#412 负向自证用）：与判据**同用**同一个谓词，本文件不复制词形表。"""
+    try:
+        from ...consistency import is_discipline_node   # 包内路径：md_cg.consistency
+        return is_discipline_node
+    except Exception:                                   # noqa: BLE001 —— 独立运行时无包上下文
+        return None
 sys.path.insert(0, HERE)
 
 # 默认路径（可参数覆盖）；目标库走 LINGSHU_DB 环境变量，否则家目录 .dsh 布局
@@ -318,6 +329,16 @@ class WisdomMigrator:
             nid = f"node_meta_{abs(hash(name)) % 10**10}_{int(time.time()*1000)}"
             tags = [f"domain:{name}", "level:L4", "status:pending", "subject_card",
                     "meta_discipline"]
+            # #412（2026-10-16）：**学科面 ≠ 纪律面**——元学科卡与纪律判据**同用**同一谓词做
+            # **负向自证**：这些卡**不得**被判为纪律节点（否则「学科卡被引用」会走硬冲突
+            # REJECT 路径，是明显误伤；#412 的语义面裁定即此）。将来若有人在此给卡片加纪律
+            # tag，本断言 fail-loud，而不是静默改变冲突语义。
+            _disc = _discipline_predicate()
+            phase["discipline_parity"] = ("checked" if _disc is not None
+                                          else "skipped_no_predicate")
+            if _disc is not None and _disc({"tags": tags}, nid):
+                raise RuntimeError(
+                    "元学科卡被误判为纪律节点（#412：学科 ≠ 纪律）：%r / %s" % (tags, nid))
             sa = json.dumps({"name": name, "domain": name, "level": 4,
                              "kind": "meta_discipline", "source": "skeleton 聚合",
                              "kp_count": len(kps)}, ensure_ascii=False)
