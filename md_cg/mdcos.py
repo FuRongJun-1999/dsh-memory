@@ -1564,7 +1564,7 @@ class MdCGOS(MdCG):
                 else chain.chain_types_from_env())
         depth = chain.MAX_DEPTH_DEFAULT if max_depth is None else max_depth
         allowed = {id(e) for e in entries}
-        allowed_ids = {nid for nid, e in self.index["nodes"].items() if id(e) in allowed}
+        allowed_ids = {nid for nid, e in list(self.index["nodes"].items()) if id(e) in allowed}
         best = chain.expand_from_seeds(self, seed_map, relation_types=rels,
                                       max_depth=depth, decay=decay, allowed_ids=allowed_ids)
         if not best:
