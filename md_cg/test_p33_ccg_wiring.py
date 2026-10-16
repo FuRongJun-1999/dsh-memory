@@ -106,8 +106,15 @@ def main():
            "①VERIFICATION_BASIS 扩 textbook/public_kb")
         rep, cons = set(nodefile.REPRODUCIBLE_BASIS), set(nodefile.CONSISTENCY_BASIS)
         ok(not (rep & cons), "①可复现档与来源一致性档互斥")
-        ok(rep | cons | {"other"} == set(nodefile.VERIFICATION_BASIS),
-           "①两档 + other 恰好覆盖枚举（无漏网值）")
+        # #466（2026-10-15，Lead 裁定）：新增 untrusted 后**本契约升级** —— 从「两档 + other
+        # 覆盖枚举」改为「两档 + other + **刻意在档外**集合 覆盖枚举」。理由：untrusted 是
+        # **外部内容**的基底，既非可复现（理科档）亦非来源一致（文科档），**必须落在两档之外**
+        # （守卫 md_cg/test_issue466_basis_registry.py 的 A02 正是钉这一点）；把它塞进任一档
+        # 以满足旧等式，正是本件要防的行为。升级后本腿仍能抓「漏网值」，且能区分「漏网」与
+        # 「刻意在档外」。
+        _OFF_TIER = {"untrusted"}      # 刻意在两档之外的枚举值（#466）
+        ok(rep | cons | {"other"} | _OFF_TIER == set(nodefile.VERIFICATION_BASIS),
+           "①两档 + other + 刻意在档外集合 恰好覆盖枚举（无漏网值）")
         ok(nodefile.verification_basis_valid({"verification_basis": "textbook"})
            and nodefile.verification_basis_valid({"verification_basis": "public_kb"}),
            "①新档值通过 verification_basis_valid 校验")

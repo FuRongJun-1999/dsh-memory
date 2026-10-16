@@ -547,7 +547,12 @@ class Ingestor:
                         "# 不适用条件：其它会话\n\n"
                         f"{ev.get('text')}\n")
                 # #466：基底取自**来源声明**（事件级 basis 优先，否则源级 default_basis）。
-                basis = ev.get("basis") or self.default_basis
+                # ★取值主体是形参 `source`（= Source 实例），**不是 `self`**：本方法是
+                # `Ingestor.ingest(self, source, …)`，Ingestor 只是**搬运者**、不该自己
+                # 声明基底；基底该随「来源」声明。写 `self.default_basis` 会让 Ingestor
+                # 无此属性 ⇒ AttributeError，且被下方 except Exception 吞成 denied 计数
+                # ⇒ **外部内容静默不落库**（2026-10-15 回归事故的根因，见守卫）。
+                basis = ev.get("basis") or source.default_basis
                 try:
                     self.cg.add(nid, body, layer=self.layer, role=ev.get("role"),
                                 tags=["session", key],
