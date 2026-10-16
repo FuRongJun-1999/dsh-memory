@@ -1,6 +1,6 @@
 # fix(time): 显式时区按绝对时刻解析并拒收非有限端点
 
-2026-10-15
+2026-10-16
 
 带 Z 的日期被当作本地时区，UTC+8 主机偏移 28800 秒；显式 offset 被当成不可解析，观察轴漏召回、效力轴失效期限变成 unknown。
 
@@ -11,16 +11,16 @@
 | UTC+8 主机解析 Z 的偏移 | −28800 秒 | 0 秒 |
 | offset 观察窗真实命中 | 0 | 1 |
 | offset 截止点越过后 | unknown | expired |
-| 新增守卫 | 3 通过 / 10 失败 | 13 通过 / 0 失败 |
+| 新增守卫 | 3 通过 / 11 失败 | 14 通过 / 0 失败 |
 
 ## 运行证据
 
 - 原始开发基线 fffa4f29；五个独立分支随后同步 `5cd2b43ffb50f552a94cf516f1cd970156ff7397`，再在其未修改副本重放对照。未叠加另外四项核心功能，上游的新增修复不计入本项收益。
-- Windows Python 3.12 / Linux WSL Python 3.13，各 13/13 新增守卫通过、5/5 定点变异被指定断言检出；errors=0 / SKIP=0。恢复后守卫再次全绿。
+- Windows Python 3.12 / Linux WSL Python 3.13，各 14/14 新增守卫通过、6/6 定点变异被指定断言检出；errors=0 / SKIP=0。恢复后守卫再次全绿。
 - 变异在内存替换目标 callable，源码字节保持不变。每项记录锚点、具体断言、红项和源码 SHA256；不把异常崩溃算作成功杀死变异。
 - native 对照实际创建临时记忆库和 Markdown 文件；时效对照使用真实墙钟跨越截止点，无模拟时钟。守卫中的精确边界案例另使用受控时钟，不混淆两类证据。
 - windows: 6 / 6 条相关回归命令通过，失败 0，缺件 0。逐条命令、退出码、原始日志引用见 results.json。
-- linux: 6 / 6 条相关回归命令通过，失败 0，缺件 0。逐条命令、退出码、原始日志引用见 results.json。
+- linux: 7 / 7 条相关回归命令通过，失败 0，缺件 0。逐条命令、退出码、原始日志引用见 results.json。
 
 ```bash
 python -X utf8 tests/test_canonical_timezones.py
@@ -29,7 +29,7 @@ python -X utf8 scripts/replay_canonical_timezones.py --repo <untouched-baseline>
 python -X utf8 scripts/probe_canonical_timezones.py --repo . --output native-fixed.json
 ```
 
-第一条命令期望退出码 0，13 通过 / 0 失败；变异入口期望 5 通过 / 0 失败。原版回放退出码 1 是预期缺陷复现，原始分项读数见 results.json。
+第一条命令期望退出码 0，14 通过 / 0 失败；变异入口期望 6 通过 / 0 失败。原版回放退出码 1 是预期缺陷复现，原始分项读数见 results.json。
 
 ## 资格、信任边界与范围
 
@@ -51,4 +51,4 @@ python -X utf8 scripts/probe_canonical_timezones.py --repo . --output native-fix
 
 证据包 evidence.zip 包含冻结守卫、回放/探针、读数和哈希清单；需要配套源码检出及标准库运行环境，不是完整仓库的离线镜像。
 
-回归修复记录：初轮拒收非有限值令既有 STG 保守候选断言转红，已在本项保留索引专用非有限候选规则并补 T5 反证；未改旧断言。旧时间核审计初跑 180 秒超时，按其文档给足 900 秒后通过，原超时未计通过。
+回归修复记录：初轮拒收非有限值令既有 STG 保守候选与扫描计数断言转红，已保留观察轴索引和扫描的原非有限不确定性规则，补 T5/T6 反证；查询入参与效力端点仍要求有限值。既有 test_stgidx_index_parity 断言保持不变并补入相关回归。旧时间核审计初跑 180 秒超时，按其文档给足 900 秒后通过，原超时未计通过。
