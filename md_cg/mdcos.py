@@ -2636,7 +2636,11 @@ class MdCGOS(MdCG):
             # 读取方按「缺键 = proposal」判（零迁移）。
             if kind:
                 rec["kind"] = str(kind)
-            append_jsonl(self.inbox_log, rec)
+            # issue #426-C：inbox 是队列权威源，写失败必须响亮失败——
+            # 不得回执「已入队、不需要重试」而全库零副本。
+            if not append_jsonl(self.inbox_log, rec):
+                raise OSError("审核队列写入失败（%s）：提案未入队，请重试"
+                              % self.inbox_log)
         # 审计与入队 rec 同「有效会话」（写归因三态 ＋ 同族补齐）：rec.session 取上方
         # 单点 `_eff_session`（显式声明优先、否则三态单点），审计行取**同一个值**
         # （`session=` 命名参数进 meta 后 `MdCGSecure._audit` 的 setdefault 不再覆盖，
@@ -3051,7 +3055,12 @@ class MdCGOS(MdCG):
         # 裁决记录不能丢：strict 锁内追加（并发裁决不交错；
         # 丢一条裁决会让提案回 pending → 重复落盘，比让裁决者等一下代价大）
         with FileLock(self.decisions_log, strict=True):
-            append_jsonl(self.decisions_log, rec)
+            # issue #426-C：裁决记录不能丢——写失败 fail-closed（动作可能已落盘，
+            # 调用方必须知道并先排查，而不是收到 ok=true 后重复 accept）。
+            if not append_jsonl(self.decisions_log, rec):
+                raise OSError("裁决记录写入失败：目标 %s 可能已落盘，请勿重复 "
+                              "accept，先排查 %s"
+                              % (rec.get("target_id"), self.decisions_log))
         # md 审计节点写失败不影响裁决（jsonl 仍是权威来源）
         try:
             self._write_review_record(rec)
@@ -3067,7 +3076,7 @@ class MdCGOS(MdCG):
                     record_node=rec["record_node_id"])
         return result
 
-# 生效条件：当 pid、phash、decision 传入且 phash 非空时，在 strict 锁内对 inbox_log 中同 phash、非自身、且 _pid_status 尚无记录的纯 pending 兄弟提案写入 rejected 裁决，返回 closed 列表；phash 为空返回 []；
+# 生效条件：当 pid、phash、decision 传入且 phash 非空时，在 strict 锁内对 inbox_log 中同 phash、非自身、且 _pid_status 尚无记录的纯 pending 兄弟提案写入 rejected 裁决，append_jsonl 返回 False（issue #426-C：写失败）时抛 OSError、未出清的不进 closed，返回 closed 列表；phash 为空返回 []；
     def _cascade_dedup(self, pid: str, phash: str, decision: str):
         """主提案终态裁决后，同 payload_hash 的其余纯 pending 提案自动出清。
 
@@ -3101,7 +3110,10 @@ class MdCGOS(MdCG):
                        "actor": self.actor, "target_id": r.get("id"),
                        "record_node_id": self._audit_node_id(bpid, 1)}
                 rec["record_hash"] = self._record_hash(rec)
-                append_jsonl(self.decisions_log, rec)
+                # issue #426-C：级联出清同属「不能丢」的裁决账，写失败 fail-closed。
+                if not append_jsonl(self.decisions_log, rec):
+                    raise OSError("级联裁决记录写入失败：兄弟提案 %s 未出清，"
+                                  "先排查 %s" % (bpid, self.decisions_log))
                 closed.append(bpid)
         for b in closed:
             self._audit("review_cascade", b, cascade_of=pid, decision=decision)
