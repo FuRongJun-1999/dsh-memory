@@ -521,7 +521,10 @@ def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     return kept, detail
 
 
-#: neg_separated 的「负条件与正文最大词面覆盖率」阈值。issue #278：本模块自己的注释
+#: 词面覆盖率阈值（issue #278）。**本阈值现在只管 L2（与生效条件/已有知识重复），
+#: 不再管「与正文域外」** —— 修前它同时充当「负条件必须域外」的闸，与 prompt 的「邻近易混」
+#: 互斥；#278 (c) 分层后该语义移到 L2（no_conflict）。原文见下方 replay_check 内注释。
+#: 原说明：neg_separated 的「负条件与正文最大词面覆盖率」阈值。本模块自己的注释
 #: （见下方 replay_check 内 `⚠ 改 0.34 …或下面这个 0.5 都会平移窗口`）**已承认它是旋钮**，
 #: 却硬编码在函数体内 ⇒ 按库特性调参必须改源码。此处暴露为环境变量，**默认仍 0.5**
 #: （取值不变 ⇒ 行为逐位不变；只把「调参要改源码」变成「调参要设环境变量」）。
@@ -567,8 +570,12 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
     # 2. 负例：以不适用条件为查询，应触发条件级负路由；且负条件与正文低相关
     #    （负条件必须是「域外」的，若与正文强相关，等于让知识否定自己）
     #
-    #    ★ issue #278：上面这句「域外」**单独看会误导**——它只是本闸的条件。
-    #    负条件实际要同时过**两道闸**，方向相反，夹出一条窄缝：
+    #    ★ issue #278（c）分层后的口径：**L1 只判「是否易混」**（允许与正文共享领域词）；
+    #    `coverage < 0.5` 移到 **L2（no_conflict）**，**只管「与生效条件/已有知识重复」，
+    #    不再管「与正文域外」**。
+    #
+    #    ★ **保留下面这段「修前」记录是为留下实测依据**（否则将来有人会重新引入两闸）：
+    #    修前：负条件要同时过两道闸，方向相反，夹出一条窄缝：
     #      闸门 1 grounding_score(neg, body) >= 0.34   ⇒ 必须**复用**正文领域名词
     #      闸门 2 _weighted_coverage(neg, body) < 0.5  ⇒ 又不能复用**太多**
     #    故「完全域外」（如「在 Linux 或 macOS 上部署时」）**过不了闸门 1**：
@@ -580,8 +587,12 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
     #    ⚠ 改 0.34（DEFAULT_GROUNDING）或下面这个 0.5 都会**平移窗口**，
     #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。
     if neg_terms:
-        neg_separated = _neg_hit(tw_neg, neg_terms) \
-            and _weighted_coverage(tw_neg, body) < _neg_max_coverage()
+        # ★ #278 (c) 分层 —— **L1 只判「是否易混」**：负条件词是否与本条正文的领域词有交集。
+        #   **L1 不判「是否域外」**（那是 grounding 与 no_conflict 的事）；
+        #   **L1 也不判「是否重复」**（那是 L2 = no_conflict 的事）。
+        #   修前这里还挂了 `coverage < 阈值`，与 prompt 的「邻近易混」互斥（P∧Q 无解）
+        #   ⇒ 技术类知识被系统性拒（#278 的读数）。
+        neg_separated = _neg_hit(tw_neg, neg_terms)
     else:
         neg_separated = True
 

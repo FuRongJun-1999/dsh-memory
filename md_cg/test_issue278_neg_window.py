@@ -88,14 +88,13 @@ def w1():
                   encoding="utf-8", errors="replace").read()
     ok("grounding_score" in src and "def grounding_filter" in src,
        "W1a 闸门 1（grounding）在场")
-    ok("and _weighted_coverage(tw_neg, body) < _neg_max_coverage()" in src
+    ok(callable(C._neg_max_coverage)
        and abs(C._REPLAY_NEG_MAX_DEFAULT - 0.5) < 1e-12,
-       "W1b 闸门 2（neg vs body 覆盖率 < 0.5，经单点 _neg_max_coverage()）在场")
-    # 方向相反：同一候选，grounding 越大 ⇒ coverage 越大（同向），
-    # 但**判据方向相反**（一个要 >= 一个要 <）⇒ 夹缝
+       "W1b L2 阈值单点仍在（只管「与生效条件/已有知识重复」，不再管「与正文域外」）")
+
     t = "依赖写 caret"
     ok(_g(t) >= 0.34 and _cov(t) >= 0.5,
-       "W1c 同一候选可同时「过闸门1」且「被闸门2拒」⇒ 判据方向确实相反",
+       "W1c 同一候选可同时「过闸门1」且「被闸门2拒」⇒ 判据方向确实相反（修前两闸的现场）",
        (_g(t), _cov(t)))
 
 
@@ -103,8 +102,10 @@ def w2():
     print("== W2 报告读数复现：prompt 口径的负条件被闸门 2 拒 ==")
     for t in PROMPT_CONFORMANT:
         rep = C.replay_check(POS, [t], BODY)
-        ok(rep["neg_separated"] is False,
-           "W2 邻近易混负条件被 neg_separated 拒：%r" % (t[:22],),
+        # ★ 断言已反转（#278 (c) 分层）：原钉「被拒」= 修前行为（修前 = False）；
+        #   分层后 L1 只判易混 ⇒ 该行为正是修复目标 ⇒ 现断言 True。原期望留作注释。
+        ok(rep["neg_separated"] is True,
+           "W2 邻近易混负条件**不再**被拒（L1 允许共享领域词）：%r" % (t[:22],),
            (round(_cov(t), 4), rep))
 
 
@@ -152,9 +153,12 @@ def w6():
        C.DEFAULT_GROUNDING.get("不适用条件"))
     src = io.open(os.path.join(_REPO, "md_cg", "consolidate.py"),
                   encoding="utf-8", errors="replace").read()
-    ok("and _weighted_coverage(tw_neg, body) < _neg_max_coverage()" in src
+    # ★ W6b 改钉（#278 (c) 分层）：原钉「`and _weighted_coverage(tw_neg, body) < _neg_max_coverage()`」
+    #   字面在场 —— 那正是被拆掉的 **L1 覆盖率闸**。现改为钉「L2 阈值单点默认值 = 0.5」：
+    #   它现在只管「与生效条件/已有知识重复」，不再管「与正文域外」。
+    ok(callable(C._neg_max_coverage)
        and abs(C._REPLAY_NEG_MAX_DEFAULT - 0.5) < 1e-12,
-       "W6b 闸门 2 阈值 = 0.5（单点默认值，与 0.34 成对；issue #278 后不再是字面硬编码）")
+       "W6b L2 阈值单点默认值 = 0.5（只管「与生效条件/已有知识重复」，不再管「与正文域外」）")
     ok("平移窗口" in src or "成对" in src or "一对" in src,
        "W6c 源码已写明两者成对（改一个须一起看）")
 
