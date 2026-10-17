@@ -10,10 +10,31 @@ AST（protocol-compiler parser）→ VM 指令（condition_vm）：
 若则=if——VM 执行结果与声明语义一致。
 """
 
+import math
+
 from .lexer import tokenize, TokenType
 from .parser import parse_tokens, NodeType
 from .name_checker import NameChecker
 from .condition_vm import Opcode
+
+
+def _finite_operand(val, line, what):
+    """数值操作数闸（单点）：非数值或非有限值 ⇒ SyntaxError 名实不符。
+
+    issue #435：float('inf') / float('nan') 是合法转换、不抛异常，故单靠
+    try/except 拦不住——「必须是数值」的闸会被穿透，而它们进信任寄存器后
+    永久毒化且不报错（NaN 破坏相等自反 ⇒「止」永不触发；inf 恒超任何阈值
+    ⇒「知足」恒早退）。故此处按「有限」判定，与「名实不符」同一口径拒绝。
+    """
+    try:
+        num = float(val) if val is not None else 0.0
+    except (TypeError, ValueError):
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是数值，得到 '{val}'（名实不符）")
+    if not math.isfinite(num):
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是有限数值，得到 '{val}'（名实不符）")
+    return num
 
 
 # 中文比较词 → VM 比较指令（codegen CHINESE_COMP_MAP 同构）
@@ -177,12 +198,7 @@ class Compiler:
         if op == TokenType.DAO:
             self._emit(Opcode.DAO, val if val is not None else "无名路径")
         elif op == TokenType.DE:
-            try:
-                self._emit(Opcode.DE, float(val) if val is not None else 0.0)
-            except (TypeError, ValueError):
-                # 以名举实：非数值操作数（未声明标识符）编译期拦截——名实不符
-                raise SyntaxError(
-                    f"L{s.line} 德 的操作数必须是数值，得到 '{val}'（名实不符）")
+            self._emit(Opcode.DE, _finite_operand(val, s.line, '德'))
         elif op == TokenType.ZIRAN:
             self._emit(Opcode.ZIRAN)
         elif op == TokenType.WUWEI:
@@ -190,15 +206,9 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            # issue #434：与 DE 分支同款——数值解析失败转结构化 SyntaxError
-            # （compile_source 已窄捕 SyntaxError，自动回流 errors），不让裸
-            # ValueError 穿透编译主入口（api 侧 CompileResult / 字节码侧
-            # (None, {ok:False,...}) 两入口都返回结构化结果）。
-            try:
-                threshold = float(val) if val is not None else 0.0
-            except (TypeError, ValueError):
-                raise SyntaxError(
-                    f"L{s.line} 知足 的操作数必须是数值，得到 '{val}'（名实不符）")
+            # issue #434：非数值阈值转结构化 SyntaxError（compile_source 已窄捕）；
+            # issue #435：同口径拦 inf/nan。两处判据收口在 _finite_operand 单点。
+            threshold = _finite_operand(val, s.line, '知足')
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))
