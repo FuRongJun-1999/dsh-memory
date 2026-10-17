@@ -26,6 +26,7 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, _REPO)
 from md_cg.security import Principal, AccessDenied  # noqa: E402
 from md_cg import tokens as _tk  # noqa: E402
+from md_cg import trust  # noqa: E402  （#528：落盘验证态断言需要）
 
 FAILS = []
 
@@ -80,6 +81,17 @@ def _try_write(role, nid, layer="knowledge", **extra):
     return ok, err, on_disk
 
 
+# #528：取「**落盘后**的验证态」——照 _try_write:78 的既成取法（`(cg.get(nid) or {}).get("frontmatter")`），
+# **不改 _try_write 的返回元组**（那会让 A1–A6 六处解包 ValueError）。
+# ★ 新函数先自证（见 A 组后的 V 组），再用于 A7/A8 —— 「先证工具可用、再证被测物」。
+def _vstate_after(role, nid):
+    """写入后落盘的验证态（`trust.state_of` 对缺字段按 unverified）。"""
+    cg = MdCGSecure(_TMP + "/brain", principal=_mk(role), autoflush=1)
+    fm = (cg.get(nid) or {}).get("frontmatter") or {}
+    cg.close()
+    return trust.state_of(fm)
+
+
 print("== A 组：权限面判据 ==")
 _ok1, _e1, _d1 = _try_write("record", "n_a1", verification_state="verified")
 _check("A1 record（无 verify op）声明 verified → 拒（AccessDenied）",
@@ -104,8 +116,22 @@ _ok7, _e7, _d7 = _try_write("verify", "n_a7", layer="contextual",
                             verification_state="verified")
 _check("A7 verify 角色（有 verify op）声明 verified → 放行（合法路径不误拒）",
        _ok7, (_ok7, _e7, _d7))
+# #528：**数据面**补一条 —— 「放行」是权限面事实，「落盘真的 verified」是数据面事实，两者不同。
+#   本条防 `#320` 那类库层覆盖：若 `mdcg.add` 忽略 verification_state（如加 want_vstate=None）⇒ 本条红。
+_vs7 = _vstate_after("verify", "n_a7")
+_check("A7b 且**落盘**也是 verified（#528：防库层一律忽略）",
+       _vs7 == "verified", _vs7)
 _ok8, _e8, _d8 = _try_write("designer", "n_a8", verification_state="verified")
 _check("A8 designer 声明 verified → 放行", _ok8, (_ok8, _e8, _d8))
+_vs8 = _vstate_after("designer", "n_a8")
+_check("A8b 且**落盘**也是 verified（#528：防库层一律忽略）",
+       _vs8 == "verified", _vs8)
+
+print("== V 组：新探针自证（先证工具可用、再证被测物）==")
+_check("V1 _vstate_after 对「未传该字段」的节点返 unverified（防它恒返某值）",
+       _vstate_after("designer", "n_a8") == "verified"
+       and _vstate_after("designer", "n_a4") == "unverified",
+       (_vstate_after("designer", "n_a8"), _vstate_after("designer", "n_a4")))
 
 print("== E 组：单点存在性 ==")
 _check("E1 _require_verify_for_vstate 是模块级可调用单点",
