@@ -614,12 +614,17 @@ def normalize_en(text: str) -> str:
 #   legacy  = |q ∩ d| / |q|      只归一化**查询侧** → 长文档天然占优（既有基线）。
 #                                 LongMemEval-S 长 turn 上把证据挤出 Top-5：
 #                                 precise/temporal/reference hit@1 均为 0%。
+#                                 实义/功能 bigram 等权 ⇒ 分数只有 k/|q| 几个离散档，
+#                                 文档一多就大面积同分（#363）。**传 df/n_docs 时**
+#                                 legacy 走 IDF 加权覆盖度（见下），这是缺省检索
+#                                 路径的真实打分；不传时逐位保持旧公式（S5 负记忆
+#                                 抑制等二文档比对仍用旧口径）。
 #   jaccard = |q ∩ d| / |q ∪ d|  对称归一化（长度自惩罚，无参数）。
 #                                 同口径实测：长文档组 0%→8.97% / 0%→6.77% /
 #                                 1.28%→20.51%；短文档组（LoCoMo）基本持平或微降
 #                                 → 收益随文档长度单调增长，是长度偏置的定向修复。
 # 切换：mdcg.SCORE_MODE = "jaccard"，或环境变量 MDCG_SCORE_MODE=jaccard。
-# 缺省 "legacy"：既有检索行为与基线完全不变。
+# 缺省 "legacy"：检索路径与基线一致，除 #363 的 IDF 加权（见下）。
 # **评测侧**改用 eval_common.use_jaccard() 显式注入——长 turn 语料上
 # precise 0%→8.97% / temporal 0%→6.77% / interference 1.28%→20.51% /
 # reference 0%→3.76%（与 Rust mdcg-eval --score jaccard 逐位一致）。
@@ -631,19 +636,67 @@ SCORE_MODES = ("legacy", "jaccard")
 SCORE_MODE = os.environ.get("MDCG_SCORE_MODE") or "legacy"
 
 
-# 生效条件：当 `qb` 与 `nb` 均为非空集合时，若 `mode` 或模块级 `SCORE_MODE` 为 `'jaccard'` 返回交集/并集，否则返回交集/len(`qb`)；任一为空返回 0.0。
-def lexical_sim(qb: set, nb: set, mode: str = None) -> float:
+# 生效条件：n_docs 为正整数、df 为 [0, n_docs] 内的整数时返回正 IDF；否则返回 0.0（不猜测、不放大）。
+def idf_of(df: int, n_docs: int) -> float:
+    """单 term 的 IDF——**与 `md_cg/bm25.py` 的 BM25 打分同一条公式**：
+
+        log1p((N - df + 0.5) / (df + 0.5))          （bm25.py:357 的同一算术）
+
+    为什么不另建一套：`_score` 的 IDF 面与 bm25 路的 IDF 面若各写一份，
+    两个「真实打分」会随参数漂移而互相矛盾（#363 的根因正是「一条真源被
+    复制」的反面：缺省路根本没有 IDF 这一维）。这里只做算术单点，词表/
+    分词仍由调用方给（`_score` 用 `bigrams(normalize_en(...))`，与词法路
+    同源），故不引入第二套分词口径。
+    """
+    n_docs = int(n_docs or 0)
+    if n_docs <= 0:
+        return 0.0
+    df = max(0, min(int(df or 0), n_docs))
+    return math.log1p((n_docs - df + 0.5) / (df + 0.5))
+
+
+# 生效条件：当 `qb` 与 `nb` 均为非空集合时，若 `mode` 或模块级 `SCORE_MODE` 为 `'jaccard'` 返回交集/并集；否则若同时传入 df 与 n_docs（df 为查询 bigram→文档频次映射）返回 IDF 加权覆盖度 Σidf(q∩d)/Σidf(q)（#363：缺省检索路的真实打分），任一为空返回 0.0；未传 df 时返回交集/len(`qb`)（旧公式，逐位不变）。
+def lexical_sim(qb: set, nb: set, mode: str = None,
+                df: dict = None, n_docs: int = None) -> float:
     """查询/文档二元组集合的相似度。mode 缺省取模块级 `SCORE_MODE`。
 
     显式传 mode 用于单点 A/B（不改全局口径即可对比两套打分）。
+
+    #363：`df`/`n_docs` 同时给出时，legacy 口径改走 **IDF 加权覆盖度**：
+
+        sim = Σ_{g ∈ q∩d} idf(g) / Σ_{g ∈ q} idf(g)
+
+    分母只含查询侧（与 legacy 的「只归一化查询侧」同形，长文档不因此
+    额外占优），但每个 bigram 按其在候选池中的稀有度加权——「什么/是什」
+    这类高频功能 bigram 的 idf 趋近于 0，「共识/提交」这类实义 bigram
+    的 idf 大。修前缺省路用 `inter/len(qb)`，分数只有 k/len(qb) 几个离散
+    档，文档一多就大面积同分、名次退化为写入序（#363 现场）。
+
+    未传 `df` 时**逐位保持旧公式**：`lexical_sim(a, b)` 仍是
+    `len(a∩b)/len(a)`——S5 负记忆抑制（`_score` 之外的二文档比对）等
+    调用点语义不变，不需要也不应被语料频次影响。
+
+    不适用条件：df 的统计面 = 调用方传入的那批候选文档（`_score` 的
+    `docs`）。跨批次比较（同一查询在不同候选池上）时 idf 分母不同，
+    分数不可直接横向比较；名次仍可比较。
     """
     if not qb or not nb:
         return 0.0
-    inter = len(qb & nb)
+    inter = qb & nb
     if (mode or SCORE_MODE) == "jaccard":
-        union = len(qb | nb)
-        return inter / union if union else 0.0
-    return inter / len(qb)
+        union = qb | nb
+        return len(inter) / len(union) if union else 0.0
+    if df is not None and n_docs:
+        # 分母含**全部**查询 bigram：池里不存在的 gram（df=0）拿到最大 idf——
+        # 它们恰恰是最有判别力的（「池里没有」本身是信息），且这样「覆盖全查询」
+        # 才可能接近 1.0；把 df=0 从分母剔除会让「命中全部池内 gram」的文档恒
+        # 得 1.0（实测 retr_s4 夹具：同内容各层全部顶到 1.0，层级加成失效）。
+        _pairs = [(g, idf_of(df.get(g, 0), n_docs)) for g in qb]
+        total = sum(w for _, w in _pairs)
+        if total <= 0.0:            # 无查询 bigram（qb 非空时不可达）→ 不放大
+            return 0.0
+        return sum(w for g, w in _pairs if g in inter) / total
+    return len(inter) / len(qb)
 
 
 # issue #89①（2026-10-09 DSH 端）：整串精确命中判据单点。
@@ -4908,7 +4961,7 @@ class MdCG:
         # 全库入池。Rust `retrieval.rs::like` 同款（跨侧守卫钉住一致性）。
         return any(t and (t in body_l or t.lower() in tags_l) for t in terms)
 
-# 生效条件：semantic_on() 为真、semantic.canonical.pair_hits 导入成功且该 doc 的 fm 有 semantic 时 raw = min(1.0, max(lexical_sim(qb, 该文档 normalize_en 后的 bigram, mode), pair_hits(fm["semantic"], q)) + tag_bonus)，否则 raw = min(1.0, sim + tag_bonus)；tag_bonus 仅在 fm.tags 中有 t 满足 str(t) in q 或 q in str(t) 时为 0.05，否则 0.0；pools 为真值时 raw 再乘 pooling.weight_of(...) 并夹到 [0,1]；返回 scored 列表；
+# 生效条件：semantic_on() 为真、semantic.canonical.pair_hits 导入成功且该 doc 的 fm 有 semantic 时 raw = min(1.0, max(lexical_sim(qb, 该文档 normalize_en 后的 bigram, mode, df=本批df, n_docs=本批文档数), pair_hits(fm["semantic"], q)) + tag_bonus)，否则 raw = min(1.0, sim + tag_bonus)；tag_bonus 仅在 fm.tags 中有 t 满足 str(t) in q 或 q in str(t) 时为 0.05，否则 0.0；pools 为真值时 raw 再乘 pooling.weight_of(...) 并夹到 [0,1]；返回 scored 列表；
     def _score(self, docs, q, qb, pools=None, mode=None):
         # 语义摘要路（MDCG_SEMANTIC=1 opt-in，默认关闭零回归）：
         # doc 侧 fm.semantic 标准原子序列 × query 归一序列的组合窗口共现分
@@ -4941,14 +4994,29 @@ class MdCG:
         _fr_now = freshness.freshness_now() if _fr_on else None
         _fr_gamma = freshness.resolve_gamma(None) if _fr_on else None
         _exact_q = compact_exact_text(q)
+        # issue #363：缺省 lexical 路无 IDF ⇒ 分数只有 k/|q| 几个离散档、文档一多
+        # 就大面积同分，名次退化为写入序。此处按**本批候选文档**统计查询 bigram
+        # 的文档频次（df），交给 lexical_sim 的 IDF 加权覆盖度。统计面与 bm25.py
+        # 的 posting 面同一条口径（「scoped to the current eligible pool」）：
+        # 只统计 `docs`（= 本次 _score 的候选批），不扫全库、不读盘。
+        # 走 readcache 覆写版钩子取 bigram：内容不变则派生物不变，df 统计与
+        # 打分共用同一份 nb（单遍计算，无重复归一化）。
+        _nbs = [self._doc_norm_bigrams(e, c) for e, _fm, c in docs]
+        _df = None
+        if qb and (mode or SCORE_MODE) != "jaccard":
+            _df = {}
+            for _nb in _nbs:
+                for _g in qb & _nb:
+                    _df[_g] = _df.get(_g, 0) + 1
+        _n_docs = len(_nbs)
         scored = []
-        for e, fm, c in docs:
+        for _i, (e, fm, c) in enumerate(docs):
+            nb = _nbs[_i]
             # 归一化 content 后取 bigram（与 query 侧 normalize_en 对称）；
             # 走可覆写钩子（批次 21，issue #31）：内容不变则派生物不变——
             # readcache 启用时覆写为缓存版（Rust load_docs 预计算同款），
             # 基类默认即算即弃，行为与改动前逐位一致
-            nb = self._doc_norm_bigrams(e, c)
-            sim = lexical_sim(qb, nb, mode)
+            sim = lexical_sim(qb, nb, mode, df=_df, n_docs=_n_docs)
             # issue #150：空 tag（`"" in q` 恒真）与空 q（`q in str(t)` 恒真）都会让
             # 加成恒发 ⇒ 两侧同步加守卫（Rust retrieval.rs 的 tag_bonus 同款）。
             tag_bonus = 0.05 if q and any(

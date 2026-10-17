@@ -44,7 +44,8 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                writelimit, reach, trust, roleviews, autonomy_modes, lifecycle,
                rrf_candidates)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
-                     read_jsonl_tail, count_jsonl, publish)
+                     read_jsonl_tail, count_jsonl, publish,
+                     merge_rmw_lock, node_write_lock)
 from .rotate import Rotator
 from .security import (Principal, TenantRegistry, AccessDenied,
                        SENSITIVITY_ORDER, DEFAULT_SENSITIVITY, _rank)
@@ -1009,64 +1010,98 @@ class MdCGOS(MdCG):
         super()._set_index_entry(node_id, entry)
         self._on_index_mutation(node_id)
 
+# 生效条件：形参与父类 `MdCG._move_layer(node_id, to_layer, reason="", override=False)` 逐字一致；在**同一把 node 跨进程锁**内转调父类实现（父类内部依次做 get() 读旧位置 → protect 层闸/保护闸 → _write_node 写新层 → 删旧文件），故「读旧位置 → 写新层 → 删旧文件」对并发的同 id add 是原子的；异常与返回值语义全部由父类原样给出（本覆盖不加判据、不改错误类型）。
+    def _move_layer(self, node_id, to_layer, reason="", override=False):
+        """issue #322（复核补）：搬迁也是同 id 的读改写，必须与 add 共用一把锁。
+
+        父类实现（`md_cg/mdcg.py:5436`）直接调 `self._write_node`，**不经 add**
+        ⇒ 只锁 add 覆盖不到它：M 进程读到旧位置后慢写新层、A 进程同时 add 同 id，
+        盘面最终只剩搬迁写下的旧正文，A 已应答的新值消失（探针
+        `.tmp/u06/probe_move_add.py` 实测 3/3 轮新值不在盘）。本覆盖在库层收口，
+        `MdCGSecure`（evolution/freshness/scrub 的降级路径）经继承一并覆盖；
+        直接构造 `MdCG` 的调用方不走本覆盖（父类文件不在本单元写面，见 NEED_FILE）。
+        """
+        with node_write_lock(self, node_id):
+            return super()._move_layer(node_id, to_layer, reason=reason,
+                                       override=override)
+
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             role: str = None, **kw) -> str:
-        """在父类 add 之上：写入 role（frontmatter + 索引），默认 role=None（知识）。"""
-        # #151（2026-10-12 DSH 端）：**有限性与取值范围守卫**（范式抄 `reach._ttl()`：
-        # 非法值**回落文档缺省**，不抛、不改既有调用方语义）。
-        # 病象：`importance`/`confidence` 直接落 frontmatter，而 JSON/上游可传入
-        # `NaN`/`±Infinity`（Python `json.loads` 默认接受这三个非标准字面量）——
-        # 一旦落盘，排序、权重相乘、衰减都会被污染成 NaN 并被静默持久化
-        # （NaN 参与比较恒 False ⇒ 排序静默失序，且事后无法从读数区分）。
-        # 注：报告里「-inf 节点永不入选」一条已被核验员驳倒（仍返回），**本件不做**。
-        for _k, _dflt in (("importance", 0.5), ("confidence", 0.6)):
-            _v = kw.get(_k)
-            if _v is None:
-                continue
-            try:
-                _f = float(_v)
-            except (TypeError, ValueError):
-                _f = None
-            if _f is None or not math.isfinite(_f) or not (0.0 <= _f <= 1.0):
-                kw[_k] = _dflt
-        if role is not None:
-            kw["role"] = role
-        # 会话归属必须落 frontmatter：本文件 session 过滤的文档即写「frontmatter.session，
-        # 写入时自动落盘」，但父类 add 的 fm 固定字典里没有该键、_stage 只把它放进索引 →
-        # 实际只有索引带归属，任何 rebuild_index() 都会抹掉（实测 73 节点里 56 个无
-        # frontmatter.session，而 _audit.jsonl 的 add 事件却 152/152 都记了 session：
-        # 写入口径与落盘口径脱钩）。与 role 同款：显式给就尊重，否则取 self.session
-        # （MdCGSecure 由 principal.session 注入，mcp_server 按请求切换 cg.session）。
-        _sess = kw.get("session") or getattr(self, "session", None)
-        if _sess and not kw.get("session"):
-            kw["session"] = _sess
-        nid = super().add(node_id, content, layer=layer, **kw)
-        e = self.index["nodes"].get(nid)
-        if e is not None and role is not None:
-            e["role"] = role
-        if e is not None and _sess:
-            e["session"] = _sess
-        if e is not None and (role is not None or _sess):
-            self._dirty[nid] = e
-        # 审计与写面同 sens（写归因三态，2026-10-07）：本节点 frontmatter.session
-        # 由 `_attribution(kw, sens)` 落定，审计记录须经**同一 sens** 过三态单点，
-        # 否则未声明档审计记进程随机、节点记 unattributed（字面分叉）。
+        """在父类 add 之上：写入 role（frontmatter + 索引），默认 role=None（知识）。
+
+        issue #322（P0，多实例共根）：**同一 node_id 的落盘必须跨进程串行**。
+        本方法覆盖**经 add 落盘**的全部调用面——writepipe 链尾执行器、
+        `mdcg_remember` 直写、审核 accept/edit、`remember_gated` 的 ACCEPT 支
+        （`MdCGSecure.add` 经 super 调用同一实现，它自己另有一层锁，见该类）。
+        不经 add 的同 id 读改写由本类的 `_move_layer` 覆盖（搬迁直接调
+        `self._write_node`，见该方法的 docstring）。
+        锁在**库层**而不是各调用点：调用点各写一次必然漏（本仓已两次教训），
+        而 `fsutil.node_write_lock` 走 OS 级 FileLock、同线程重入按深度计数
+        ——writepipe 已持同一把锁时这里不会再阻塞（见 writepipe.execute）。
+        """
+        # issue #322：整段写面持锁（细节见 docstring）。
         #
-        # 审计与写面同「有效会话」（同族补齐，2026-10-07）：上面 830-832 行已把
-        # 有效会话（显式声明优先、否则三态单点）落进 `kw["session"]`，而
-        # `super().add(**kw)` 正是把它写进 frontmatter.session / 索引条目——
-        # 故审计行取**同一个已算出的值**（`session=` 命名参数进 meta 后，
-        # `MdCGSecure._audit` 的 setdefault 不再覆盖；与 `session_note` 同一手法）
-        # 而不在 `_audit` 里再拼一次逻辑。修前只补了 sens 一维：显式 session 档下
-        # 审计仍取三态单点 ⇒ 节点 fm.session 落 'X' 而审计行落单点值（未声明档
-        # 'unattributed'／绑定档进程随机）——同一写入两处字面分叉
-        # （`docindex.ingest_transcript` 的 `add(session=<token>)` 早已如此）。
-        # 纯 MdCGOS（无 `_attributed_session` 钩子）同样由此受益：`session_note`
-        # 的日期兜底值经 `add(session=…)` 落 fm 后，add 事件不再落 None。
-        self._audit("add", nid, layer=layer, role=role,
-                    payload_hash=_sig(content), sens=kw.get("sensitivity"),
-                    session=kw.get("session"))
-        return nid
+        # ★整段写面**不抽子函数**是**有意**的：既有守卫
+        # `test_session_attribution_consistency`（该文件 :564）以
+        # `inspect.getsource(MdCGOS.add)` 取「审计行传 session=…」那一句作变异锚；
+        # 抽走函数体会让该锚命中 0 次 ⇒ 全量链新增一红（实测 rc=2 ANCHOR-MISS）。
+        # 故锁用 `with` 包住原函数体，而非把函数体搬进独立子函数。
+        with node_write_lock(self, node_id):
+            # #151（2026-10-12 DSH 端）：**有限性与取值范围守卫**（范式抄 `reach._ttl()`：
+            # 非法值**回落文档缺省**，不抛、不改既有调用方语义）。
+            # 病象：`importance`/`confidence` 直接落 frontmatter，而 JSON/上游可传入
+            # `NaN`/`±Infinity`（Python `json.loads` 默认接受这三个非标准字面量）——
+            # 一旦落盘，排序、权重相乘、衰减都会被污染成 NaN 并被静默持久化
+            # （NaN 参与比较恒 False ⇒ 排序静默失序，且事后无法从读数区分）。
+            # 注：报告里「-inf 节点永不入选」一条已被核验员驳倒（仍返回），**本件不做**。
+            for _k, _dflt in (("importance", 0.5), ("confidence", 0.6)):
+                _v = kw.get(_k)
+                if _v is None:
+                    continue
+                try:
+                    _f = float(_v)
+                except (TypeError, ValueError):
+                    _f = None
+                if _f is None or not math.isfinite(_f) or not (0.0 <= _f <= 1.0):
+                    kw[_k] = _dflt
+            if role is not None:
+                kw["role"] = role
+            # 会话归属必须落 frontmatter：本文件 session 过滤的文档即写「frontmatter.session，
+            # 写入时自动落盘」，但父类 add 的 fm 固定字典里没有该键、_stage 只把它放进索引 →
+            # 实际只有索引带归属，任何 rebuild_index() 都会抹掉（实测 73 节点里 56 个无
+            # frontmatter.session，而 _audit.jsonl 的 add 事件却 152/152 都记了 session：
+            # 写入口径与落盘口径脱钩）。与 role 同款：显式给就尊重，否则取 self.session
+            # （MdCGSecure 由 principal.session 注入，mcp_server 按请求切换 cg.session）。
+            _sess = kw.get("session") or getattr(self, "session", None)
+            if _sess and not kw.get("session"):
+                kw["session"] = _sess
+            nid = super().add(node_id, content, layer=layer, **kw)
+            e = self.index["nodes"].get(nid)
+            if e is not None and role is not None:
+                e["role"] = role
+            if e is not None and _sess:
+                e["session"] = _sess
+            if e is not None and (role is not None or _sess):
+                self._dirty[nid] = e
+            # 审计与写面同 sens（写归因三态，2026-10-07）：本节点 frontmatter.session
+            # 由 `_attribution(kw, sens)` 落定，审计记录须经**同一 sens** 过三态单点，
+            # 否则未声明档审计记进程随机、节点记 unattributed（字面分叉）。
+            #
+            # 审计与写面同「有效会话」（同族补齐，2026-10-07）：上面 830-832 行已把
+            # 有效会话（显式声明优先、否则三态单点）落进 `kw["session"]`，而
+            # `super().add(**kw)` 正是把它写进 frontmatter.session / 索引条目——
+            # 故审计行取**同一个已算出的值**（`session=` 命名参数进 meta 后，
+            # `MdCGSecure._audit` 的 setdefault 不再覆盖；与 `session_note` 同一手法）
+            # 而不在 `_audit` 里再拼一次逻辑。修前只补了 sens 一维：显式 session 档下
+            # 审计仍取三态单点 ⇒ 节点 fm.session 落 'X' 而审计行落单点值（未声明档
+            # 'unattributed'／绑定档进程随机）——同一写入两处字面分叉
+            # （`docindex.ingest_transcript` 的 `add(session=<token>)` 早已如此）。
+            # 纯 MdCGOS（无 `_attributed_session` 钩子）同样由此受益：`session_note`
+            # 的日期兜底值经 `add(session=…)` 落 fm 后，add 事件不再落 None。
+            self._audit("add", nid, layer=layer, role=role,
+                        payload_hash=_sig(content), sens=kw.get("sensitivity"),
+                        session=kw.get("session"))
+            return nid
 
 # 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_archived(e) 为真的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
@@ -3231,11 +3266,16 @@ class MdCGOS(MdCG):
                                reason="变更单执行时点前像（%s→%s，pid=%s）"
                                       % (act, tgt, item.get("pid") or "?"))
             if act == _am.B_MERGE:
+                # issue #348-B：B 合并原语的读改写（get → aggregate → 覆写）必须整段
+                # 在跨进程锁内（fsutil.merge_rmw_lock 单点），否则并发合并同一目标时
+                # 后写者用旧正文整份覆盖前者刚追加的聚合行。
                 if str(slot.get("primitive") or "") == "converge_into":
-                    res = writelimit.converge_into(self, tgt, after,
-                                                   override=_ovr, actor=actor,
-                                                   session=session,
-                                                   sensitivity=sens)
+                    with merge_rmw_lock(self):
+                        res = writelimit.converge_into(self, tgt, after,
+                                                       override=_ovr,
+                                                       actor=actor,
+                                                       session=session,
+                                                       sensitivity=sens)
                 else:
                     # #148（2026-10-12）：reinforce 落盘前的降密级 fail-closed 已就绪
                     # （forgetting.py:552-558），此处必须把 incoming 密级接上，否则
@@ -3247,10 +3287,11 @@ class MdCGOS(MdCG):
                     # （`item["id"]` 是**目标**票据 id，记它＝记「目标把内容并入了自己」，
                     # **静默错**——A09 票据链③就是钉这一条的）。真正的 gated-MERGE
                     # 落点在 `remember_gated`（见其 reinforce 调用处的 src_id 槽）。
-                    res = forgetting.reinforce(self, tgt, override=_ovr,
-                                               actor=actor, content=after,
-                                               session=session,
-                                               sensitivity=sens)
+                    with merge_rmw_lock(self):
+                        res = forgetting.reinforce(self, tgt, override=_ovr,
+                                                   actor=actor, content=after,
+                                                   session=session,
+                                                   sensitivity=sens)
                 node_id = tgt
             elif act == _am.C_REWRITE:
                 # 补强（2026-10-02，复核观察 3）：C 的**目标节点在 accept 执行时
@@ -3528,82 +3569,88 @@ class MdCGOS(MdCG):
             self.flush()
             result.update(ok=True, node_id=nid)
         else:  # merge
-            target = merge_into or (item.get("extra") or {}).get("merge_into")
-            tgt = self.get(target) if target else None
-            if not tgt:
-                return {"ok": False, "error": "merge_target_not_found"}
-            # 写保护（N131，2026-09-25）：merge = 对目标节点的一次**覆写**
-            # （_write_node 追加正文），与 accept/edit 的 add 落点同受写保护——
-            # 此前直写绕过双闸，orchestr forbidden「anchor/self/goals/knowledge
-            # 层」被打穿。与 add 同序同错型：principal 层写闸在先（对照
-            # MdCGSecure.add），引擎级 guard_write 在后（对照基类 add :1311）；
-            # 闸必须在 _record_decision 之前抛出——审计节点写入本就在其
-            # try/except 内，闸放那里会被吞成 record_error 形同虚设。
-            _p = getattr(self, "principal", None)
-            _e = (self.index.get("nodes") or {}).get(target) or {}
-            if _p is not None and hasattr(_p, "require_layer_write"):
-                _p.require_layer_write(
-                    _e.get("layer") or tgt["frontmatter"].get("layer")
-                    or tgt["path"].split("/")[0],
-                    _e.get("sensitivity") or DEFAULT_SENSITIVITY)
-            protect.guard_write(self, target, override=override,
-                                actor=getattr(self, "actor", None))
-            # issue #359（2026-10-16 DSH 端）：merge 是第四个「incoming 并入
-            # target、按 target 档可见」的合并落点——#148/#243 已在另外三处判
-            # 「incoming 密级高于 target 即 fail-closed」，此处漏接 ⇒ private
-            # 提案正文以明文并入 internal 节点、无令牌访客可读。且本分支默认
-            # 裁决者能读到提案，实际无处检查（N201 的可见性过滤只在
-            # review_list）⇒ orchestr 凭 pid 也能 merge 后读回。两步都在拼接
-            # 之前、_record_decision 之前（闸放后面会被审计 try/except 吞掉）。
-            _prop_sens = (item.get("sensitivity")
-                          or (item.get("extra") or {}).get("sensitivity")
-                          or DEFAULT_SENSITIVITY)
-                          # 未记录时按缺省档（internal）：报告建议的 "secret" 会让
-                          # 「提案未声明密级」的普通 merge 全部被拒（实测 n131 G1a/G1b
-                          # 转 red）——而 #148 的语义是判「incoming 高于 target」，
-                          # unknown 视同缺省档即可挡住报告的攻击（private 已被记录）。
-            _tgt_sens = (_e.get("sensitivity")
-                         or tgt["frontmatter"].get("sensitivity")
-                         or DEFAULT_SENSITIVITY)
-            if hasattr(self, "_readable") and not self._readable(
-                    {"sensitivity": _prop_sens,
-                     "session": item.get("session")}):
-                return {"ok": False, "error": "proposal_not_visible",
-                        "proposal_sensitivity": _prop_sens}
-            if _security.merge_downgrades(_tgt_sens, _prop_sens):
-                return {"ok": False, "error": "merge_downgrade_refused",
-                        "target_sensitivity": _tgt_sens,
-                        "incoming_sensitivity": _prop_sens}
-            fm = dict(tgt["frontmatter"])
-            merged_content = (tgt["content"].rstrip() + "\n\n" +
-                              item["content"].strip() + "\n")
-            # 不适用条件并集（保序去重）
-            neg = list(fm.get("non_applicable_conditions") or [])
-            for x in (item.get("extra") or {}).get("non_applicable_conditions") or []:
-                if x not in neg:
-                    neg.append(x)
-            fm["non_applicable_conditions"] = neg
-            self._write_node(target, os.path.join(self.root, tgt["path"]),
-                             fm, merged_content)
-            # 定向索引 upsert（issue #34）：merge 只改一个目标节点，原
-            # rebuild_index 收尾是 _scan_nodes 全库 O(N) 逐文件扫描
-            # （1500 池实测 ~97-247ms/次），与 accept/edit 的 add+flush
-            # O(1) 增量收尾不对称。改为：单文件条目重算（_node_entry 与
-            # _scan_nodes 同源唯一真源——字段集零漂移）+ 内存索引/增量
-            # 日志定向写入 + flush。不走 _stage：目标已在索引，_stage 会
-            # 虚增 bucket 计数；merge 不改 tags/目录，bucket 不变。
-            # _dirty 置数同时推进 readcache 代际（写盘后同实例不陈旧）。
-            try:
-                tp = os.path.join(self.root, tgt["path"])
-                with open(tp, encoding="utf-8") as f:
-                    fm2, c2 = nodefile.loads(f.read())
-                e2 = self._node_entry(tp, tgt["path"].split("/")[0], fm2, c2)
-                self.index["nodes"][target] = e2
-                self._dirty[target] = e2
-            except OSError:
-                pass    # 单文件重读失败（极罕见）：条目留旧值，下次 rebuild 对账
-            self.flush()
-            result.update(ok=True, node_id=target)
+            # issue #348-B（2026-10-17 U06）：本分支也是「读目标 → 拼接正文 → 整份
+            # 覆写」的读改写（B.4 点名的 :3073/:3081 落点），此前与 reinforce/
+            # converge_into 同病、全程无跨进程锁：两个裁决进程同时 merge 到同一目标
+            # 时，后写者用自己读到的旧正文整份覆盖前者刚并入的提案正文。锁与另两个
+            # 落点共用同一把（merge_rmw_lock 按根一把），整段（含 flush）在锁内。
+            with merge_rmw_lock(self):
+                target = merge_into or (item.get("extra") or {}).get("merge_into")
+                tgt = self.get(target) if target else None
+                if not tgt:
+                    return {"ok": False, "error": "merge_target_not_found"}
+                # 写保护（N131，2026-09-25）：merge = 对目标节点的一次**覆写**
+                # （_write_node 追加正文），与 accept/edit 的 add 落点同受写保护——
+                # 此前直写绕过双闸，orchestr forbidden「anchor/self/goals/knowledge
+                # 层」被打穿。与 add 同序同错型：principal 层写闸在先（对照
+                # MdCGSecure.add），引擎级 guard_write 在后（对照基类 add :1311）；
+                # 闸必须在 _record_decision 之前抛出——审计节点写入本就在其
+                # try/except 内，闸放那里会被吞成 record_error 形同虚设。
+                _p = getattr(self, "principal", None)
+                _e = (self.index.get("nodes") or {}).get(target) or {}
+                if _p is not None and hasattr(_p, "require_layer_write"):
+                    _p.require_layer_write(
+                        _e.get("layer") or tgt["frontmatter"].get("layer")
+                        or tgt["path"].split("/")[0],
+                        _e.get("sensitivity") or DEFAULT_SENSITIVITY)
+                protect.guard_write(self, target, override=override,
+                                    actor=getattr(self, "actor", None))
+                # issue #359（2026-10-16 DSH 端）：merge 是第四个「incoming 并入
+                # target、按 target 档可见」的合并落点——#148/#243 已在另外三处判
+                # 「incoming 密级高于 target 即 fail-closed」，此处漏接 ⇒ private
+                # 提案正文以明文并入 internal 节点、无令牌访客可读。且本分支默认
+                # 裁决者能读到提案，实际无处检查（N201 的可见性过滤只在
+                # review_list）⇒ orchestr 凭 pid 也能 merge 后读回。两步都在拼接
+                # 之前、_record_decision 之前（闸放后面会被审计 try/except 吞掉）。
+                _prop_sens = (item.get("sensitivity")
+                              or (item.get("extra") or {}).get("sensitivity")
+                              or DEFAULT_SENSITIVITY)
+                              # 未记录时按缺省档（internal）：报告建议的 "secret" 会让
+                              # 「提案未声明密级」的普通 merge 全部被拒（实测 n131 G1a/G1b
+                              # 转 red）——而 #148 的语义是判「incoming 高于 target」，
+                              # unknown 视同缺省档即可挡住报告的攻击（private 已被记录）。
+                _tgt_sens = (_e.get("sensitivity")
+                             or tgt["frontmatter"].get("sensitivity")
+                             or DEFAULT_SENSITIVITY)
+                if hasattr(self, "_readable") and not self._readable(
+                        {"sensitivity": _prop_sens,
+                         "session": item.get("session")}):
+                    return {"ok": False, "error": "proposal_not_visible",
+                            "proposal_sensitivity": _prop_sens}
+                if _security.merge_downgrades(_tgt_sens, _prop_sens):
+                    return {"ok": False, "error": "merge_downgrade_refused",
+                            "target_sensitivity": _tgt_sens,
+                            "incoming_sensitivity": _prop_sens}
+                fm = dict(tgt["frontmatter"])
+                merged_content = (tgt["content"].rstrip() + "\n\n" +
+                                  item["content"].strip() + "\n")
+                # 不适用条件并集（保序去重）
+                neg = list(fm.get("non_applicable_conditions") or [])
+                for x in (item.get("extra") or {}).get("non_applicable_conditions") or []:
+                    if x not in neg:
+                        neg.append(x)
+                fm["non_applicable_conditions"] = neg
+                self._write_node(target, os.path.join(self.root, tgt["path"]),
+                                 fm, merged_content)
+                # 定向索引 upsert（issue #34）：merge 只改一个目标节点，原
+                # rebuild_index 收尾是 _scan_nodes 全库 O(N) 逐文件扫描
+                # （1500 池实测 ~97-247ms/次），与 accept/edit 的 add+flush
+                # O(1) 增量收尾不对称。改为：单文件条目重算（_node_entry 与
+                # _scan_nodes 同源唯一真源——字段集零漂移）+ 内存索引/增量
+                # 日志定向写入 + flush。不走 _stage：目标已在索引，_stage 会
+                # 虚增 bucket 计数；merge 不改 tags/目录，bucket 不变。
+                # _dirty 置数同时推进 readcache 代际（写盘后同实例不陈旧）。
+                try:
+                    tp = os.path.join(self.root, tgt["path"])
+                    with open(tp, encoding="utf-8") as f:
+                        fm2, c2 = nodefile.loads(f.read())
+                    e2 = self._node_entry(tp, tgt["path"].split("/")[0], fm2, c2)
+                    self.index["nodes"][target] = e2
+                    self._dirty[target] = e2
+                except OSError:
+                    pass    # 单文件重读失败（极罕见）：条目留旧值，下次 rebuild 对账
+                self.flush()
+                result.update(ok=True, node_id=target)
 
         return self._finish_decision(pid, item, decision, reason, round_no,
                                      rt_v, rt_issues, expect, result)
@@ -4276,10 +4323,13 @@ class MdCGOS(MdCG):
             # B3（2026-09-30）：同族未接线写点——此处与 remember_gated 的 MERGE
             # 分支同病（手上握着 content 却不往下传 → 新正文丢失）。同款传
             # content + session；落库动作仍是 forgetting.reinforce（单点）。
-            out["reinforced"] = forgetting.reinforce(
-                self, vd["duplicate_with"], actor=getattr(self, "actor", None),
-                content=content, session=_writer_session(self),
-                sensitivity=sensitivity)
+            # issue #348-B：读改写整段在跨进程锁内（fsutil.merge_rmw_lock 单点）。
+            with merge_rmw_lock(self):
+                out["reinforced"] = forgetting.reinforce(
+                    self, vd["duplicate_with"],
+                    actor=getattr(self, "actor", None),
+                    content=content, session=_writer_session(self),
+                    sensitivity=sensitivity)
         out["note"] = {"write": "已新增节点", "reinforce": "已并入既有节点（未新增）",
                        "discard": "已丢弃（不写）", "defer": "留待复核（不写不并）"}.get(dec, "")
         return out
@@ -4657,7 +4707,10 @@ class MdCGOS(MdCG):
                     "v_types": list(ins.V_TYPES), "v_labels": dict(ins.V_LABELS),
                     "window_min": ins.C1_WINDOW_MIN,
                     "sample_min": ins.CER_MIN_SAMPLES,
-                    "importance_floor": ins.IMPORTANCE_FLOOR,
+                    # #433 拆名随动：`insight.IMPORTANCE_FLOOR` 已拆为
+                    # `VERIFY_IMPORTANCE_FLOOR`（verified 后的重要度保底）。此处是**自描述回执**
+                    # 的取数点，漏改即 catalog 动作 AttributeError 整条崩（p31 实测）。
+                    "importance_floor": ins.VERIFY_IMPORTANCE_FLOOR,
                     "events": {"total": len(events), "by_state": by_state},
                     "nodes": len(nodes),
                     "note": "洞察层自描述：条件快照字段 + 证据类型 + 判定门槛"}
@@ -5113,20 +5166,23 @@ class MdCGOS(MdCG):
                                           "limiter": lim.get("limiter"),
                                           "actor": self.actor})
                     return _ag
+                # issue #348-B：CONVERGE 的读改写整段在跨进程锁内。
+                with merge_rmw_lock(self):
+                    _conv = writelimit.converge_into(
+                        self, tgt, content, override=override,
+                        actor=self.actor, session=_writer_session(self, kw),
+                        # #148（2026-10-12）：add-路径 CONVERGE 同款接线——
+                        # 缺此行则该路径拿不到 incoming 密级、降密级 fail-closed 失效。
+                        # issue #397：**形参接上了还不够，取的对象也得对**——必须传
+                        # **有效密级** `_sens_eff`（声明值 ∨ 继承既有节点密级），
+                        # 而不是声明值：「同 id 改写 + 不重传 sensitivity」是本仓常态，
+                        # 那种情形下 `kw.get("sensitivity")` 为 None ⇒
+                        # `merge_downgrades(target, None)` 按 DEFAULT 处理 ⇒ 恒 False
+                        # ⇒ restricted 明文并入 internal（本处即报告的第 3 落点，P1）。
+                        sensitivity=_sens_eff)
                 out = {"verdict": "MERGE", "node_id": node_id,
                        "merged_into": tgt, "gate": lim,
-                       "converged": writelimit.converge_into(
-                           self, tgt, content, override=override,
-                           actor=self.actor, session=_writer_session(self, kw),
-                           # #148（2026-10-12）：add-路径 CONVERGE 同款接线——
-                           # 缺此行则该路径拿不到 incoming 密级、降密级 fail-closed 失效。
-                           # issue #397：**形参接上了还不够，取的对象也得对**——必须传
-                           # **有效密级** `_sens_eff`（声明值 ∨ 继承既有节点密级），
-                           # 而不是声明值：「同 id 改写 + 不重传 sensitivity」是本仓常态，
-                           # 那种情形下 `kw.get("sensitivity")` 为 None ⇒ 
-                           # `merge_downgrades(target, None)` 按 DEFAULT 处理 ⇒ 恒 False
-                           # ⇒ restricted 明文并入 internal（本处即报告的第 3 落点，P1）。
-                           sensitivity=_sens_eff)}
+                       "converged": _conv}
                 fv = "MERGE"
             elif lim["verdict"] == "DROP":
                 # 精确重复（与既有节点正文一致）：零新信息，交回旧闸门
@@ -5268,10 +5324,14 @@ class MdCGOS(MdCG):
             # 既有正文，新值 100% 丢弃（探针实测：近重复第二次写入的关键值全库
             # 0 命中、目标正文逐字节未变）。返回体带 content_sink（新正文去向：
             # 写进哪个节点/哪一行）+ source（归属），调用方不必猜。
-            out["reinforced"] = (forgetting.reinforce(
-                self, tgt, override=override, actor=self.actor,
-                content=content, session=_writer_session(self, kw),
-                # issue #315：#148 的降密级 fail-closed 判据在 forgetting.reinforce
+            # issue #348-B：MERGE 读改写整段在跨进程锁内（fsutil.merge_rmw_lock
+            # 单点）。tgt 为空时沿用旧行为（不调用原语、reinforced 为 None）。
+            if tgt:
+                with merge_rmw_lock(self):
+                    out["reinforced"] = forgetting.reinforce(
+                        self, tgt, override=override, actor=self.actor,
+                        content=content, session=_writer_session(self, kw),
+                        # issue #315：#148 的降密级 fail-closed 判据在 forgetting.reinforce
                 # 内（security.merge_downgrades 单点），但它**依赖这个形参**——不传
                 # 则取缺省 None，merge_downgrades(target, None) 恒 False ⇒ 判据放行，
                 # 声明 private 的正文以聚合行并入 internal 节点、按 internal 明文存续。
@@ -5287,8 +5347,9 @@ class MdCGOS(MdCG):
                 # 目标 fm.merge_source_ids，供两段式恢复期在**盘面**反查「内容已并入谁」。
                 # 本处才是 #417 的真实落点：`_gate_gated` 在 verdict=MERGE 时先建意图、
                 # 合并落盘、再 commit；崩溃落在「已落盘、未 commit」窗口时才需要这条痕迹。
-                src_id=node_id)
-                if tgt else None)
+                        src_id=node_id)
+            else:
+                out["reinforced"] = None
         elif v == "DROP":
             # B3 ④（2026-09-30）：内部确定性来源的近重复（`assess` 的 :214
             # 分支：kind==internal_deterministic 且 dup≥DUP_DROP=0.60）在
@@ -6138,6 +6199,19 @@ class MdCGSecure(MdCGOS):
         """
         if declared:
             return declared
+        # issue #322（复核补）：**继承读必须看到他进程已落盘的密级**。
+        # 病象：`subgraph.node_sensitivity` 优先取**本进程内存索引**的
+        # `sensitivity` 键（subgraph.py:352-356），而跨进程代际感知
+        # （`_maybe_reload_index`）此前只在读面/部分写面接线——同 id 两进程
+        # 「A 声明 internal 覆写、B 未声明继承」时，B 按**陈旧索引**（seed 的
+        # public）落盘，把 A 刚写的 internal 静默降级（探针
+        # `.tmp/u06/probe_secure_add.py` 实测：无锁 6/6 轮降级；只加 add 锁
+        # 仍 3/6 轮，因为锁只保证互斥、不保证读到新值）。
+        # 故在**锁内、读之前**做一次代际探活（本仓既有单点惯例，见
+        # forgetting.py:195）：签名未变时零成本返回 False；变了才重载。
+        _probe = getattr(self, "_maybe_reload_index", None)
+        if callable(_probe):
+            _probe()
         try:
             prev = subgraph.node_sensitivity(self, node_id)
         except AccessDenied:
@@ -6175,18 +6249,24 @@ class MdCGSecure(MdCGOS):
 # 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**、新节点回落 DEFAULT_SENSITIVITY、既有节点密级判不了则 fail-closed 抛 AccessDenied），再 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
-        sens = self._write_sensitivity(node_id, sensitivity)
-        _rank(sens)
-        self.principal.require_layer_write(layer, sens)
-        self._attribution(kw, sens)
-        # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
-        # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`
-        # 的密级闸据此判「声明 private 而落 internal」这类静默降级；把归一值
-        # 当声明传会让闸永远看不出差异（它比的就是同一个值）。
-        nid = super().add(node_id, content, layer=layer, sensitivity=sens,
-                          declared_sensitivity=sensitivity, **kw)
-        self._index_sensitivity(nid, sens)
-        return nid
+        # issue #322（复核补）：本层在 super().add 之前就要**读既有节点**做密级继承
+        # （_write_sensitivity 内部 get() + subgraph.node_sensitivity），是典型的
+        # 「读旧值 → 据此落盘」；锁若只在 MdCGOS.add 里，这段读改写仍在锁外
+        # （并发下按陈旧密级落盘）。故本层整段持同一把 node 锁——同线程重入由
+        # fsutil._ReentrantFileLock 按深度计数，super().add 再取不会自锁。
+        with node_write_lock(self, node_id):
+            sens = self._write_sensitivity(node_id, sensitivity)
+            _rank(sens)
+            self.principal.require_layer_write(layer, sens)
+            self._attribution(kw, sens)
+            # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
+            # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`
+            # 的密级闸据此判「声明 private 而落 internal」这类静默降级；把归一值
+            # 当声明传会让闸永远看不出差异（它比的就是同一个值）。
+            nid = super().add(node_id, content, layer=layer, sensitivity=sens,
+                              declared_sensitivity=sensitivity, **kw)
+            self._index_sensitivity(nid, sens)
+            return nid
 
 # 生效条件：sens 经 _write_sensitivity（id 走基类单点 _rejected_nid）解析——#439：未声明且有既有节点 ⇒ 继承其密级、显式声明原样优先、既有密级判不了则 fail-closed 抛 AccessDenied；先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
