@@ -61,6 +61,24 @@ _LOG_DIR = os.environ.get("MDCG_TESTLOG_DIR") or os.path.join(
     tempfile.gettempdir(), "md_cg_testlogs")
 
 
+#: 会话类 env 剔除名单（issue #196 / #198，2026-10-13）。宿主/部署侧注入会话 id 时，
+#: md_cg/stg.py::_view_session 的 env 权威分支会把守卫夹具声明的会话改写成 env 值，
+#: 同一守卫在「有 env 的开发机」上红、在干净 CI 上绿，属假红。上游 scripts/run_tests.py
+#: 已有同口径剔除（同名单同日期），而 README 指定的包内入口 python -m md_cg.run_tests
+#: 跑同一批守卫——本文件补同口径，避免两条入口对同一守卫给出相反结论。
+#: env 权威本身是 issue #128 的刻意设计，本条不改变产品行为，只在测试环境剔除。
+_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION")
+_STRIP_UPPER = frozenset(_k.upper() for _k in _SESSION_ENV_STRIP)
+
+
+def _test_env() -> dict:
+    """子进程环境：UTF-8 自保证 + 剔除宿主会话变量（不修改 os.environ 本身）。"""
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    for _k in [k for k in env if k.upper() in _STRIP_UPPER]:
+        env.pop(_k, None)
+    return env
+
+
 def _discover():
     """返回 [(组名, 显示名, argv 候选列表)]；argv 依次尝试直到成功启动。"""
     out = []
@@ -95,7 +113,7 @@ def _discover():
 def _run_one(name, argvs, timeout):
     """跑一个用例；输出**重定向到文件**（不用管道——沙箱禁 CreatePipe）。"""
     os.makedirs(_LOG_DIR, exist_ok=True)
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    env = _test_env()
     last = ""
     for argv in argvs:                    # -m 优先；No module named 时回退直跑
         log = os.path.join(_LOG_DIR, name.replace(".", "_") + ".log")
