@@ -236,7 +236,7 @@ def _normalize_evidence(evidence=None, v_types=None):
     return out
 
 
-# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED；裁决分支落盘前经 protect.guard_overwrite（层闸 + 保护闸），写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=ent，推进读缓存代际与索引增量日志）。
+# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 VERIFY_IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED；裁决分支落盘前经 protect.guard_overwrite（层闸 + 保护闸），写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=ent，推进读缓存代际与索引增量日志）。
 def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
            actor=None, note=""):
     """用 V1/V2/V3 外部证据裁决洞见事件。
