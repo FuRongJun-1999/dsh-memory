@@ -198,7 +198,7 @@ def is_protected(cg, node_id):
 def is_protected_entry(fm):
     """**条目口径**的「不可遗忘」判定单点（#431/#432/#468 与 lifecycle/trust 共用）。
 
-    与 `is_protected(cg, node_id)` **同源**：后者现在就是「取 fm 再调本函数」——
+    与 `is_protected` **同源**：后者现在就是「取 fm 再调本函数」——
     两口径是**同一个函数**（构造上唯一），不是两份实现靠腿互证。
 
     为什么需要条目口径：weights（fm 条目）、consolidate（索引条目）、forgetting._tier_of
@@ -220,13 +220,9 @@ def is_protected_entry(fm):
     _src = fm.get("importance_source")
     if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):
         return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"
-    return False, ""
     # issue50-e（2026-10-02）：按分保护**只认缺省或显式 hint 来源**——
     # 语义与边界见 docstring ①②③；_fm 恒带 importance_source 键（缺省读
     # None），老索引条目缺键同样落 None ⇒ 存量按分保护一字不变。
-    _src = fm.get("importance_source")
-    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):
-        return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"
     return False, ""
 
 

@@ -563,8 +563,10 @@ _ANCHORS_REQUIRED = (
 
 
 def _fn_src(target):
+    # U01 批（#431/#432/#468）：判据本体从 is_protected 移入 is_protected_entry
+    # （is_protected 改为委派同一函数）⇒ 变异/锚点一律对准**真源所在函数**。
     if target == "is_protected":
-        return inspect.getsource(protect.is_protected)
+        return inspect.getsource(protect.is_protected_entry)
     raise KeyError(target)
 
 
@@ -595,12 +597,12 @@ def _patched_ctx(old, new):
     mutated = src.replace(old, new)
     ns = dict(vars(protect))
     exec(compile(mutated, "i50e_mut.py", "exec"), ns)
-    live = protect.is_protected
-    protect.is_protected = ns["is_protected"]
+    live = protect.is_protected_entry
+    protect.is_protected_entry = ns["is_protected_entry"]
     try:
         yield
     finally:
-        protect.is_protected = live
+        protect.is_protected_entry = live
 
 
 def _mutate_mode():
