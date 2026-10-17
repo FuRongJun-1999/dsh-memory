@@ -314,7 +314,10 @@ _MUT = [
      ["            if False:"],
      ("B2", "B3")),
     ("V4 去掉同名本地节点守卫（= 本件病象 C）",
-     ["            if prev is not None and TAG_XNODE not in set(prev.get(\"tags\") or []):"],
+     # 本次改动：把 `#191-C` 的判据从**字面形态**（`prev is not None`）移到**谓词调用**
+     # （`_local_generation_blocks`）；**强度不降**——谓词内含原本全部条件（prev is not None
+     # + 非 xnode + 代际比较）。**改字面而非改判据。**
+     ["            if _local_generation_blocks(xid, prev, created):"],
      ["            if False:"],
      ("C1", "C2")),
     ("V5 created_at 非法不拒收（回落 0）",

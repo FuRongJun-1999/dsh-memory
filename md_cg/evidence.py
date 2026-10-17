@@ -68,6 +68,14 @@ SEEN_FILE = "_xnode_seen.json"
 MAX_ITEMS = 500              # 单包条目上限（防灌包）
 MAX_TEXT = 4000              # 单条正文上限
 
+# ---- issue #453（站点 2）：版本号不得由对端单方面推进 ----
+#: 允许的对端时钟前偏（秒）。`created_at` 超过 `now + 本值` ⇒ **整包拒收**（与
+#: 「非数值 / 非有限值整包拒收」同口径，fail-closed）。
+#: 为什么需要上界：#191-B 拿 `created_at` 当版本号写 `_xnode_seen` 台账（跨进程持久）。
+#: 免签名通道下该值完全由对端填写且无上界 ⇒ 一个 `9e15` 就把台账永久推高，
+#: 之后**所有**真实时间戳的合法包都被判 `replayed`（回执仍 `ok: true`）＝永久静默屏蔽。
+MAX_PACK_FUTURE_SKEW = 300.0
+
 # ---- issue #258：密级面的**单一权威**（不另立判据，直接引既有常量） ----
 _SENSITIVITY_ORDER = _sec.SENSITIVITY_ORDER
 _ENCRYPTED_LEVELS = set(_crypto.ENCRYPTED_LEVELS)
@@ -508,7 +516,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、**签名串非空**（#453 fail-closed：空签名一律拒，不看 `sig.signer`/`sig.signed` 等对端自报值）、created_at 为有限数且不超过 now+MAX_PACK_FUTURE_SKEW 方可通过；通过则先对判据载体做一次代际探活（#403：`_maybe_reload_index`，陈旧索引下同名本地节点仍须被看见），再对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
 def _seen_path(cg) -> str:
     """已见台账路径（本根顶层）。cg.root 不可用时返回空串（调用方按无账处理）。"""
     root = getattr(cg, "root", None)
@@ -568,6 +576,45 @@ def _import_importance(raw):
     return v, 0
 
 
+def _signer_declaration_rejected(pack, signature) -> bool:
+    """#453（站点 1）：是否应**拒绝**该包的签名面（**返回 True ⇒ 拒绝**）。
+
+    判据只有一条：**签名串为空 ⇒ 拒**（fail-closed）。不看对端在 `sig` 里自称什么。
+
+    修前是豁免白名单：`if not signature and sig.signer != "null"` —— 对端写
+    `sig.signer="null"` 就让空签名绕过拒绝（形态名：**以声明值作为豁免凭据**）。
+
+    ★ 为什么**不能**改成「`signed is False` 且空串 ⇒ 放行」（本单元一度出现过的写法）：
+      `sig` 整块由**对端**书写，`signed` 与 `signer` 一样是自报字符串/布尔，没有任何
+      凭据把它绑定到真实封装动作。把豁免键从 `signer` 换到 `signed` 只是**换了一个
+      免签名通行证的名字**，伪造来源（`source:<任意节点>`）依旧无密钥可达——本单元
+      实测：`{"signer":"null","signature":"","signed":false}` ⇒ imported=1。
+      `export_pack` 自己产的无签名包（策略未对 evidence 签名）也因此不可导入——
+      与 issue #453 的「缺签名 ⇒ 一律拒收」及 import_pack docstring 逐字一致。
+    """
+    return not (signature or "").strip()
+
+
+def _local_generation_blocks(xid, prev, created) -> bool:
+    """#403：同名的「本地」节点是否应**阻断**对端写入（**返回 True ⇒ 阻断**）。
+
+    判据 = 两条全真：① prev 存在；② 非 `xnode:cross` 跨节点证据。
+
+    ★ 为什么**不**比时间戳（复核意见 3 的现场）：本仓索引条目（`MdCG._node_entry`）
+      只有 `created_at`（= fm.created_at，节点**创建**时刻），**没有 `updated_at`**
+      （全仓 grep：`updated_at` 只出现在 links/refindex/self_state，不在索引条目里）。
+      拿一个不存在的键做「本地是否更新」的比较 ⇒ 分支不可达、判据恒为 True，既给
+      守卫虚假覆盖，又埋下「将来该键入索引时 #191-C 静默变成按时间比较、陈旧本地被
+      对端覆盖」的隐患。故此处**不做**代际比较——语义回到 #191-C 逐字：
+      「本根里同名的**本地**节点不得被对端覆写」。`created` 形参保留（调用点同签名、
+      判据单点仍在；将来索引真有代际键时在此一处扩展）。
+    """
+    if prev is None:
+        return False
+    if TAG_XNODE in set(prev.get("tags") or []):
+        return False
+    return True
+
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -593,23 +640,44 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if not vres.get("ok"):
         return _note_reject(pack, f"验签失败：{vres.get('reason') or '未知'}",
                             swarm=swarm, on_fail=vres.get("on_fail"))
-    if not signature and (pack.get("sig") or {}).get("signer") != "null":
+    # issue #453（SEC·P1）：**删掉 `signer == "null"` 这个豁免**——「声明为空」曾被当成
+    # 「不要求签名」，于是对端只要在包里写 `sig.signer="null"` 就能带着空签名通过。
+    # fail-closed：声明为空 ⇒ 拒（不是跳过校验）。不改 signer.verify_for：它的
+    # 「不要求且未提供 ⇒ 放行」对其它调用方是**合法语义**，本件是**调用方该判空却没判**。
+    if _signer_declaration_rejected(pack, signature):
         return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
                             swarm=swarm)
 
-    # issue #191-B：包版本以**签名载荷里的 created_at** 为准（`_pack_payload` 已含它，
-    # 对端改不了）。缺省按 0（只能新建、不能覆写）；非数值 / 非有限值整包拒收。
+    # issue #191-B：包版本以 `created_at` 为准。缺省按 0（只能新建、不能覆写）；
+    # 非数值 / 非有限值整包拒收。
+    # issue #453（站点 2）：**「在签名载荷里」不等于「对端改不了」**——站点 1 的
+    # 免签名通道下 `created_at` 完全由对端填写且原本无上界 ⇒ 一个 `9e15` 就把
+    # `_xnode_seen` 台账（跨进程持久）永久推高，之后**所有**真实时间戳的合法包都
+    # 被判 `replayed`（回执仍 `ok: true`）＝永久静默屏蔽。现加**上界**：超过
+    # `now + MAX_PACK_FUTURE_SKEW` 一律整包拒收（与「非有限值整包拒收」同口径）。
+    # 站点 1 已改为「空签名一律拒」，故此处不再需要「未签名包按本地代际」的分支。
     created = pack.get("created_at")
     if created is None:
         created = 0.0
     elif (isinstance(created, bool) or not isinstance(created, (int, float))
           or not math.isfinite(created)):
         return _note_reject(pack, f"证据包 created_at 非法：{created!r}", swarm=swarm)
+    if created > time.time() + MAX_PACK_FUTURE_SKEW:
+        return _note_reject(
+            pack, "证据包 created_at 超出允许前偏（%r > now+%gs）：拒绝未来时间戳"
+                  "推进版本台账" % (created, MAX_PACK_FUTURE_SKEW), swarm=swarm)
     seen = _load_seen(cg)
     items = pack["items"][:MAX_ITEMS]
     written, skipped, replayed, clamped = [], 0, 0, 0
     #: issue #258：拒收理由留痕（此前降级**不可见**——返回体只说 imported: N）
     reasons = []
+    # issue #403：判据载体是**本进程内存索引**；他进程（review_cli / hive worker /
+    # 第二个 MCP 实例）刚写入的本地节点不在其中 ⇒ `prev is None` ⇒ #191-C 放行 ⇒
+    # 同名本地节点被 override=True 静默顶替。进循环前先做一次代际探活
+    # （N195/N196/N209/N213/N276 同款「循环外单探」；探活失败不阻塞，沿用旧内存态）。
+    _reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(_reload):
+        _reload()
     try:
         for it in items:
             if not isinstance(it, dict):
@@ -650,8 +718,12 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 continue
             # issue #191-C：本根里恰好同名的**本地**节点（不带 xnode:cross 标签）不得
             # 被对端覆写——override 只用于更新本来源自己的 xnode。
+            # issue #403（数据丢失）：判据**单点**在 `_local_generation_blocks`。
+            # 修前调用点曾把同一判据**再算一遍**（`updated_at or created_at >= created`）
+            # 并据此放行，与谓词方向相反 ⇒ 谓词说「阻断」而写入照旧发生（同一真源两份
+            # 实现，形态名「判据复制」）。此处只消费谓词结果，不再自行推导。
             prev = (cg.index.get("nodes") or {}).get(xid)
-            if prev is not None and TAG_XNODE not in set(prev.get("tags") or []):
+            if _local_generation_blocks(xid, prev, created):
                 skipped += 1
                 reasons.append("同名本地节点（非跨节点证据）不覆写：%s" % xid)
                 continue

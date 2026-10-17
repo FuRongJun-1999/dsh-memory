@@ -393,7 +393,10 @@ def _actor_has_ciphertext(root, tenant, actor):
             except OSError:
                 continue
             _fm, content = nodefile.loads(raw)
-            if is_encrypted(content) and enc_id_fp(content) == fp:
+            # issue #446：短路判据由**前缀**改为**结构验证**——`_actor_has_ciphertext` 拿不到 dek
+            # （rotate 护栏只需「该身份是否已有可用密文块」），所以这里是**无 dek 结构验证**：
+            # 前缀对但不可解的伪造块**不再短路**（按裁：无 dek 不短路是修复，不是损失）。
+            if verify_encrypted(content) and enc_id_fp(content) == fp:
                 return True
     return False
 
@@ -517,6 +520,43 @@ def is_encrypted(content):
     return bool(content) and content.lstrip().startswith(ENC_PREFIX)
 
 
+# 生效条件：content 为入参，is_encrypted(content) 为假时返回 False；否则剥 ENC_PREFIX/SUFFIX、
+# 有 ":" 时取其后段、base64 解码，解码失败或长度 < NONCE_LEN 返回 False；dek 为 None 时仅凭
+# 结构验证通过返回 True（**未验证可解密**）；dek 给定时再走 open_node 解密试算，成功 True 失败 False。
+def verify_encrypted(content, dek=None, node_id="", tenant="", actor=""):
+    """「**验证**是密文」——与 `is_encrypted`（「**看起来**是密文」= 前缀）严格区分。
+
+    issue #446（SEC·P0）：修前全仓只有前缀判定，且它**同时充当密封短路** ⇒ 一个只要
+    `<!-- mdcg-enc:v1:` 开头的伪造块就能让密封路径短路。
+
+    ★ 两个函数名各自说清判的是什么（A4 诚实）：
+      · `is_encrypted`    —— 表面：前缀。**不得**把它当前缀判定的结果当验证结论用；
+      · `verify_encrypted` —— 可验证证据：结构（无 dek）/ 解密试算（有 dek）。
+
+    dek 缺省 ⇒ **只做结构验证**（标记段可解析 + base64 可解码 + 长度够）：能拦掉「前缀对但
+    不可解」的伪造块；但**不证明能解密**（结构验证 ≠ 解密验证，未核边界）。
+    """
+    if not is_encrypted(content):
+        return False
+    try:
+        body = content.strip()
+        body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
+        if ":" in body:
+            body = body.split(":", 1)[1]
+        raw = _b64d(body)
+    except Exception:
+        return False
+    if len(raw) < NONCE_LEN:
+        return False
+    if dek is None:
+        return True            # 结构验证通过（**未验证可解密**）
+    try:
+        open_node(content, dek, node_id, tenant, actor)   # AAD 必须与封装时一致
+        return True
+    except Exception:
+        return False
+
+
 # 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
 def enc_id_fp(content):
     """从密文标记块取出**非敏感**身份指纹 `enc_id_fp`（B1）。
@@ -551,8 +591,12 @@ def seal_node(content, dek, node_id, tenant, actor):
 # 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，正文含 ":" 时丢弃其前的 enc_id_fp 段（新格式），base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError；旧格式（无 ":" 段）与新格式同一路径解密（向后兼容）。
 def open_node(content, dek, node_id, tenant, actor):
     """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError（兼容旧格式）。"""
+    # issue #446：前缀命中后**先结构校验**——前缀对但结构坏 ⇒ 明确抛 CryptoError（「声明不可
+    # 用」），不能进解密路径再静默。
     if not is_encrypted(content):
         return content
+    if not verify_encrypted(content):
+        raise CryptoError("密文块结构校验失败（前缀命中但不可解析/不可解码）")
     body = content.strip()
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
     if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
