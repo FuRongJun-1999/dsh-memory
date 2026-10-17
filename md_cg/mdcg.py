@@ -3006,7 +3006,7 @@ class MdCG:
             # 判据复用 `protect.require_layer` 单点（与 N131 merge 支、N221 跨层支、
             # 直写面 `write_qualify` 同口径），不另写第二份「声明↔既有」比较。
             # 次序与 N221/N131/N209 一致：principal 层闸在先、引擎保护闸在后。
-            protect.require_layer(self, node_id, layer=_prev_layer or None,
+            protect.require_layer(self, node_id, layer=_prev_layer,
                                   sensitivity=prev_entry.get("sensitivity"),
                                   actor=extra.get("actor"))
             if _prev_layer and _prev_layer != layer:
@@ -3484,12 +3484,36 @@ class MdCG:
         self._sync_edge_entry(node_id, fm)
         return True
 
+# 生效条件：恒返回 f"rej_{sha1(hypothesis.encode()).hexdigest()[:10]}"（与 add_rejected 的幂等键逐字一致；hypothesis 为 None 时与原内联写法同样抛 AttributeError）。
+    @staticmethod
+    def _rejected_nid(hypothesis) -> str:
+        """负记忆节点 id 单点（#439：口径收一处，安全层与基类共用，不复制 sha1 写法）。"""
+        return f"rej_{hashlib.sha1(hypothesis.encode()).hexdigest()[:10]}"
+
+# 生效条件：恒返回 "unr_"+slug（身份文本 topic 优先、缺省 question，经 _ticket_slug），slug 为空串时回落 "unr_"+sha1((question or "").encode()) 前 10 位——与 add_unresolved 的幂等键逐字一致。
+    def _unresolved_nid(self, question, topic=None) -> str:
+        """未解工单 id 单点（#439）。"""
+        _slug = self._ticket_slug(question, topic)
+        return (f"unr_{_slug}" if _slug else
+                f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+
+# 生效条件：恒返回 f"goal_{sha1((goal or '').strip().encode('utf-8')).hexdigest()[:10]}"——strip 与 add_goal 原内联写法同口径（goal 为 None/空时按 "" 处理）。
+    @staticmethod
+    def _goal_nid(goal) -> str:
+        """目标节点 id 单点（#439）。"""
+        return f"goal_{hashlib.sha1((goal or '').strip().encode('utf-8')).hexdigest()[:10]}"
+
+# 生效条件：self.index["nodes"] 有该 id 条目时返回 True，否则 False——判据与 add_rejected / add_unresolved 的幂等分支同口径（单一写法），供基类与安全层共用。
+    def _node_exists(self, nid) -> bool:
+        """节点是否已在索引中（幂等分支判据单点；#439 幂等收窄靠它）。"""
+        return (self.index.get("nodes") or {}).get(nid) is not None
+
 # 生效条件：nid（"rej_"+sha1(hypothesis) 前 10 位）已在 self.index["nodes"] 中时直接返回该 nid 不写盘（幂等）；否则以 hypothesis/reason/verification_basis（默认 "test"）拼正文并 add(..., layer="rejected", importance=0.0, **extra) 返回新 nid；
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
-        nid = f"rej_{hashlib.sha1(hypothesis.encode()).hexdigest()[:10]}"
-        if nid in self.index["nodes"]:
+        nid = self._rejected_nid(hypothesis)
+        if self._node_exists(nid):
             return nid  # 幂等：重复证伪不重复记录
         content = (f"# 假设：{hypothesis}\n"
                    f"# 否决原因：{reason}\n"
@@ -3534,9 +3558,7 @@ class MdCG:
                     + f"# 目标：{goal or '（未设定）'}\n"
                     f"# 验证：{verification_basis}\n")
 
-        _slug = self._ticket_slug(question, topic)
-        nid = (f"unr_{_slug}" if _slug else
-               f"unr_{hashlib.sha1((question or '').encode()).hexdigest()[:10]}")
+        nid = self._unresolved_nid(question, topic)
         entry = self.index["nodes"].get(nid)
         if entry is not None:
             # 同 id ＝ 同一张工单（**不新建、不改 id/去重机制**）。改前此处直接
@@ -3598,7 +3620,7 @@ class MdCG:
         goal = (goal or "").strip()
         if not goal:
             raise ValueError("goal 不能为空")
-        gid = f"goal_{hashlib.sha1(goal.encode('utf-8')).hexdigest()[:10]}"
+        gid = self._goal_nid(goal)
         content = self._goal_content(goal, conditions, action)
         return self.add(gid, content, layer="goals", tags=tags,
                         importance=float(priority), confidence=1.0,

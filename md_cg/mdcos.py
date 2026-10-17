@@ -6164,24 +6164,40 @@ class MdCGSecure(MdCGOS):
         self._index_sensitivity(nid, sens)
         return nid
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 经 _write_sensitivity（id 走基类单点 _rejected_nid）解析——#439：未声明且有既有节点 ⇒ 继承其密级、显式声明原样优先、既有密级判不了则 fail-closed 抛 AccessDenied；先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add_rejected(self, hypothesis: str, reason: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # issue #439（2026-10-17 U05b）：`sensitivity or DEFAULT_SENSITIVITY` 在**继承
+        # 判定之前**把「未声明 + 有既有节点」钉死成 internal ⇒ `_write_sensitivity`
+        # 的继承分支永不触发（#297 单点此前只接了 add/propose 两个入口）。id 口径走
+        # 基类单点 `_rejected_nid`，不在本层复制 sha1 写法。
+        nid = self._rejected_nid(hypothesis)
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("rejected", sens)
         self._attribution(kw, sens)
-        nid = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
-        self._index_sensitivity(nid, sens)
-        return nid
+        # 幂等语义（Lead 裁定）：基类命中既有 id 时**不重写**（直接 return），
+        # 重入路径上不该产生任何副作用 ⇒ 只在**实际落盘**分支写索引。
+        _wrote = not self._node_exists(nid)
+        out = super().add_rejected(hypothesis, reason, sensitivity=sens, **kw)
+        if _wrote:
+            self._index_sensitivity(out, sens)
+        return out
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
+# 生效条件：sens 经 _write_sensitivity（id 走基类单点 _unresolved_nid）解析——#439：未声明且有既有工单 ⇒ 继承其密级、显式声明原样优先、判不了 fail-closed；先 principal.require_layer_write("unresolved", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_unresolved(question, known_clues, goal)，最后调 _index_sensitivity 并返回 nid。
     def add_unresolved(self, question: str, known_clues: str = "", goal: str = "",
                        sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # issue #439：同 add_rejected —— id 口径走基类单点 _unresolved_nid（身份文本
+        # topic 优先、缺省 question，与基类幂等键逐字一致），密级走 _write_sensitivity。
+        nid = self._unresolved_nid(question, kw.get("topic"))
+        sens = self._write_sensitivity(nid, sensitivity)
         self.principal.require_layer_write("unresolved", sens)
         self._attribution(kw, sens)
-        nid = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
-        self._index_sensitivity(nid, sens)
-        return nid
+        # 既有 id ⇒ 基类走 _refresh_unresolved（只重渲染正文、fm/密级不动）⇒ 非
+        # 实际落盘分支，不写索引（幂等收窄，同 add_rejected）。
+        _wrote = not self._node_exists(nid)
+        out = super().add_unresolved(question, known_clues, goal, sensitivity=sens, **kw)
+        if _wrote:
+            self._index_sensitivity(out, sens)
+        return out
 
 # 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再按**既有节点真层真密级**调 protect.require_layer（#346：提案者自己落不了盘的覆写不入队），最后转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
@@ -6204,9 +6220,13 @@ class MdCGSecure(MdCGOS):
                                       sensitivity=_ex.get("sensitivity") or None)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
-# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
+# 生效条件：sens 经 _write_sensitivity（id 走基类单点 _goal_nid）解析——#439：未声明且有既有目标 ⇒ 继承其密级、显式声明原样优先、判不了 fail-closed；先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。
     def add_goal(self, goal: str, sensitivity: str = None, **kw) -> str:
-        sens = sensitivity or DEFAULT_SENSITIVITY
+        # issue #439：目标同 id 覆盖（基类 add_goal 恒走 add、无幂等短路）⇒ 密级
+        # 也必须继承——id 口径走基类单点 _goal_nid，密级走 _write_sensitivity。
+        # #426-H 的另一半（分派层转发 sensitivity）随本批同修。
+        gid = self._goal_nid(goal)
+        sens = self._write_sensitivity(gid, sensitivity)
         _rank(sens)
         self.principal.require_layer_write("goals", sens)
         gid = super().add_goal(goal, sensitivity=sens, **kw)

@@ -2568,13 +2568,19 @@ def _cg_dispatch(cg, a):
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()
         if act == "add":
+            # issue #426-H（2026-10-17 U05b，随 #439 同批修）：此前**没有**转发
+            # `sensitivity`——调用方显式传、服务端收下、然后静默丢掉 ⇒ 声明 private
+            # 的目标以 internal 明文落盘、访客可读（「显式声明静默失效」形态，与
+            # #186/#294 同族）。登记面（op_table 的 goal params）与转发面是同一件事
+            # 的两半，同批改，避免「声明了却做不到」。
             gid = cg.add_goal(a.get("goal") or a.get("text") or "",
                               priority=float(a.get("priority", 0.5)),
                               deadline=a.get("deadline"),
                               conditions=a.get("conditions") or "",
                               action=a.get("action_hint") or "",
                               tags=a.get("tags"),
-                              status=a.get("goal_status") or "active")
+                              status=a.get("goal_status") or "active",
+                              sensitivity=a.get("sensitivity"))
             return {"ok": True, "id": gid}
         if act == "generate":
             # W2 自主目标 · 盲区→目标生成器（**仅显式调用**；首版不进 sleep/sustain

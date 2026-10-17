@@ -460,6 +460,10 @@ _OP_TABLE = {
             "conditions",
             "action_hint",
             "limit",
+            # #426-H（2026-10-17 U05b）：目标密级此前**已支持**（MdCGSecure.add_goal
+            # 收 sensitivity 并据此做层闸）却没登记 ⇒ 表说「不收」、实际收下又静默丢。
+            # 登记与转发是同一件事的两半，同批补
+            "sensitivity",
         ),
         "actions": (
             "add",
