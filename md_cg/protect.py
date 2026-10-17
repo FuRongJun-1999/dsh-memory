@@ -460,6 +460,13 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
             f = node.get("frontmatter") or {}
             _layer = _layer or f.get("layer")
             _sens = _sens or f.get("sensitivity")
+    # ★ issue #450：缺 `sensitivity` 键 ⇒ 回落 DEFAULT_SENSITIVITY（= "internal"）。**本件不改行为，只登记安全语义**（见下三要素）。
+    #   ① **为什么回落 `internal`**：与 **`#359` 同口径、理由同源** —— 其原句「**unknown 视同缺省档即可挡住报告的攻击（private 已被记录）**」；
+    #      而 `internal` 是本库默认写档（`DEFAULT_SENSITIVITY`），**不是最宽松的一级**（最宽松是 `public`，`SENSITIVITY_ORDER[0]`）。
+    #      **本件场景与 `#359` 不同**（#359 是 merge 写入合并，本件是**层闸目标解析**），但**安全语义相同**（unknown 视同缺省）⇒ 故沿用其理由。
+    #   ② **安全代价**：真实密级可能是 `restricted`/`private`/`secret` ⇒ 回落 `internal` 会放行 ⇒ **fail-open（越权）**。
+    #   ③ **什么条件下改为 fail-closed**：**若出现「缺键且真实密级应为高密级」的实例 ⇒ 改为 fail-closed**（届时不必重新判，照此改）。
+    #   已知缺口：**读面·近期事件（`mdcos.py` 的 `recent_events`）= `#447`，本件不覆盖**。
     return _layer or "knowledge", _sens or DEFAULT_SENSITIVITY
 
 
