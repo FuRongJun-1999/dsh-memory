@@ -216,7 +216,7 @@ def _note_append_failure(path, exc):
     return False
 
 
-def append_jsonl(path: str, record: dict) -> bool:
+def append_jsonl(path: str, record: dict, strict: bool = False) -> bool:
     """向 append-only 日志追加一条记录（best-effort 语义）：成功 True、写失败 False。
 
     注意 O_APPEND 的原子性是**平台相关**的：POSIX 保证「定位到末尾 + 写入」是
@@ -232,6 +232,14 @@ def append_jsonl(path: str, record: dict) -> bool:
     现按本文档兜住 OSError 并返回 False；**只**兜 OSError——KeyboardInterrupt /
     SystemExit 是 BaseException，Type/ValueError（如 record 不可 JSON 序列化）
     是编程错误，一概照常上抛，不把「写失败」与「用错」混为一谈。
+
+    strict（issue #426-C，2026-10-17 U06 槽内回触 U05 面）：默认 False ⇒ **既有 129 处
+    调用点行为逐位不变**（含不可写路径下「返回 False 且不抛」的旧语义）。
+    `strict=True` 供**不能丢**的队列写入（inbox / decisions）使用：失败时**先记账**
+    （_note_append_failure，保证「不静默」）**再上抛 OSError**，让调用方无法把
+    「没落盘」当成功回执发出去。**不新增第四种失败编码**：上抛的异常由工具面按仓内
+    既有三种编码（业务失败 isError=false+JSON / 异常 isError=true+JSON / read 缺失
+    null）中的「异常」形态呈现，不自创形态。
     """
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
     if ends_mid_line(path):
@@ -241,12 +249,18 @@ def append_jsonl(path: str, record: dict) -> bool:
         os.makedirs(d, exist_ok=True)
         fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
     except OSError as e:
-        return _note_append_failure(path, e)
+        _note = _note_append_failure(path, e)
+        if strict:
+            raise                      # strict：失败必须让调用方看见（先记账，再上抛）
+        return _note
     try:
         os.write(fd, line.encode("utf-8"))
         return True
     except OSError as e:
-        return _note_append_failure(path, e)
+        _note = _note_append_failure(path, e)
+        if strict:
+            raise                      # strict：同上（记账在 _note_append_failure 内完成）
+        return _note
     finally:
         try:
             os.close(fd)

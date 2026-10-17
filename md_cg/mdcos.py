@@ -2641,7 +2641,10 @@ class MdCGOS(MdCG):
             # 读取方按「缺键 = proposal」判（零迁移）。
             if kind:
                 rec["kind"] = str(kind)
-            append_jsonl(self.inbox_log, rec)
+            # issue #426-C（U06 槽内回触 U05 面）：入队行**不能丢**——修前不读返回值，
+            # 落盘失败仍返回 pid +「已入审核队列——不需要重试」（谎报成功）。strict=True：
+            # 失败先记账（fsutil._note_append_failure）再上抛 ⇒ 回执根本构造不出来。
+            append_jsonl(self.inbox_log, rec, strict=True)
         # 审计与入队 rec 同「有效会话」（写归因三态 ＋ 同族补齐）：rec.session 取上方
         # 单点 `_eff_session`（显式声明优先、否则三态单点），审计行取**同一个值**
         # （`session=` 命名参数进 meta 后 `MdCGSecure._audit` 的 setdefault 不再覆盖，
@@ -3056,7 +3059,8 @@ class MdCGOS(MdCG):
         # 裁决记录不能丢：strict 锁内追加（并发裁决不交错；
         # 丢一条裁决会让提案回 pending → 重复落盘，比让裁决者等一下代价大）
         with FileLock(self.decisions_log, strict=True):
-            append_jsonl(self.decisions_log, rec)
+            # issue #426-C：紧邻注释自称「裁决记录不能丢」，修前却不读返回值 ⇒ 现走 strict。
+            append_jsonl(self.decisions_log, rec, strict=True)
         # md 审计节点写失败不影响裁决（jsonl 仍是权威来源）
         try:
             self._write_review_record(rec)
@@ -3106,7 +3110,8 @@ class MdCGOS(MdCG):
                        "actor": self.actor, "target_id": r.get("id"),
                        "record_node_id": self._audit_node_id(bpid, 1)}
                 rec["record_hash"] = self._record_hash(rec)
-                append_jsonl(self.decisions_log, rec)
+                # issue #426-C：级联出清同属裁决面——第三个静默点一并收口（strict）。
+                append_jsonl(self.decisions_log, rec, strict=True)
                 closed.append(bpid)
         for b in closed:
             self._audit("review_cascade", b, cascade_of=pid, decision=decision)
