@@ -59,6 +59,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import time
@@ -560,9 +561,22 @@ def _not_yet(fm, now):
     return None
 
 
-# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
+# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；【#444】返回的 why **只含键名 + 不可逆摘要（同键不同值）/ 计数与占比（极性相反）**，两端正文原值与共享词面一律不进串（该串会经 verify 落进 fm 与 _trust.jsonl 等明文面）；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
 def _contradiction(cg, content, related, max_compare=10):
-    """与同族节点比对：同键不同值 / 极性相反且共享 bigram。"""
+    """与同族节点比对：同键不同值 / 极性相反且共享 bigram。
+
+    issue #444（P0 密级泄漏，2026-10-17 U05c）：本函数产出的 `why` 会经
+    `add("contradiction", why)` → `_weaken` → `cg.verify(..., "weakened")` 写成
+    verify 的 **evidence**，进而落进 (a) 节点 frontmatter、(b) 对端节点自己的 .md、
+    (c) `_trust.jsonl` —— 三处**都是明文面**（加密只作用于正文，不作用于 fm 字段）。
+    修前 `why` 里是**两端正文原值**（同键不同值）或**共享 bigram 词面**（极性相反），
+    于是 private 正文被搬进低密级节点的明文面，`internal` 身份经 `mdcg_get` 即可读到。
+    现口径：**正文原值与词面一律不进证据串**——只留键名 + 不可逆摘要（8 位）/ 计数。
+    """
+    def _h(v):
+        """证据串用的**不可逆**摘要——正文原值不得进证据串（#444）。"""
+        return hashlib.sha1(str(v).encode("utf-8")).hexdigest()[:8]
+
     kv_a = _kv_pairs(content)
     bg_a, pol_a = bigrams(content or ""), _polarity(content)
     for r in (related or [])[:int(max_compare)]:
@@ -578,15 +592,17 @@ def _contradiction(cg, content, related, max_compare=10):
         for k in sorted(set(kv_a) & set(kv_b)):
             if kv_a[k] != kv_b[k]:
                 return {"with": oid, "via": r.get("via"),
-                        "why": f"同键不同值：{k}={kv_a[k]} vs {kv_b[k]}"}
+                        "why": f"同键不同值：{k}（本端 {_h(kv_a[k])} / "
+                               f"对端 {_h(kv_b[k])}）"}
         bg_b = bigrams(oc)
         if pol_a * _polarity(oc) < 0 and bg_a and bg_b:
             shared = bg_a & bg_b
             ratio = len(shared) / max(1, min(len(bg_a), len(bg_b)))
             if len(shared) >= 3 and ratio >= 0.15:
+                # 同 #444：共享 bigram **词面也是正文片段**，同属泄漏面 ⇒ 只留计数与占比。
                 return {"with": oid, "via": r.get("via"),
-                        "why": "极性相反且共享内容：" + "、".join(
-                            sorted(shared)[:5])}
+                        "why": f"极性相反且共享内容：共享片段 {len(shared)} 个"
+                               f"（占比 {ratio:.2f}），词面不入证据串"}
     return None
 
 
@@ -684,7 +700,7 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
             "t": now}
 
 
-# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）。
+# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）；【#444】detail 会进 verify 的 evidence（→ fm 明文面 / _trust.jsonl / 对端节点 .md），故**调用方传入的 detail 不得含正文原值**——contradiction 支已改为摘要，其它支传的是键名/日期类短值。
 def _weaken(cg, nid, kind, detail, times=1):
     res = None
     for _ in range(max(1, int(times))):

@@ -1024,6 +1024,10 @@ _GENERIC_PARAMS = (
         "node_id",
         "non_applicable_conditions",
         "override",
+        # #426-E（2026-10-17 U05c）：restore 覆写在位节点需显式确认；与 force 分开命名
+        # ——force=忽略前置条件，不是「允许覆写同 id 在位节点」（语义压进一个布尔会让
+        # 既有调用方的 force=True 静默改变行为）。
+        "overwrite_live",
         "prune_dry_run",
         "redteam",
         "start_operator",

@@ -13,7 +13,7 @@
 #   (a) `positions` —— **完全无闸**（遍历索引全量，从未调 `_readable`）；
 #   (b) `infer_position` —— **闸在但计数漏**（已经由 `cg.get`，正文拿不到；但 `n += 1` 在空节点时仍执行 ⇒ 泄漏的是 `evidence_count`）；
 #   (c1) `profile` —— **闸在但 content 面漏**（`cg.get` 后仍把 `content[:400]`/`content[:200]` 收入 anchors/traits）。
-# ★关键语义（`_readable` mdcos.py:6305）：private/secret 是**会话绑定档**（仅归属 session 可见）⇒
+# ★关键语义（`_readable` mdcos.py:6359）：private/secret 是**会话绑定档**（仅归属 session 可见）⇒
 #   只给 `sensitivity="private"` 而 session 与读者相同 ⇒ **仍可见**（腿 A 会假绿）。故本腿造 会话分属。
 from __future__ import annotations
 

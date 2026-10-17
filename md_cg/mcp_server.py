@@ -802,7 +802,8 @@ KERNEL_TOOLS = [
             redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
             issues=_p("array", "问题清单（红队打回理由）"),
             reason=_p("string", "原因；consolidate contextualize 的归位理由（写台账）"),
-            force=_p("boolean", "restore 强制"),
+            force=_p("boolean", "restore 强制（忽略前置条件：墓碑等）"),
+            overwrite_live=_p("boolean", "restore 覆写同 id 在位节点需显式确认（#426-E，默认 False）"),
             path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
@@ -2681,7 +2682,8 @@ def _cg_dispatch(cg, a):
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
-            return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))
+            return cg.restore(a.get("node_id", ""), force=bool(a.get("force")),
+                             overwrite_live=bool(a.get("overwrite_live")))
         # 三档自治批次②（设计 §三 D 删除）：工具面经 forget_gated——档位判定在
         # 既有资格闸（not_found / protect.guard_forget）**之后**，变更确认档
         # 出变更单且不软删；库层 forget 语义不变（脚本通道不接，本批边界）。
@@ -4101,7 +4103,8 @@ def _dispatch(cg, name, args):
                                override=bool(a.get("override")))
 
     if name == "mdcg_restore":
-        return cg.restore(a.get("node_id", ""), force=bool(a.get("force")))
+        return cg.restore(a.get("node_id", ""), force=bool(a.get("force")),
+                          overwrite_live=bool(a.get("overwrite_live")))
 
     if name == "mdcg_protect":
         return _protect_call(cg, a)
