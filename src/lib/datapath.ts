@@ -29,6 +29,7 @@
  */
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
+import { TextDecoder } from 'node:util'
 import { delimiter, dirname, isAbsolute, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -146,8 +147,18 @@ function readUserPaths(): Record<string, unknown> {
   if (!existsSync(pf)) return {}
   let raw: string
   try {
-    raw = readFileSync(pf, 'utf8')
+    // issue #426-F：与 Python 侧 open(pf, encoding="utf-8-sig") 同口径的**严格**
+    // UTF-8 解码——fatal 模式遇非法字节即抛；不再用 readFileSync(pf,'utf8')
+    // （后者把 GBK/ANSI 存出的 paths.json 替换成 U+FFFD 后照常 JSON.parse，
+    // 乱码路径被当记忆根，新写入分叉进乱码空库）。BOM 由 TextDecoder 默认剥除，
+    // 下方 replace(/^\uFEFF/) 保留作双保险。
+    raw = new TextDecoder('utf-8', { fatal: true }).decode(readFileSync(pf))
   } catch (e) {
+    if (e instanceof TypeError) {
+      throw new PathsConfigError(pathsConfigMessage(
+        pf, '不是 UTF-8 编码（常见于 PowerShell 5 Set-Content / cmd echo 存成 ANSI/GBK；'
+        + '请另存为 UTF-8，BOM 亦可）'), pf)
+    }
     throw new PathsConfigError(pathsConfigMessage(pf, `读取失败：${String(e)}`), pf)
   }
   let parsed: unknown
