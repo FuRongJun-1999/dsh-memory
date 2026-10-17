@@ -387,10 +387,20 @@ def history(cg, node_id):
 
 # ---------------------------------------------------------------- 守卫
 
-# 生效条件：对任意 cg、node_id、why、action、override、actor 都无条件返回 {'override': True, 'reason': why, 'snapshot': snapshot(...) 的结果, 'audit': _audit(cg, action, node_id, why, actor, snap) 的结果}，override 形参本身不改变返回内容。
+# 生效条件：对任意 cg、node_id、why、action、override 都无条件返回 {'override': True, 'reason': why, 'snapshot': snapshot(...) 的结果, 'audit': _audit(cg, action, node_id, why, actor 兜底值, snap) 的结果}；actor 兜底＝actor 非 None 时取 actor、为 None 时取 getattr(cg, 'actor', None)；override 形参本身不改变返回内容。
 def _allow(cg, node_id, why, action, override, actor):
     snap = snapshot(cg, node_id)
-    rec = _audit(cg, action, node_id, why, actor, snap)
+    # issue #451（2026-10-16，P1 审计留痕完整性）：此前把调用方传入的 actor
+    # 原样转给 _audit——而 guard_write / guard_move 的调用面（mdcg.add 的
+    # `extra.get("actor")` 等）在载荷无 actor 时即 None ⇒ `override_write` /
+    # `override_move` 审计行**无执行者**（同一时刻的前像行 snapshot 有名、
+    # 姊妹动作 override_forget 也有名——判据被写了两份，只此一份没兜底）。
+    # 单点收口（issue §四方案①）：与同文件 snapshot()（:295）/
+    # snapshot_preimage()（:342）既有口径对齐——调用方**未显式声明**时回落
+    # 实例身份 getattr(cg, "actor", None)；显式值（含非 None 的任意值）优先。
+    rec = _audit(cg, action, node_id, why,
+                 actor if actor is not None else getattr(cg, "actor", None),
+                 snap)
     return {"override": True, "reason": why, "snapshot": snap, "audit": rec}
 
 
