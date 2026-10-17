@@ -1149,6 +1149,15 @@ def _int_arg(a, key, default):
     return int(v) if v is not None else default
 
 
+# ★ issue #525：**「一律返 null」是有意的两面分工，不是缺陷**（本件零行为改动，只登记语义）。
+#   ① **防探测**：非法 id（穿越/绝对路径/NUL/超长）与「节点不存在」**返回同一个 `null`** ⇒
+#      调用方**无法用 read 枚举「哪些 id 存在」** ⇒ 这是安全属性。
+#   ② **要区分原因 ⇒ 用 `get`**：它返回 `{ok:false, error:'not_found'}`（见本文件 `:273` 的文档）⇒
+#      **两个面分工不同**：`read` 不泄漏存在性、`get` 会报因。
+#   ③ **类型错不在此分支**：`node_id` 非 str 已在 `:2509-2513` 返 `{ok:False, error:'node_id_not_str', got_type}`；
+#      而「不存在」保持 `null` 是 `md_cg/protocol.py` 的 `node_missing.returns_null = True` 协议真源
+#      （由 test_protocol A11/B8/B10 钉住）⇒ 改它须连带改协议真源与那三条断言（#274 已裁：属行为变更，不是补漏）。
+#   ★ 若将来要细分区因 ⇒ **须先确认「防探测」这条安全属性是否仍需要**；不能只改 `read` 而不动 `get` 的分工。
 def _node_view(node, offset: int = 0):
     if not node:
         return None
