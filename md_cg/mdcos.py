@@ -4859,7 +4859,7 @@ class MdCGOS(MdCG):
 
 # 生效条件：以 autonomy_modes.decide(B_MERGE) 判定——ALLOW 返回 None（调用方照旧执行合并原语，merge 裁决本身一字不改）；FORBID 返回 verdict="FORBID"/moved_to="autonomy_forbidden" 的终态；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（目标 tgt、后像 content、复现参数 override/session 入载荷 meta）并返回 verdict="CONFIRM"/moved_to="review_queue" 的终态（**不调用任何合并原语、不落盘**）；
     def _autonomy_gate_merge(self, node_id, tgt, content, kw, primitive,
-                             reason="", gate=None):
+                             reason="", gate=None, sensitivity=None):
         """三档自治档位在 **B 合并**出口的判定单点（设计 §三：变更确认档需确认）。
 
         为什么是单点：合并的**两个落点**（`writelimit.check` 的 CONVERGE →
@@ -4870,6 +4870,13 @@ class MdCGOS(MdCG):
         变更单载荷：动作类 B · 目标 tgt · 后像 = 本次新内容 · 理由 · 复现参数
         （override/session——merge 原语的两个非默认槽，裁决 accept 时按此重放）。
         提议者/会话由 propose 的库端快照自动归属（`actor`/`session` 字段）。
+
+        issue #424：出单密级必须是**源写入的有效密级**（`sensitivity` 形参，由调用方
+        传入已解析的 `_sens_eff`＝声明值 ∨ 继承源节点密级），**不得**回落声明值
+        `kw.get("sensitivity")`——同 id 改写不重传 sensitivity 是本仓常态（None），
+        那会让 `MdCGSecure.propose` 按**合并目标** id 继承目标密级，把 private/
+        restricted 单记成 internal；accept 重放时降密级闸按同档放行，高密级正文
+        以聚合行明文并入目标节点（无令牌访客可读）。
         """
         from . import autonomy_modes as _am
         # 资格在先（纯加严）：合并落盘时 reinforce/converge_into 内部的
@@ -4904,9 +4911,12 @@ class MdCGOS(MdCG):
             primitive=primitive,
             meta={"override": bool(kw.get("override")),
                   "session": _writer_session(self, kw)})
+        # issue #424：声明值（kw.get）只是**入口**；这里必须用源写入的有效密级。
+        sens_eff = (sensitivity if sensitivity is not None
+                    else kw.get("sensitivity"))
         pr = _am.propose_mutation(self, _am.B_MERGE, tgt, payload=pay,
                                   layer=tlayer,
-                                  sensitivity=kw.get("sensitivity"), info=True)
+                                  sensitivity=sens_eff, info=True)
         # 协议 gate_gated：同上补三键（ok=True=已受理待审，与写链面口径一致）
         return {"ok": True, "id": node_id, "committed": False,
                 "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
@@ -5157,7 +5167,10 @@ class MdCGOS(MdCG):
                 # 三档自治批次②：档位判定在**限流闸裁决之后、合并原语之前**。
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                primitive="converge_into",
-                                               gate=lim)
+                                               gate=lim,
+                                               # issue #424：出单密级＝源写入有效密级，
+                                               # 不取声明值（同 id 改写常态为 None）。
+                                               sensitivity=_sens_eff)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
@@ -5308,7 +5321,9 @@ class MdCGOS(MdCG):
             if tgt:
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                 primitive="reinforce",
-                                                gate=verdict)
+                                                gate=verdict,
+                                                # issue #424：同 CONVERGE 支。
+                                                sensitivity=_sens_eff)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
