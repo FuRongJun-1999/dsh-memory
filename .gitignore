@@ -13,6 +13,17 @@ node_modules/
 # md_cg 运行时数据（含 _keys.json 密钥，绝不入库）
 /data/mdcg/
 
+# md_cg / 蜂巢在**仓根**直接落下的运行时件（2026-10-17 实测：以仓根为库根跑
+# mdcg/hive 时，`_keys.json`（含 KEK 包裹的 DEK 信封）、`_children.json`（orch
+# 子代理清单）、`_heartbeat.jsonl`（心跳台账）、`_keys.json.lock` 会落在根目录）。
+# 第 9 条：凭据载体绝不入库；这些件此前**只靠「收尾时逐文件 add」的纪律在挡**，
+# 而 `git add -A` 会整包带上——与 `/.zcode/` 同型的隐患，故按路径显式忽略。
+# 只忽略**仓根**这四件（带前导 `/`）：子目录里的同名件若是夹具/语料则不受影响。
+/_keys.json
+/_keys.json.lock
+/_children.json
+/_heartbeat.jsonl
+
 # 自举循环运行态数据（持续增长的日志/队列/草稿；仅本地留存，不入库）
 /data/bootstrap/
 
