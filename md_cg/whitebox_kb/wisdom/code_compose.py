@@ -9,7 +9,7 @@
   ⑤ 固化：验证通过代码 → 固化 JSON → 同任务直出
 零 LLM：全部白箱确定性生成 + 自校验（语法/测试是物理基底裁决）。
 """
-import sys, json, os, ast
+import sys, json, os, ast, time
 sys.stdout.reconfigure(encoding='utf-8')
 
 
@@ -694,6 +694,53 @@ def _run_case(fn, case):
     return fn(inp), exp
 
 
+# issue #491：verify_code 的 L2 自校验曾在同进程裸 exec（无超时/步数/内存闸），
+# 一条死循环/超长载荷即可让调用线程永久挂住。这里用 sys.settrace 的行级回调做
+# **跨平台**时间 + 步数闸（Windows 无 signal.setitimer）；只覆盖 verify_code 的
+# 短代码段，性能代价可接受。C 层阻塞（如 time.sleep）不在本闸覆盖面（另案）。
+VERIFY_TIMEOUT_S = 2.0
+VERIFY_MAX_STEPS = 200_000
+
+
+class VerifyExecGuardError(RuntimeError):
+    """verify_code 的执行闸拦截（issue #491）。"""
+
+
+def _guarded_exec(code, ns, timeout_s=None, max_steps=None):
+    """在时间/步数闸内 exec（issue #491）；超限抛 VerifyExecGuardError。"""
+    deadline = time.monotonic() + (VERIFY_TIMEOUT_S if timeout_s is None else timeout_s)
+    limit = VERIFY_MAX_STEPS if max_steps is None else max_steps
+    steps = 0
+
+    def _trace(frame, event, arg):
+        nonlocal steps
+        if event == "line":
+            steps += 1
+            if steps > limit:
+                raise VerifyExecGuardError(
+                    "执行步数超限（issue #491 执行闸）：%d > %d" % (steps, limit))
+            if time.monotonic() > deadline:
+                raise VerifyExecGuardError("执行超时（issue #491 执行闸）")
+        return _trace
+
+    old = sys.gettrace()
+    sys.settrace(_trace)
+    try:
+        exec(code, ns)
+    finally:
+        sys.settrace(old)
+
+
+def _reject_unsafe(tree):
+    """AST 前置拒绝模板单元不需要的危险构造（issue #491）；返回错误串或 None。"""
+    for n in ast.walk(tree):
+        if isinstance(n, ast.While):
+            return "✗ L1 执行闸：模板单元不得使用 while（issue #491）"
+        if isinstance(n, ast.ImportFrom) and any(a.name == "*" for a in n.names):
+            return "✗ L1 执行闸：模板单元不得 import *（issue #491）"
+    return None
+
+
 def verify_code(code, unit, lang="python"):
     """自校验：L1 语法 + L2 样例 + L3 边界（白箱自己发现代码错误）
     Python：ast 语法 + exec 样例运行；Rust/JS：结构校验 + py_ref 逻辑样例
@@ -711,8 +758,16 @@ def verify_code(code, unit, lang="python"):
             return False, ["✗ L1 结构错误：存在未替换的模板占位符"]
         # L2 逻辑样例：py_ref（Python 等价实现）验证模板逻辑正确
         ns = {}
+        _py_ref = unit.get("py_ref", "")
         try:
-            exec(unit.get("py_ref", ""), ns)
+            _tree = ast.parse(_py_ref)
+        except SyntaxError as e:
+            return False, [f"✗ L2 py_ref 语法错误: {e}"]
+        _unsafe = _reject_unsafe(_tree)
+        if _unsafe:
+            return False, [_unsafe]
+        try:
+            _guarded_exec(_py_ref, ns)
         except Exception as e:
             return False, [f"✗ L2 py_ref 错误: {e}"]
         fns = [v for k, v in ns.items() if callable(v) and not k.startswith("__")]
@@ -731,13 +786,17 @@ def verify_code(code, unit, lang="python"):
     checks = []
     # L1 语法
     try:
-        ast.parse(code)
+        _tree = ast.parse(code)
     except SyntaxError as e:
         return False, [f"✗ L1 语法错误: {e}"]
+    # L1.5 执行闸（issue #491）：模板单元不需要 while / import *
+    _unsafe = _reject_unsafe(_tree)
+    if _unsafe:
+        return False, [_unsafe]
     # L2 样例运行（函数名必须是 solve——模板默认；用户指定名时用字典注入）
     ns = {}
     try:
-        exec(code, ns)
+        _guarded_exec(code, ns)
     except Exception as e:
         return False, [f"✗ L1 定义错误: {e}"]
     fns = [v for k, v in ns.items() if callable(v) and not k.startswith("__")]
