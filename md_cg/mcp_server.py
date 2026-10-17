@@ -1270,6 +1270,25 @@ def _identity_call(cg, a):
                     "hint": "指定 subject_id 可获取完整画像（锚点+位置+特征）"}
         return cg.identity_profile(sid)
     if act == "observe":
+        # ★issue #418（**第二入口**，2026-10-16 回归实测）：role 类型闸此前只装在
+        # `mdcg_remember` 分支（见本文件下方 ★issue #418 段），而本入口（`cg
+        # op=identity` 与 `mdcg_identity` **共用**）把 `role` 直传
+        # `cg.identity_observe` ⇒ 非法 role 照样落盘，下次装载被自家装载器判
+        # frontmatter 损坏而**隔离**（不进索引、get/search 读不到），回执却是
+        # `{"ok": true, "node_id": …}`——「说存住了，其实读不到」逐字同形。
+        # 判据取**同一单点** `nodefile.valid_role`（不另写第二份类型判据）；
+        # 回执取协议声明的 `gate_hard_reject` 形态（WRITE_TRIO + gate/error/
+        # verdict/hint，verdict=None 是盲区声明），与 remember 分支逐键对齐。
+        # `id` 用写入本该使用的那个 id（`identity._nid` 与 observe 内部同源），
+        # 使「被拒的那条写入」可被调用方对上号；本次**未落任何盘**。
+        from . import nodefile as _nf418i
+        if not _nf418i.valid_role(a.get("role")):
+            _txt418 = a.get("content") or a.get("text") or ""
+            return {"ok": False, "id": identity._nid("obs", sid, _txt418[:32]),
+                    "committed": False, "gate": "role_type", "error": "role_not_str",
+                    "verdict": None, "got_type": type(a.get("role")).__name__,
+                    "hint": "role 须为字符串（省略即合法）；非字符串会让节点落盘后被自家"
+                            "装载器判 frontmatter 损坏而**隔离**（不进索引、get/search 读不到）。"}
         return cg.identity_observe(
             sid, a.get("content") or a.get("text") or "",
             kind=a.get("subject_kind"), role=a.get("role"),
