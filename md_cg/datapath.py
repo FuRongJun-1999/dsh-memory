@@ -79,7 +79,42 @@ def _reserved_device_tail(path: str) -> bool:
     return stem.upper() in _RESERVED_DEVICE_NAMES
 
 
-# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；平台为 Windows（os.name=="nt"）
+# 生效条件：p == "~" 时返回家目录；p 以 "~/" 或 "~\\" 开头时返回「家目录 + os.sep + 余段」；
+# 其余（含 "~user"、"~abc"、相对路径、空串）**原样返回**。纯字符串操作，不触盘。
+def _expand_home(p: str) -> str:
+    """波浪线展开——**本判据在 python 侧的唯一实现**（N167 先例 + N117 双口径分叉）。
+
+    判据（**与 node 侧 `src/lib/datapath.ts::expandHome` 逐条同口径**）：
+      `~`     → 家目录
+      `~/x`   → 家目录/x
+      `~\\x`   → 家目录/x（分隔符不按平台分派——改前 posix 的
+                `os.path.expanduser("~\\x")` 会把它当 `~user` 去查 pwd，查不到则原样
+                保留，于是同一份 env 在 POSIX 上留字面量、在 Windows 上被 node 展开
+                ⇒ 分叉。本函数把 `~\\` 一并纳入判据，是对该分叉的**有意收敛**。）
+      `~user` / `~abc` / 其余 → **原样返回**
+
+    **`~user` 两侧都不展开（方案 a，2026-10-16 维护者裁定项 §二格 1）——双侧对称登记**：
+    node 侧在 `src/lib/datapath.ts::expandHome` 的 docstring 里有对等登记，仓内留档见
+    `docs/eval/路径解析点盘点_同口径判定_v1.0.md`。
+    改前本仓 python 侧走 `os.path.expanduser`：POSIX 上 `posixpath.expanduser("~ybyz")`
+    走 `pwd.getpwnam`，查得到就展开成 `/home/ybyz`（查不到原样），ntpath 只在用户名等于
+    当前用户时才展开 ⇒ **同一份 env 在两端落点不同**，正是本 issue（分叉）本身。
+    取 (a) 而非 (b)：两侧无法用同一种「查账号库」语义，故宁两侧同留字面量。
+    收敛代价（如实）：POSIX 上 `MDCG_ROOT=~ybyz/mem` 从「展开成 /home/ybyz/mem」变成
+    「原样 `~ybyz/mem`」——不再自动指向别人家目录，需用户写全路径。
+
+    **唯一实现**：`_abs_host_path` 是唯一调用点；源码面断言见
+    `md_cg/test_datapath_tilde_home.py`（扫 md_cg/ 与 scripts/ 的 .py，第二处同判据即报红）。
+    """
+    if p == "~":
+        return os.path.expanduser("~")
+    if p.startswith("~/") or p.startswith("~\\"):
+        return os.path.expanduser("~") + os.sep + p[2:]
+    return p
+
+
+# 生效条件：p 先经 _expand_home 展开（只认裸 `~` 与 `~/`、`~\` 前缀，`~user` 原样保留）
+# 再 abspath 归一；平台为 Windows（os.name=="nt"）
 # 且命中两因之一时抛 ValueError——① 归一结果以设备命名空间前缀（"\\\\.\\"）开头：
 # 保留设备名末段（aux/con/nul/prn/com1-9/lpt1-9 等）被 GetFullPathNameW 吞成设备
 # 路径（例 D:\sandbox\aux → \\.\aux）；② 归一结果末段直判为保留设备名
@@ -90,7 +125,7 @@ def _reserved_device_tail(path: str) -> bool:
 # （env 变量名或 paths.json 键），仅用于错误消息定位误配来源；为空时消息以
 # 「该路径」指代。
 def _abs_host_path(p: str, env_key: str = "") -> str:
-    r = os.path.abspath(os.path.expanduser(p))
+    r = os.path.abspath(_expand_home(p))
     if os.name == "nt" and (r.startswith("\\\\.\\")
                             or _reserved_device_tail(r)):
         who = env_key or "该路径"

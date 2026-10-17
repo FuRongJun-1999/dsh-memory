@@ -60,6 +60,49 @@ export const ENV_STATE_ROOT = 'MDCG_STATE_ROOT'
 let cachedStateRoot: string | null = null
 
 /**
+ * 路径的波浪线展开——**本判据在 TS 侧的唯一实现**（N167 先例 + N117 双口径分叉）。
+ *
+ * 判据（**与 python 侧 `md_cg/datapath.py::_expand_home` 逐条同口径**）：
+ *   `~`    → 家目录
+ *   `~/x`  → 家目录/x
+ *   `~\x` → 家目录/x（分隔符不按平台分派：N167 的 --root 先例即把 `~\` 一并算作
+ *             可用分隔符，POSIX 上同样判——见 python 侧同一条登记的对照读数）
+ *   `~user` / `~abc` / 其余（含相对路径、空串）→ **原样返回**
+ *
+ * 为什么必须展开（事故形态，可复现）：本模块的 env 覆盖值在 python 侧一律先做波浪线
+ * 展开再 abspath，node 侧不展开就会把 `MDCG_ROOT=~/mem` 解析成 `<插件仓根>/~/mem`
+ * 字面 `~` 目录——同一台机器上 python CLI（`datapath.mdcg_root()` / sleep / mreview）
+ * 落 `<家目录>/mem`，插件落仓内 `~/mem`，**记忆真源分裂成互不可见的两处**。
+ * `runRoot()` 的覆盖值落进包内还会触发该函数自己文档写明要避免的 `ERR_PNPM_EBUSY`
+ * （cwd 在包内 → pnpm 更新 rmdir 包目录必失败）。
+ *
+ * **`~user` 两侧都不展开（方案 a，2026-10-16 维护者裁定项 §二格 1）——双侧对称登记**：
+ * 本行是 TS 侧登记，python 侧在 `md_cg/datapath.py::_expand_home` 的 docstring 里有
+ * 一条对等登记，仓内留档见 `docs/eval/路径解析点盘点_同口径判定_v1.0.md`。
+ * 取 (a) 而非 (b) 的理由：`~user` 的语义是「查账号库拿该用户的 home」，两侧都做不到
+ * 同一种查询——posix 的 `os.path.expanduser` 走 `pwd.getpwnam`（查得到就展开，查不到
+ * 原样保留，结果随本机账号而变），ntpath 只在用户名等于当前用户时才展开。同一份 env
+ * 在两端落点不同 = 正是本 issue（分叉）本身，故**宁两侧同留字面量**。
+ * 收敛代价（如实）：POSIX 上 `MDCG_ROOT=~ybyz/mem` 从「展开成 /home/ybyz/mem」变成
+ * 「原样 `~ybyz/mem`」——该形态在两侧都不再自动指向别人家目录，需用户写全路径。
+ *
+ * **唯一实现**：`src/init.ts` 的 `--root` 展开已改为调用本函数（原 `expandHomeTilde`
+ * 已删），源码面断言见 `test/datapath-expandhome.test.ts`——该断言扫 `src/` 下全部
+ * `.ts`（递归），发现第二处同判据即报红（反例读数为证）。
+ *
+ * **适用边界**：只用于 env 覆盖值与 `init.ts` 的 `--root`。`paths.json` 的取值**不接**
+ * ——两侧对配置文件里的相对值（含 `~/...`）都是「先拼插件仓根再归一」，单方面展开会
+ * 新造一条分叉；该面同口径的实测见留档文档。
+ *
+ * @param home 家目录（缺省 `os.homedir()`；可注入，供测试与 `init.ts` 的 `--home` 语义）
+ */
+export function expandHome(p: string, home: string = homedir()): string {
+  if (p === '~') return home
+  if (p.startsWith('~/') || p.startsWith('~\\')) return join(home, p.slice(2))
+  return p
+}
+
+/**
  * 用户级状态根（**插件包目录之外**）：路径配置与默认数据根的落点。
  * 优先级：`MDCG_STATE_ROOT` → `$DSH_HOME/.dsh-memory` → `~/.dsh/.dsh-memory`。
  * `DSH_HOME` **未必**由宿主注入（本仓 `dsh/dsh-web-start.bat` 自行 set），
@@ -69,7 +112,7 @@ export function stateRoot(): string {
   if (cachedStateRoot) return cachedStateRoot
   const env = process.env[ENV_STATE_ROOT]
   if (env) {
-    cachedStateRoot = resolve(env)
+    cachedStateRoot = resolve(expandHome(env))
     return cachedStateRoot
   }
   const dshHome = process.env['DSH_HOME']
@@ -288,7 +331,7 @@ export function runRoot(): string {
   if (cachedRunRoot) return cachedRunRoot
   const candidates: string[] = []
   const override = process.env[ENV_CHILD_CWD]
-  if (override) candidates.push(resolve(override))
+  if (override) candidates.push(resolve(expandHome(override)))
   const dshHome = process.env['DSH_HOME']
   if (dshHome) candidates.push(join(resolve(dshHome), '.dsh-memory', 'run'))
   candidates.push(join(homedir(), '.dsh', '.dsh-memory', 'run'))
@@ -310,7 +353,8 @@ export function runRoot(): string {
 /** 数据根（记忆/账本/运行态的父目录）。 */
 export function dataRoot(): string {
   const env = process.env[ENV_DATA_ROOT]
-  if (env) return anchor(env)
+  // env 覆盖值先做波浪线展开再定锚（唯一实现 expandHome；N117）
+  if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['data_root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
   return defaultDataRoot()
@@ -322,7 +366,8 @@ export function dataRoot(): string {
  */
 export function mdcgRoot(configured?: string): string {
   const env = process.env[ENV_MDCG_ROOT]
-  if (env) return anchor(env)
+  // env 覆盖值先做波浪线展开再定锚（唯一实现 expandHome；N117）
+  if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
   if (configured && configured.trim()) return anchor(configured.trim())
