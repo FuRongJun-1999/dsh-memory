@@ -154,8 +154,12 @@ def _run(tmp):
         pipe = writepipe.install_default_gates(writepipe.WritePipeline())
         cgb = _mk_secure(os.path.join(tmp, "b"))
         cgb.add("w_base", BODY_PASSED, layer="knowledge", importance=0.5)
+        # ★ 随动（#492）：本批把链尾读数改为**显式开启**（缺省跳过，省 12.24ms/次）。
+        #   本守卫的语义是「**接线完整性**」（第二处落盘点也接上读数），不是「缺省必须有」
+        #   ⇒ 显式声明需求，**断言强度不降**（仍断言带 dup_of/dup_ratio/覆写读数）。
         out = pipe.execute(cgb, {"content_kind": "text", "content": BODY_PASSED,
-                                 "gated": False, "layer": "knowledge"})
+                                 "gated": False, "layer": "knowledge",
+                                 "include_dup_readout": True})
         check("B1 直写经链：committed + verdict 不变",
               out.get("committed") is True and out.get("verdict") is not None,
               repr(out)[:200])
@@ -166,7 +170,8 @@ def _run(tmp):
               and out["dup_ratio"] >= forgetting.DUP_MERGE, repr(out.get("dup_ratio")))
         out2 = pipe.execute(cgb, {"content_kind": "text",
                                   "content": BODY_PASSED, "gated": False,
-                                  "node_id": "w_base", "layer": "knowledge"})
+                                  "node_id": "w_base", "layer": "knowledge",
+                                  "include_dup_readout": True})   # #492 随动：显式开启读数
         check("B4 经链直写覆写读数存在",
               out2.get("overwrite_of") == "w_base"
               and out2.get("overwrite_ratio") == 1.0, repr(out2)[:200])

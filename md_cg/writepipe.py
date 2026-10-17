@@ -46,7 +46,7 @@ import sys
 import time
 
 from . import protect, twophase, trust
-from .fsutil import append_jsonl
+from .fsutil import append_jsonl, node_write_lock
 
 __all__ = ["WritePipeline", "default_pipeline", "oversize_response",
            "attempt_history"]
@@ -395,6 +395,25 @@ class WritePipeline:
         # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。
         # 本处只委托，不复制判据。
         ctx = {"cg": cg, "a": a, "nid": _nid, "verdict": None, "cvd": None}
+        # ★ issue #322（P0，多实例共根）：**同一 node_id 的整条写链**必须在同一把
+        # **跨进程**锁内——`_gate_autonomy` 的存在性判定、`_gate_gated` 的遗忘闸、
+        # 链尾 `cg.add` 的保护闸/落盘、以及出口的 `_commit_visibility`（flush）
+        # 此前全在锁外：两个进程都判「不存在」⇒ 都按新增落盘、后写整份盖前写，
+        # 两边回执 committed:true 而输的那份正文在 root 里消失；anchor/knowledge
+        # 同 id 并发时两份文件并存，保护闸在两侧都看不到对方（绕过 anchor）。
+        # 锁粒度按 node_id（不同 id 互不阻塞，写面是 S2/S4 瓶颈）；不得用进程内锁
+        # 冒充——多实例共享 root 时写者本来就是不同进程（fsutil.node_write_lock 走
+        # OS 级 FileLock，同线程重入按深度计数，见其文档串）。
+        with node_write_lock(cg, _nid):
+            return self._run_chain(ctx, a)
+
+# 生效条件：ctx 已就绪（cg/a/nid 三键齐）时按注册序跑 before 链——任一非 None 即记
+# halted_by、写尝试账本、提交可见性并短路返回；全放行则先落两段式意图、跑链尾执行器
+# （异常记 STATUS_ERROR 后原样重抛）、记 committed、跑 after 链并提交可见性后返回。
+# 调用方（execute）必须已持有该 node_id 的跨进程写锁（#322）——本函数自身不再加锁，
+# 否则「链内 add」会与外层锁形成第二份口径。
+    def _run_chain(self, ctx, a):
+        cg = ctx["cg"]          # #322：链体从 execute 移出后，cg 经 ctx 取（同一实例）
         for name, fn in self._before:
             out = fn(ctx)
             if out is not None:
@@ -1016,12 +1035,21 @@ def _executor(ctx):
     # 取（add 后索引必有 nid：覆写判据恒真、覆盖度恒 1.0）。
     from . import forgetting as _forgetting
     _content = a.get("content", "")
-    _prior = _forgetting.prior_node(cg, ctx["nid"])
-    _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
-                  if _prior is not None else None)
-    _dup = _forgetting.redundancy(cg, _content,
-                                  layer=a.get("layer") or "knowledge",
-                                  exclude=ctx["nid"])
+    # ★ issue #492：两组读数（overwrite_of / dup_of 族）**默认不算** —— 它们是纯观测提示，
+    #   而 `forgetting.redundancy` 在 4000 节点库上中位 **12.24 ms**（占写入链净开销 89%），
+    #   而 `src/hooks.ts` 的 `memorize()`（:597-616）**从不消费** `dup_of`/`overwrite_of`。
+    #   ⇒ 改为**显式开启**：`a.get("include_dup_readout")` 为真才算（缺省跳过）。**不是删功能**。
+    # ★ 不变式（由 test_issue492 的 A 组钉住）：**跳过观测不得影响落盘与 verdict**。
+    # ★ 形态变更（已在提交信息与回帖显式声明）：缺省路径上 `dup_of`/`overwrite_of` 由「有值」变「缺键」。
+    _want_readout = bool(a.get("include_dup_readout"))
+    _prior = _prior_cov = _dup = None
+    if _want_readout:
+        _prior = _forgetting.prior_node(cg, ctx["nid"])
+        _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
+                      if _prior is not None else None)
+        _dup = _forgetting.redundancy(cg, _content,
+                                      layer=a.get("layer") or "knowledge",
+                                      exclude=ctx["nid"])
     # #414：与 _gate_gated 共用同一张真源表（_OUTLET_PARAMS）——本出口的形参名
     # 由该表给出，取值为 _write_values(ctx) 单点。逐键语义（密级/session/依赖/
     # 双时间轴/验证态/检验强度/幽灵标记）见 _write_values 内的注释。
@@ -1054,10 +1082,10 @@ def _executor(ctx):
             "时间轴）；请核对两条时间轴：若引用意图成立可忽略，若是回填/转写"
             "产生的时序错觉，请修正 valid_from。")
     # ⑥：直写提示（不改落盘行为、不改 verdict；见本函数开头注释）
-    if _prior is not None:
+    if _want_readout and _prior is not None:
         out["overwrite_of"] = _prior
         out["overwrite_ratio"] = _prior_cov
-    if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
+    if _want_readout and _dup and _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
         out["dup_of"] = _dup["with"]
         out["dup_ratio"] = round(_dup["max"], 4)
         out["dup_compared"] = _dup["compared"]
