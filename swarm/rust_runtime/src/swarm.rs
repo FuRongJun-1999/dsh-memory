@@ -1506,8 +1506,16 @@ pub fn run_swarm(
                 }
             }
         }
-        // WAL 落盘（append-only）· B1 纪律：事件行先 durable（flush），
+        // WAL 落盘（append-only）· B1 纪律：事件行**先落盘**（sync_data），
         // 轮末快照后 durable（sync_all）——快照永不先于产生它的写入落盘。
+        //
+        // #470 订正：此处原为 `wal.flush()`，但 `wal` 是 `std::fs::File`（见
+        // `open_wal_for_run` 返回类型）——`File` **无用户态缓冲**，`write_all` 已把
+        // 数据交给内核，故 `flush()` 对 `File` 是 **no-op**、不推进任何落盘。
+        // 于是事件行与快照行实际都在轮末 `sync_all()` **同一次**落盘，
+        // 上面「事件行先 durable」的因果顺序在崩溃语义下**不成立**。
+        // 改用 `sync_data()`：真正刷数据到持久介质（不刷元数据，代价小于
+        // `sync_all`），恢复「事件行先于快照行落盘」这一 B1 断点边界。
         for ev in &new_events {
             let line = format!(
                 "{{\"seq\":{},\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
@@ -1524,7 +1532,7 @@ pub fn run_swarm(
             wal.write_all(line.as_bytes())
                 .map_err(|e| format!("WAL 写入失败: {e}"))?;
         }
-        wal.flush().map_err(|e| format!("WAL flush 失败: {e}"))?;
+        wal.sync_data().map_err(|e| format!("WAL sync_data 失败: {e}"))?;
         // G-R1 反思触发器（§5.4 蜂群版）：任一条件命中 → 产出修正信号事件。
         // 维生边界：修正信号仅记录+透出（P2 观察级），不自动改路由（见函数头裁定注）。
         let mut reflect_reasons: Vec<String> = Vec::new();
