@@ -42,7 +42,8 @@
 #
 # 【登记 3 · 已发现的既有缺陷（**不在本件范围**）】**`_audit.rotate.lock.lock` = 后缀拼接职责重叠**：
 #   · `md_cg/rotate.py:98` 生效条件：`lock_name` 缺省 **`basename + ".rotate.lock"`**；
-#   · `md_cg/rotate.py:110`  `(basename + ".rotate.lock")`  => **`lock_path` 已含 `.lock`**；
+#   · `md_cg/rotate.py` 的 `self.lock_path`（**修前** `(basename + ".rotate.lock")` => 已含 `.lock`；
+#     **#521 已修**：现为 `(basename + ".rotate")`，由 `FileLock` 补 `.lock` ⇒ 单后缀）；← 此行号锚已改为语义锚（#521 改动使其平移）
 #   · `md_cg/fsutil.py:124`  `self.path = path + ".lock"`  => **FileLock 又加一次** => `.rotate.lock.lock`。
 #   · 取证：`rotate.py:269` 的 `FileLock(self.lock_path)` 在**既有** `rotate()/maybe_rotate()` 里；
 #     golden 那次运行**确实发生过轮转**（表里有 000002/3/4）=> **那次必然走过 `:269`** =>
