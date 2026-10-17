@@ -10,6 +10,13 @@ pbc.py · 原生编译产物（第六阶段 C3）：.pbc 字节码文件
 import struct
 
 
+# issue #402：v2 头 = 魔数 + payload 长度（4B 小端）。旧格式（无头）仍可读；
+# 新格式在反序列化时校验「实际长度 == 头部声明」，任何截断（含恰好截在指令
+# 边界）都在入口被拦下——旧格式没有总长度，边界截断只能靠 _need 挡参数内截断。
+PBC_MAGIC = b"PBC2"
+PBC_HEADER = 8
+
+
 # 生效条件：op 具有 name 属性时返回 op.name，否则返回 str(op)。
 def _op_name(op):
     """Opcode 枚举 → 字符串名（compiler.py 生成枚举，白箱单元生成字符串——统一）"""
@@ -17,8 +24,8 @@ def _op_name(op):
 
 
 # 生效条件：对 code 中每个 (op,arg)，arg 为 None/bool/int/float/str 时分别写标签 0/1/2/3/4（bool 先于 int 命中），arg 为二元组且 arg[1] 是元素全为 str 的 list/tuple 时写标签 6，arg 为其他 tuple 时按 arg[0]、arg[1] 写标签 5，其余类型抛 ValueError，全部编码后返回 bytes(out)。
-def serialize(code):
-    """指令列表 → .pbc 字节串（op 兼容枚举/字符串）"""
+def _serialize_payload(code):
+    """指令列表 → 旧格式 payload（无头；issue #402 起 serialize 在其前加 v2 头）。"""
     out = bytearray()
     for op, arg in code:
         b = _op_name(op).encode("utf-8")
@@ -59,47 +66,78 @@ def serialize(code):
     return bytes(out)
 
 
-# 生效条件：i<len(data) 时按 H 长度前缀读 op 名、再按 tag 分支还原 0→None、1→bool、2→int(q)、3→float(d)、4→str、5→(float, int)、6→(入口 int, 参数名 list)，其他 tag 抛 ValueError，逐条 append 后返回 code 列表（data 为空则返回空列表）。
-def deserialize(data):
-    """.pbc 字节串 → 指令列表"""
+# 生效条件：返回 PBC_MAGIC + struct.pack("<I", len(payload)) + payload（v2 头；issue #402）。
+def serialize(code):
+    """指令列表 → .pbc 字节串（v2：魔数 + payload 长度 + 旧格式 payload）。"""
+    payload = _serialize_payload(code)
+    return PBC_MAGIC + struct.pack("<I", len(payload)) + payload
+
+
+# 生效条件：i + n > len(data) 时抛 ValueError（消息含 "pbc 截断" 与 what/偏移/剩余）；
+# 否则返回 None。判据单点（issue #402）。
+def _need(data, i, n, what):
+    if i + n > len(data):
+        raise ValueError(
+            "pbc 截断：%s 需要 %d 字节，偏移 %d 处仅剩 %d 字节"
+            % (what, n, i, len(data) - i))
+
+
+# 生效条件：按旧格式逐条解析（i<len(data) 时 H 长度前缀 op 名、tag 分支还原
+# 0→None/1→bool/2→int(q)/3→float(d)/4→str/5→(float,int)/6→(入口,参数名 list)，
+# 其他 tag 抛 ValueError）；每个读点先过 _need，任一「需要 N 字节而剩余不足」抛
+# ValueError("pbc 截断：…")；逐条 append 后返回 code 列表（data 为空返回空列表）。
+def _deserialize_payload(data):
     code, i = [], 0
     while i < len(data):
+        _need(data, i, 2, "op 长度前缀")
         n = struct.unpack_from("H", data, i)[0]
         i += 2
+        _need(data, i, n, "op 名")
         op = data[i:i + n].decode("utf-8")
         i += n
+        _need(data, i, 1, "arg tag")
         tag = data[i]
         i += 1
         if tag == 0:
             arg = None
         elif tag == 1:
+            _need(data, i, 1, "bool 参数")
             arg = data[i] == 1
             i += 1
         elif tag == 2:
+            _need(data, i, 8, "int 参数")
             arg = struct.unpack_from("q", data, i)[0]
             i += 8
         elif tag == 3:
+            _need(data, i, 8, "float 参数")
             arg = struct.unpack_from("d", data, i)[0]
             i += 8
         elif tag == 4:
+            _need(data, i, 2, "str 长度前缀")
             m = struct.unpack_from("H", data, i)[0]
             i += 2
+            _need(data, i, m, "str 参数")
             arg = data[i:i + m].decode("utf-8")
             i += m
         elif tag == 5:
+            _need(data, i, 16, "tuple 参数")
             t = struct.unpack_from("d", data, i)[0]
             a = struct.unpack_from("q", data, i + 8)[0]
             arg = (t, a)
             i += 16
         elif tag == 6:
+            _need(data, i, 8, "CALL 入口")
             entry = struct.unpack_from("q", data, i)[0]
             i += 8
+            _need(data, i, 2, "CALL 参数数")
             n_params = struct.unpack_from("H", data, i)[0]
             i += 2
             params = []
             for _ in range(n_params):
+                _need(data, i, 2, "CALL 参数名长度")
                 m = struct.unpack_from("H", data, i)[0]
                 i += 2
+                _need(data, i, m, "CALL 参数名")
                 params.append(data[i:i + m].decode("utf-8"))
                 i += m
             arg = (entry, params)
@@ -107,6 +145,23 @@ def deserialize(data):
             raise ValueError(f"未知标签 {tag}")
         code.append((op, arg))
     return code
+
+
+# 生效条件：以 PBC_MAGIC 开头（或长度<4 且为魔数前缀）时走 v2：先 _need 8 字节头、
+# 读 payload 长度并校验 len(data) == 8 + n（不等抛 ValueError("pbc 长度不符/截断")），
+# 再 _deserialize_payload(payload)；否则按旧格式走 _deserialize_payload(data)（兼容读，
+# 无总长度故仅能挡参数内截断）。返回指令列表。
+def deserialize(data):
+    """.pbc 字节串 → 指令列表（v2 头严格校验；旧格式兼容读）。"""
+    if data[:4] == PBC_MAGIC or (len(data) < 4 and PBC_MAGIC.startswith(data)):
+        _need(data, 0, PBC_HEADER, "v2 头部")
+        n = struct.unpack_from("<I", data, 4)[0]
+        if len(data) != PBC_HEADER + n:
+            raise ValueError(
+                "pbc 长度不符/截断：头部声明 payload %d 字节，实际 %d 字节"
+                "（总长 %d）" % (n, len(data) - PBC_HEADER, len(data)))
+        return _deserialize_payload(data[PBC_HEADER:])
+    return _deserialize_payload(data)
 
 
 # 生效条件：调用即以 "wb" 打开 path 写入 serialize(code)（无类型/存在性校验），随后返回 path。
