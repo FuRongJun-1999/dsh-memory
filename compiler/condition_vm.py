@@ -7,6 +7,7 @@ condition_vm.py · 智能论字节码 VM（第六阶段 C1 · 原生编译地基
 零 Python 依赖运行时（VM 自足）——「完全使用智能论的分析方法和逻辑」的 VM 层。
 """
 
+import math
 import time
 from enum import IntEnum
 
@@ -72,6 +73,24 @@ READONLY_BUILTIN_NAMES = frozenset(CONDITION_SPACE_NAMES) | {BUILTIN_TRUST_THRES
 
 #: 内建名缺失哨兵（区分「内建值为 None」与「不是内建名」）
 _MISSING = object()
+
+# 生效条件：value 是 bool 或 int（任意精度——int 恒有限）时返回 True；是 float 且 math.isfinite(value) 为真时返回 True；字符串/None/复数以及 inf/-inf/nan 返回 False。对超出双精度范围的 int 也返回 True（不抛 OverflowError）。
+def is_finite_number(value):
+    """数值闸单点（issue #435）：运行期「必须是数值」= 可比较的**有限**数。
+
+    此前写闸只判 isinstance(x, (int, float))——float('inf')/float('nan')
+    正是 float ⇒ 放行，信任寄存器被永久毒化（NaN 破坏比较自反性、inf
+    恒超阈值）。编译期同判由 compiler._finite_operand 承担（双闸同口径）。
+
+    **全函数**（复核意见 1）：`math.isfinite(10**400)` 会抛 OverflowError
+    （int too large to convert to float）——任意精度 int 本身恒有限，
+    必须先按类型短路，判据才不把「合法大整数」变成裸异常。
+    """
+    if isinstance(value, int):          # bool 是 int 子类，同样恒有限
+        return True
+    if isinstance(value, float):
+        return math.isfinite(value)
+    return False
 
 
 class VMHalt(Exception):
@@ -177,7 +196,7 @@ class ConditionVM:
     def __init__(self):
         self.reset()
 
-# 生效条件：symbols 为假值（None/空 dict）时以空 dict 起步、condition_stack 为假值时以空 list 起步；symbols 中 BUILTIN_TRUST_VALUE 键缺失（pop 得 None）时 trust_value 取实参 trust，存在时取该键注入值；TRUST_COMPONENT_NAMES 中的键被 pop 为对应初值；仅当 pop 出的 seed_space 非 None 时才调用 _switch_condition_space。
+# 生效条件：symbols 为假值（None/空 dict）时以空 dict 起步、condition_stack 为假值时以空 list 起步；symbols 中 BUILTIN_TRUST_VALUE 键缺失（pop 得 None）时 trust_value 取实参 trust，存在时取该键注入值；seed_trust 非数值或非有限（inf/nan）抛 VMBuiltinError("type")，seed_trust 缺失而 trust 非有限数同样抛；TRUST_COMPONENT_NAMES 中的键被 pop 为对应初值（仅有限数值），仅当 pop 出的 seed_space 非 None 时才调用 _switch_condition_space。
     def reset(self, symbols=None, trust=0.0, condition_stack=None):
         self.ip = 0
         self.stack = []
@@ -188,21 +207,36 @@ class ConditionVM:
         seed_trust = self.symbols.pop(BUILTIN_TRUST_VALUE, None)
         seed_space = self.symbols.pop(BUILTIN_CONDITION_SPACE, None)
         self.condition_stack = list(condition_stack or [])  # 条件空间栈
-        if seed_trust is not None and not isinstance(seed_trust, (int, float)):
+        if seed_trust is not None:
             # N270：注入初值契约与 Rust run（vm.rs:305-312）同判——修复前
             # 字符串初值使 trust_value 成字符串、末态 round 时裸 TypeError。
+            if not isinstance(seed_trust, (int, float)):
+                raise VMBuiltinError(
+                    "type",
+                    f"名实不符：{BUILTIN_TRUST_VALUE} 初值需数值，得到 {seed_trust!r}")
+            # #435：非有限初值同样毒化寄存器（inf/nan 落 trust_value）
+            if not is_finite_number(seed_trust):
+                raise VMBuiltinError(
+                    "type",
+                    f"名实不符：{BUILTIN_TRUST_VALUE} 初值需有限数值"
+                    f"（非 inf/nan），得到 {seed_trust!r}")
+        if seed_trust is None and not is_finite_number(trust):
+            # #435：run(trust=inf/nan) 是同一注入面，fail-closed 同判
+            # （注入 symbols 时 trust 不参与取值，不在此判）
             raise VMBuiltinError(
                 "type",
-                f"名实不符：{BUILTIN_TRUST_VALUE} 初值需数值，得到 {seed_trust!r}")
+                f"名实不符：{BUILTIN_TRUST_VALUE} 初值需有限数值"
+                f"（非 inf/nan），得到 {trust!r}")
         self.trust_value = trust if seed_trust is None else seed_trust
         # 信任分量寄存器（name_checker 声明的 P_trust/T_pred/T_context/
         # E_weight/情感权重 的运行时投影；符号注入同样归一为初值——
-        # 非数值注入丢弃，对齐 Rust run 的 is_num 守卫，N270）
+        # 非数值注入丢弃，对齐 Rust run 的 is_num 守卫，N270；
+        # #435：非有限注入同丢弃，不得落寄存器）
         self.trust_parts = {n: 0.0 for n in TRUST_COMPONENT_NAMES}
         for _n in TRUST_COMPONENT_NAMES:
             if _n in self.symbols:
                 _v = self.symbols.pop(_n)
-                if isinstance(_v, (int, float)):
+                if is_finite_number(_v):
                     self.trust_parts[_n] = _v
         # 初值空间名：仅字符串才切换（对齐 Rust run 的 Value::Str 分支——
         # 非字符串注入不切换，N270）
@@ -378,10 +412,11 @@ class ConditionVM:
             #   条件空间：只能写空间名（字符串）（Rust vm.rs:420-429 同）
             #   信任阈值/伴侣/工作/默认/恢复默认/default：只读（写面「—」）
             if arg == BUILTIN_TRUST_VALUE:       # 写信任值 → 寄存器
-                if not isinstance(_val, (int, float)):
+                if not is_finite_number(_val):
                     raise VMBuiltinError(
                         "type",
-                        f"{BUILTIN_TRUST_VALUE} 只能写数值，得到 {_val!r}")
+                        f"{BUILTIN_TRUST_VALUE} 只能写数值（且必须是有限数，"
+                        f"非 inf/nan），得到 {_val!r}")
                 self.trust_value = _val
             elif arg == BUILTIN_CONDITION_SPACE: # 写条件空间 → 切换
                 if not isinstance(_val, str):
@@ -391,9 +426,10 @@ class ConditionVM:
                         f"得到 {_val!r}")
                 self._switch_condition_space(_val)
             elif arg in self.trust_parts:        # 写信任分量
-                if not isinstance(_val, (int, float)):
+                if not is_finite_number(_val):
                     raise VMBuiltinError(
-                        "type", f"{arg} 只能写数值，得到 {_val!r}")
+                        "type", f"{arg} 只能写数值（且必须是有限数，"
+                                f"非 inf/nan），得到 {_val!r}")
                 self.trust_parts[arg] = _val
             elif arg in READONLY_BUILTIN_NAMES:  # 只读内建名（写面「—」）
                 raise VMBuiltinError(
@@ -412,7 +448,28 @@ class ConditionVM:
             self.condition_stack.append({"name": arg, "trust_at_create": self.trust_value})
         elif op == Opcode.DE:
             # 德：信任值累积（信任引擎内建）
-            self.trust_value += arg
+            # #435：编译期闸只管源码；手工构造/篡改的 .pbc 仍可携带 inf/nan，
+            # 故 DE 落寄存器前复核（与写闸同一 is_finite_number 判据）。
+            if not is_finite_number(arg):
+                raise VMBuiltinError(
+                    "type",
+                    f"德 的操作数必须是有限数值（非 inf/nan），得到 {arg!r}")
+            try:
+                _acc = self.trust_value + arg
+            except OverflowError:
+                # 复核意见 1：巨大 int 与 float 相加时 Python 抛 OverflowError
+                # （int too large to convert to float）——转结构化拒，不裸穿。
+                raise VMBuiltinError(
+                    "type",
+                    f"德 累积结果无法以双精度表示（{self.trust_value!r} + "
+                    f"{arg!r}）——fail-closed，寄存器未被毒化")
+            if not is_finite_number(_acc):
+                # 有限+有限仍可能溢出成 inf（如 1e308+1e308）
+                raise VMBuiltinError(
+                    "type",
+                    f"德 累积结果越出有限数范围（{_acc!r}）——"
+                    f"fail-closed，寄存器未被毒化")
+            self.trust_value = _acc
         elif op == Opcode.ZIRAN:
             # 自然：恢复默认条件空间（弹栈到根）
             self.condition_stack = self.condition_stack[:1]
@@ -424,6 +481,12 @@ class ConditionVM:
         elif op == Opcode.ZHIZU:
             # 知足：信任≥阈值跳转（达标判定）
             threshold, addr = arg
+            # #435：阈值非有限时比较恒假（nan）或恒真（inf），静默改变控制流
+            if not is_finite_number(threshold):
+                raise VMBuiltinError(
+                    "type",
+                    f"知足 的阈值必须是有限数值（非 inf/nan），"
+                    f"得到 {threshold!r}")
             if self.trust_value >= threshold:
                 self.ip = self._jump(addr)   # N239
         elif op == Opcode.CMP_EQ:
@@ -551,10 +614,24 @@ def assemble(src):
         elif mnem == "DAO":
             code.append((Opcode.DAO, " ".join(args)))
         elif mnem == "DE":
-            code.append((Opcode.DE, float(args[0])))
+            # issue #435（第三处残留，本批补）：`float()` 接受 'inf'/'nan' ⇒ 会毒化信任寄存器。
+            #   `compiler.py:22` 的 `_finite_operand` 是**编译期**单点（带源码行号三参）；
+            #   本层是**字节码层**（`(mnem, args)` 无行号）⇒ 按「闸要放对层」只裸判 `math.isfinite`
+            #   （**标准库调用不是「复制判据」**；判据=自定义判定+错误消息，那仍在 `_finite_operand`）。
+            _de = float(args[0])
+            if not math.isfinite(_de):
+                raise SyntaxError(
+                    f"pbc {mnem} 的操作数必须有限数，得到 {args[0]!r}"
+                    f"（inf/nan 非有限数——fail-closed）")
+            code.append((Opcode.DE, _de))
         elif mnem == "ZHIZU":
+            _zh = float(args[0])   # #435 第三处：同 DE，裸判 isfinite（理由见上方 DE 分支注释）
+            if not math.isfinite(_zh):
+                raise SyntaxError(
+                    f"pbc {mnem} 的操作数必须有限数，得到 {args[0]!r}"
+                    f"（inf/nan 非有限数——fail-closed）")
             pending[len(code)] = args[1]
-            code.append((Opcode.ZHIZU, (float(args[0]), 0)))
+            code.append((Opcode.ZHIZU, (_zh, 0)))
         elif mnem in ("ZIRAN", "WUWEI", "ZHI", "ENTER_SHUYUE", "RETURN_STEP"):
             code.append((getattr(Opcode, mnem), None))
         elif mnem in ("CMP_EQ", "CMP_GT", "CMP_LT"):
