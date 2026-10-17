@@ -65,14 +65,17 @@ def _root():
 
 
 def _sortface(pl):
-    """排序面：只取本次改动**不该改变**的既有排序键（反向腿对拍口径）。"""
-    return [(p["query"], p["score"], p["d_meta_bonus"], p["sort_score"])
+    """排序面：只取本次改动**不该改变**的既有排序键（反向腿对拍口径）。
+
+    issue #445：提案恒等键由 query 原文改为 q_key 指纹（两侧同形，对拍口径不变）。
+    """
+    return [(p["q_key"], p["score"], p["d_meta_bonus"], p["sort_score"])
             for p in pl]
 
 
 def _efaces(pl):
     """情绪读数面：跨两次运行须逐位同（确定性）。"""
-    return [(p["query"], p["emotion_bonus"], p["emotion"]["bias"],
+    return [(p["q_key"], p["emotion_bonus"], p["emotion"]["bias"],
              p["emotion"]["d2_mean"]) for p in pl]
 
 
@@ -140,6 +143,8 @@ def _group(root, baseline_fn):
     _sig(cg, 2.0, "乙", 0.06, {})      # d2_mean=+0.06 > +0.05 → avoiding
     _sig(cg, 3.0, "丙", 0.04, {})      # |0.04| < 0.05 → stable
     _sig(cg, 4.0, "丁", 0.0, {})       # 零信号 → 不提案（资格面）
+    # issue #445：提案恒等键 = q_key 指纹（metacognition.q_key_fp 单点折算）
+    _fk = {x: metacognition.q_key_fp(x) for x in ("甲", "乙", "丙", "丁")}
     eps = metacognition.D2_EMOTION
     env_name = autonomy.EMOTION_ENV
     saved = os.environ.get(env_name)
@@ -182,23 +187,23 @@ def _group(root, baseline_fn):
         _set("1")
         pr_on = autonomy.proposals(cg, limit=10)
         pr_on2 = autonomy.proposals(cg, limit=10)
-        on = {p["query"]: p for p in pr_on["proposals"]}
+        on = {p["q_key"]: p for p in pr_on["proposals"]}
         ok("P2.1 approaching（d2_mean<-阈值）→ +ε",
-           on.get("甲", {}).get("emotion", {}).get("bias") == "approaching"
-           and on.get("甲", {}).get("emotion_bonus") == round(1.0 * eps, 4)
-           and on.get("甲", {}).get("emotion", {}).get("d2_mean") == -0.06)
+           on.get(_fk["甲"], {}).get("emotion", {}).get("bias") == "approaching"
+           and on.get(_fk["甲"], {}).get("emotion_bonus") == round(1.0 * eps, 4)
+           and on.get(_fk["甲"], {}).get("emotion", {}).get("d2_mean") == -0.06)
         ok("P2.2 avoiding（d2_mean>+阈值）→ −ε",
-           on.get("乙", {}).get("emotion", {}).get("bias") == "avoiding"
-           and on.get("乙", {}).get("emotion_bonus") == round(-1.0 * eps, 4))
+           on.get(_fk["乙"], {}).get("emotion", {}).get("bias") == "avoiding"
+           and on.get(_fk["乙"], {}).get("emotion_bonus") == round(-1.0 * eps, 4))
         ok("P2.3 stable（|d2_mean|<=阈值）→ 0.0",
-           on.get("丙", {}).get("emotion", {}).get("bias") == "stable"
-           and on.get("丙", {}).get("emotion_bonus") == 0.0)
+           on.get(_fk["丙"], {}).get("emotion", {}).get("bias") == "stable"
+           and on.get(_fk["丙"], {}).get("emotion_bonus") == 0.0)
         ok("P2.4 硬上限恒成立 |emotion_bonus| <= ε",
            all(abs(p["emotion_bonus"]) <= eps for p in pr_on["proposals"]))
-        off_order = [p["query"] for p in off]
-        on_order = [p["query"] for p in pr_on["proposals"]]
+        off_order = [p["q_key"] for p in off]
+        on_order = [p["q_key"] for p in pr_on["proposals"]]
         ok("P2.5 判别力：异号 d2_mean ⇒ 排序翻转且 approaching 前置",
-           off_order != on_order and on_order[0] == "甲")
+           off_order != on_order and on_order[0] == _fk["甲"])
         ok("P2.6 确定性：同窗口两次开启跑同值",
            _efaces(pr_on["proposals"]) == _efaces(pr_on2["proposals"]))
         ok("P2.7 观测面：reason 含情绪读数、返回体含 emotion 块",
@@ -207,10 +212,10 @@ def _group(root, baseline_fn):
            and pr_on["emotion"]["enabled"] is True
            and pr_on["emotion"]["w_emo"] == autonomy.W_EMO
            and pr_on["emotion"]["cap"] == eps)
-        need = {"query", "d2_sum", "d2_abs", "blindspot", "defer", "samples",
-                "last_t", "score", "d_meta_bonus", "sort_score", "reason",
-                "emotion", "emotion_bonus", "gain_gate"}
-        ok("P2.8 只增不改：既有键全在，新增 emotion/emotion_bonus",
+        need = {"q_key", "q_len", "d2_sum", "d2_abs", "blindspot", "defer",
+                "samples", "last_t", "score", "d_meta_bonus", "sort_score",
+                "reason", "emotion", "emotion_bonus", "gain_gate"}
+        ok("P2.8 只增不改：既有键全在（#445 后恒等键=q_key 指纹），新增 emotion/emotion_bonus",
            all(need <= set(p) for p in pr_on["proposals"]))
 
         # ---------- P3 资格面不变量（开/关对照） ----------
@@ -220,17 +225,17 @@ def _group(root, baseline_fn):
                                    + autonomy.W_DEFER * p["defer"], 4)
                for p in off + pr_on["proposals"]))
         ok("P3.2 资格集合不变（score>0 者一致；零信号查询两态均不提案）",
-           {p["query"] for p in off} == {p["query"] for p in pr_on["proposals"]}
-           == {"甲", "乙", "丙"}
+           {p["q_key"] for p in off} == {p["q_key"] for p in pr_on["proposals"]}
+           == {_fk["甲"], _fk["乙"], _fk["丙"]}
            and pr_off["n_signals"] == pr_on["n_signals"] == 4
-           and all(p["query"] != "丁" for p in pr_on["proposals"]))
+           and all(p["q_key"] != _fk["丁"] for p in pr_on["proposals"]))
         ok("P3.3 sort_score == score + d_meta_bonus + emotion_bonus",
            all(p["sort_score"] == round(p["score"] + p["d_meta_bonus"]
                                         + p["emotion_bonus"], 4)
                for p in pr_on["proposals"]))
         ok("P3.4 gain_gate 判据开/关两态逐位相同（未泄漏进 σ(Gain)）",
-           {p["query"]: p.get("gain_gate") for p in off}
-           == {p["query"]: p.get("gain_gate") for p in pr_on["proposals"]})
+           {p["q_key"]: p.get("gain_gate") for p in off}
+           == {p["q_key"]: p.get("gain_gate") for p in pr_on["proposals"]})
 
         # ---------- 台账可回读（explore 已把 proposals 原样并入 _explore.jsonl） ----------
         autonomy.explore(cg, actor="test")

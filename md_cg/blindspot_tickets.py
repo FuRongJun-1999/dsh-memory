@@ -2,7 +2,9 @@
 """盲区消解票据（阶段三 §5.4）：BLINDSPOT/DEFER 盲区 → 四类消解票据（任务卡形态）挂认知图。
 
 四类分类判据（确定性、声明式、可审计，不做语义猜测）：
-  task      — 盲区 query 精确命中某 unresolved 层节点正文首行 → 直接立工程任务卡
+  task      — 盲区查询指纹精确命中某 unresolved 层节点正文首行指纹
+              （issue #445：q_sha 指纹比对，判据等价、原文不进票据链）
+              → 直接立工程任务卡
   grilling  — defer 主导（defer > blindspot，信息不完整须澄清）；执行通道=宿主侧
               访谈（grill），md_cg 库内无访谈工具，本模块只建卡不越权代答（边界如实）
   research  — blindspot >= 3（反复未知）→ 研究议题（检索/调研补证）
@@ -34,10 +36,14 @@ _JUDGE = {
 }
 
 
-def classify(item, unresolved_first_lines):
-    """按确定性判据给盲区分派票据类型。unresolved_first_lines={首行: node_id}。"""
-    q = str(item.get("query") or "").strip()
-    if q and q in unresolved_first_lines:
+def classify(item, unresolved_first_fps):
+    """按确定性判据给盲区分派票据类型。
+
+    unresolved_first_fps={首行 q_sha 指纹: node_id}（issue #445：盲区簇与
+    首行都以不可逆指纹比对，票据链不携带查询原文）。
+    """
+    qsha = str(item.get("q_sha") or "")
+    if qsha and qsha in unresolved_first_fps:
         return "task"
     b = int(item.get("blindspot") or 0)
     d = int(item.get("defer") or 0)
@@ -48,16 +54,17 @@ def classify(item, unresolved_first_lines):
     return "prototype"
 
 
-def _plan_text(item, ttype, unresolved_first_lines):
-    q = str(item.get("query") or "").strip()
+def _plan_text(item, ttype, unresolved_first_fps):
+    qk = str(item.get("q_key") or "")
     lines = [
-        "来源：盲区簇 key=%s（blindspot=%s defer=%s samples=%s）" % (
-            metacognition._key(q), item.get("blindspot"), item.get("defer"),
+        "来源：盲区簇 q_key=%s（blindspot=%s defer=%s samples=%s）" % (
+            qk, item.get("blindspot"), item.get("defer"),
             item.get("samples")),
         "分类判据：%s" % _JUDGE[ttype],
     ]
-    if ttype == "task" and q in unresolved_first_lines:
-        lines.append("关联悬挂：unresolved 节点 %s" % unresolved_first_lines[q])
+    if ttype == "task" and str(item.get("q_sha") or "") in unresolved_first_fps:
+        lines.append("关联悬挂：unresolved 节点 %s"
+                     % unresolved_first_fps[str(item.get("q_sha"))])
     lines.append("消解路径：%s" % _RESOLVE[ttype])
     lines.append("完成判据：盲区簇后续反思记录中 BLINDSPOT/DEFER 归零（gap_hint 复核）")
     return "\n".join(lines)
@@ -80,30 +87,33 @@ def make_tickets(cg, *, types=None, limit=10, min_blindspot=0,
         if b >= int(min_blindspot) or d >= 1:
             items.append(it)
 
-    unresolved_first_lines = {}
+    # issue #445：unresolved 首行按 q_sha 指纹登记（与盲区簇的 q_sha 同口径
+    # 比对，「query 精确命中首行」的判据等价保留，原文不进票据链）。
+    unresolved_first_fps = {}
     for u in mp.get("unresolved") or []:
         first = str(u.get("content") or "").strip().splitlines()
         if first and first[0].strip():
-            unresolved_first_lines.setdefault(first[0].strip(), u.get("node_id"))
+            unresolved_first_fps.setdefault(
+                metacognition.q_fp(first[0].strip()), u.get("node_id"))
 
     out, created, updated, errors = [], 0, 0, 0
     for it in items[:int(limit)]:
-        q = str(it.get("query") or "").strip()
-        if not q:
+        qk = str(it.get("q_key") or "").strip()
+        if not qk:
             continue
-        ttype = classify(it, unresolved_first_lines)
+        ttype = classify(it, unresolved_first_fps)
         if ttype not in [str(t).strip().lower() for t in want]:
-            out.append({"type": ttype, "query": q, "skipped": "types 过滤"})
+            out.append({"type": ttype, "q_key": qk, "skipped": "types 过滤"})
             continue
-        name = "票据:%s:%s" % (ttype, q[:24])
+        name = "票据:%s:%s" % (ttype, qk)
         if not apply:
-            out.append({"type": ttype, "query": q, "name": name, "dry_run": True})
+            out.append({"type": ttype, "q_key": qk, "name": name, "dry_run": True})
             continue
         r = tasks.upsert(
-            cg, name, plan=_plan_text(it, ttype, unresolved_first_lines),
+            cg, name, plan=_plan_text(it, ttype, unresolved_first_fps),
             status="active",
-            note="盲区簇 key=%s｜blindspot=%s｜defer=%s" % (
-                metacognition._key(q), it.get("blindspot"), it.get("defer")),
+            note="盲区簇 q_key=%s｜blindspot=%s｜defer=%s" % (
+                qk, it.get("blindspot"), it.get("defer")),
             tags=["blindspot-ticket", "ticket:%s" % ttype],
             actor=actor or "blindspot_tickets")
         if r.get("ok"):
@@ -112,12 +122,12 @@ def make_tickets(cg, *, types=None, limit=10, min_blindspot=0,
             else:
                 updated += 1
             out.append({"node_id": r.get("node_id"), "type": ttype,
-                        "query": q, "created": bool(r.get("created"))})
+                        "q_key": qk, "created": bool(r.get("created"))})
         else:
             errors += 1
-            out.append({"type": ttype, "query": q, "error": r.get("error")})
+            out.append({"type": ttype, "q_key": qk, "error": r.get("error")})
 
     return {"ok": errors == 0, "action": "tickets", "op": "insight",
             "scanned": len(items), "created": created, "updated": updated,
             "errors": errors, "applied": bool(apply), "tickets": out,
-            "unresolved_count": len(unresolved_first_lines)}
+            "unresolved_count": len(unresolved_first_fps)}

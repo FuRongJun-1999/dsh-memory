@@ -19,6 +19,7 @@ import shutil
 import tempfile
 
 from . import autonomy
+from . import metacognition
 from .fsutil import append_jsonl
 from .mdcos import MdCGOS
 
@@ -66,8 +67,13 @@ def main():
         ps = pr["proposals"]
         ok(pr["n_signals"] == 2 and len(ps) == 2,
            "②两查询聚类（同 query 归一）、n_signals=2")
-        ok(ps[0]["query"] == "反应堆冷却方案" and ps[0]["score"] > ps[1]["score"],
+        # issue #445：提案携带 q_key 指纹（邻域键指纹化，分组语义不变），
+        # 不再回落查询原文。
+        ok(ps[0]["q_key"] == metacognition.q_key_fp("反应堆冷却方案")
+           and ps[0]["score"] > ps[1]["score"],
            "②b高信息差排前（Σ|d2|=1.6 + BLINDSPOT×3 ＞ 0.05）")
+        ok("query" not in ps[0] and "query" not in ps[1],
+           "②c提案不携带查询原文（#445 指纹口径）")
         ok("d2" in ps[0]["reason"] and "BLINDSPOT" in ps[0]["reason"],
            "②c提案携带证据明细（可审计）")
 

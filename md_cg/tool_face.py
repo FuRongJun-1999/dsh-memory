@@ -58,7 +58,7 @@ TOOL_BRIEFS = {
     "mdcg_recall": "按 token 预算召回记忆包（RRF 多路融合，可开模糊/条件语义路与查询扩展）。",
     "mdcg_search": "精确检索（T0–T3 阶梯 + 四态资格判定）。",
     "mdcg_get": "按 id 读取单个节点（frontmatter + content）。",
-    "mdcg_reflect": "记录信息差 D(t,C) 与二阶 d²D/dt²（写 _reflection.jsonl）。",
+    "mdcg_reflect": "记录信息差 D(t,C) 与二阶 d²D/dt²（写 _reflection.jsonl；#445 台账只记查询摘要，原文不落盘）。",
     "mdcg_verify": "节点外部裁决 confirmed/weakened/falsified（falsified 入负记忆）。",
     "mdcg_flywheel": "误差（预期 vs 实际）转为 unresolved 条目，驱动补条件。",
     "mdcg_mine_fix_pairs": "从行为日志挖掘「错误→修复」对（产修复知识 + 负记忆）。",

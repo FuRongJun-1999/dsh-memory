@@ -453,9 +453,9 @@ def score_route(cg, route, verification=None):
 
 # ---------------------------------------------------------------- 盲区驱动
 
-# 生效条件：blindspot_id 去空后非空且能取到盲区报表时，匹配 unresolved 的 node_id 返回 kind='unresolved'，否则匹配 items 的 query 或其 _key 相等返回 kind='blindspot_cluster'，均未命中或取报表抛异常返回 None；
+# 生效条件：blindspot_id 去空后非空且能取到盲区报表时，匹配 unresolved 的 node_id 返回 kind='unresolved'，否则匹配 items 的 q_key 指纹相等返回 kind='blindspot_cluster'（issue #445：邻域键＝q_key 指纹，description 只带指纹与长度，不回落原文），均未命中或取报表抛异常返回 None；
 def find_blindspot(cg, blindspot_id):
-    """按 id 定位盲区：unresolved 节点优先，其次盲区邻域（按 query 键）。"""
+    """按 id 定位盲区：unresolved 节点优先，其次盲区邻域（按 q_key 指纹）。"""
     from . import metacognition
     bid = str(blindspot_id or "").strip()
     if not bid:
@@ -469,9 +469,11 @@ def find_blindspot(cg, blindspot_id):
             return {"id": bid, "kind": "unresolved",
                     "description": u.get("content") or ""}
     for it in bs.get("items") or []:
-        q = str(it.get("query") or "")
-        if q == bid or metacognition._key(q) == bid:
-            return {"id": bid, "kind": "blindspot_cluster", "description": q,
+        qk = str(it.get("q_key") or "")
+        if qk and qk == bid:
+            return {"id": bid, "kind": "blindspot_cluster",
+                    "description": "盲区簇 q_key=%s（q_len=%s）"
+                                   % (qk, it.get("q_len")),
                     "blindspot": it.get("blindspot"),
                     "defer": it.get("defer")}
     return None
@@ -912,18 +914,20 @@ def learn_blindspots(cg, blindspot_id=None, limit=LEARN_MAX_STEPS,
     else:
         # 注意：metacognition.blindspots 返回的是**报表 dict**，不是条目列表。
         # 必须显式取 unresolved（未解问题，含 node_id/content）与 items（盲区聚类，
-        # 含 query/blindspot/defer）两段，并归一成 find_blindspot 的同构条目，
+        # 含 q_key/blindspot/defer）两段，并归一成 find_blindspot 的同构条目，
         # 否则 list(dict) 只会拿到键名并在 dict(it) 处崩溃。
+        # issue #445：盲区簇 id/description 用 q_key 指纹，不回落查询原文。
         try:
             blind = metacognition.blindspots(cg) or {}
         except Exception:                          # noqa: BLE001
             blind = {}
         items = []
         for it in (blind.get("items") or []):
-            q = str(it.get("query") or "").strip()
-            if not q:
+            qk = str(it.get("q_key") or "").strip()
+            if not qk:
                 continue
-            items.append({"id": q, "kind": "blindspot_cluster", "description": q,
+            items.append({"id": qk, "kind": "blindspot_cluster",
+                          "description": "盲区簇 q_key=%s" % qk,
                           "blindspot": it.get("blindspot"), "defer": it.get("defer")})
         for u in (blind.get("unresolved") or []):
             nid = str(u.get("node_id") or "").strip()
@@ -936,8 +940,8 @@ def learn_blindspots(cg, blindspot_id=None, limit=LEARN_MAX_STEPS,
                "carried": 0, "resolved": 0}
     for it in items[:max(1, int(limit))]:
         bs = dict(it or {})
-        bid = str(bs.get("id") or bs.get("query") or "").strip()
-        desc = str(bs.get("description") or bs.get("query") or bid)
+        bid = str(bs.get("id") or bs.get("q_key") or "").strip()
+        desc = str(bs.get("description") or bs.get("q_key") or bid)
         pred = predictability(bs)
         step = {"blindspot_id": bid, "description": desc[:200],
                 "predictability": pred, "routes": 0, "terminal": None,

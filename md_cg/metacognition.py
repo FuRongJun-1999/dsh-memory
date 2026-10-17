@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from collections import Counter
@@ -79,6 +80,54 @@ def _key(q, n: int = 16) -> str:
     """查询归一化键（用于盲区聚合 / 相似匹配）。"""
     s = "".join(ch for ch in str(q or "").lower() if ch.isalnum())
     return s[:n] or "(empty)"
+
+
+# 生效条件：返回 str(s or "") 按 UTF-8 编码的 sha1 十六进制摘要前 8 位（定长 8、不可逆；None/空串按空串取指纹）；
+def q_fp(s) -> str:
+    """查询原文指纹（issue #445，**唯一单点**）：原文不进台账/读面，只进指纹。
+
+    宽度与算法与 scrub._fp（#444）一致（sha1 前 8 位）——证据串/台账面统一
+    「记指纹、不复制内容」的口径。reflect 落盘（q_sha）、self_check 留痕、
+    读面对旧档明文的折算（_r_qmeta）共用本点，防各写一份漂移。
+    """
+    return hashlib.sha1(str(s or "").encode("utf-8")).hexdigest()[:8]
+
+
+# 生效条件：返回 q_fp(_key(s))——先归一（小写、仅字母数字、前 16 位）再取 sha1 前 8 位；
+def q_key_fp(s) -> str:
+    """盲区邻域键指纹（issue #445）：对 _key(s) 再取指纹。
+
+    分组语义与修前的 _key(s) 逐位一致（同归一前缀 ⇒ 同簇、异前缀 ⇒ 异簇），
+    但键面不再携带原文前缀——修前 _key(s) 直接可读出查询前 16 个字母数字
+    字符，本身就是半个泄漏面（#445 的邻域键不得是明文前缀）。
+    """
+    return q_fp(_key(s))
+
+
+# 生效条件：返回 str(q or "").strip()；
+def _q_canon(q) -> str:
+    """查询规范化口径（指纹的单点前置）：str + 去首尾空白。
+
+    与修前 blindspots/proposals 聚合的 `.strip()` 口径一致；空查询在
+    调用侧按 q_len==0 跳过（与修前「strip 后为空即跳过」同判）。
+    """
+    return str(q or "").strip()
+
+
+# 生效条件：形参 r 含非空 "query" 键（升级前旧档明文，strip 后非空）时返回 (q_fp(strip后原文), q_key_fp(strip后原文), len(strip后原文))，r["query"] strip 后为空或缺失时返回 (r.get("q_sha"), r.get("q_key"), r.get("q_len"))；任何路径不返回原文；
+def _r_qmeta(r) -> tuple:
+    """单条反思留痕的查询元数据 (q_sha, q_key, q_len)——统一指纹口径。
+
+    新档（#445 后）：reflect() 落盘只带指纹三键，直接读回。
+    旧档（升级前明文 query 键）：**折算**成同口径指纹（分组/精确匹配语义
+    与修前逐位一致），原文用完即弃，不进任何返回体。
+    """
+    q = r.get("query")
+    if q:
+        qc = _q_canon(q)
+        if qc:
+            return q_fp(qc), q_key_fp(qc), len(qc)
+    return r.get("q_sha"), r.get("q_key"), r.get("q_len")
 
 
 # 生效条件：形参 s 经 str(s or "") 并剔除 strip() 为空的字符后长度为 0 时返回 set()，长度为 1 时返回 {s}，长度 ≥2 时返回 {s[i:i+2] for i in range(len(s)-1)}；
@@ -286,12 +335,17 @@ def calibration(cg, max_scan: int = 2000) -> dict:
 # 观测面 3：盲区地图（我知道我不知道什么）
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 cg 的反思留痕按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
+# 生效条件：形参 cg 的反思留痕按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且查询可用（新档 q_key 指纹非空；旧档经 _r_qmeta 折算，strip 后为空则跳过）的记录（计数转换失败则跳过该条）；簇键 = q_key 指纹（分组语义与修前 _key(q) 一致），items 每条只带 q_key/q_sha/q_len/blindspot/defer/samples/last_t（issue #445：不回落原文），返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
 def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
     """盲区地图：反复 BLINDSPOT / DEFER 的查询邻域 + 未解问题清单。
 
     智能论推论三：盲区不是失败记录，是知识。因此按**邻域聚合**输出，
     可直接驱动 unresolved 层建节点（补条件）。
+
+    issue #445（2026-10-16）：邻域键与 items 一律**指纹化**——修前 items
+    整句携带 query 原文，低 clearance 身份经 `mdcg_metacognition(action=
+    blindspots)` 可整句读回高档身份输入过的查询；现簇键 = q_key（归一
+    前缀的 sha1 前 8 位，分组语义不变），条目只带指纹与计数。
     """
     recs = _reflections(cg)[-int(window):]
     agg = {}
@@ -304,12 +358,12 @@ def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
             continue
         if not bad and not defer:
             continue
-        q = str(r.get("query") or "").strip()
-        if not q:
+        sha, key, qlen = _r_qmeta(r)
+        if not key or not qlen:
             continue
-        k = _key(q)
-        a = agg.setdefault(k, {"query": q, "blindspot": 0, "defer": 0,
-                               "samples": 0, "last_t": 0.0})
+        a = agg.setdefault(key, {"q_key": key, "q_sha": sha, "q_len": qlen,
+                                 "blindspot": 0, "defer": 0,
+                                 "samples": 0, "last_t": 0.0})
         a["blindspot"] += bad
         a["defer"] += defer
         a["samples"] += 1
@@ -470,22 +524,34 @@ def report(cg, window: int = 50) -> dict:
     return rec
 
 
-# 生效条件：形参 query 经 str(query or "").strip() 为空（含 None、空串、纯空白）时返回 {'ok': False, 'reason': 'empty_query'}；相似历史（_jaccard 得分 >= min_sim，默认 0.25，排序后取前 int(k)，k 默认 5、k 为 0 时为空）为空时返回 ok=True/warning="no_prior"；否则按 BLINDSPOT/DEFER/ACCEPT 计数与 max(1, n//2) 及 prior_d<0.5 判定，返回带 warning/recommendation 的 out；
+# 生效条件：形参 query 经 str(query or "").strip() 为空（含 None、空串、纯空白）时返回 {'ok': False, 'reason': 'empty_query'}；相似历史匹配两条腿——旧档明文 query 走 _jaccard(当前q, 旧档原文)（修前语义不变），新档指纹记录以 q_sha == q_fp(strip后query) 判精确命中并记 similarity=1.0（同一字符串的 jaccard 恒为 1.0，非编造）；得分 >= min_sim（默认 0.25，排序后取前 int(k)，k 默认 5、k 为 0 时为空）为空时返回 ok=True/warning="no_prior"；否则按 BLINDSPOT/DEFER/ACCEPT 计数与 max(1, n//2) 及 prior_d<0.5 判定 warning/recommendation，similar_history 每条只带 q_sha/q_key/q_len/similarity/d_curr/states/t（issue #445：不回落原文），self_check 留痕只记 q_sha/q_len 不记原文；
 def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
     """元认知闸门：回答之前先自问「我对这件事的认知状态如何」。
 
     不是检索，而是**对检索的预期**：历史相似查询的轨迹决定了这次该
     直接答、先补条件、还是预先声明盲区。
+
+    issue #445（2026-10-16）：similar_history 不再回落查询原文——修前低
+    clearance 身份可用**半句模糊猜测**把高档身份 reflect 过的整句原文钓出
+    （jaccard ≥ min_sim 即回整句）；现条目只带指纹（q_sha/q_key/q_len）+
+    similarity/states/d_curr。新档记录按指纹**精确**匹配（相似度 1.0＝同一
+    字符串，不编造渐变值）；旧档明文记录的 jaccard 渐变匹配保留（只算
+    相似度，原文用完即弃）。近似但不同文的查询不再被匹配——这是「台账
+    不存原文」裁决的代价，如实声明（模糊钓句的攻击面正是由此关闭）。
     """
     q = str(query or "").strip()
     if not q:
         return {"ok": False, "reason": "empty_query"}
+    q_sha = q_fp(q)                    # 与 reflect 落盘同口径（strip 后取指纹）
     sims = []
     for r in _reflections(cg):
         rq = str(r.get("query") or "")
-        if not rq:
+        if rq:                         # 旧档（升级前明文）：jaccard 渐变照旧
+            s = _jaccard(q, rq)
+        elif r.get("q_sha"):           # 新档（#445 指纹）：精确指纹匹配
+            s = 1.0 if r.get("q_sha") == q_sha else 0.0
+        else:
             continue
-        s = _jaccard(q, rq)
         if s >= min_sim:
             sims.append((s, r))
     sims.sort(key=lambda x: (-x[0], -float(x[1].get("t") or 0)))
@@ -503,7 +569,9 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
         acc += a
         if isinstance(r.get("d_curr"), (int, float)):
             ds.append(float(r["d_curr"]))
-        hist.append({"query": r.get("query"), "similarity": round(s, 4),
+        hsha, hkey, hlen = _r_qmeta(r)   # 旧档折算指纹；新档原样读回——不回落原文
+        hist.append({"q_sha": hsha, "q_key": hkey, "q_len": hlen,
+                     "similarity": round(s, 4),
                      "d_curr": r.get("d_curr"), "states": st,
                      "t": r.get("t")})
     n = len(hist)
@@ -514,7 +582,8 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
                "warning": "no_prior",
                "recommendation": "search_then_decide",
                "note": "无相似历史：按四态判定正常检索"}
-        _log(cg, {"op": "self_check", "query": q, "prior_attempts": 0,
+        _log(cg, {"op": "self_check", "q_sha": q_sha, "q_len": len(q),
+                  "prior_attempts": 0,
                   "recommendation": rec["recommendation"]})
         return rec
     prior_d = sum(ds) / len(ds) if ds else None
@@ -542,7 +611,8 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
         "warning": warning,
         "recommendation": rec_code,
     }
-    _log(cg, {"op": "self_check", "query": q, "prior_attempts": n,
+    _log(cg, {"op": "self_check", "q_sha": q_sha, "q_len": len(q),
+              "prior_attempts": n,
               "prior_d": out["prior_d"], "warning": warning,
               "recommendation": rec_code})
     return out
@@ -552,13 +622,27 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
 # 留痕查询 / 自描述
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录，返回 ok=True 与倒序的 records；
+# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条（limit 为 0 等假值时保留全部），逐条把含非空 "query" 键的旧档折算成 q_sha/q_len（issue #445：读面不回落原文，条数与顺序不变），返回 ok=True 与倒序的 records；
 def history(cg, limit: int = 100) -> dict:
-    """元认知留痕（倒序，最新在前）。"""
+    """元认知留痕（倒序，最新在前）。
+
+    issue #445（2026-10-16）：self_check 留痕自 #445 起只记 q_sha/q_len；
+    升级前已落盘的旧档（含明文 query 键）在读面**折算成指纹**——条数与
+    顺序不变、原文不回落（历史文件不改写，轮转/清理由维护者裁定，
+    与 #298 的读面收口同界）。
+    """
     recs = list(read_jsonl(os.path.join(cg.root, LOG_FILE)))
     if limit:
         recs = recs[-int(limit):]
-    return {"ok": True, "n": len(recs), "records": recs[::-1]}
+    out = []
+    for r in recs:
+        if isinstance(r, dict) and r.get("query"):
+            r = dict(r)
+            qc = _q_canon(r.pop("query"))
+            r["q_sha"] = q_fp(qc)
+            r["q_len"] = len(qc)
+        out.append(r)
+    return {"ok": True, "n": len(out), "records": out[::-1]}
 
 
 # 生效条件：给定 cg 时恒定返回含 n_reflections（tr.get("n", 0)）、d_current、emotion、calibration、p_trust、p_gap 的 dict，字段分别取自对 trace(window=20)、calibration、trust(window=50) 的调用结果，缺键按其 .get 回落；

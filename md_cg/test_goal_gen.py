@@ -132,9 +132,10 @@ def c5_s4_mapping(tmp, gen):
     r = gen.candidates(cg, sources=["S4"])
     cs = [c for c in r["candidates"] if c["source"] == "S4"]
     from . import metacognition
+    # issue #445：S4 目标标识 = q_key 指纹（与 blindspots 簇键同一口径）
     return (len(cs) == 1
             and cs[0]["goal_text"] == "补条件消解高频盲区：%s"
-            % metacognition._key("未知领域查询")
+            % metacognition.q_key_fp("未知领域查询")
             and cs[0]["class"] == gen.CLASS_EXPLORE)
 
 
@@ -144,7 +145,7 @@ def c6_s5_empty_route(tmp, gen):
     r = gen.candidates(cg, sources=["S5"])
     cs = [c for c in r["candidates"] if c["source"] == "S5"]
     from . import metacognition
-    key = metacognition._key("库内无锚点的盲区面")
+    key = metacognition.q_key_fp("库内无锚点的盲区面")  # issue #445：q_key 指纹
     return (len(cs) == 1
             and cs[0]["goal_text"] == "补锚点/边：%s 推演路由为空" % key
             and cs[0]["class"] == gen.CLASS_EXPLORE)

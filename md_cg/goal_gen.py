@@ -248,7 +248,7 @@ def _s3(cg):
     return out
 
 
-# 生效条件：metacognition.blindspots(limit=S4_SCAN) 的 items 中 blindspot >= S4_BLINDSPOT_MIN 且 query 非空者各产出一条候选（goal_text 用 metacognition._key(query) 作稳定标识）；只读；
+# 生效条件：metacognition.blindspots(limit=S4_SCAN) 的 items 中 blindspot >= S4_BLINDSPOT_MIN 且 q_key 指纹非空者各产出一条候选（goal_text 用 q_key 指纹作稳定标识，issue #445：不携带查询原文）；只读；
 def _s4(cg):
     """S4 · BLINDSPOT 高频盲区 → 补条件目标。"""
     try:
@@ -260,20 +260,20 @@ def _s4(cg):
         b = int(it.get("blindspot") or 0)
         if b < S4_BLINDSPOT_MIN:
             continue
-        q = str(it.get("query") or "").strip()
-        if not q:
+        qk = str(it.get("q_key") or "").strip()
+        if not qk:
             continue
         out.append(_cand(
-            "S4", evidence={"query": q, "blindspot": b,
+            "S4", evidence={"q_key": qk, "blindspot": b,
                             "defer": int(it.get("defer") or 0)},
             impact={"layer": "contextual", "n": b},
-            goal_text="补条件消解高频盲区：%s" % metacognition._key(q),
+            goal_text="补条件消解高频盲区：%s" % qk,
             priority=_prio(0.5, b, b),
             conditions="该盲区簇 BLINDSPOT/DEFER 计数未归零时"))
     return out
 
 
-# 生效条件：探针源 = unresolved 节点 id ∪ 盲区簇 key（与 predict.find_blindspot :454 同口径），去重后逐源调 predict.routes(blindspot_id=…)：status 为 unpredictable/blindspot_not_found 的跳过（N2 结构性不可知不生成），routes 为空且 status 属 {no_anchor, ok} 的产出一条候选；扫描上限 S5_SCAN；只读、零落库；
+# 生效条件：探针源 = unresolved 节点 id ∪ 盲区簇 q_key 指纹（与 predict.find_blindspot 同口径，issue #445），去重后逐源调 predict.routes(blindspot_id=…)：status 为 unpredictable/blindspot_not_found 的跳过（N2 结构性不可知不生成），routes 为空且 status 属 {no_anchor, ok} 的产出一条候选；扫描上限 S5_SCAN；只读、零落库；
 def _s5(cg):
     """S5 · predict 空路由 → 补锚点/边目标。"""
     bids = []
@@ -285,9 +285,9 @@ def _s5(cg):
     except Exception:                       # noqa: BLE001
         mp = {}
     for it in mp.get("items") or []:
-        q = str(it.get("query") or "").strip()
-        if q:
-            bids.append(metacognition._key(q))
+        qk = str(it.get("q_key") or "").strip()
+        if qk:
+            bids.append(qk)
     out, seen = [], set()
     for bid in bids:
         if bid in seen:

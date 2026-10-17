@@ -5333,7 +5333,7 @@ class MdCG:
 
     # ---------- 五大单元之四：反思 / 验证 / 输出 ----------
 
-# 生效条件：无条件计算 d_prev/_compute_d(query, results)、states（results 为假值时 states 为空列表）与 D_meta 边界压力向量（d_meta.compute(self, query, results)，MDCG_D_META 关闭时三代理恒 0.0），并在追加前取 reflection_log 末条的 d_meta 作前值（无前值时为 None）算出 d_meta_delta，随后尝试追加 reflection_log（OSError 静默吞掉），返回含 user_feedback、d_meta、d_meta_delta 的反思 dict；
+# 生效条件：无条件计算 d_prev/_compute_d(query, results)、states（results 为假值时 states 为空列表）与 D_meta 边界压力向量（d_meta.compute(self, query, results)，MDCG_D_META 关闭时三代理恒 0.0），并在追加前取 reflection_log 末条的 d_meta 作前值（无前值时为 None）算出 d_meta_delta；落盘副本**不含 query 原文**（issue #445）：strip 后非空时只记 q_sha/q_key/q_len 三个不可逆摘要键（指纹单点 metacognition.q_fp/q_key_fp），strip 后为空时只记 q_len=0；追加（OSError 静默吞掉）后返回的反思 dict（回执）仍带 query 原文与 d_meta、d_meta_delta；
     def reflect(self, query: str, results, user_feedback: str = None):
         """反思单元（白箱第 3 篇第 13 章）。
 
@@ -5353,8 +5353,18 @@ class MdCG:
         投影落痕，供 predict / autonomy / self_state 三个上层消费。
         `MDCG_D_META` 关闭时 `d_meta` 三代理恒 0.0 且 `d_meta_delta=None`
         （显式回退留痕，不是缺键）。
+
+        issue #445（2026-10-16）：**台账不落查询原文**。修前 `"query": query`
+        逐字进 `_reflection.jsonl`（库根明文面），而 metacognition 读面
+        （self_check/blindspots）不认身份——低 clearance 身份可把高档身份
+        reflect 过的查询整句读回（self_check 半句模糊猜测即钓出全句）。
+        现落盘副本只记不可逆摘要：`q_sha`（原文 sha1 前 8 位，精确匹配键）、
+        `q_key`（归一前缀的 sha1 前 8 位，邻域聚合键）、`q_len`——指纹
+        单点在 `metacognition.q_fp/q_key_fp`。**回执一字不动**（原文留在
+        调用方上下文，与 #298「只改落盘副本」同一纪律）。
         """
         from . import d_meta as _d_meta        # 惰性导入：叶子只读模块，防循环
+        from . import metacognition as _mc     # 惰性导入：#445 指纹单点
         d_prev = self._last_d()
         d_curr = self._compute_d(query, results)
         states = [r[2]["state"] for r in results] if results else []
@@ -5376,11 +5386,20 @@ class MdCG:
             "d_meta_delta": (_d_meta.diff(meta_prev, meta)
                              if meta.get("enabled") else None),
         }
+        # #445：落盘副本 = 回执去 query 原文 + 指纹三键（strip 口径与读面
+        # 聚合一致；空查询只记 q_len=0，读面按其跳过——与修前空查询行为同判）。
+        on_disk = dict(reflection)
+        on_disk.pop("query", None)
+        _qc = _mc._q_canon(query)
+        on_disk["q_len"] = len(_qc)
+        if _qc:
+            on_disk["q_sha"] = _mc.q_fp(_qc)
+            on_disk["q_key"] = _mc.q_key_fp(_qc)
         try:
     # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
     # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
     # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
-            _ok = append_jsonl(self.reflection_log, reflection)
+            _ok = append_jsonl(self.reflection_log, on_disk)
         except OSError:
             pass
         return reflection
