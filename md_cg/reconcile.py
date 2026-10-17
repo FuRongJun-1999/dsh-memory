@@ -178,9 +178,16 @@ def reconcile_state(cg, apply: bool = True) -> dict:
         if nid not in index_nodes:
             missing.append(nid)
 
-    repaired = {"unstaged": 0, "staged": 0}
+    from . import protect as _prot          # #463：同 refindex，闸放「静默摘除点」
+    repaired = {"unstaged": 0, "staged": 0, "skipped_protected": []}
     if apply:
         for nid in ghost:
+            # #463（SEC·P0）：受保护节点不得被启动对账静默摘索引（跳过并记账，不新增形状）。
+            try:
+                _prot.guard_forget(cg, nid)
+            except _prot.ProtectionError:
+                repaired["skipped_protected"].append(nid)
+                continue
             cg._unstage(nid)                # tombstone + 立即持久化
             repaired["unstaged"] += 1
         for nid in missing + drift:

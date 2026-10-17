@@ -860,18 +860,32 @@ def _forget_many(cg, plan, why: str) -> tuple:
     return done, blocked
 
 
-# 生效条件：cg 具备可调用的 _unstage 时对 ghosts 逐个调用并收集成功 id（单条异常跳过），cg 无该能力时返回 []（不假装成功）。
+#: 上一次 `_drop_ghosts` 因**受保护**而跳过的幽灵 id（#463：供调用方并入 skipped_protected）。
+_LAST_SKIPPED = []
+
+
+# 生效条件：cg 具备可调用的 _unstage 时对 ghosts 逐个调用并收集成功 id（受保护者经 guard_forget 拒绝后跳过，记入 _LAST_SKIPPED）（单条异常跳过），cg 无该能力时返回 []（不假装成功）。
 def _drop_ghosts(cg, ghosts) -> list:
     """摘除幽灵条目的索引记录（节点文件已不存在，没有可软删的实体）。
 
     走 `MdCG._unstage`：它顺带落删除记录，保证幽灵不会再次从分片日志里复活。
     基础层没有该能力时如实返回空列表（不假装成功）。
     """
+    from . import protect as _prot          # #463：幽灵摘除不得绕过保护面
     drop = getattr(cg, "_unstage", None)
     if not callable(drop):
         return []
     out = []
+    _LAST_SKIPPED.clear()
     for nid in ghosts:
+        # #463（SEC·P0）：闸放在**这里**而不是 `_unstage` 里——`_unstage` 是无闸原语，
+        # `forget` 路径上游已过 `guard_forget`；闸下沉进原语 = 双重闸 + 悄悄改写原语语义
+        # （「闸的层级错配」：外层漏、内层重复，正确层 = 所有必经路径都过且只过一处）。
+        try:
+            _prot.guard_forget(cg, nid)
+        except _prot.ProtectionError:
+            _LAST_SKIPPED.append(nid)     # 受保护 ⇒ 跳过并计入 skipped_protected
+            continue
         try:
             drop(nid)
             out.append(nid)
@@ -1028,6 +1042,8 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
                 "skipped_protected": [], "reason": why}
     done, blocked = _forget_many(cg, plan, why)
     dropped = _drop_ghosts(cg, ghost_plan)
+    # #463：受保护而跳过摘除的幽灵并入**同一** skipped_protected 口径（不新增返回形状）。
+    blocked = list(blocked) + [x for x in _LAST_SKIPPED if x not in blocked]
     return {**base, "ok": True, "count": len(done), "pruned": done[:50],
             "ghost_pruned": dropped[:50],
             "skipped_protected": blocked[:20],
