@@ -293,8 +293,25 @@ def export_stat(cg):
 
 # 生效条件：act = (action or "graph").strip().lower()（action 为 None/空串等假值时取 "graph"）——act 为 "graph"/"nodes"/"slice"/"stat" 时分别转调 export_graph/export_nodes/export_slice/export_stat（out、layer、limit、since、until、tag、ids 取自 kw 对应键，include_content 取 kw.get("include_content", True)），其它 act 值抛 ValueError。
 def run(cg, action: str = "graph", **kw):
-    """export op 唯一入口。"""
+    """export op 唯一入口。
+
+    issue #540 纵深（同族缺口）：根约束原先**只在 MCP 层**（`mcp_server._export_call`），
+    本库层入口直调时连那道闸都不存在（实测 `export.run(cg, out="\\u00a0")` 可把整库正文
+    写到数据根与白名单之外）。此处补一道**与白名单无关**的落点约束，使库层直调也受控。
+    只加拒绝分支、不新增放行：`out` 为 None/空串时行为一字不变。
+    """
     act = (action or "graph").strip().lower()
+    _out = kw.get("out")
+    if _out is not None and str(_out) != "":
+        from .security import check_export_target, check_path_root
+        _lib_root = getattr(cg, "root", None)
+        # ① 空白判据（#540）：纯空白不是「没给落点」，两道闸内部各自拒绝
+        check_path_root(_out, "MDCG_EXPORT_ROOT", "export")
+        # ② 落点约束（#211 第二道）：不得落进辅助根 / 库根危险位。
+        #    与 MCP 层 `_export_call` 同口径——**allow_overwrite=True**：覆盖与否由
+        #    调用方自己的「目标已存在 + 未显式 overwrite」判据处理（MCP 层同款），
+        #    本函数不重复实现该闸，避免把 `overwrite=True` 的合法逃生口一并拒掉。
+        check_export_target(_out, _lib_root, "export", allow_overwrite=True)
     if act == "graph":
         return export_graph(cg, out=kw.get("out"), layer=kw.get("layer"),
                             limit=kw.get("limit"),
