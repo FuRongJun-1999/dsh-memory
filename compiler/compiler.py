@@ -169,7 +169,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
-# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels，非数值操作数同 DE 口径抛 SyntaxError 名实不符（issue #434，裸 float 不再穿透编译主入口）；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -190,7 +190,15 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            threshold = float(val) if val is not None else 0.0
+            # issue #434：与 DE 分支同款——数值解析失败转结构化 SyntaxError
+            # （compile_source 已窄捕 SyntaxError，自动回流 errors），不让裸
+            # ValueError 穿透编译主入口（api 侧 CompileResult / 字节码侧
+            # (None, {ok:False,...}) 两入口都返回结构化结果）。
+            try:
+                threshold = float(val) if val is not None else 0.0
+            except (TypeError, ValueError):
+                raise SyntaxError(
+                    f"L{s.line} 知足 的操作数必须是数值，得到 '{val}'（名实不符）")
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))
