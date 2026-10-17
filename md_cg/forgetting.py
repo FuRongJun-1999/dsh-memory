@@ -787,7 +787,12 @@ def _tier_of(e: dict) -> str:
     imp = float(e.get("importance", 0.5) or 0.5)
     vb = e.get("verification_basis")
     ev = int(e.get("evidence_count", 0) or 0)
-    if e.get("protected") or imp >= PROTECT_IMPORTANCE or (ev >= 3 and vb in VERIFIED_BASES):
+    # issue #468：按分分支此前只看分数、**漏 importance_source 门** ⇒ heuristic 高分
+    # 节点（权威 is_protected=False，见 guard 里 (imp:0.9,src:heuristic) 那条读数）被判
+    # longterm。与 protect.is_protected 同口径（窄修：不动 ev/vb 那条 longterm 理由）。
+    if (e.get("protected")
+            or (imp >= PROTECT_IMPORTANCE and e.get("importance_source") in (None, "hint"))
+            or (ev >= 3 and vb in VERIFIED_BASES)):
         return "longterm"
     if imp >= TIER_WORKING or vb in VERIFIED_BASES:
         return "working"

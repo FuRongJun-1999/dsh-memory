@@ -199,9 +199,12 @@ _check("E01 trust.stamp 体内经 _is_protected_fm 接入判据（接线未脱�
 _check("E02 lifecycle.stamp 体内经 _is_protected_fm 接入判据（接线未脱焊）",
        "_is_protected_fm(fm)" in _src_l, [l for l in _src_l.splitlines()
                                           if "_is_protected" in l])
-_check("E03 两处探针都交给 protect.is_protected（判据本体不在本模块复制）",
-       "protect.is_protected(" in inspect.getsource(T._is_protected_fm)
-       and "protect.is_protected(" in inspect.getsource(L._is_protected_fm), "")
+# 前缀匹配：`is_protected_entry` 与 `is_protected` 同属 protect 单点族；本条钉的是
+# 「不走本地实现」，**不是「函数名必须叫 is_protected」** —— 不是为了让腿绿而放宽
+# （U01 批：两份 _FmProbe 副本收口到条目口径单点 protect.is_protected_entry）。
+_check("E03 两处探针都交给 protect 单点族（判据本体不在本模块复制）",
+       "protect.is_protected" in inspect.getsource(T._is_protected_fm)
+       and "protect.is_protected" in inspect.getsource(L._is_protected_fm), "")
 _check("E04 原显式两位判据仍在（immutable 豁免未被改写）",
        'bool(fm.get("protected") or fm.get("immutable"))' in _src_t
        and 'bool(fm.get("protected") or fm.get("immutable"))' in _src_l, "")

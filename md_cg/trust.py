@@ -213,7 +213,7 @@ def _is_protected_fm(fm) -> tuple:
     判据单点＝**`protect.is_protected`**（层保护 self/anchor ∪ 显式 protected 位 ∪
     按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把它喂给判据，不自带任何规则。
     """
-    return protect.is_protected(_FmProbe(fm), _FM_PROBE_ID)
+    return protect.is_protected_entry(fm)   # #431 批：_FmProbe 副本收口到条目口径单点
 
 
 def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,

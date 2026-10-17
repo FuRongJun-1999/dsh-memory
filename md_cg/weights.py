@@ -49,6 +49,7 @@ import math
 import os
 import time
 
+from . import protect                       # #431：条目口径保护单点
 from .fsutil import append_jsonl, read_jsonl
 
 # --------------------------------------------------------------------------
@@ -456,7 +457,9 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
     score = (IMPORTANCE_MIX["basis"] * bt
              + IMPORTANCE_MIX["coverage"] * cov
              + IMPORTANCE_MIX["redundancy"] * (1.0 - rr))
-    protected = bool(e.get("protected"))
+    # #431：此前只认 `protected` 位（窄：漏层保护与按分保护）⇒ self/anchor 节点被降破。
+    # 走条目口径单点 protect.is_protected_entry（与 is_protected 同一个函数）。
+    protected = protect.is_protected_entry(e)[0]
     floor = IMPORTANCE_PROTECT if protected else IMPORTANCE_FLOOR
     score = max(floor, min(IMPORTANCE_CEIL, score))
     return {"node_id": nid,

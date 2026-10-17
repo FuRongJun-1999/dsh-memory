@@ -91,7 +91,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import crypto, evolution, nodefile, routing
+from . import crypto, evolution, nodefile, protect, routing
 from .fsutil import append_jsonl
 from .mdcg import BUCKETED_LAYERS, bigrams, expand_query_terms_weighted
 from .readcache import direct_read
@@ -1429,6 +1429,22 @@ def _concept_payload(members, common_pos, neg_union):
 
 
 # 生效条件：给定 cg_or_root，从 source_layer 聚类归纳为 target_layer 概念节点，apply=True 才写盘并返回统计 rep。
+# 生效条件：e 为索引条目（可为 None）；source_layer 为空或与 e.layer 相等；且 e **不在保护面**
+# （protect.is_protected_entry：层保护 / 显式位 / 按分且来源∈{None,"hint"}）；且 e 的 tags 未命中
+# INDUCE_SKIP_TAGS —— 三条全真才返回 True（= 可进归纳候选池）。
+def pool_eligible(e, source_layer=""):
+    """归纳候选池的**过滤谓词单点**（issue #432）。
+
+    修前这段判据**内联**在 `induce_memories` 的列表推导里，且只认 `e.get("protected")` 位
+    （**窄**：漏层保护与按分保护）⇒ self/anchor 层节点入池被改写四字段、零快照零审计。
+    抽成谓词是为了**可被腿直接调用**（产出侧有多道闸——簇阈值/截断/skip-tags——谓词只有一道；
+    只从产出侧看池，变异无法闭合）。
+    """
+    e = e or {}
+    return (not source_layer or e.get("layer") == source_layer) \
+        and not protect.is_protected_entry(e)[0] \
+        and not (set(INDUCE_SKIP_TAGS) & set(e.get("tags") or []))
+
 def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowledge",
                     min_cluster=INDUCE_MIN_CLUSTER, min_jaccard=INDUCE_MIN_JACCARD,
                     max_nodes=INDUCE_MAX_NODES, require_conditions=True,
@@ -1456,10 +1472,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         require_conditions = True
 
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    pool = [nid for nid, e in list(nodes.items())
-            if (not source_layer or (e or {}).get("layer") == source_layer)
-            and not (e or {}).get("protected")
-            and not (set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []))]
+    pool = [nid for nid, e in list(nodes.items()) if pool_eligible(e, source_layer)]
     pool.sort()
     truncated = len(pool) > int(max_nodes)
     pool = pool[:int(max_nodes)]
