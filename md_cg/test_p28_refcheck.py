@@ -475,7 +475,7 @@ DOC_SEC_HEAD = "### 3.1 "
 #: §3.1（归一化后）的 sha1 前 16 位：**判据侧陈化硬失败**——口径一被改写（无论改真源
 #: 还是改守卫）就必须同步本行，才谈得上「措辞与实现同源」。归一化＝空白折叠 ⇒ 换行 /
 #: 缩进 / 表格对齐**不**误红，只有措辞变化才红。失败信息里打印现算值，照抄即恢复。
-DOC_SEC_FP = "c482d088cecbe918"
+DOC_SEC_FP = "b129b8c4f862ba1a"
 
 #: §3.1 里必须**逐字**出现的口径字面（缺一条 ⇒ 措辞已从实现侧漂开）。
 DOC_REQUIRED = (
@@ -491,17 +491,17 @@ DOC_REQUIRED = (
 #: 「文档说谁在哪一行」是措辞里最硬的一句——引用漂移（代码增删行）即红，失败信息附
 #: 该符号**现址**，照抄回文档与本表即恢复（陈化可自愈到「人只需抄一次」）。
 DOC_CITATIONS = (
-    ("refindex.py:544", "md_cg/refindex.py", 544, "def _code_ref("),
-    ("refindex.py:558", "md_cg/refindex.py", 558, "def _doc_ref("),
-    ("refindex.py:602", "md_cg/refindex.py", 602,
+    ("refindex.py:572", "md_cg/refindex.py", 572, "def _code_ref("),
+    ("refindex.py:586", "md_cg/refindex.py", 586, "def _doc_ref("),
+    ("refindex.py:630", "md_cg/refindex.py", 630,
      "got = codeindex.region_hash(lines, lineno, end)"),
-    ("refindex.py:619", "md_cg/refindex.py", 619, "def read_ref("),
-    ("refindex.py:687", "md_cg/refindex.py", 687, "def check_refs("),
-    ("refindex.py:884", "md_cg/refindex.py", 884, "def prune_orphans("),
+    ("refindex.py:647", "md_cg/refindex.py", 647, "def read_ref("),
+    ("refindex.py:715", "md_cg/refindex.py", 715, "def check_refs("),
+    ("refindex.py:912", "md_cg/refindex.py", 912, "def prune_orphans("),
     ("srcindex.py:71", "md_cg/srcindex.py", 71, "def src_id("),
     ("srcindex.py:86", "md_cg/srcindex.py", 86, "def file_hash("),
     ("logref.py:119", "md_cg/logref.py", 119, "def node_state("),
-    ("docindex.py:294", "md_cg/docindex.py", 294, "def node_id("),
+    ("docindex.py:298", "md_cg/docindex.py", 298, "def node_id("),
 )
 
 

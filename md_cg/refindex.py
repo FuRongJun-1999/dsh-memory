@@ -474,7 +474,30 @@ def root_clash(cg, nid, kind, root):
             "existing_root": prev_root, "root": root}
 
 
-# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError；写入前逐条过 root_clash（#352-E）：同 id 已被**另一个源根**占用时不覆写，把该条并入 conflicts（conflicts 为真值时）并**跳过**（该条 id 不进 ids）；返回 (ids, sens)。
+# 生效条件：把 root 与 rel 经 os.path.join 拼接、os.path.abspath 归一后返回（相对
+# root 按 cwd 展开，使「摄取根自身与全部祖先目录名」都进判据面）；join/abspath 抛
+# OSError/ValueError（如内嵌空字节、Windows 保留名盘符组合）时回落 str(root) 与
+# str(rel) 以 "/" 连接的原始串（保守方向：提示段只多不少，不抛出、不判空）。
+def _sens_judge_path(root, rel) -> str:
+    """doc 密级判据面（issue #452）：拼回「从摄取根到文件」的完整路径。
+
+    `it["path"]` 是**相对被摄取根**的存储路径（doc_ref.path ↔ doc_ref.root 的
+    join 是回读契约、node_id 哈希的也是它，都不许动）；但判据若只看它，被摄取
+    根**自身名字**带私有提示时（如 ingest(path=<…>/private)，item path 只剩
+    hr_archive.md），提示段恰被 relpath 剥掉，判据永远命中不了——同一份文档
+    从父目录摄取是 private/fail-closed，从该目录本身摄取却落 internal 且低权
+    身份读得回（#452）。故判据面单独取本函数：root+rel 的绝对路径。
+    abspath 会把白名单根之上的祖先段一并计入——命中的话是**收紧**方向
+    （「宁可漏召回，不可泄漏」），与 sensitivity_for「只可能更严」的承诺一致；
+    相对 root 也按 cwd 展开，保证 file/dir 两种摄取形状判到同一条路径。
+    """
+    try:
+        return os.path.abspath(os.path.join(str(root or ""), str(rel or "")))
+    except (OSError, ValueError):
+        return "/".join(x for x in (str(root or ""), str(rel or "")) if x)
+
+
+# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(_sens_judge_path(root, it['path']), sensitivity)——判据面是 root+path 的完整路径，不是相对存储路径（issue #452）），其他 kind 抛 ValueError；写入前逐条过 root_clash（#352-E）：同 id 已被**另一个源根**占用时不覆写，把该条并入 conflicts（conflicts 为真值时）并**跳过**（该条 id 不进 ids）；返回 (ids, sens)。
 def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
               layer_of=None, src_of=None, extra_of=None, conflicts=None):
     """把索引条目写进认知图（code / doc 的落盘细节收在这里，唯一实现）。
@@ -487,7 +510,9 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
       frontmatter 键（日志索引的 `dsh-log/logsrc/regenerable/ws:` 与
       `session/workspace/dsh_session_uuid` 走这里，免得在 `logref` 里
       复制一遍 doc 分支而与本函数漂移）。与既有 `layer_of` 同款逐条钩子。
-    - doc 节点：密级走 `docindex.sensitivity_for`（只可能更严）；返回密级分布。
+    - doc 节点：密级走 `docindex.sensitivity_for`（只可能更严），判据面是
+      `_sens_judge_path(root, path)` 拼回的完整路径而非相对存储路径（#452：
+      摄取根本身是敏感目录时，相对口径会抹掉根名上的提示段）；返回密级分布。
     - `condition_space` 走 `codeindex/docindex.condition_space`，与正文的
       `# 生效条件：` 行**同源**——改造前此处只写 `observation_position` 单槽，
       而单槽不是生效条件，于是 frontmatter 的条件空间形同未声明。
@@ -522,7 +547,10 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             )
         else:                                      # doc_ref
             level = it.get("level")
-            s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
+            # 判据面单点（issue #452）：只看 it["path"]（相对被摄取根）时，摄取根
+            # 自身名字带私有提示的段已被剥掉——必须判「root + path」拼回的完整路径。
+            s, _basis = docindex.sensitivity_for(
+                _sens_judge_path(root, it.get("path")), sensitivity)
             sens[s] = sens.get(s, 0) + 1
             extra = (extra_of(it) or {}) if extra_of else {}
             cg.add(

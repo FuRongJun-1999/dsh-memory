@@ -64,6 +64,10 @@ def sensitivity_for(path, override=None):
 
     只可能**更严**、不可能更松：命中提示只会把 internal 收紧为 private，
     不会把 private 放开成 public。缺省值显式返回，便于调用方落盘与审计。
+
+    入参契约（issue #452）：path 必须是**判据面**的完整路径（含被摄取根自身
+    名字，如 refindex._sens_judge_path 拼回的 root+rel 绝对路径），不能传
+    相对被摄取根的存储路径——摄取根本身是敏感目录时那段恰是被剥掉的提示。
     """
     if override:
         return override, "调用方显式指定"
