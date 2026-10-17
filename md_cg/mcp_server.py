@@ -4512,7 +4512,29 @@ def _attach_theory(p):
 
 
 # 生效条件：环境变量 MDCG_ROOT 非空且其 os.path.abspath 规范化后的 basename 小写不以 "_md_cg_" 开头、且 _build_principal() 返回的 err 为空时，构造 MdCGSecure(root, principal=principal, autoflush=1) 并对 sys.stdin 逐行 method 分派（initialize 回 protocolVersion=PROTOCOL_VERSION 与 SERVER_NAME/SERVER_VERSION，tools/list 回 tools_for_surface()，tools/call 经 call_tool 后回 content，shutdown 跳出循环），遍历结束后调用 sustain.stop_all() 与 cg.close() 并返回 0；MDCG_ROOT 为空或 basename 命中 "_md_cg_" 前缀返回 2，令牌校验失败返回 3；
-# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)；登记表损坏/不可读（TenantRegistry.load_error 留痕或读取抛异常，N124 2026-09-25）时向 stderr 写「登记根绑定失效回落 MDCG_ROOT」告警后按未登记同形回落（零闸变，只开口）。
+# 生效条件：a/b 任一为空串或 None 时返回 False；否则返回 os.path.realpath(a) == os.path.realpath(b)（realpath 解析 junction/symlink；抛 OSError 时返回 False）。
+def _same_root(a, b) -> bool:
+    """判两个路径是否指向**同一物理位置**（issue #542）。
+
+    为何必须 realpath 而非 abspath：abspath 只做字符串归一（解析 `..`），
+    **不解析 junction / symlink**，故「同一目录的两种写法」会被判为不同根。
+    实测（Windows）：
+      · `os.path.realpath(junction) == os.path.realpath(真实目标)` → True
+      · `os.path.abspath(junction) == os.path.abspath(真实目标)` → **False**
+    ⇒ 用 abspath 做租户根同一性判定时，junction 指向他人登记根**不命中反查**，
+    #98「身份与根未对照」的 fail-closed 失效（可跨租户读）。
+
+    另注大小写变形（`ROOTB`）同理：只按原串比较时亦不命中。
+    """
+    if not a or not b:
+        return False
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except OSError:
+        return False
+
+
+# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突（按 _same_root 判同一物理位置，非字符串比较）返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)；登记表损坏/不可读（TenantRegistry.load_error 留痕或读取抛异常，N124 2026-09-25）时向 stderr 写「登记根绑定失效回落 MDCG_ROOT」告警后按未登记同形回落（零闸变、只开口）；#98 反查分支同样以 _same_root 判同一性。
 def _resolve_root(env=None):
     """租户 × 认知图根解析（issue #35 接线，独立函数供守卫测试）。
 
@@ -4548,7 +4570,10 @@ def _resolve_root(env=None):
                 f"MDCG_ROOT={root or '(未设)'}；请修复登记表"
                 f"（MDCG_TENANT_REGISTRY，缺省 ~/.mdcg/_tenants.json）。\n")
         if t_root:
-            if root and os.path.abspath(root) != os.path.abspath(t_root):
+            # issue #542：同一性判定必须 realpath（解析 junction/symlink）。
+            # 修前用 abspath（只做字符串归一）⇒ junction 形态被误判为「与登记根不一致」
+            # 而 **误拒**（可用性面；此为 `:4267` 侧的失效方向）。
+            if root and not _same_root(root, t_root):
                 return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
                               f"与显式 MDCG_ROOT={root} 不一致（fail-closed）")
             root = t_root
@@ -4580,7 +4605,11 @@ def _resolve_root(env=None):
                         _tr = _reg98.root_of(_tn)
                     except Exception:
                         continue
-                    if _tr and os.path.abspath(_tr) == os.path.abspath(root):
+                    # issue #542：反查同一性同样必须 realpath。
+                    # 修前用 abspath ⇒ junction/大小写变形**不命中反查** ⇒ #98 的
+                    # 「身份与根未对照」fail-closed 被绕过（安全面；此为 `:4366` 侧
+                    # 的失效方向，与上方 :4267 的误拒相反）。
+                    if _tr and _same_root(_tr, root):
                         _owner98 = _tn
                         break
                 if _owner98:
