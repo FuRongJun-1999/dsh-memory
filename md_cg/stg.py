@@ -794,7 +794,7 @@ def consistency(cg, layer=None, limit=50, max_scan=5000, time_axis="observed"):
 # 第 5 op：状态槽位投影（flag MDCG_STG_STATE，默认关）
 # ---------------------------------------------------------------------------
 
-# 生效条件：_flag_on(_STATE_ENV) 为假（含未设）时恒返回 {"error":"disabled","hint":…}（不抛异常、不静默降级、不触台账）；为真时以 state_slots.project(cg, subject, slot, include_retired, history) 为 items 全量（查询时现算，零落盘零缓存），limit 经 int() 归一（负数归 0）后取前 limit 条，返回含 count（命中总数，截断前）/subject/slot/include_retired/limit/items/truncated（count > kept）/kept（len(items)）的 dict；project 抛异常时**不吞**（原样上抛）。
+# 生效条件：_flag_on(_STATE_ENV) 为假（含未设）时恒返回 {"error":"disabled","hint":…}（不抛异常、不静默降级、不触台账）；为真时委托 state_slots.project_page 单次完整扫描（零落盘零缓存），精确计数且只构造 limit 条结果；limit 经 int() 归一（None/负数归 0）；返回 count（截断前）/subject/slot/include_retired/limit/items/truncated（count > kept）/kept；投影异常原样上抛。
 def state_chain(cg, subject=None, slot=None, include_retired=False, history=True,
                 limit=50):
     """状态槽位投影（第 5 op）：某主体某槽位的**现值 / 区间 / 变迁史**。
@@ -820,14 +820,10 @@ def state_chain(cg, subject=None, slot=None, include_retired=False, history=True
                 "hint": "本面默认关：设 MDCG_STG_STATE=1 显式启用"
                         "（与 MDCG_STG_INDEX/MDCG_STG_QUALIFY 同纪律）"}
     from . import state_slots
-    units = state_slots.project(cg, subject=subject, slot=slot,
-                                include_retired=include_retired,
-                                history=history)
-    total = len(units)
-    cap = int(limit) if limit is not None else 0
-    if cap < 0:
-        cap = 0
-    items = units[:cap]
+    total, items = state_slots.project_page(cg, subject=subject, slot=slot,
+                                           include_retired=include_retired,
+                                           history=history,
+                                           limit=0 if limit is None else limit)
     return {"count": total, "subject": subject, "slot": slot,
             "include_retired": include_retired, "limit": limit,
             "items": items, "truncated": total > len(items),
