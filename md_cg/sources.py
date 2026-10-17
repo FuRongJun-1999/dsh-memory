@@ -751,7 +751,7 @@ class FileDispatcher:
                 "counts": counts,
                 "note": "预演：仅统计各链文件数，未做任何写入"}
 
-# 生效条件：root 非目录时返回 ok=False 的「目录不存在」；dry_run 为真时返回 _dry_dir(root)；否则对 doc_ref/code_ref 两链各以 patterns/max_files/max_items/incremental/ledger 调 refindex.index_dir(commit=False) 与 add_items 后 ledger.save()，并把 root 下 **/*.jsonl 前 max_files 个逐个 ingest_jsonl 后返回 out。
+# 生效条件：root 非目录时返回 ok=False 的「目录不存在」；dry_run 为真时返回 _dry_dir(root)；否则对 doc_ref/code_ref 两链各以 patterns/max_files/max_items/incremental/ledger 调 refindex.index_dir(commit=False) 与 add_items 后 ledger.save()（index_dir 内部对库根子树剪枝，issue #425 C7），并把 root 下 **/*.jsonl 前 max_files 个逐个 ingest_jsonl 后返回 out（落在记忆库根内的 .jsonl 剔除并在 session 链 skipped_in_lib 计数）。
     def ingest_dir(self, root, layer=None, sensitivity=None, patterns=None,
                    max_files=500, max_items=2000, incremental=False,
                    dry_run=False):
@@ -785,18 +785,35 @@ class FileDispatcher:
                 "skipped_unchanged": stats.get("skipped_unchanged", 0),
                 "skipped_suffixes": stats.get("skipped_suffixes", []),
                 "sensitivity": sens}
+            _sd = list(stats.get("skipped_dirs") or [])   # #425：剪枝不静默
+            if _sd:
+                out["chains"][key]["skipped_dirs"] = _sd[:20]
+                out["chains"][key]["skipped_dirs_count"] = len(_sd)
             if _cf:                  # #352-E：冲突不静默
                 out["chains"][key]["conflict_count"] = len(_cf)
                 out["chains"][key]["conflicts"] = _cf[:20]
-        # 会话流（.jsonl）逐个增量摄取
-        jsons = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
-                                 recursive=True))[:max_files]
+        # 会话流（.jsonl）逐个增量摄取。issue #425（C7）：扫描根是库根祖先时，
+        # 库内 .jsonl（水位/导出/审计等派生物）不当作会话源——与 doc/code 链的
+        # 剪枝同语义，剔掉并在回执里计数（不静默）。
+        _lib = os.path.normcase(os.path.realpath(str(self.cg.root or "")))
+        jsons, _skipped_lib = [], 0
+        for _p in sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
+                                   recursive=True)):
+            _rp = os.path.normcase(os.path.realpath(_p))
+            if _lib and (_rp == _lib or _rp.startswith(_lib.rstrip(os.sep) + os.sep)):
+                _skipped_lib += 1
+                continue
+            jsons.append(_p)
+            if len(jsons) >= max_files:
+                break
         ses = []
         for p in jsons:
             r = self.ingest_jsonl(p)
             ses.append({"path": p, "written": r.get("written", 0),
                         "new_events": r.get("new_events", 0)})
         out["chains"]["session"] = {"files": len(jsons), "results": ses}
+        if _skipped_lib:
+            out["chains"]["session"]["skipped_in_lib"] = _skipped_lib
         return out
 
     # ---- 会话流 ----
@@ -826,10 +843,21 @@ class FileDispatcher:
         return res
 
 
-# 生效条件：cg 必填；action 为 None/空串时 (action or "stat") 归为 stat；file/jsonl 缺 path 返回 ok=False；dir 的 max_files/max_items 走 int(x or 500)/int(x or 2000)，传 0 也变 500/2000；未知 action 抛 ValueError。
+# 生效条件：cg 必填；action 为 None/空串时 (action or "stat") 归为 stat；act 属 ("file","dir","jsonl") 时先经 check_ingest_source(kw 的 path, cg.root, "ingest")（path 空时放行——dir 空 path 的 fail-closed 在下文；路径等于记忆库根或落在库根内抛 PermissionError，issue #425）；file/jsonl 缺 path 返回 ok=False；dir 的 max_files/max_items 走 int(x or 500)/int(x or 2000)，传 0 也变 500/2000；未知 action 抛 ValueError。
 def run(cg, action: str = "stat", **kw):
     """ingest op 唯一入口。"""
     act = (action or "stat").strip().lower()
+    # issue #425（2026-10-16 DSH 端）：白名单之外的第二道闸——源路径**在记忆库
+    # 根内**（库根本身、trash/<id>.md、_protected_history/、各层目录）即拒。
+    # #351 只堵了 dir 的空 path；显式 path=<库根>（C5）、action=file 指向
+    # trash/<id>.md（C6）在「白名单回落库根」的缺省部署下照旧放行——restricted
+    # 正文被抄进 internal doc 节点、已 forget+accept 的内容复活。闸放 run 入口：
+    # file/dir/jsonl 三条腿与所有调用方（cg op=ingest 分派层）过同一判据（单点，
+    # security.check_ingest_source）。库根**祖先**目录不在此拒——那是合法摄取
+    # 面，其库内子树由 refindex.index_dir 剪枝剔除（C7）。
+    if act in ("file", "dir", "jsonl"):
+        from .security import check_ingest_source
+        check_ingest_source(kw.get("path"), getattr(cg, "root", None), "ingest")
     d = FileDispatcher(cg, sensitivity=kw.get("sensitivity"))
     if act == "stat":
         return d.stat()

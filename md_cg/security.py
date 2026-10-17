@@ -579,6 +579,44 @@ def check_export_target(path, lib_root, what: str,
             f"{what} 目标已存在：{path}（不覆盖已有文件）")
 
 
+# 生效条件：path 为 None/空串时直接返回（未指定源，如 stat 或缺 path——不触判定）；否则取 normcase(realpath(expanduser(path))) 为 real、normcase(realpath(expanduser(lib_root))) 为 lib，real 等于 lib 或以 lib+os.sep 为前缀（落在记忆库根内）时抛 PermissionError（点名 issue #425、指路 MDCG_INGEST_ROOT）；lib_root 为空值（无法定位库根）或 real 在库外（含库根的祖先目录——祖先不在此拒，其库内子树由 refindex.index_dir 剪枝剔除）时放行。只加拒绝分支、不新增放行。
+def check_ingest_source(path, lib_root, what: str) -> None:
+    """ingest 源路径的**第二道**约束（issue #425）：与白名单无关。
+
+    为什么另立判据（与 check_export_target 同思路）：check_path_root 只判
+    「在白名单根内」，而 MDCG_INGEST_ROOT 未配置时 _whitelist_roots **回落
+    记忆库根本身**（#85 选 A）——于是库根本身、trash/<id>.md、
+    _protected_history/、各层节点 .md 全在可摄取面里。缺省部署下持 record
+    令牌（clearance=internal，ops_allow 含 ingest）两次 MCP 调用（stat 取
+    库根 + ingest dir path=<库根>）即可：restricted 正文被抄进 internal 的
+    doc_* 节点（无令牌访客 mdcg_search 可检索）、已 forget 并 accept 删除
+    的节点从 trash/ 复活成活节点。#351 的修复 e39d2f8 只堵了 dir 的**空
+    path**，显式 path（C5）、action=file 指向 trash（C6）照旧放行。
+
+    边界（只拒「等于库根或库内」）：库根的**祖先**目录不在此拒——「把整个
+    工作区登记为 MDCG_INGEST_ROOT」是合法摄取面；其下的库根子树由
+    refindex.index_dir 的剪枝整枝剔除（issue #425 修复方向 2），库内文件
+    仍不会被动到。
+
+    平台口径：比较用 normcase(realpath(...))——Windows 的盘符大小写与
+    长路径前缀形态在 realpath 下不保证归一（与 check_export_target 同款）。
+    """
+    if path is None or str(path).strip() == "":
+        return                                   # 未指定源（stat / 缺 path）
+    real = os.path.normcase(os.path.realpath(os.path.expanduser(str(path))))
+    if not lib_root:
+        return
+    lib = os.path.normcase(os.path.realpath(os.path.expanduser(str(lib_root))))
+    if real == lib or real.startswith(lib.rstrip(os.sep) + os.sep):
+        raise PermissionError(
+            f"{what}：源路径在记忆库根内，拒绝摄取：{path} "
+            f"(realpath={real}, 库根={lib})——库内节点不是外部文档：把库内 "
+            f".md 重新索引成 doc 节点会绕过读隔离与删除（restricted 正文抄进 "
+            f"internal、已 forget+accept 的内容复活；issue #425）。外部资料请放"
+            f"在库外目录并显式登记：设 MDCG_INGEST_ROOT=<库外根>"
+            f"（os.pathsep 可多根）")
+
+
 # 错误处置链路角色集（批次 28 分型）：restricted（错误处置标记）的可见性
 # 不走密级 rank——链路角色与平级同为 internal，rank 无法区分「处置者」与
 # 「扩散面」。designer=全局观测本职；orchestr=上级节点（拆解派发/裁决
