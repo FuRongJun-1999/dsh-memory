@@ -44,7 +44,10 @@ STATE_FALSIFIED = "falsified"
 
 C1_WINDOW_MIN = 0.6                # C1 可检索度开窗门槛
 V1_MIN_EVIDENCE = 3                # V1（可检索/被引用）需 ≥3 条才成立
-IMPORTANCE_FLOOR = 0.9             # verified 后的重要度保底（对齐工具表）
+#: verified 后的重要度**保底**（对齐工具表）。
+#: ★ 与「高重要度」保护门槛是**两个语义**：后者是全仓单点 `protect.AUTO_PROTECT_IMPORTANCE`=0.70。
+#: 共用过一个常量名 `IMPORTANCE_FLOOR`（#433：改一个会改两个）⇒ 本批拆名归位。
+VERIFY_IMPORTANCE_FLOOR = 0.9
 CER_MIN_SAMPLES = 20               # 样本 < 20 不判定层状态
 
 PRESSURES = ("low", "medium", "high")
@@ -243,7 +246,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
       · V3 外部确证 或 V2 实践重复 → verified；
       · V1 可检索/被引用 需 **≥ V1_MIN_EVIDENCE 条** 才成立；
       · 其余（无证据 / V1 不足）→ **保持 pending 并给出原因**，不判定。
-    verified 后：重要度保底 0.9（``IMPORTANCE_FLOOR``）并置保护位。
+    verified 后：重要度保底 0.9（``VERIFY_IMPORTANCE_FLOOR``）并置保护位。
     裁决分支落盘前过 ``protect.guard_overwrite``（层闸 + 保护闸），写盘后同步
     内存索引条目并**标脏**（``cg._dirty[node_id]``，C-1）——否则读缓存默认开时
     同进程「verify 后读」拿旧 insight_state/tags/importance。
@@ -291,7 +294,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     tg = [t for t in (fm.get("tags") or []) if t not in (TAG_VERIFIED, TAG_FALSIFIED)]
     if final == STATE_VERIFIED:
         tg.append(TAG_VERIFIED)
-        fm["importance"] = max(float(fm.get("importance") or 0.0), IMPORTANCE_FLOOR)
+        fm["importance"] = max(float(fm.get("importance") or 0.0), VERIFY_IMPORTANCE_FLOOR)
         fm["protected"] = True
         fm["protection_reason"] = "insight_verified"
         fm["verification_basis"] = "data"
@@ -338,7 +341,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
             "evidence_count": len(fm["insight_evidence"]),
             "importance": fm.get("importance"),
             "protected": bool(fm.get("protected")),
-            "note": "verified 后重要度保底 %s 并置保护位" % IMPORTANCE_FLOOR}
+            "note": "verified 后重要度保底 %s 并置保护位" % VERIFY_IMPORTANCE_FLOOR}
 
 
 # ---------------------------------------------------------------- list / report
@@ -455,9 +458,12 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
         except (TypeError, ValueError):
             iv = 0.0
         imps.append(iv)
-        if e.get("protected"):
+        # #433：① `d1.protected` 此前只认 `protected` 位（窄：漏层保护与按分保护）⇒ 走条目口径单点；
+        # ② 「高重要度」门槛改引全仓单点 protect.AUTO_PROTECT_IMPORTANCE（0.70），
+        #    **不再用私有 0.9**（那会把 [0.70,0.90) 的受保护节点漏掉）。
+        if protect.is_protected_entry(e or {})[0]:
             protected += 1
-        elif iv >= IMPORTANCE_FLOOR:
+        elif iv >= protect.AUTO_PROTECT_IMPORTANCE:
             hi_imp_unprotected.append(nid)
         if not e.get("has_neg_conditions"):
             no_neg += 1

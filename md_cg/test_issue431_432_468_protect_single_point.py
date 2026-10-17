@@ -102,7 +102,9 @@ def group_a(tmp):
            float(w_free.get("after") or 0) < 0.69, "after=%r" % (w_free.get("after"),))
     # induce_memories(cg_or_root, ...) 接受**路径**（内部自建 MdCGOS）⇒ 传 cg.root。
     # **判据面换成谓词**（方案 A）：产出侧有多道闸，谓词只有一道 ⇒ 只有断言谓词，变异才闭合。
-    _self_entries = [(nid, cg.index["nodes"][nid]) for nid in ("n_self", "s1", "s2", "s3", "s4")]
+    # H-4(a) G1a：从 cg.index 取回的 nodes 必须先取快照再迭代（并发写会 dictionary changed size）。
+    _nodes_snap = dict(cg.index["nodes"])
+    _self_entries = [(_nid, _nodes_snap[_nid]) for _nid in ("n_self", "s1", "s2", "s3", "s4")]
     ids = [nid for nid, _e in _self_entries if not _cons.pool_eligible(_e, "self")]
     _check("A5 池过滤谓词：5 个层保护（无位）节点全部判为不合格入池",
            len(ids) == 5, "被谓词接受的有=%r" % (ids,) )
