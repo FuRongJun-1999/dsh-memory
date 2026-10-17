@@ -825,8 +825,10 @@ KERNEL_TOOLS = [
                                      "传 sensitivity 覆盖时自动退回全量"),
             max_nodes=_p("integer", "ref action=check：最多巡检节点数（默认 2000，"
                                     "越限返回 truncated=true）"),
-            sensitivity=_p("string", "index_doc 的密级（默认 internal 并显式写入；"
-                                     "路径命中私有提示时保守降为 private）"),
+            sensitivity=_p("string", "密级声明：index_doc 的节点密级（默认 internal 并显式"
+                                     "写入；路径命中私有提示时保守降为 private）；"
+                                     "maintain prefeed 的待写内容密级（issue #315——"
+                                     "MERGE 并入更低密级节点时 fail-closed 拒绝）"),
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
             name=_p("string", "sustain：心跳名（默认 md_cg）；"
@@ -3289,6 +3291,13 @@ def _maintain_call(cg, a):
         importance_hint=a.get("importance"), node_id=a.get("node_id"),
         write=bool(a.get("write")), min_jaccard=a.get("min_jaccard"),
         ids=a.get("ids"), actor=actor, include_partial=a.get("include_partial"),
+        # issue #315/#313（审阅 B1「正确落点」）：action=prefeed 的调用方声明
+        # 密级在此前**整条丢失**——本分派不读 a["sensitivity"]，下游
+        # maintain 也没有该形参 ⇒ MERGE 裁决时 reinforce 收 None，
+        # merge_downgrades(target, None) 恒 False ⇒ 声明 private 的正文以
+        # 明文聚合行并入 internal 节点（隔离沙箱实测）。现逐级透传到
+        # cg.prefeed 的两条落库支（add / reinforce）。
+        sensitivity=a.get("sensitivity"),
         min_conf=a.get("min_conf"), basis_text=a.get("basis_text"),
         prefixes=a.get("prefixes"), aeis_root=a.get("aeis_root"),
         sample_n=a.get("sample_n"), prefix=a.get("prefix"),
