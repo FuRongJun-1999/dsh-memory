@@ -94,7 +94,13 @@ CONTAMINATION = {
     # 故 severity=info、处置仅 hint（不 weaken / 不 demote / 不删）。
     "not_yet": ("info", ("hint",)),
     "duplicate": ("medium", ("hint",)),
-    "orphan_noise": ("low", ("weaken", "demote")),
+    # #524：`demote` 在此规则下**不可达** —— 产出条件要求 `layer == "contextual"`（见下方 audit 的
+    #   orphan_noise 分支），而 demote 的执行条件是 `layer != "contextual"`（见 decontaminate 的
+    #   降级分支）⇒ 两者互斥 ⇒ 该动作永不执行。故删声明；**行为不变**（本来就不执行）。
+    #   三段证明：① `audit(min_severity="info")` ⇒ `n_issues=1`（issue 能造出）
+    #             ② `decontaminate` ⇒ `action="applied"` 而 `done=["weaken"]`（demote 未执行）
+    #             ③ `audit.issues[0].fix=["weaken","demote"]` 而 `done` 不含 demote（声明 vs 实际）
+    "orphan_noise": ("low", ("weaken",)),
     "unverified": ("info", ("hint",)),
 }
 SEVERITY_ORDER = {"high": 3, "medium": 2, "low": 1, "info": 0}
