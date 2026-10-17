@@ -213,8 +213,11 @@ def k_group():
         # "secret") 也能让 K10 全绿，却是在立第二份真源（纪律 #12）。
         _wl_src = io.open(os.path.join(_REPO, "md_cg/writelimit.py"),
                           encoding="utf-8").read()
-        _check("K9 加密级判据同源于 crypto.ENCRYPTED_LEVELS（不另立第二份真源）",
-               "from .crypto import ENCRYPTED_LEVELS" in _wl_src,
+        # 安全重构 P1：真源由「常量 ENCRYPTED_LEVELS」收口为「唯一谓词
+        # crypto.is_encrypted_level」——判据仍是「不另立第二份真源」，只是锚到谓词。
+        _check("K9 加密级判据同源于 crypto.is_encrypted_level（不另立第二份真源）",
+               "from .crypto import is_encrypted_level" in _wl_src
+               and '("private", "secret")' not in _wl_src,
                [x for x in _wl_src.splitlines() if "ENCRYPTED_LEVELS" in x])
         _check("K10 判据行为面：private/secret 为真，internal/None/非串为假",
                _wl._is_encrypted_level("private")
@@ -263,17 +266,19 @@ _MUTATIONS = (
      ("A2",)),
     ("V3 加密级判据恒假（形同虚设）",
      "md_cg/writelimit.py",
-     "    return sensitivity.strip().lower() in tuple(_EL)",
+     "    return _iel(sensitivity)",
      "    return False",
      ("A2", "A3")),
     ("V4 生产调用方把 None 传进 check（等价于不传密级，回到 #313 病象）",
      "md_cg/mdcos.py",
-     "\r\n" + " " * 31 + 'sensitivity=kw.get("sensitivity"))',
+     # 锚点随 #345（86b052e0）迁移：check 的实参已由 kw.get(...) 改为单点解析出的 _sens_eff；
+     # 旧锚点自那以后命中 0 次，本条变异形同虚设（安全重构 P5 修复）。
+     "\r\n" + " " * 31 + "sensitivity=_sens_eff)",
      "\r\n" + " " * 31 + "sensitivity=None)",
      ("A2", "A3", "E4")),
     ("V5 record_accepted 收到 None（等价于不传密级，ACCEPT 回填又把骨架写回台账）",
      "md_cg/mdcos.py",
-     " " * 47 + 'sensitivity=kw.get("sensitivity"))',
+     " " * 47 + "sensitivity=_sens_eff)",
      " " * 47 + "sensitivity=None)",
      ("A2", "A3", "E4")),
     ("V6 prefeed 的 sensitivity 槽被摘掉",
@@ -283,8 +288,8 @@ _MUTATIONS = (
      ("E3",)),
     ("V7 加密级判据另立第二份真源（硬编码字面量）",
      "md_cg/writelimit.py",
-     "        from .crypto import ENCRYPTED_LEVELS as _EL",
-     '        _EL = ("private", "secret")',
+     "        from .crypto import is_encrypted_level as _iel",
+     '        _iel = lambda s: isinstance(s, str) and s in ("private", "secret")',
      ("K9",)),
     ("V8 加密级判据写反：非加密级反而跳过签名",
      "md_cg/writelimit.py",

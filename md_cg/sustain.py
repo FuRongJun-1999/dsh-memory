@@ -792,7 +792,7 @@ def _index_log_shards(root: str):
     return [f for f in os.listdir(d) if f.endswith(".log")]
 
 
-# 生效条件：cg 具备 crypto_status 且其返回 unlocked 为假时，返回 cg.index['nodes'] 中 sensitivity 属 crypto.ENCRYPTED_LEVELS 的条目数；属性缺失、调用异常或已解锁时返回 0。
+# 生效条件：cg 具备 crypto_status 且其返回 unlocked 为假时，返回 cg.index['nodes'] 中 sensitivity 经 crypto.is_encrypted_level 判为加密档的条目数；属性缺失、调用异常或已解锁时返回 0。
 def _locked_nodes(cg) -> int:
     """加密引擎在「未解锁」状态下被隔离的私有节点数（缺密钥 = 权限事实）。"""
     if not hasattr(cg, "crypto_status"):
@@ -809,7 +809,7 @@ def _locked_nodes(cg) -> int:
     # during iteration')（N138，FI-M04）。list() 拷贝在 C 层一次完成（迭代期间
     # 不释放 GIL），故快照自身原子；判据与结果逐位不变（只换取用方式）。
     return sum(1 for e in list(nodes.values())
-               if (e.get("sensitivity") or "") in crypto.ENCRYPTED_LEVELS)
+               if crypto.is_encrypted_level(e.get("sensitivity")))
 
 
 # --------------------------------------------------------------------------

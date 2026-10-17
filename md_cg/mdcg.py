@@ -1721,7 +1721,7 @@ def _check_sensitivity_landing(node_id, fm_sensitivity, declared, sealed,
             "改写/丢弃；请检查写面是否透传 sensitivity（B2：落盘面丢字段＝"
             "上游声明静默失效）。本次**未写盘**。" % (decl, fm_sens, node_id))
     eff = decl or fm_sens
-    if has_sealer and eff in crypto.ENCRYPTED_LEVELS \
+    if has_sealer and crypto.is_encrypted_level(eff) \
             and not crypto.is_encrypted(sealed):
         raise ValueError(
             "加密级密级对应明文落盘（fail-closed）：声明/落盘密级=%r，但本次"
