@@ -477,6 +477,22 @@ def tidy_contextual(cg, apply=False, min_group=3, actor="sustain_tidy",
             _demote(cg, m)
             n_ap += 1
         kfm = dict(keep.get("frontmatter") or {})
+        # issue #541：keep 是**既有节点**，本函数此前裸调 cg._write_node
+        # ⇒ 不判层闸、不判保护闸、不拍快照、不写 _protected_audit.jsonl，
+        # 于是 `immutable` / `protected` 节点被**静默覆写且零审计**
+        # （实测：immutable keep 正文被改写、新增快照 0、审计 0 行；
+        #  而姊妹函数 converge_into 对同一节点正确抛 ProtectionError）。
+        #
+        # 注意上方 `if mfm.get("protected") or mfm.get("immutable"): continue`
+        # 只作用于 **members**（被并入的成员），**不覆盖 keep 本身** ——
+        # 保留节点恰是缺闸的那一个。故此处补齐同一单点保护闸，
+        # 与 converge_into（:246）同款调用形态（layer/sensitivity 取真值、override=False）。
+        #
+        # 触发面是**无人值守**的：AUTO_DEFAULTS["auto_tidy"] 缺省 True、
+        # DEFAULT_TIDY_INTERVAL=21600（6h），_tick_tidy 无 require_admin。
+        protect.guard_overwrite(cg, keep["id"], layer=kfm.get("layer"),
+                                sensitivity=kfm.get("sensitivity"),
+                                override=False, actor=actor)
         kfm["merge_count"] = int(kfm.get("merge_count")
                                  or 0) + len(p["members"])
         kfm["last_merge_at"] = time.time()
