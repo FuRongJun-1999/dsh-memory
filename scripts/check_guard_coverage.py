@@ -65,19 +65,9 @@ SURFACE_SCRIPT_KEYS = ("gate", "prepublishOnly", "test")
 EXCEPTIONS: dict[str, dict[str, str]] = {
     # 2026-10-12 首次登记（issue #129）。规则：**新增孤儿必须改这里**，
     # 使「又多了一个没人跑的守卫」在 code review 里可见；登记数不得增加。
-    "check_placeholder_leak.py": {
-        # 2026-10-13 重标定（issue #200 建议 4）：原「实测 36.2s」测于 2026-10-12，
-        # 本机同日重测（中位 3 次）：tracked 0.38s / 全盘 0.62s —— 已**不是**全仓
-        # 最贵守卫；真正最贵的两个（check_publish_smoke 64.8s /
-        # check_publish_artifact 30.9s）**都已接入 CI**。成本依机器而变，故此处
-        # 记「测量日期 + 口径 + 读数」，不再记单点绝对值。
-        "reason": "成本依据已过时（issue #200 建议 4）：原记「全仓最贵守卫（实测 "
-                  "36.2s）」测于 2026-10-12；2026-10-13 本机重测中位 tracked 0.38s / "
-                  "全盘 0.62s，已非最贵。其判据是「占位符泄漏」，非发布阻塞项。"
-                  "待设计者定：接 gate / 接 CI / 降频独立 workflow。",
-        "owner": "设计者（待裁）",
-        "review": "2026-10-13",
-    },
+    # 2026-10-17 移出：check_placeholder_leak.py 已有配对测试
+    # scripts/test_check_placeholder_leak.py（被 run_tests.py 收集、CI 跑它）
+    # ⇒ 不再是孤儿，登记理由（待设计者定接 gate/CI）已消解，故删除该条。
     "check_registry_tarball.py": {
         "reason": "需先产出 registry tarball 才有判据对象；裸 clone / CI 上无该输入，"
                   "直接接 CI 会因缺输入而 fail-closed 变红。待定：是否在 CI 里先构建 tarball。",
