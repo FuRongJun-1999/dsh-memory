@@ -17,6 +17,7 @@ import uuid
 import errno
 import json
 import tempfile
+import threading
 
 IS_WIN = sys.platform == "win32"
 if IS_WIN:
@@ -168,6 +169,113 @@ class FileLock:
                 self._f.close()
             self._f = None
             self.acquired = False
+
+
+# 生效条件：作为 `with` 的空上下文——进入返回自身、退出返回 False（不吞异常）。
+class _NullContext:
+    """空上下文（无 root 的纯内存实例：无需跨进程互斥）。"""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+#: 本进程内**已持有**的跨进程锁（key -> 重入深度）。为什么需要：写面有两个天然的
+#: 嵌套关系——`writepipe.execute`（整条链：判存在/保护闸/落盘/可见性）与它内部的
+#: `MdCGOS.add`（同一 node_id）、以及 `remember_gated` 与它内部的 `add`。OS 级文件锁
+#: 在同一进程内对同一文件**第二次**获取会自我阻塞（Windows msvcrt 锁同一字节范围、
+#: POSIX flock 换 fd 亦互斥）⇒ 必须按「同线程重入」记账，否则修复本身变成死锁。
+#: 只按线程记账（threading.local）：跨线程仍各自排队，跨进程永远走 OS 锁。
+_LOCK_TLS = threading.local()
+
+# 生效条件：返回本线程的 key->深度字典（首次访问时创建），不触盘、不加锁。
+def _held_locks():
+    d = getattr(_LOCK_TLS, "held", None)
+    if d is None:
+        d = {}
+        _LOCK_TLS.held = d
+    return d
+
+# 生效条件：作为 `with` 使用——同线程已持有同 key 时只加深度并返回自身（不重复获取 OS 锁）；
+# 否则按 path 建 FileLock(timeout, strict=True) 并进入，成功后记深度 1；FileLock 抛错时
+# 不记账（失败不留下「已持有」的假象），异常原样上抛。退出时深度递减，归零才真正释放。
+class _ReentrantFileLock:
+    """`FileLock` 的同线程重入包装（跨进程互斥语义完全由内层 FileLock 提供）。"""
+
+    def __init__(self, path: str, timeout: float):
+        self.path = path
+        self.key = os.path.normcase(os.path.abspath(path))
+        self.timeout = timeout
+        self._inner = None
+
+    def __enter__(self):
+        held = _held_locks()
+        if held.get(self.key):
+            held[self.key] += 1
+            return self
+        inner = FileLock(self.path, timeout=self.timeout, strict=True)
+        inner.__enter__()
+        self._inner = inner
+        held[self.key] = 1
+        return self
+
+    def __exit__(self, *exc):
+        held = _held_locks()
+        depth = held.get(self.key, 0)
+        if depth > 1:
+            held[self.key] = depth - 1
+            return False
+        held.pop(self.key, None)
+        if self._inner is not None:
+            inner, self._inner = self._inner, None
+            return inner.__exit__(*exc)
+        return False
+
+# 生效条件：cg 具备非空 root 时返回以 `<root>/_node_locks/<node_id>` 为锁文件（FileLock 自动补 `.lock`）的跨进程排它锁（timeout 秒内未获锁抛 TimeoutError，strict 语义：「不能丢的写」宁可显式失败也不无锁放行；同线程重入按深度计数）；root 为假值返回不做任何事的空上下文；node_id 含路径分隔符/`..`/`:` 等不安全字符时改用其 sha256 前 32 位作锁名——同一 id 在任何进程里都映射到同一把锁，但绝不把调用方可控串拼进路径。
+def node_write_lock(cg, node_id, timeout: float = 30.0):
+    """同一 `node_id` 的写入跨进程串行化（issue #322）。
+
+    **不得用进程内锁冒充**：多智能体共享同一 root 时，写者可能是不同进程；
+    threading.Lock 对它们零作用。本函数一律走 `FileLock`（OS 级字节范围锁）。
+
+    锁粒度按 **node_id**：不同 id 的写入互不阻塞（写面瓶颈 S2/S4），而同一 id
+    的「判存在 → 保护闸 → 落盘 → 索引可见（flush）」必须在同一临界区内完成——
+    否则两个写者都判「不存在」，后写整份覆盖前写，两边都回执 committed:true
+    （#322 的静默丢正文）；anchor/knowledge 同 id 并发时两份文件并存，保护闸
+    在两侧都判不到对方（#322 的绕过 anchor）。
+    """
+    root = getattr(cg, "root", None)
+    if not root:
+        return _NullContext()
+    # 非字符串/空 id 一律由 add 的既有白名单 fail-closed 拒绝（它们根本走不到
+    # 落盘），此处不为它们造锁文件——空锁名还会把目录本身当文件打开。
+    if not isinstance(node_id, str) or not node_id:
+        return _NullContext()
+    name = node_id
+    if ("/" in name or "\\" in name or ".." in name or ":" in name):
+        import hashlib
+        name = "sha256_" + hashlib.sha256(
+            name.encode("utf-8", "replace")).hexdigest()[:32]
+    return _ReentrantFileLock(os.path.join(root, "_node_locks", name),
+                              timeout)
+
+
+def merge_rmw_lock(cg, timeout: float = 30.0):
+    """MERGE/CONVERGE 目标「读 → 聚合 → 整份覆写」的跨进程锁（issue #348-B）。
+
+    按**根**一把：`forgetting.reinforce` 与 `writelimit.converge_into` 的目标
+    由近重复判定选出、可能不同，但读改写窗口只有一处语义（目标正文 + merge_count），
+    根级锁让所有聚合落点共用同一临界区，避免「按目标加锁」在选目标阶段就漏掉
+    竞态。锁文件 `_merge_rmw.lock` 在 `sleep.FORBIDDEN_SUFFIXES` 内，不进版本库。
+
+    `strict=True`：锁竞争超时显式失败（调用方/重试层可见），绝不退化为无锁并发
+    ——后者正是本缺陷的形态（后写者用旧正文整份覆盖前者刚追加的聚合行）。
+    """
+    root = getattr(cg, "root", None)
+    if not root:
+        return _NullContext()
+    return _ReentrantFileLock(os.path.join(root, "_merge_rmw"), timeout)
 
 
 # 生效条件：os.path.getsize(path) 为 0 时返回 False；否则二进制打开 path 并从 size-1 处读 1 字节，返回 f.read(1) != b"\n"；getsize/open/seek/read 抛 OSError 时返回 False。
