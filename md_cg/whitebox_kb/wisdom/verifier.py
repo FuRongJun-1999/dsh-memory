@@ -336,7 +336,16 @@ class _SafeModule:
     def __getattr__(self, attr):
         if attr.startswith("_") or attr in _MODULE_BLOCKED_ATTRS:
             raise AttributeError("受限模块代理不暴露 %r" % (attr,))
-        return getattr(object.__getattribute__(self, "_m"), attr)
+        v = getattr(object.__getattribute__(self, "_m"), attr)
+        # issue #187 补漏：子模块属性（`json.decoder` / `json.scanner`）是**普通
+        # module 对象**，它自带真 `__builtins__` —— 必须继续套代理，否则上面那道
+        # 拦截只在**一层**内成立：`proxy.decoder.__builtins__["open"]` 可直达真
+        # open / __import__ / os.system（实测已复现）。递归后 `proxy.decoder` 仍是
+        # `_SafeModule`，其 `__builtins__` 照常 AttributeError；`re.search` 这类
+        # 纯计算用法不受影响。
+        if isinstance(v, types.ModuleType):
+            return _SafeModule(v, object.__getattribute__(self, "_n") + "." + attr)
+        return v
 
     def __repr__(self):
         return "<受限模块 %s>" % (object.__getattribute__(self, "_n"),)
@@ -512,7 +521,13 @@ class _SafeModule:
     def __getattr__(self, attr):
         if attr.startswith("_") or attr in _BLOCKED_ATTRS:
             raise AttributeError("受限模块代理不暴露 %r" % (attr,))
-        return getattr(object.__getattribute__(self, "_m"), attr)
+        v = getattr(object.__getattribute__(self, "_m"), attr)
+        # issue #187 补漏（与父侧同款）：子模块属性是普通 module，自带真
+        # `__builtins__` ⇒ 继续套代理，否则 `proxy.decoder.__builtins__` 可直达
+        # 真 open / __import__。
+        if isinstance(v, types.ModuleType):
+            return _SafeModule(v, object.__getattribute__(self, "_n") + "." + attr)
+        return v
 
     def __repr__(self):
         return "<受限模块 %s>" % (object.__getattribute__(self, "_n"),)
