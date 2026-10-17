@@ -6512,7 +6512,14 @@ class MdCGSecure(MdCGOS):
                 keep.append(g)
         return keep[:limit] if limit else keep
 
-# 生效条件：先以 limit=0 取全量，逐条跳过 meta.tenant 与 self.principal.tenant 不一致的、以及 principal.allows(meta 的 sensitivity or DEFAULT_SENSITIVITY) 为假的，文本加密时解封失败（None）也跳过，最后 limit 为真值返回 keep[:limit]、否则返回全部 keep。
+# 生效条件：返回 m 的 sensitivity；缺键（升级前旧记录 / 非 Secure 直写）按最保守档 "secret" 兜底。
+    # issue #447：与 consistency_history 的「密级不可判 ⇒ fail-closed 去原文」同向——近期事件面
+    # 原按 DEFAULT_SENSITIVITY(internal) 放行，缺键旧记录的明文对 internal 读方可读、会话绑定检查
+    # 也被连带跳过；本单点把缺键兜到上限档（designer/admin 仍可读，非 admin 按 secret 判）。
+    def _recent_effective_sens(self, m):
+        return (m or {}).get("sensitivity") or "secret"
+
+# 生效条件：先以 limit=0 取全量，逐条跳过 meta.tenant 与 self.principal.tenant 不一致的、以及 principal.allows(self._recent_effective_sens(meta)) 为假的（缺 sensitivity 键按最保守档 "secret" fail-closed，issue #447），文本加密时解封失败（None）也跳过，最后 limit 为真值返回 keep[:limit]、否则返回全部 keep。
     def recent_events(self, limit=20, roles=None, since=None, newest_first=True):
         """读隔离：只返回本 tenant 且当前 clearance 可见的近期事件。"""
         out = super().recent_events(limit=0, roles=roles, since=since,
@@ -6522,11 +6529,12 @@ class MdCGSecure(MdCGOS):
             m = r.get("meta") or {}
             if m.get("tenant", self.principal.tenant) != self.principal.tenant:
                 continue
-            if not self.principal.allows(m.get("sensitivity") or DEFAULT_SENSITIVITY):
+            # issue #447：缺 sensitivity 键按最保守档 fail-closed（与 consistency_history 对齐）。
+            msens = self._recent_effective_sens(m)
+            if not self.principal.allows(msens):
                 continue
             # 会话绑定档（private/secret）：近期事件同口径——仅归属会话，
             # 设计者豁免（issue #35 设计定稿，与 _readable 一致）。
-            msens = m.get("sensitivity") or DEFAULT_SENSITIVITY
             if (_rank(msens) >= _rank("private")
                     and not self.principal.can_admin
                     and m.get("session") != self.principal.session):
