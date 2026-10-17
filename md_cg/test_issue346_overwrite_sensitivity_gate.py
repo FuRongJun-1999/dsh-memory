@@ -4,7 +4,7 @@
 # 子功能：A 组＝正向腿（直写面／入队面／accept 落盘面三路越权必须 fail-closed，且节点密级与盘面加密未被降级）；K 组＝反向腿①（合法同层写/同密级写/新 id 写/无 principal 载体照常成功，防一刀切）；E 组＝源码面（两处判据存在且 add 闸在**同层**也触发）；M 组＝反向腿②（--mutate 定点变异，红项集合严格相等、两站点红项不重叠）
 # 执行：--mutate 时在镜像树里逐条撤闸／改成按声明值判，守卫必须按指定项转红（多红/少红皆不合格）
 # 验证方式：全部 PASS 即通过（退出码 0）；--mutate 下每条变异的红项集合须与预期逐项相符，锚点未命中即 fail-closed（打印 ANCHOR-MISS 并计入不合格）
-# 不适用条件：① 腿看不见「密级判定算法是否正确」——只看见「既有节点真密级 ↔ 写入者 clearance」是否被比对（§5.2 P0-2 可判性边界）；② 不覆盖「存量已在队列里的提案由**属主**accept」那条遗留（属主 clearance 够，判据要比较「提案密级 vs 目标当前密级」，本批不动）；③ 不覆盖 require_layer 在索引缺 sensitivity 时回读 fm 失败回落 internal 的 fail-open 固有面（#346 遗留，直写面同款）；④ 不覆盖真实 stdio / 令牌签发面（另一守卫 test_issue320/test_issue320_vstate_requires_verify 覆盖工具面）；⑤ 不判 orchestr 经 consistency(history) 枚举 private id（#298 残留，本批不碰）。
+# 不适用条件：① 腿看不见「密级判定算法是否正确」——只看见「既有节点真密级 ↔ 写入者 clearance」是否被比对（§5.2 P0-2 可判性边界）；② 不覆盖「存量已在队列里的提案由**属主**accept」那条遗留（属主 clearance 够，判据要比较「提案密级 vs 目标当前密级」，本批不动）；③ 不覆盖 require_layer 在索引缺 sensitivity 时回读 fm 失败回落 internal 的 fail-open 固有面（#346 遗留，直写面同款）；④ 不覆盖真实 stdio / 令牌签发面（另一守卫 test_issue320/test_issue320_vstate_requires_verify 覆盖工具面）；⑤ 不判 orchestr 经 consistency(history) 枚举 private id（#298 残留，本批不碰）；⑥ **本腿要求 A 组三面各自独立库**——若共用一个库，前一面可达（撤闸后直写成功）会把目标降成更低密级，使后一面的闸「钝化」而假绿/串味（本轮实测：共库时 M1 多红一条 A2，红项集合不再严格相等）⇒ 共库读数**无效**。属腿的夹具约束，不是实现约束（与 #471「读者恰好同会话」、#472 夹具坑同族）。
 """issue #346 守卫：覆写既有节点时「声明的密级」不得绕过「既有真密级」。
 
 病象（修前）：`MdCGSecure.propose` 只拿**声明值**比自己（`require_layer_write(声明层, 声明密级)`），
@@ -19,7 +19,7 @@
     真层+真密级过 principal 层闸；跨层支只保留 `guard_move`（次序不变：层闸在先、保护闸在后）。
   · `MdCGSecure.propose`：入队前按既有节点真层+真密级再判一次，提案者自己落不了盘的覆写不入队。
 
-本守卫的判别力来自非恒真对照：K1-K4 是「防一刀切」的反向腿（合法写必须仍然成功），
+夹具约束（不适用条件⑥）：A 组三面**必须各自独立库**。共库时「前一面可达」会把目标\n降成更低密级，使后一面的闸钝化——本轮实测共库形态下 M1 多红一条 A2（红项串味、\n「多站点红项不重叠」判据当场失效）。这是腿的夹具缺陷，不是实现的缺陷。\n\n本守卫的判别力来自非恒真对照：K1-K4 是「防一刀切」的反向腿（合法写必须仍然成功），
 M1/M3 撤或软化 add 闸、M2/M4 撤或软化入队闸——两组红项集合**互不重叠**，
 证明腿分别钉在两个站点上（而非一个闸包打天下）。
 """
@@ -280,7 +280,7 @@ def _guard_group(tag, fn, tmp):
 _MUTATIONS = (
     ("M1 撤 add 闸（mdcg.py 的 require_layer 调用删除 = #346 同层覆写零闸形态）",
      "md_cg/mdcg.py",
-     (("            protect.require_layer(self, node_id, layer=_prev_layer or None," + chr(10)
+     (("            protect.require_layer(self, node_id, layer=_prev_layer," + chr(10)
        + "                                  sensitivity=prev_entry.get(\"sensitivity\")," + chr(10)
        + "                                  actor=extra.get(\"actor\"))",
        "            pass  # M1 撤 add 闸"),),
@@ -298,10 +298,10 @@ _MUTATIONS = (
      ("A2", "E2")),
     ("M3 add 闸软化：按调用方**声明值**判（而非既有真密级）= 缺陷原形态",
      "md_cg/mdcg.py",
-     (("            protect.require_layer(self, node_id, layer=_prev_layer or None," + chr(10)
+     (("            protect.require_layer(self, node_id, layer=_prev_layer," + chr(10)
        + "                                  sensitivity=prev_entry.get(\"sensitivity\")," + chr(10)
        + "                                  actor=extra.get(\"actor\"))",
-       "            protect.require_layer(self, node_id, layer=_prev_layer or None," + chr(10)
+       "            protect.require_layer(self, node_id, layer=_prev_layer," + chr(10)
        + "                                  sensitivity=extra.get(\"sensitivity\")," + chr(10)
        + "                                  actor=extra.get(\"actor\"))"),),
      ("A1", "A4", "A5", "A6")),

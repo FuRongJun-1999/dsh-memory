@@ -236,15 +236,31 @@ def is_immutable(cg, node_id):
 
 # ---------------------------------------------------------------- 留痕
 
-# 生效条件：对任意 cg、action、node_id、reason（actor/snapshot 缺省为 None）都构造含 t/action/node_id/reason/actor/snapshot 的 rec 并返回，同时尝试追加写入 cg.root 下的 AUDIT_FILE，该写入抛出的任何异常被吞掉且不影响返回值。
+# 生效条件：对任意 cg、action、node_id、reason（actor/snapshot 缺省为 None）都构造含 t/action/node_id/reason/actor/snapshot 的 rec 并返回（#451：actor 经 _actor_of 单点解析——显式优先、其次库实例身份、无身份载体仍 None），，同时尝试追加写入 cg.root 下的 AUDIT_FILE，该写入抛出的任何异常被吞掉且不影响返回值。
 def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     rec = {"t": time.time(), "action": action, "node_id": node_id,
-           "reason": reason, "actor": actor, "snapshot": snapshot}
+           "reason": reason, "actor": _actor_of(cg, actor), "snapshot": snapshot}
     try:
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
     except Exception:
         pass
     return rec
+
+# 生效条件：actor 显式传入（非 None）时原样返回，否则返回 getattr(cg, "actor", None)（库实例身份；载体无该属性时为 None）——**不凭空造身份**。
+def _actor_of(cg, actor=None):
+    """审计 actor 单点（issue #451）：显式优先，其次库实例身份，两者皆无 → None。
+
+    #451 病象：`_allow` → `_audit` 把 actor **原样**透传，而三守卫经 mdcg 的写面
+    调用时都不传 actor ⇒ `override_write` / `override_forget` / `override_move`
+    三类审计行 `actor: null`；同一出口的 `snapshot`（:295）与 `preimage`（:342）
+    两行却都有 actor ——「同一出口两种口径」。本函数把三处同语义表达收成**一个
+    真源**（:295/:342 一并改走本函数，语义逐位不变）。
+
+    边界（不许改弱）：本函数只保证「**不凭空造身份**」——载体无 `.actor` 属性时
+    仍返回 None；而「actor 值是否*是*真正的那一方」由更上层身份源决定，本层看不见
+    （无独立身份源）。
+    """
+    return actor if actor is not None else getattr(cg, "actor", None)
 
 
 # 生效条件：cg.get(node_id) 抛异常或返回假值时返回 None；否则在 cg.root/HISTORY_DIR/node_id 下以时间戳命名写入当前 frontmatter 与 content，_write_node 抛异常时返回 None，成功则追加一条 action="snapshot" 的审计（_audit，actor 取 cg.actor）并返回相对 cg.root 且以 '/' 分隔的路径。
@@ -292,7 +308,7 @@ def snapshot(cg, node_id):
         return None
     rel = os.path.relpath(p, cg.root).replace("\\", "/")
     _audit(cg, "snapshot", node_id, "显式快照（%s）" % rel,
-           actor=getattr(cg, "actor", None), snapshot=rel)
+           actor=_actor_of(cg), snapshot=rel)
     return rel
 
 
@@ -339,7 +355,7 @@ def snapshot_preimage(cg, node_id, action="", pid=None, reason="", actor=None):
     _audit(cg, "preimage", node_id,
            reason or ("执行时点前像（动作类 %s，pid=%s）"
                       % (action or "?", pid or "?")),
-           actor=actor if actor is not None else getattr(cg, "actor", None),
+           actor=_actor_of(cg, actor),
            snapshot=rel)
     return rel
 
