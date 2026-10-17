@@ -3033,7 +3033,7 @@ class MdCGOS(MdCG):
     def _audit_node_id(pid: str, round_no) -> str:
         return f"rev_{pid.split('_')[-1]}_r{int(round_no)}"
 
-# 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE 等写入，返回 nid；若 self 有 principal 则额外传 sensitivity=principal.clearance；
+# 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE、sensitivity=DEFAULT_SENSITIVITY（issue #522：审计件保护级由件类型固定，不随裁决者 clearance 漂移）等写入，返回 nid；
     def _write_review_record(self, rec):
         """把一轮裁决写成 md 记忆节点（self 层）——外部来源可读、可复核。"""
         nid = rec["record_node_id"]
@@ -3056,9 +3056,14 @@ class MdCGOS(MdCG):
             f"- 裁决人：{rec.get('actor')}　时间："
             f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(rec['t']))}\n"
         )
-        extra = {}
-        if hasattr(self, "principal"):     # MdCGSecure：审计记录按裁决者密级写
-            extra["sensitivity"] = getattr(self.principal, "clearance", None)
+        # issue #522：审计件的保护级由**件类型**决定，不随写入者权限漂移——
+        # 本方法 docstring 承诺「外部来源可读、可复核」；若取裁决者 clearance
+        # （private/secret），审计件会落成密文 + 会话绑定，复核 API 对非裁决者
+        # 直接 node_not_found，恰好在该最需要外部复核的场景失效。显式声明
+        # DEFAULT_SENSITIVITY（仍照走 _check_sensitivity_landing 的「声明↔落盘」
+        # 闸）；不交给 _write_sensitivity 继承，否则存量 private 审计件重写时
+        # 会继续 private、问题原地保留。
+        extra = {"sensitivity": DEFAULT_SENSITIVITY}
         self.add(nid, body, layer="self", override=True, role=self.AUDIT_ROLE,
                  tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
