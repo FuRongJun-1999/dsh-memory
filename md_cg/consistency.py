@@ -702,6 +702,15 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 #: action=check` 与 auditview 不传该参数，比对范围逐位不变。方向**单向**——
 #: knowledge 不回看 contextual，structural/anchor 不纳入（层权限与保护语义不同，
 #: 不混比）。
+#:
+#: 值守返工判据（PR #316 审阅 #193，2026-10-15）：旧分支 b4d8af8 的无条件
+#: 形态（层过滤器 `!= layer and != "knowledge"`）实测两条失效——①「指定层
+#: 比对」的只读面也被拉动（词面无交集的不相关 knowledge 在场即
+#: BLINDSPOT→ACCEPT、comparable 0→1，同层语义被跨层改写）；②层外候选与
+#: 同层候选**同池竞争**相关面前 limit，limit 压力下同层矛盾节点被挤出精比面
+#: （实测 limit=1 丢同层检出）。故扩面必须「显式请求（write_scope）＋另道
+#: 收集」；阴性判据（不相关 knowledge 不引发跨层误报）与位移判据的守卫见
+#: test_issue193_consistency_knowledge_guard.py。
 EXTRA_SCOPE = {"contextual": ("knowledge",)}
 
 # 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；N276：精比环的索引代际探针循环外单探一次（环内 cg.get(nid, probe=False)；无探活面载体回落 cg.get(nid)，行为零变）；
