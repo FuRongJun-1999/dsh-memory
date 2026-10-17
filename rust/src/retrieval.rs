@@ -49,6 +49,17 @@ fn like(doc: &Doc, terms: &[String]) -> bool {
 /// `_lexical`：LIKE 预筛 → 覆盖率打分。
 ///
 /// `cap` 对齐 `GLOBAL_CAP`（评测侧 `unlock_global_cap()` 置 1e9 → 不截断）。
+///
+/// issue #363（与 Python `MdCG._score` + `mdcg.lexical_weights` 同步）：legacy
+/// 口径（`jaccard == false`）改**池内 IDF + 功能词降权**——权重池 = **截断前**
+/// 的 LIKE 命中全量（空命中时=完整候选集；PR #381 复核 P0-② 与 Python 的
+/// 「当批全量」口径对齐，详见下方权重表构建处的互指注释）：
+///   w(g) = ln(1 + (N - df + 0.5)/(df + 0.5)) × (g ∈ CN_FUNC_GRAMS 时 α)
+/// 旧 `|qb ∩ db| / |qb|` 保留为 `MDCG_LEXICAL_IDF=0` 的回退分支（**且**作为
+/// 权重表全等的退化池的逐位路径，PR #381 复核 P0-①——全等 ⇒ 无判别信息，
+/// 与 Python `lexical_weights` 的 all_equal 跳过同判据）。jaccard 口径
+/// **不加权**（两侧钉 jaccard 的 rank_parity 对拍逐位不变）。求和按 gram
+/// 字典序（对齐 Python `lexical_sim_weighted` 的 sorted 序求和）。
 pub fn lexical(
     docs: &[Option<Doc>],
     cand: &[usize],
@@ -62,7 +73,8 @@ pub fn lexical(
     // 原先用原始 query 取 bigram——英文查询与归一化文档侧交集错位、
     // 混合查询的分数系统性偏移。
     let qnorm = crate::text::normalize_en(query);
-    let qb = bigrams(&qnorm);
+    let mut qb = bigrams(&qnorm);
+    qb.sort();                        // 加权求和序对齐 Python（dict 序不可复算）
     let qbl = qb.len() as f64;
 
     // 预筛：命中数（hits）；同时记住候选全集下标以便回退
@@ -74,6 +86,76 @@ pub fn lexical(
             }
         }
     }
+
+    // issue #363：legacy 口径的权重表（池内 IDF × 功能词降权）。None ⇒ 逐位
+    // 走旧公式（jaccard / MDCG_LEXICAL_IDF=0 / 空池 / 权重全等的退化池）。
+    //
+    // PR #381 复核 P0-②（与 Python `mdcg.lexical_weights` docstring 互指）：
+    // 权重池 = **截断前**的 LIKE 命中全量（空命中时=完整候选集）——Python 侧
+    // `_lexical`/search T2 把「LIKE 预筛后的命中全量」交给 `_score`（GLOBAL_CAP
+    // 截断发生在打分**之后**，N 不含截断效应），故本侧必须在
+    // `hits.truncate(cap)` **之前**取池。旧实现取 `picked.len()`（截断后命中
+    // 池），有限 cap 下 picked ⊊ 命中全量 ⇒ 两侧 IDF 权重劈叉（现役调用
+    // cap=1e9 掩盖了它）。空命中兜底池的构成差异（Python 按 importance 取前
+    // CAP vs 本侧 cand 序）是 #363 之前的既有面，不属本件靶区，注释留痕。
+    //
+    // PR #381 复核 P0-①：退化判据 = **权重表全等**（而非「df 全同」——df 全同
+    // 但 qb 跨侧〔功能词×实词并存〕时 w 恰差 α 倍，不属退化，α 生效正是设计
+    // 靶区）。全等 ⇒ 返回 None 逐位走旧公式：退化池分数与 Python 侧（all_equal
+    // 跳过，见 `mdcg.lexical_weights` 尾部）及修前逐位一致——两侧判据必须
+    // 同步，否则 rank_parity 在退化池上按位劈叉。
+    let weights: Option<std::collections::HashMap<&str, f64>> =
+        if !jaccard && qbl > 0.0
+            && std::env::var("MDCG_LEXICAL_IDF").as_deref() != Ok("0")
+        {
+            let pool: &[usize] = if hits.is_empty() { cand } else { &hits };
+            let n = pool.len() as f64;
+            let mut w = std::collections::HashMap::with_capacity(qb.len());
+            let mut all_equal = true;            // P0-①：权重全等 ⇒ 退化 ⇒ None
+            let mut first: Option<f64> = None;
+            for g in qb.iter() {
+                let mut df = 0.0f64;
+                for &i in pool.iter() {
+                    if let Some(d) = docs[i].as_ref() {
+                        if d.stripped.contains(g.as_str()) {
+                            df += 1.0;
+                        }
+                    }
+                }
+                let idf = (1.0 + (n - df + 0.5) / (df + 0.5)).ln();
+                let mult = if crate::text::CN_FUNC_GRAMS.contains(&g.as_str()) {
+                    crate::text::FUNC_GRAM_ALPHA
+                } else {
+                    1.0
+                };
+                let v = idf * mult;
+                match first {
+                    None => first = Some(v),
+                    Some(f) if v != f => all_equal = false,
+                    _ => {}
+                }
+                w.insert(g.as_str(), v);
+            }
+            if n > 0.0 && !all_equal {
+                Some(w)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+    // 分母对池内所有文档相同：循环外一次（对齐 Python lexical_sim_weighted
+    // 的 sorted 序求和）。
+    let w_den: f64 = weights.as_ref().map_or(0.0, |w| {
+        let mut acc = 0.0;
+        for g in qb.iter() {
+            if let Some(v) = w.get(g.as_str()) {
+                acc += *v;
+            }
+        }
+        acc
+    });
+
     if hits.len() as f64 > cap {
         hits.truncate(cap as usize);
     }
@@ -96,10 +178,25 @@ pub fn lexical(
         let cap_hit = overlap_count(&qb, &d.stripped);
         // legacy：`|qb ∩ db| / |qb|`（只归一化 query 侧 → 长文档必然霸榜）
         // jaccard：`|qb ∩ db| / |qb ∪ db|`（对称，长度自惩罚，无需调参）
+        // legacy+IDF（#363）：`Σw(qb ∩ db) / Σw(qb)`（功能词降权 + 池内 IDF）
         let sim = if jaccard {
             let denom = (qb.len() + d.db_len).saturating_sub(cap_hit);
             if denom > 0 {
                 cap_hit as f64 / denom as f64
+            } else {
+                0.0
+            }
+        } else if let Some(w) = weights.as_ref() {
+            if w_den > 0.0 {
+                let mut num = 0.0;
+                for g in qb.iter() {
+                    if d.stripped.contains(g.as_str()) {
+                        if let Some(v) = w.get(g.as_str()) {
+                            num += *v;
+                        }
+                    }
+                }
+                num / w_den
             } else {
                 0.0
             }

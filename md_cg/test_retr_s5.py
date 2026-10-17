@@ -63,7 +63,10 @@ def _restore(old):
 
 
 def _scores(results):
-    return {r[0]["id"]: round(float(r[1]), 6) for r in results}
+    # issue #363：不再 round(6)——加权词法分（池内 IDF）非二进制精确，先舍 6 位
+    # 再做 `×0.5`/`1e-9` 容差比较会引入 5e-7 假差（抑制本身仍精确 ×(1-λ)，
+    # 本函数只取数不改判据；等值比较依赖 _score 的确定性，两侧同池同序）。
+    return {r[0]["id"]: float(r[1]) for r in results}
 
 
 def _neg_card(results):
