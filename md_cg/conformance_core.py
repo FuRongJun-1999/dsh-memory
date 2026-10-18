@@ -41,7 +41,7 @@ GOOD_BODY = (
     "# 执行：略\n"
     "# 验证方式：本文脚本\n"
     "# 不适用条件：仅测试用\n"
-    "依据：md_cg/condaccept.py 第9.1节\n"
+    "依据：md_cg/condaccept.py 第10.1节\n"
 )
 
 
