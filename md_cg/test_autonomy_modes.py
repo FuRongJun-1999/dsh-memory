@@ -597,7 +597,13 @@ def g_g():
         except OSError:
             continue
         if lit in src or ("'%s'" % _ENV_MODE) in src:
-            hits.append(os.path.relpath(p, _repo_root()).replace("\\", "/"))
+            rel = os.path.relpath(p, _repo_root()).replace("\\", "/")
+            # 判据面 = **生产代码**：测试夹具必须能把该 env 设成各档位才能覆盖档位闸
+            # （`{"MDCG_AUTONOMY…": "confirm"}` 这类），那不是在读档位。排除件不削弱
+            # 「唯一入口」判据：生产侧仍只允许 autonomy_modes.py 命中。
+            if os.path.basename(rel).startswith("test_"):
+                continue
+            hits.append(rel)
     ok(hits == ["md_cg/autonomy_modes.py"],
        "G 全仓 .py 里带引号的档位 env 字面量只出现在唯一入口模块", hits)
     # 库层不接线（accept 执行桥「直越确认判定」的机制前提）

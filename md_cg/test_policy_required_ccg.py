@@ -122,7 +122,10 @@ _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
 # 一个相对 import，必须登记（否则假包缺模块、断言退化成假绿）。**以追加语句登记而不是改字面量**：
 # 上面那行是 test_autonomy_modes 变异表 ⑭ 的**锚点**（其注释即「锚点随 _SHIMS 文本演进同步」），
 # 改字面量会连带把别家的锚点打红（实测踩过：ANCHOR-MISS fail-closed）。
-_SHIMS = _SHIMS + ("protect",)
+# 2026-10-18：条件空间闸（memory-gate 批次）给 audit / writepipe 各加一个相对 import
+# （`from .condaccept import …` / `from .condgate import …`），同款以追加语句登记，
+# 不动上面那行字面量锚。
+_SHIMS = _SHIMS + ("protect", "condaccept", "condgate")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
