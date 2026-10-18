@@ -156,6 +156,24 @@ def _discover():
 # len(argvs)>1 则记下该 stderr 末 300 字符继续下一候选，否则返回 (name,
 # returncode==0, stdout+stderr 拼接后末 800 字符)；所有候选都命中回退条件时返回
 # (name, False, 最后记下的片段)；
+# 生效条件：给定 Popen 对象，尽力终止其**整个进程树**——Windows 走
+# taskkill /F /T（/T 是关键：孙进程一并杀），POSIX 走 os.killpg（因子进程
+# 已 start_new_session，其 pgid 即自身 pid）。任何异常都吞掉：杀不死也
+# 不能因此让本函数抛错把 job 带崩（失败语义由调用方的超时返回承担）。
+def _kill_tree(proc):
+    try:
+        if os.name == "nt":
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                           capture_output=True, timeout=15)
+        else:
+            os.killpg(os.getpgid(proc.pid), 9)
+    except Exception:                       # noqa: BLE001
+        try:
+            proc.kill()
+        except Exception:                   # noqa: BLE001
+            pass
+
+
 def _run_one(name, argvs, timeout, parallel=False):
     # parallel（2026-10-03 外部报告核验新增）：负载敏感的性能断言（见
     # md_cg/test_index_crossprocess_reload ⑥）据此在并行下明示豁免、串行照测——
@@ -163,12 +181,34 @@ def _run_one(name, argvs, timeout, parallel=False):
     env = _child_env(parallel)
     last = ""
     for argv in argvs:                    # -m 优先；No module named 时回退直跑
+        # issue #551：`subprocess.run(timeout=)` 只杀**直接子进程**，随后
+        # `communicate()` 仍要读到管道 EOF。若孙进程继承了 stdout/stderr
+        # （常驻 mcp_server / sustain 循环 / 未 detach 的 Popen —— 本仓 74 处
+        # Popen 不可能全都 detach），管道永不 EOF ⇒ 超时形同虚设，一个 job
+        # 能挂数小时（实测三次运行同时卡在同一阶段约 3 小时）。
+        # 判据：用 Popen 起**独立进程组**，超时后杀整组；且**第二次
+        # communicate() 也带 timeout**（杀完仍可能挂在管道上，不给它无限等）。
+        kw = {"cwd": _REPO, "stdout": subprocess.PIPE, "stderr": subprocess.PIPE,
+              "text": True, "encoding": "utf-8", "errors": "replace",
+              "env": env, "shell": False}
+        if os.name == "nt":
+            kw["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            kw["start_new_session"] = True
         try:
-            r = subprocess.run(argv, cwd=_REPO, capture_output=True,
-                               text=True, encoding="utf-8", errors="replace",
-                               env=env, shell=False, timeout=timeout)
+            _proc = subprocess.Popen(argv, **kw)
+        except OSError as e:
+            return name, False, "æ æ³æèµ·ï¼%s" % e, ""
+        try:
+            _out, _err = _proc.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            return name, False, f"超时（>{timeout}s）", ""
+            _kill_tree(_proc)
+            try:
+                _proc.communicate(timeout=10)
+            except subprocess.TimeoutExpired:
+                pass
+            return name, False, f"è¶æ¶ï¼>{timeout}sï¼å·²æè¿ç¨ç»ï¼", ""
+        r = subprocess.CompletedProcess(argv, _proc.returncode, _out, _err)
         if not (r.returncode != 0 and "No module named" in (r.stderr or "")
                 and len(argvs) > 1):
             tail = ((r.stdout or "") + (r.stderr or ""))[-800:]

@@ -27,6 +27,7 @@ import os
 import time
 
 from . import d_meta, metacognition, predict
+from . import fsutil
 from .fsutil import append_jsonl
 
 #: 信息差评分权重：不确定度二阶差分 |d2|（加速度）×1，

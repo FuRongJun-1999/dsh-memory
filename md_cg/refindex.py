@@ -522,7 +522,19 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             )
         else:                                      # doc_ref
             level = it.get("level")
-            s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
+            # issue #452（2026-10-16 实测）：`it["path"]` 是**相对被摄取根**的路径，
+            # 而私有提示可能正落在**被摄取根自身**的名字上——`cg(op=ingest,
+            # action=dir, path=<…>/private)` 时 item path 只剩 `hr_archive.md`，
+            # `private` 这一段被抹掉 ⇒ 提示永不命中 ⇒ 敏感文档以 internal 落库，
+            # 低权身份可读回其正文；同一份文档改传父目录即正确判 private 并
+            # fail-closed（同一文件、同一写者，只有 path 参数不同）。
+            # 故密级判据面改用「**摄取根 + 相对路径**」的合成路径：与
+            # `docindex.sensitivity_for` 已支持的绝对路径写法**同口径**，而该函数
+            # 只按段找提示、命中只会收紧为 private ⇒ 仍满足其 docstring 的
+            # 「只可能更严、不可能更松」。`root` 为空时合成结果即原 path，
+            # 行为与修前逐字一致（非摄取通路的调用点不受影响）。
+            _hint = os.path.join(root or "", it.get("path") or "").replace("\\", "/")
+            s, _basis = docindex.sensitivity_for(_hint, sensitivity)
             sens[s] = sens.get(s, 0) + 1
             extra = (extra_of(it) or {}) if extra_of else {}
             cg.add(

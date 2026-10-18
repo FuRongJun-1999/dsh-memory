@@ -37,6 +37,7 @@ from . import identity as _identity
 from . import security as _sec
 from . import signer as _signer
 from .datapath import aux_root
+from . import fsutil
 from .fsutil import publish
 
 NODE_ID_ENV = "MDCG_NODE_ID"

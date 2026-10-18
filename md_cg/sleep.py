@@ -57,6 +57,7 @@ import time
 
 from . import nodefile
 from .datapath import mdcg_root, state_root
+from . import fsutil
 from .fsutil import FileLock, append_jsonl
 from .mdcg import LAYERS
 

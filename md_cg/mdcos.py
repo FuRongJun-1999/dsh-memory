@@ -1092,6 +1092,26 @@ class MdCGOS(MdCG):
             _sess = kw.get("session") or getattr(self, "session", None)
             if _sess and not kw.get("session"):
                 kw["session"] = _sess
+            # issue #550：同 id 覆写时，**调用方未提供的字段必须继承旧值**，
+            # 不得因父类签名默认值而被重置（importance 0.7->0.5 会连带把
+            # protected 从 true 降为 false：importance 同时是元数据与保护闸输入）。
+            # 判据：用 `in kw` 判定「真未传」—— 本方法签名是 (node_id, content,
+            # layer, role, **kw)，省略的字段不在 kw 里；显式传值/None 都是调用方意图。
+            # 取旧值必须走 get() 返回的 **frontmatter 子字典**（实测 get() 返回
+            # {content, frontmatter, id, path} 四键，字段在嵌套层）。
+            try:
+                _old = self.get(node_id)
+            except Exception:                           # noqa: BLE001
+                _old = None
+            _ofm = (_old or {}).get("frontmatter") if isinstance(_old, dict) else None
+            if isinstance(_ofm, dict) and _ofm:
+                for _ik in ("importance", "confidence", "tags",
+                            "verification_basis", "condition_space"):
+                    if _ik in kw:
+                        continue
+                    _ov = _ofm.get(_ik)
+                    if _ov is not None:
+                        kw[_ik] = _ov
             nid = super().add(node_id, content, layer=layer, **kw)
             e = self.index["nodes"].get(nid)
             if e is not None and role is not None:
@@ -3050,7 +3070,7 @@ class MdCGOS(MdCG):
     def _audit_node_id(pid: str, round_no) -> str:
         return f"rev_{pid.split('_')[-1]}_r{int(round_no)}"
 
-# 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE 等写入，返回 nid；若 self 有 principal 则额外传 sensitivity=principal.clearance；
+# 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE、sensitivity=DEFAULT_SENSITIVITY（issue #522：审计件保护级由件类型固定，不随裁决者 clearance 漂移）等写入，返回 nid；
     def _write_review_record(self, rec):
         """把一轮裁决写成 md 记忆节点（**structural 层**）——外部来源可读、可复核。
 
@@ -3083,15 +3103,16 @@ class MdCGOS(MdCG):
             f"- 裁决人：{rec.get('actor')}　时间："
             f"{time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(rec['t']))}\n"
         )
-        extra = {}
-        if hasattr(self, "principal"):     # MdCGSecure：审计记录按裁决者密级写
-            extra["sensitivity"] = getattr(self.principal, "clearance", None)
-        # 2026-10-18：layer 由 self 改 structural（见本方法 docstring 的实测依据）
-        # 2026-10-18：layer 由 self 改 structural（见本方法 docstring 的实测依据）
-        # 并打 audit_trace 标签——它是 self_surface 过滤的判据单点（方案 C）：
-        # 存量 769 条已手工补标；新记录必须自动带上，否则过滤面会随新写入重新污染。
-        self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
-                 tags=["audit", "audit_trace", self.AUDIT_TAG, f"pid:{rec['pid']}",
+        # issue #522：审计件的保护级由**件类型**决定，不随写入者权限漂移——
+        # 本方法 docstring 承诺「外部来源可读、可复核」；若取裁决者 clearance
+        # （private/secret），审计件会落成密文 + 会话绑定，复核 API 对非裁决者
+        # 直接 node_not_found，恰好在该最需要外部复核的场景失效。显式声明
+        # DEFAULT_SENSITIVITY（仍照走 _check_sensitivity_landing 的「声明↔落盘」
+        # 闸）；不交给 _write_sensitivity 继承，否则存量 private 审计件重写时
+        # 会继续 private、问题原地保留。
+        extra = {"sensitivity": DEFAULT_SENSITIVITY}
+        self.add(nid, body, layer="self", override=True, role=self.AUDIT_ROLE,
+                 tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
                  pid=rec["pid"], round=rec["round"], decision=rec["decision"],
@@ -3863,12 +3884,14 @@ class MdCGOS(MdCG):
             layer=e.get("layer") or "knowledge",
             sensitivity=e.get("sensitivity"), info=True)
         # 协议 gate_short_circuit：补 verdict 键（无校验裁决 ⇒ None，与写链面同口径）
-        return {"ok": True, "id": node_id, "committed": False, "deleted": False,
-                "moved_to": "review_queue", "verdict": None,
-                "pid": pr["pid"], "mutation": pay,
-                "autonomy": aut,
-                "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
-                        "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}
+        # issue #426-A：入队回执透出 dedup 归因（同键既有单时不再只回 pid）。
+        return autonomy_modes.apply_dedup(
+            {"ok": True, "id": node_id, "committed": False, "deleted": False,
+             "moved_to": "review_queue", "verdict": None,
+             "pid": pr["pid"], "mutation": pay,
+             "autonomy": aut,
+             "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
+                     "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}, pr)
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.deletions_log))，记录内容取决于 deletions_log 可读结果；
     def deletions(self):
@@ -4939,12 +4962,14 @@ class MdCGOS(MdCG):
                                   layer=tlayer,
                                   sensitivity=kw.get("sensitivity"), info=True)
         # 协议 gate_gated：同上补三键（ok=True=已受理待审，与写链面口径一致）
-        return {"ok": True, "id": node_id, "committed": False,
-                "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
-                "merged_into": tgt, "moved_to": "review_queue",
-                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
-                "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
-                        "新内容随单）。" % (dec["hint"], pr["pid"], tgt)}
+        # issue #426-A：入队回执透出 dedup 归因。
+        return _am.apply_dedup(
+            {"ok": True, "id": node_id, "committed": False,
+             "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
+             "merged_into": tgt, "moved_to": "review_queue",
+             "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+             "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
+                     "新内容随单）。" % (dec["hint"], pr["pid"], tgt)}, pr)
 
 # 生效条件：以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）后交 autonomy_modes.decide 判定——ALLOW 返回 None（调用方照旧 add 落盘，逐位不变）；FORBID 返回 ok=False/verdict="FORBID"/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 先经 self.write_qualify 跑既有资格探针（受保护/越权覆写照旧当场抛出、不静默入队）再经 autonomy_modes.propose_mutation 出变更单并返回 ok=True/verdict="CONFIRM"/committed=False/moved_to="review_queue" 的终态（**不落盘**）；既有节点（C 改写）confirm/plan 两档出单、full 档放行；新节点（A 新增）confirm/full 两档放行、plan 档 FORBID（计划外零变更）；
     def _autonomy_gate_rewrite(self, node_id, content, layer, kw,
@@ -5020,11 +5045,13 @@ class MdCGOS(MdCG):
                                   layer=layer,
                                   sensitivity=kw.get("sensitivity"), info=True)
         # 协议 gate_gated 需三键中的 id（同上）
-        return {"ok": True, "id": node_id, "verdict": "CONFIRM", "node_id": node_id,
-                "committed": False, "gate": gate, "moved_to": "review_queue",
-                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
-                "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                        % (dec["hint"], pr["pid"], node_id)}
+        # issue #426-A：入队回执透出 dedup 归因。
+        return _am.apply_dedup(
+            {"ok": True, "id": node_id, "verdict": "CONFIRM", "node_id": node_id,
+             "committed": False, "gate": gate, "moved_to": "review_queue",
+             "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+             "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                     % (dec["hint"], pr["pid"], node_id)}, pr)
 
 # 生效条件：node_id 不在索引中（新节点）时返回 None（新写入面没有「既有资格闸」，其层闸由落盘面把守）；在索引中时以 override=False 跑 protect.guard_overwrite（既有节点覆写前的统一双闸：principal 层闸按**既有节点真层** + 引擎级写保护闸）与（target_layer 非空且与真层不同时）protect.guard_move（受保护节点移出保护层的降级闸），任一拒绝抛出的 AccessDenied 一律照抛、ProtectionError 仅在 override 为假时照抛（override 为真时放行——真实写入那一次会带授权并写快照，本探针**不写快照**）；全部通过返回 None；本函数不落盘、不改索引、不写任何快照；
     def write_qualify(self, node_id, target_layer=None, override=False,

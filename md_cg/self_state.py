@@ -66,6 +66,7 @@ import re
 import time
 
 from . import identity, metacognition
+from . import fsutil
 from .fsutil import append_jsonl, read_jsonl
 
 DEFAULT_SUBJECT = "self:lingshu"
@@ -152,7 +153,12 @@ def _append_log(cg, rec):
 # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
 # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
 # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
-        _ok = append_jsonl(log_path(cg), rec)
+        # issue #443：调用方可控字段可无限长 ⇒ 单条记录先过总字节闸（超限跳过写并留痕）。
+        if not fsutil.bounded_record(rec):
+            fsutil._note_append_failure(log_path(cg),
+                                        ValueError("record_too_large: issue #443"))
+            return
+        _ok = fsutil.append_jsonl_ledger(log_path(cg), rec)
     except OSError:
         pass
 
@@ -161,7 +167,7 @@ def _append_log(cg, rec):
 def history(cg, limit=100, subject=None):
     """自我状态留痕（倒序）。"""
     try:
-        recs = list(read_jsonl(log_path(cg)))
+        recs = list(fsutil.read_jsonl_ledger(log_path(cg)))
     except OSError:
         recs = []
     if subject:

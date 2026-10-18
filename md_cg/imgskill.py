@@ -890,6 +890,10 @@ def _derive_dst(src_rel, op, nparams, src_fmt_ext):
 # ---------------------------------------------------------------- 审计
 
 # 生效条件：台账落点经 audit_path 判定安全时以 O_APPEND|O_CREAT|O_NOFOLLOW（平台无该标志时取 0）打开并追加一行 JSON，返回 None；判定不安全（链接/根外）或打开写入失败时**不写**并返回告警 dict（{"code","message","detail"}），不抛——调用方把告警并进返回体（audit_warning），run() 本身照常给结果；
+#: issue #443：单条台账记录的总字节上限（与 md_cg/fsutil._MAX_RECORD_BYTES 同值）。
+_MAX_AUDIT_RECORD_BYTES = 65536
+
+
 def _audit_write(root, rec):
     """追加一行台账；落点不可信时**不写 + 告警**（#352-C）。
 
@@ -902,6 +906,14 @@ def _audit_write(root, rec):
     TOCTOU 窗口，同 #325 的残余口径）；Windows 无该标志，靠 audit_path 的
     realpath 判定兜底。
     """
+    # issue #443：rec 由调用方可控 ⇒ 先过单条总字节闸；超限不写台账但照常返回结果
+    # （与本函数既有 fail-open 口径一致），并通过结构化 code 透出、不静默。
+    # 上限与 md_cg/fsutil._MAX_RECORD_BYTES 同值；本模块不依赖 fsutil（它只 import stdlib），
+    # 故常量在此重复一份并在守卫里钉住两处相等，避免单方面漂移。
+    if len(json.dumps(rec, ensure_ascii=False, default=str).encode("utf-8")) > _MAX_AUDIT_RECORD_BYTES:
+        return {"code": "audit_record_too_large",
+                "message": "台账记录超出单条字节上限，未写入（issue #443）",
+                "detail": int(_MAX_AUDIT_RECORD_BYTES)}
     try:
         p = audit_path(root)
     except SkillError as exc:

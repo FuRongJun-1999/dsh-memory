@@ -283,6 +283,30 @@ export const SENSITIVE_PATTERNS: Array<{ re: RegExp; label: string }> = [
 ]
 
 /** 脱敏：替换敏感片段；返回 null 表示整条都是敏感内容（应跳过写入）。 */
+// issue #538：自动记忆钩子此前不构造 condition_space，导致 consolidate.induce_memories 的
+// 输入侧条件恒空（pos 恒空集）⇒ contextual -> knowledge 一次都不发生、knowledge 层恒空。
+// 四槽必须齐全：md_cg/nodefile.condition_space_text(require_full=True) 缺任一槽即返回 ""。
+const COND_ROLE_POS: Record<string, string> = {
+  user: 'dsh-hook/user-message',
+  assistant: 'dsh-hook/assistant-message',
+  tool: 'dsh-hook/tool-result',
+}
+function condSpace(role: string): Record<string, unknown> {
+  // 时间维取**小时粒度**：避免把每次调用都变成不同条件（那会让归纳的共享条件退化为单点）。
+  // 单位必须是**秒**：md_cg/nodefile.py 的 FULL_TIME_WINDOW_MAX = 9999999999.0 是秒级上限
+  // （约 2286 年）。用毫秒（Date.now() 原值约 1.76e12）会超过该上限，时间槽被判非法丢弃，
+  // 于是只余三槽 ⇒ condition_space_text(require_full=True) 返回空串 ⇒ 归纳的 common_pos
+  // 恒空、knowledge 层恒空 —— 即"补了 condition_space 与不补等价"（issue #538 实测）。
+  const hour = Math.floor(Date.now() / 3600000)
+  return {
+    observation_position: COND_ROLE_POS[role] ?? ("dsh-hook/" + role),
+    time_window: [hour, hour] as [number, number],
+    observation_tool: 'dsh-memory-hook',
+    existence_constraint: role + "-message-minlen1",
+  }
+}
+
+
 export function desensitize(text: string): string | null {
   let out = text
   for (const { re, label } of SENSITIVE_PATTERNS) {
@@ -825,6 +849,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) { audit.skipped('sanitized', 'user'); return }
       memorize('user', 'user', (g) => g.remember(safe, {
+        condition_space: condSpace('user'),
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
         ...sessionTag,
       }))
@@ -847,6 +872,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)
       if (safe === null) { audit.skipped('sanitized', 'assistant'); return }
       memorize('assistant', 'assistant', (g) => g.remember(safe, {
+        condition_space: condSpace('assistant'),
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
         ...sessionTag,
       }))
@@ -857,6 +883,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const safe = sanitize(text)
       if (safe === null) { audit.skipped('sanitized', 'tool'); return }
       memorize('tool', 'tool', (g) => g.remember(safe, {
+        condition_space: condSpace('tool'),
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
         ...sessionTag,
       }))

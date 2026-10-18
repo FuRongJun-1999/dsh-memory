@@ -320,6 +320,14 @@ def heartbeat_path(root: str) -> str:
 
 
 # 生效条件：给定库根 root，返回 root/HEARTBEAT_ARCHIVE 的拼接路径。
+# 生效条件：root 给定时返回 root/SUSTAIN_LOG 的绝对路径（与 heartbeat_path 同形）。
+# issue #547：落点路径的**单点 getter** —— 此前 sustain.py 内有两处直接拼
+# os.path.join(root, SUSTAIN_LOG)；与 heartbeat_path 对齐后产品代码只经 getter 取路径。
+def sustain_log_path(root: str) -> str:
+    """sustain 台账路径（单点）。"""
+    return os.path.join(root, SUSTAIN_LOG)
+
+
 def heartbeat_archive_dir(root: str) -> str:
     return os.path.join(root, HEARTBEAT_ARCHIVE)
 
@@ -635,7 +643,7 @@ def _last_mutual_restart(root: str, peer: str) -> float:
     """_sustain.jsonl 里该对端最近一次互维拉起时间（无 → 0.0，审计即状态）。"""
     last = 0.0
     try:
-        with open(os.path.join(root, SUSTAIN_LOG), encoding="utf-8") as f:
+        with open(sustain_log_path(root), encoding="utf-8") as f:
             for line in f:
                 try:
                     r = json.loads(line)
@@ -1048,7 +1056,7 @@ def _seal_half_line(path: str):
 
 # 生效条件：root/op/action 必填，向 root/SUSTAIN_LOG（模块常量）追加一行含 t/op/action/detail(截断 200)/pid 的 JSONL，无返回值。
 def _audit(root: str, op: str, action: str, detail: str = ""):
-    append_jsonl(os.path.join(root, SUSTAIN_LOG),
+    append_jsonl(sustain_log_path(root),
                  {"t": time.time(), "op": op, "action": action,
                   "detail": str(detail)[:200], "pid": os.getpid()})
 

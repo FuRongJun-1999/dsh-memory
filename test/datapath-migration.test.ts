@@ -19,7 +19,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, relative, isAbsolute, resolve } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -67,14 +67,34 @@ function probeSandbox(opts: { pkg: string; state: string; dataRoot?: string }): 
   return JSON.parse(r.stdout.trim().split('\n').pop() as string) as Probe
 }
 
+/**
+ * 递归复制目录树（**刻意不用 `cpSync`**）。
+ *
+ * 为什么：本机实测（Windows + Node v22.23.1）——源路径含非 ASCII 字符时
+ * `cpSync(src, dst, { recursive: true })` 以 `0xC0000409` **硬崩进程**（不是抛异常，
+ * catch 不住），而本用例的源正是 `REPO/lib`：仓一旦落在中文路径（如 `E:\DS\插件\…`）
+ * 即命中，表现为「整个测试文件 exitCode=3221226505」。本函数与
+ * `src/lib/datapath.ts` 的 `copyTreeNoOverwrite` 同因同治：逐项复制、目标已存在即跳过。
+ */
+function copyTree(src: string, dst: string): void {
+  const st = statSync(src)
+  if (st.isDirectory()) {
+    mkdirSync(dst, { recursive: true })
+    for (const name of readdirSync(src)) copyTree(join(src, name), join(dst, name))
+    return
+  }
+  if (!st.isFile() || existsSync(dst)) return
+  copyFileSync(src, dst)
+}
+
 /** 复制构建产物与 package.json 成 `<tmp>/pkg`（node_modules/<pkg> 形态）。 */
 function makeSandboxPackage(base: string): string {
   const pkg = join(base, 'pkg')
   mkdirSync(pkg, { recursive: true })
-  cpSync(join(REPO, 'package.json'), join(pkg, 'package.json'))
+  copyFileSync(join(REPO, 'package.json'), join(pkg, 'package.json'))
   assert.ok(existsSync(join(REPO, 'lib', 'lib', 'datapath.js')),
     '需要构建产物 lib/lib/datapath.js（npm test 会先 npm run build）')
-  cpSync(join(REPO, 'lib'), join(pkg, 'lib'), { recursive: true })
+  copyTree(join(REPO, 'lib'), join(pkg, 'lib'))
   return pkg
 }
 
@@ -125,6 +145,41 @@ test('issue #18 相邻：默认数据根在包外 + 旧包内数据一次性复�
     assert.equal(q.first.ran, false, JSON.stringify(q.first))
     assert.match(q.first.reason, /显式配置/)
     assert.equal(existsSync(join(explicit, 'mdcg')), false)
+  } finally {
+    rmSync(base, { recursive: true, force: true })
+  }
+})
+
+/**
+ * 非 ASCII 源路径回归守卫（0xC0000409）。
+ *
+ * 红法（修复前）：`migrateLegacyData()` 内部用
+ * `cpSync(src, dst, { recursive: true, force: false, errorOnExist: false })`，
+ * 而源路径来自 `repoRoot()/data`——沙箱落在含中文的临时目录时，
+ * 该调用在 Windows + Node v22.23.1 上**硬崩子进程**（catch 不住），
+ * 于是 `probeSandbox` 里 `r.status === 0` 断言失败、整个用例红。
+ * 绿法（修复后）：`copyTreeNoOverwrite` 逐项复制，中文路径照常搬。
+ *
+ * 生效条件：无（Windows / Linux 同跑；非 ASCII 路径两侧都是合法文件名）。
+ */
+test('非 ASCII 源路径：数据面迁移不崩（cpSync 递归 0xC0000409 回归守卫）', () => {
+  const base = mkdtempSync(join(tmpdir(), 'dsh-datapath-插件-'))
+  try {
+    const pkg = makeSandboxPackage(base)
+    const state = join(base, 'state')
+    assert.match(pkg + state, /插件/, '前置：源与目标路径均含非 ASCII 字符')
+    mkdirSync(join(pkg, 'data', 'mdcg'), { recursive: true })
+    writeFileSync(join(pkg, 'data', 'mdcg', 'mem.md'), 'MEM-CJK')
+    writeFileSync(join(pkg, 'data', 'ledger.jsonl'), '{"op":"cjk"}\n')
+
+    const p = probeSandbox({ pkg, state })
+
+    assert.equal(p.first.ran, true, JSON.stringify(p.first))
+    assert.ok(p.first.copied >= 2, `应至少搬 mdcg/ 与 ledger.jsonl：${JSON.stringify(p.first)}`)
+    assert.deepEqual(p.first.failed, [], '迁移不得有失败条目')
+    assert.equal(read(join(state, 'data', 'mdcg', 'mem.md')), 'MEM-CJK')
+    assert.ok(existsSync(join(state, 'data', 'ledger.jsonl')))
+    assert.equal(read(join(pkg, 'data', 'mdcg', 'mem.md')), 'MEM-CJK', '只复制不删除')
   } finally {
     rmSync(base, { recursive: true, force: true })
   }

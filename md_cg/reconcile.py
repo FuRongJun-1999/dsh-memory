@@ -38,6 +38,7 @@ import os
 import time
 
 from . import nodefile
+from . import fsutil
 from .fsutil import append_jsonl
 
 #: 关闭开关：仅当 `MDCG_RECONCILE` 的 strip 后取值**恰好为 "0"** 时关闭

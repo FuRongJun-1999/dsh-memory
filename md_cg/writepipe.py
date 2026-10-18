@@ -223,7 +223,7 @@ def _utf8_len(v):
         return 0
 
 
-def _oversize_body(nid, a, n, limit, field, error=None, hint=None):
+def _oversize_body(nid, a, n, limit, field, error=None, hint=None, reason="size"):
     """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field；
     #355 起可覆写 error/hint——类型面拒收的文案与「超上限」不同）。"""
     _f = field or "content"
@@ -236,7 +236,10 @@ def _oversize_body(nid, a, n, limit, field, error=None, hint=None):
             "bytes": n, "limit": limit, "field": _f,
             "verdict": {"state": "REJECT",
                         "kind": (a.get("content_kind") or "text"),
-                        "evidence": "%s %d 字节 > 上限 %d" % (_f, n, limit)},
+                        "evidence": ("%s %d 字节 > 上限 %d" % (_f, n, limit)
+                         if reason == "size" else
+                         "%s 不匹配字符类契约（issue #545：非尺寸问题，%d 字节 <= 上限 %d）"
+                         % (_f, n, limit))},
             "hint": (hint or ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
                      "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
                      "请缩短后重写。" % (_what, n, limit)))}
@@ -293,9 +296,21 @@ def oversize_response(nid, a):
             from .mdcg import _NODE_ID_RE as _RE   # 延迟 import 防环；复用同一真源
         except Exception:                        # noqa: BLE001 —— 不可用则不新增闸
             _RE = None
-        if _RE is not None and (len(_nv) > 128 or not _RE.match(_nv)):
-            return _oversize_body(nid, a, len(_nv.encode("utf-8")),
-                                 128, "node_id")
+        # issue #545：尺寸与字符类是**两个不同的拒绝理由**，此前合成一个 or 后统一报
+        # 「字节 > 上限」，于是字符类违规被报成 `31 字节 > 上限 128` 这种可被读者
+        # 验算为假的命题，且 hint 指向错误修法（「请缩短」而缩了仍拒）。此处拆开：
+        # 尺寸走 size 口径，字符类走 charset 口径（不编造算术命题）。
+        if _RE is not None:
+            _nb = len(_nv.encode("utf-8"))
+            if len(_nv) > 128 or _nb > 128:
+                return _oversize_body(nid, a, _nb, 128, "node_id")
+            if not _RE.match(_nv):
+                return _oversize_body(
+                    nid, a, _nb, 128, "node_id", reason="charset",
+                    error=("入参字段 node_id 不匹配字符类契约（issue #545）：只允许 "
+                           "字母/数字/下划线/点/@/中文/逗号/连字符，收到 " + repr(_nv[:40])),
+                    hint=("写入被拒（入参字符类，不是工具故障、也不是长度问题）：node_id "
+                          "只允许字母/数字/下划线/点/@/中文/逗号/连字符，斜杠等字符会被拒。请改字符后重写。"))
     return None
 
 
@@ -1219,11 +1234,13 @@ def _gate_autonomy(ctx):
     pr = _am.propose_mutation(cg, action, nid, payload=pay,
                               layer=a.get("layer") or "knowledge",
                               sensitivity=a.get("sensitivity"), info=True)
-    return {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
-            "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
-            "verdict": ctx.get("verdict"),
-            "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                     % (dec["hint"], pr["pid"], nid))}
+    # issue #426-A：入队回执透出 dedup 归因。
+    return _am.apply_dedup(
+        {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
+         "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
+         "verdict": ctx.get("verdict"),
+         "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                  % (dec["hint"], pr["pid"], nid))}, pr)
 
 
 # 生效条件：value 传入即无条件延迟导入并转调 mcp_server._split_ids 后原样返回其结果（本符号无自身分支）；

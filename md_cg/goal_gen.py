@@ -36,6 +36,7 @@ import os
 import time
 
 from . import autonomy_modes, evolution, insight, metacognition, predict, sustain
+from . import fsutil
 from .fsutil import append_jsonl
 
 __all__ = [

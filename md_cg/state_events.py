@@ -49,6 +49,26 @@ _BAD_ROW_SAMPLES = []   # 有界样本：(行号, 行首 80 字符, 异常类型
 _BAD_ROW_SAMPLE_CAP = 8
 
 
+#: 调用方可控字段的**逐字段字节上限**（issue #443：无长度约束 ⇒ 审计/台账面 1:1 写入放大）。
+#: 取 8192 B：单条状态事件是「一次变迁的记录」，不是正文载体；超限即视为调用方用错面。
+#: 与 writepipe.oversize_response 同口径——**拒写而不是截断**（截断后的记录看起来像完整记录，
+#: 实际丢了内容 ⇒ 比不记录更坏，与 #523 的「假绿」同族）。
+_MAX_FIELD_BYTES = 8192
+
+
+# 生效条件：name 为字段名、v 为待落盘值；v 的 UTF-8 编码长度不超过 _MAX_FIELD_BYTES 时原样返回，
+# 超限时抛 ValueError（消息含字段名、实测字节、上限），**不截断、不静默丢弃**。
+def _bounded(name, v):
+    if v is None:
+        return v
+    raw = v if isinstance(v, (bytes, bytearray)) else str(v).encode('utf-8')
+    n = len(raw)
+    if n > _MAX_FIELD_BYTES:
+        raise ValueError(
+            f'状态事件字段 {name} 超出上限：{n} B > {_MAX_FIELD_BYTES} B（issue #443；拒写不截断）')
+    return v
+
+
 def _note_bad_row(lineno: int, line: str, exc: Exception):
     global BAD_ROWS
     BAD_ROWS += 1
@@ -104,6 +124,14 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
         raise ValueError(f"未知变迁事件类型：{kind}（允许：{KINDS}）")
     if void_value(old) and void_value(new):
         raise ValueError("状态事件 old 与 new 不能同时为空（空事件无意义）")
+    # issue #443：调用方可控字段逐字段过闸（拒写）。subject/slot 已在上面 strip，仍过闸
+    # （strip 只减首尾空白，不约束长度）。old/new 是本次放大的主因（各 1MB ⇒ 单次 2MB）。
+    sub = _bounded('subject', sub)
+    sl = _bounded('slot', sl)
+    old = _bounded('old', old)
+    new = _bounded('new', new)
+    evidence = _bounded('evidence', evidence)
+    actor = _bounded('actor', actor)
     rec = {
         "t": time.time(),
         "subject": sub,
@@ -127,16 +155,17 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
     return rec
 
 
-# 生效条件：ledger_path 不存在时返回 []；存在时逐行 json.loads（空行跳过；非对象载荷或
+# 生效条件：ledger_path 不存在时不产出记录；存在时逐行 json.loads（空行跳过；非对象载荷或
 # JSON 解析失败按坏行处置——计数+有界样本+stderr 告警后跳过，不中断读）；subject/slot/kind
-# **非 None** 时按对应字段过滤（空串亦为合法过滤值，2026-10-05 复核口径钉正）；limit 为
-# 真值时只保留最后 limit 条；返回记录列表（落盘序）。
-def read(cg, subject=None, slot=None, kind=None, limit=0) -> list:
-    """读回（可按 subject/slot/kind 过滤；limit=0 不截断）。坏行跳过并记账。"""
+# **非 None** 时按对应字段过滤（空串亦为合法过滤值）；按落盘序 yield，须消费至尾部才完成全部坏行计数。
+def iter_read(cg, subject=None, slot=None, kind=None):
+    """逐行读回；过滤、坏行告警与计数与 read 共用此单点。
+
+    调用者须消费完迭代器，才会观察到文件后部的坏行。额外内存只含一行。
+    """
     p = ledger_path(cg)
-    out = []
     if not os.path.exists(p):
-        return out
+        return
     with open(p, encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
             line = line.strip()
@@ -155,7 +184,13 @@ def read(cg, subject=None, slot=None, kind=None, limit=0) -> list:
                 continue
             if kind is not None and rec.get("kind") != kind:
                 continue
-            out.append(rec)
+            yield rec
+
+
+# 生效条件：完整消费 iter_read 后返回列表；limit 为真值时保持原有 out[-int(limit):] 切片语义，含负数；缺失账本返回 []。
+def read(cg, subject=None, slot=None, kind=None, limit=0) -> list:
+    """读回（可按 subject/slot/kind 过滤；limit=0 不截断）。坏行跳过并记账。"""
+    out = list(iter_read(cg, subject=subject, slot=slot, kind=kind))
     if limit:
         out = out[-int(limit):]
     return out
