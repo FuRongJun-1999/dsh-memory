@@ -371,6 +371,135 @@ class ColdVerifyQueue:
             self._queue.clear()
             self._persist()
 
+    def _requeue_failed(self, task, attempts):
+        """把**消费失败**的任务放回队尾（issue #72：失败不得静默蒸发）。
+
+        与 `enqueue` 同款落盘路径（追加 + 跨进程锁），但保留 `attempts` 计数
+        （`_process` 不读该键，只透传 node_id/action/kwargs，故不污染执行面）。
+        重试用尽由调用方（`controlled_drain`）决定丢弃并计入 dead_letter。
+        """
+        t = {
+            "node_id": task.get("node_id"),
+            "action": task.get("action"),
+            "enqueued_at": time.time(),
+            "kwargs": task.get("kwargs") or {},
+            "attempts": int(attempts),
+        }
+        with self._lock:
+            self._queue.append(t)
+            self._stats["enqueued"] += 1
+            self._append_persisted(t)
+        return t
+
+
+#: issue #72：受控消费的**单批硬上限**（与后台线程批大小同源，不另立第二套数）。
+CONTROL_LIMIT_MAX = BATCH_LIMIT
+#: issue #72：失败任务重试上限；超过即丢弃并计入 dead_letter（可见、不无限滞留）。
+CONTROL_MAX_ATTEMPTS = 3
+
+
+def controlled_drain(cg, *, limit=BATCH_LIMIT, dry_run=False, principal=None):
+    """受控消费入口（issue #72）——权限、限量、审计三闸齐备的**显式**消费。
+
+    背景：#72 报「队列仅可观察、无受控消费入口」（queue_size 119 / processed 0 /
+    worker_alive false）。`drain()` 本身是同步消费，但它是库内方法：没有权限门、
+    没有单批硬上限、没有审计，任何拿到 cg 的调用方都能全量消费且不留痕。
+    本函数是**工具面可接线的单点入口**，不引入常驻线程（opt-in 语义不变）。
+
+    三闸（缺一不可）：
+      1. **权限**：调用方须 `can_admin`（显式 principal 优先，否则取 cg.principal）。
+         未授权直接 `{"ok": False, "error": "forbidden"}`——**不返回队列内容**
+         （连 node_id 都不给），故「未授权不能看到任务正文或触发消费」。
+      2. **限量**：`0 <= limit <= CONTROL_LIMIT_MAX`，越界 fail-closed 返回
+         `bad_limit`（不静默截断——截断会让调用方以为处理了 N 条）。
+      3. **审计**：cg 有 `_audit` 时写一行聚合（dry_run/limit/processed/errors/
+         requeued/dead_letter/queue_size/oldest_age_s），绝不记正文（payload-free）。
+
+    失败处置：`ok=False` 的任务重新入队（attempts+1，最多 `CONTROL_MAX_ATTEMPTS`
+    次），超过则丢弃并计入 `dead_letter`——「消费失败可见、可重试、不无限滞留」。
+    成功的任务已由 drain 从内存与盘上摘除，重复运行不会重复状态迁移。
+
+    返回体（成功）：
+      {"ok", "dry_run", "limit", "processed", "errors": [...], "skipped",
+       "requeued", "dead_letter", "results", "queue_size", "oldest_age_s",
+       "worker_alive", "audit"}
+    dry_run=True 时返回 `would_process`（node_id/action/age_s，无正文）且不消费、
+    不落盘、不计数、不写审计（预演本身不是管理动作）。
+
+    【功能名】coldverify 受控消费入口
+    【生效条件】cg 的 principal.can_admin 为真且 limit 在 [0, CONTROL_LIMIT_MAX]；
+      dry_run 亦须过同一权限闸（否则可借预演侧读队列组成）。
+    【子功能】单批限量消费 / 预演 / 失败重入队与 dead-letter / 聚合审计。
+    【执行】controlled_drain(cg, limit=N, dry_run=False, principal=None)
+    【验证方式】md_cg/test_issue72_coldverify_controlled_drain.py（含 --mutate）。
+    【不适用条件】不适用于后台常驻消费（那仍是 start_worker 的 opt-in 语义）；
+      不改变 drain() 既有契约（本函数在它之上加闸，不改其行为）。
+    """
+    q = get(cg)
+    if q is None:
+        return {"ok": False, "error": "no_queue",
+                "reason": "cg 未挂冷路径队列（先 coldverify.attach(cg)）"}
+    p = principal if principal is not None else getattr(cg, "principal", None)
+    if not getattr(p, "can_admin", False):
+        return {"ok": False, "error": "forbidden",
+                "reason": "受控消费需 can_admin（未授权调用不返回队列内容）"}
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "bad_limit", "reason": "limit 必须是整数"}
+    if lim < 0 or lim > CONTROL_LIMIT_MAX:
+        return {"ok": False, "error": "bad_limit",
+                "reason": "limit 须在 [0, %d]（单批硬上限）" % CONTROL_LIMIT_MAX,
+                "limit_max": CONTROL_LIMIT_MAX}
+    st = q.status()
+    if dry_run:
+        # 预演不消费、不落盘、不计数、不审计（issue #72 验收：dry-run 不改队列）。
+        return {"ok": True, "dry_run": True, "limit": lim,
+                "would_process": q.drain(cg, limit=lim, dry_run=True)["would_process"],
+                "queue_size": st["queue_size"],
+                "oldest_age_s": st.get("oldest_age_s"),
+                "worker_alive": st.get("worker_alive"),
+                "audit": False}
+    # 取本批原任务快照（失败项要按原 kwargs 重入队）——与 drain 同锁口径。
+    with q._lock:
+        batch = list(q._queue)[:lim]
+    results = q.drain(cg, limit=lim)
+    errs, requeued, dead = [], 0, 0
+    for i, r in enumerate(results):
+        if r.get("ok"):
+            continue
+        errs.append({"node_id": r.get("node_id"), "action": r.get("action"),
+                     "error": r.get("error") or r.get("skipped") or "unknown"})
+        src = batch[i] if i < len(batch) else None
+        if src is None:
+            dead += 1
+            continue
+        attempts = int(src.get("attempts") or 0) + 1
+        if attempts > CONTROL_MAX_ATTEMPTS:
+            dead += 1
+            continue
+        q._requeue_failed(src, attempts)
+        requeued += 1
+    st = q.status()
+    audit_ok = False
+    a = getattr(cg, "_audit", None)
+    if a is not None:
+        try:
+            a("coldverify_drain", "", dry_run=False, limit=lim,
+              processed=st["stats"].get("processed"), errors=len(errs),
+              requeued=requeued, dead_letter=dead,
+              queue_size=st["queue_size"], oldest_age_s=st.get("oldest_age_s"))
+            audit_ok = True
+        except Exception:                              # noqa: BLE001
+            audit_ok = False          # 审计失败不阻断消费（best-effort，同 G8）
+    return {"ok": True, "dry_run": False, "limit": lim,
+            "processed": len(results) - len(errs),
+            "errors": errs, "skipped": st["stats"].get("skipped"),
+            "requeued": requeued, "dead_letter": dead,
+            "results": results, "queue_size": st["queue_size"],
+            "oldest_age_s": st.get("oldest_age_s"),
+            "worker_alive": st.get("worker_alive"), "audit": audit_ok}
+
 
 #: 进程级默认实例
 _DEFAULT = None
