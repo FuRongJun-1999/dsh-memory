@@ -26,7 +26,6 @@ import hashlib
 import os
 import re
 import time
-from collections import deque
 
 from .fsutil import append_jsonl
 
@@ -59,13 +58,14 @@ def declared(fm):
         raw_nodes, raw_edges = list(sg.get("nodes") or []), list(sg.get("edges") or [])
     else:
         return {"nodes": [], "edges": []}
-    nodes = []
+    nodes, seen = [], set()
     for n in raw_nodes:
         nid = n.get("id") if isinstance(n, dict) else n
         if nid is None:
             continue
         nid = str(nid).strip()
-        if nid and nid not in nodes:
+        if nid and nid not in seen:
+            seen.add(nid)
             nodes.append(nid)
     return {"nodes": nodes, "edges": [e for e in raw_edges if isinstance(e, dict)]}
 
@@ -106,7 +106,31 @@ def normalize_edge(tgt, rel, confidence=1.0, verified=0):
             "confidence": confidence, "verified": verified}
 
 
-# 生效条件：cg 的 `_subgraph_children` 不为 None 时原样返回该缓存字典，否则遍历 cg.index["nodes"] 的键，用 declared(fm)["nodes"] 收子节点、并按边 rel 为 part_of/hierarchical（target 记为父、当前 pid 记为子）或 parent_of/contains（当前 pid 记为父、target 记为子，target 为 None 则该边跳过）补全 parent_id→[child_id] 索引，回写 cg._subgraph_children 后返回 idx；
+# 生效条件：pid 为当前节点 id、fm 为 frontmatter；声明子节点与登记层级关系统一产出 (child,parent)，兼容 relation/type/target_id 别名，未知关系/非 dict 边不产出。
+def _hierarchy_pairs(pid, fm):
+    """Single hierarchy direction/alias source for both indexes and validation."""
+    for child in declared(fm)["nodes"]:
+        yield child, pid
+    edges = fm.get("edges") or []
+    if not isinstance(edges, (list, tuple)):
+        return
+    for edge in edges:
+        if not isinstance(edge, dict):
+            continue
+        rel = str(edge.get("relation_type") or edge.get("relation") or edge.get("type")
+                  or "").strip().lower()
+        target = edge.get("target") or edge.get("target_id")
+        if target is None:
+            continue
+        target = str(target).strip()
+        if rel in ("part_of", "hierarchical"):
+            yield pid, target
+        elif rel in ("parent_of", "contains"):
+            yield target, pid
+
+
+# 生效条件：已有 _subgraph_children 缓存则原样返回；否则遍历索引节点快照，按 _hierarchy_pairs 去重 (child,parent)，构建 parent→[child] 并缓存。
+# 生效条件：cg 的 `_cache_generation` 可调用时取其代际，与上次记录的 `_subgraph_generation` 不同即调用 invalidate_cache(cg) 并更新记录（issue #343：派生面随真源换代——真源变了，派生索引必须失效，否则 cache 那一维会给出旧答案）。
 def _ensure_cache_generation(cg):
     """Both directions belong to the same current node snapshot."""
     generation = getattr(cg, "_cache_generation", None)
@@ -119,37 +143,18 @@ def _ensure_cache_generation(cg):
 
 
 def children_index(cg):
-    """全局正查：parent_id → [child_id...]（声明式 ∪ 边式，一次 O(N) 后缓存）。"""
-    _ensure_cache_generation(cg)
+    """全局正查；声明和边共用单一方向规则，保留首次出现顺序。"""
+    _ensure_cache_generation(cg)          # #343 换代守卫
     idx = getattr(cg, "_subgraph_children", None)
     if idx is not None:
         return idx
-    idx = {}
+    idx, pairs = {}, set()
     for pid in list(((getattr(cg, "index", None) or {}).get("nodes") or {}).keys()):
-        fm = _fm(cg, pid)
-        for ch in declared(fm)["nodes"]:
-            idx.setdefault(pid, [])
-            if ch not in idx[pid]:
-                idx[pid].append(ch)
-        for e in (fm.get("edges") or []):
-            if not isinstance(e, dict):
+        for child, parent in _hierarchy_pairs(pid, _fm(cg, pid)):
+            if (child, parent) in pairs:
                 continue
-            # 兼容历史语料：早期迁移器把关系类型写在 `type` 键（`migrate.py:43`、
-            # `migrate_aeis.py:99`），写侧已按 `normalize_edge` 修正，读侧一并容错。
-            rel = str(e.get("relation_type") or e.get("relation") or e.get("type")
-                      or "").strip().lower()
-            tgt = e.get("target") or e.get("target_id")
-            if tgt is None:
-                continue
-            tgt = str(tgt).strip()
-            if rel in ("part_of", "hierarchical"):      # 本节点是子，target 是父
-                idx.setdefault(tgt, [])
-                if pid not in idx[tgt]:
-                    idx[tgt].append(pid)
-            elif rel in ("parent_of", "contains"):      # 本节点是父，target 是子
-                idx.setdefault(pid, [])
-                if tgt not in idx[pid]:
-                    idx[pid].append(tgt)
+            pairs.add((child, parent))
+            idx.setdefault(parent, []).append(child)
     try:
         cg._subgraph_children = idx
     except Exception:
@@ -163,39 +168,20 @@ def children(cg, nid):
     return list(children_index(cg).get(nid) or [])
 
 
-# 生效条件：cg 的 `_subgraph_parents` 不为 None 时原样返回该缓存字典，否则遍历 cg.index["nodes"] 的键，用 declared(fm)["nodes"] 把 pid 记为每个子节点的父、并按边 rel 为 part_of/hierarchical（target 记为 pid 的父）或 parent_of/contains（pid 记为 target 的父，target 为 None 则该边跳过）补全 child_id→[parent_id] 索引，回写 cg._subgraph_parents 后返回 idx；
+# 生效条件：已有 _subgraph_parents 缓存则原样返回；否则遍历索引节点快照，按 _hierarchy_pairs 去重 (child,parent)，构建 child→[parent] 并缓存。
 def parents_index(cg):
-    """全局反查：child_id → [parent_id...]（供 children/validate 复用，一次 O(N)）。"""
-    _ensure_cache_generation(cg)
+    """全局反查；与 children_index 共用规范化后的同一边集合。"""
+    _ensure_cache_generation(cg)          # #343 换代守卫
     idx = getattr(cg, "_subgraph_parents", None)
     if idx is not None:
         return idx
-    idx = {}
+    idx, pairs = {}, set()
     for pid in list(((getattr(cg, "index", None) or {}).get("nodes") or {}).keys()):
-        for ch in declared(_fm(cg, pid))["nodes"]:
-            idx.setdefault(ch, [])
-            if pid not in idx[ch]:
-                idx[ch].append(pid)
-        for e in (_fm(cg, pid).get("edges") or []):
-            if not isinstance(e, dict):
+        for child, parent in _hierarchy_pairs(pid, _fm(cg, pid)):
+            if (child, parent) in pairs:
                 continue
-            rel = str(e.get("relation_type") or e.get("relation") or e.get("type")
-                      or "").strip().lower()
-            tgt = e.get("target") or e.get("target_id")
-            if tgt is None:
-                continue
-            tgt = str(tgt).strip()
-            # 与 children_index 逐字对称，只是方向取反：
-            #   part_of / hierarchical → 本节点是子，故 target 是本节点的父
-            #   parent_of / contains   → 本节点是父，故本节点是 target 的父
-            if rel in ("part_of", "hierarchical"):
-                idx.setdefault(pid, [])
-                if tgt not in idx[pid]:
-                    idx[pid].append(tgt)
-            elif rel in ("parent_of", "contains"):
-                idx.setdefault(tgt, [])
-                if pid not in idx[tgt]:
-                    idx[tgt].append(pid)
+            pairs.add((child, parent))
+            idx.setdefault(child, []).append(parent)
     try:
         cg._subgraph_parents = idx
     except Exception:
@@ -220,9 +206,9 @@ def parent_of(cg, nid):
     return ps[0] if ps else None
 
 
-# 生效条件：max_depth 按 int 收敛到 0..MAX_DEPTH_HARD，max_nodes 按 int 收敛且非有限值拒绝；按层级 FIFO 遍历，入队前占节点预算、仅对已接纳两端登记边，深度或节点预算阻断时标记 truncated；冷邻接构建与输出路径字节成本另计。
+# 生效条件：max_depth 非 None 时先 max(0, min(int(max_depth), MAX_DEPTH_HARD)) 收敛；以 nid 为根迭代 DFS，已入 seen 的节点跳过，len(seen) >= max_nodes（max_nodes 传 0 时首次循环即成立）置 truncated=True 并 break，depth >= max_depth 且 children 非空时置 truncated=True 并 continue，否则对 children(cg,cur) 逆序、对未出现过的 (ch,cur) 追加 part_of 边并压栈；返回 {'root','nodes','paths','edges','n_nodes','n_edges','truncated'}；
 def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
-    """按最短层级展开子图（迭代 BFS，节点在入队前占用预算）。
+    """递归展开子树（迭代 DFS，防递归深度爆栈）。
 
     返回 `{"root","nodes","paths","edges","n_nodes","n_edges","truncated"}`；
     `paths` 为 `节点 id → "根/子/孙"` 层级路径（flatten 后仍可定位来源）。
@@ -230,37 +216,31 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
     """
     if max_depth is not None:
         max_depth = max(0, min(int(max_depth), MAX_DEPTH_HARD))
-    max_nodes = int(max_nodes)
     seen, edges, truncated = {}, [], False
     seen_edges = set()
-    if max_nodes <= 0:
-        return {"root": nid, "nodes": [], "paths": {}, "edges": [],
-                "n_nodes": 0, "n_edges": 0, "truncated": True}
-    seen[nid] = nid
-    queue = deque([(nid, 0)])
-    # Borrow this internal adjacency without copying a high-fanout child list.
-    # Its cold construction remains separate from the bounded traversal cost.
-    adjacency = children_index(cg)
-    while queue:
-        cur, depth = queue.popleft()
-        kids = adjacency.get(cur) or ()
+    stack = [(nid, 0, nid)]
+    while stack:
+        cur, depth, path = stack.pop()
+        if cur in seen:
+            continue
+        if len(seen) >= max_nodes:
+            truncated = True
+            break
+        seen[cur] = path
         if max_depth is not None and depth >= max_depth:
-            if kids:
+            if children(cg, cur):
                 truncated = True
             continue
-        for ch in kids:
-            if ch not in seen:
-                if len(seen) >= max_nodes:
-                    truncated = True
-                    break  # No unbounded frontier or edges to unadmitted IDs.
-                seen[ch] = f"{seen[cur]}/{ch}"
-                queue.append((ch, depth + 1))
+        kids = children(cg, cur)
+        for ch in reversed(kids):
             key = (ch, cur)
             if key not in seen_edges:
                 seen_edges.add(key)
                 edges.append({"source": ch, "target": cur,
                               "relation_type": "part_of",
                               "confidence": 1.0, "verified": 0})
+            if ch not in seen:
+                stack.append((ch, depth + 1, f"{path}/{ch}"))
     return {"root": nid, "nodes": list(seen.keys()), "paths": seen,
             "edges": edges, "n_nodes": len(seen), "n_edges": len(edges),
             "truncated": truncated}
@@ -295,47 +275,76 @@ def roots(cg):
     return sorted(nid for nid in known if not (pmap.get(nid) or []))
 
 
-# 生效条件：known 取 cg.index 的 nodes 键列表，max_scan 为真值时截断为 known[:int(max_scan)]；逐 pid 遍历 declared(_fm(cg,pid))["nodes"]：ch==pid 记 self_loop 并 continue（不再进入悬空/多父判断），ch 不在 known_set 记 dangling_child，随后 parent 中已有 ch 且 prev != pid 记 multi_parent、否则写 parent[ch]=pid；再沿 parent 指针上溯，遇本路径已访问节点记 cycle；_issue 仅在 len(issues) < limit*4 时追加（limit 为 0 时 0<0 不成立，不追加任何 issue）；返回 scanned、issues=len(issues)、items=issues[:limit]、truncated=len(issues)>limit；
-def validate(cg, limit=50, max_scan=None):
-    """树一致性校验：自环 / 悬空子节点 / 多父 / 环。
+# 生效条件：parent 为 child→首父 映射；逐分量记忆化链尾，返回 node→None（无环）或 (cycle_tuple,entry_offset)，不递归、不重复上溯已解析尾链。
+def _cycle_entries(parent):
+    """O(V) functional-parent analysis; cycle report bytes are a separate cost."""
+    resolved = {}
+    for start in parent:
+        if start in resolved:
+            continue
+        path, positions, cur = [], {}, start
+        while cur is not None and cur not in positions and cur not in resolved:
+            positions[cur] = len(path)
+            path.append(cur)
+            cur = parent.get(cur)
+        if cur in positions:
+            cycle = tuple(path[positions[cur]:])
+            for offset, node in enumerate(cycle):
+                resolved[node] = (cycle, offset)
+        inherited = resolved.get(cur)
+        for node in reversed(path):
+            if node in resolved:
+                inherited = resolved[node]
+            else:
+                resolved[node] = inherited
+    return resolved
 
-    对齐 AEIS：父边唯一、拓扑无矛盾、树形不一致 → 该层判定退回 DEFER
-    （`子部件提取_理论稿_v0.4.md:105-107`）。
-    """
-    known = list(((getattr(cg, "index", None) or {}).get("nodes") or {}).keys())
+
+# 生效条件：max_scan 只限源节点处理数，以全节点快照判断悬空端点；层级关系统一经 _hierarchy_pairs，报告自环/悬空/多父，再检查首父投影的环；保留旧声明图的报告顺序、路径和 limit*4 缓冲上限。
+def validate(cg, limit=50, max_scan=None):
+    """声明和边使用同一层级模型；有多父即报错，环沿首父投影诊断。"""
+    all_known = list(((getattr(cg, "index", None) or {}).get("nodes") or {}).keys())
+    known = all_known
     if max_scan:
         known = known[:int(max_scan)]
-    known_set = set(known)
-    parent, issues = {}, []
+    known_set = set(all_known)
+    parent, issues, seen_pairs = {}, [], set()
 
-# 生效条件：仅当 len(issues) < limit*4 时把 kw 追加进 issues（限流防报告膨胀）；无返回值，只改外层 issues；
+    # 生效条件：仅缓冲前 limit*4 条问题，保持旧报告计数与截断口径。
     def _issue(**kw):
         if len(issues) < limit * 4:
             issues.append(kw)
 
     for pid in known:
-        for ch in declared(_fm(cg, pid))["nodes"]:
-            if ch == pid:
-                _issue(id=pid, issue="self_loop", child=ch)
+        fm = _fm(cg, pid)
+        if fm.get("edges") is not None and not isinstance(fm["edges"], (list, tuple)):
+            _issue(id=pid, issue="invalid_edges")
+        for child, par in _hierarchy_pairs(pid, fm):
+            if (child, par) in seen_pairs:
                 continue
-            if ch not in known_set:
-                _issue(id=pid, issue="dangling_child", child=ch)
-            prev = parent.get(ch)
-            if prev is not None and prev != pid:
-                _issue(id=ch, issue="multi_parent", parents=sorted({prev, pid}))
+            seen_pairs.add((child, par))
+            if child == par:
+                _issue(id=par, issue="self_loop", child=child)
+                continue
+            if child not in known_set:
+                _issue(id=par, issue="dangling_child", child=child)
+            if par not in known_set:
+                _issue(id=child, issue="dangling_parent", parent=par)
+            prev = parent.get(child)
+            if prev is not None and prev != par:
+                _issue(id=child, issue="multi_parent", parents=sorted({prev, par}))
             else:
-                parent[ch] = pid
-
-    # 环检测：沿 parent 指针上溯，遇本路径已访问节点即成环
-    for nid in known:
-        path, cur = [], nid
-        while cur is not None:
-            if cur in path:
-                _issue(id=cur, issue="cycle", path=path[path.index(cur):] + [cur])
+                parent[child] = par
+    if len(issues) < limit * 4:
+        resolved = _cycle_entries(parent)
+        for nid in known:
+            if len(issues) >= limit * 4:
                 break
-            path.append(cur)
-            cur = parent.get(cur)
-
+            info = resolved.get(nid)
+            if info is not None:
+                cycle, offset = info
+                rotation = cycle[offset:] + cycle[:offset]
+                _issue(id=rotation[0], issue="cycle", path=list(rotation) + [rotation[0]])
     return {"scanned": len(known), "issues": len(issues),
             "items": issues[:limit], "truncated": len(issues) > limit}
 
@@ -405,7 +414,7 @@ def _node_terms_and_grams(cg, nid):
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": None,
                     "unjudgeable": True}
-        if crypto.is_encrypted_level(sens):
+        if sens in crypto.ENCRYPTED_LEVELS:
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": sens,
                     "encrypted": True}
@@ -415,7 +424,7 @@ def _node_terms_and_grams(cg, nid):
     fm = node.get("frontmatter") or {}
     content = node.get("content") or ""
     sens = _sensitivity_of(fm)
-    if crypto.is_encrypted_level(sens):
+    if sens in crypto.ENCRYPTED_LEVELS:
         return {"grams": set(), "pos": set(), "neg": set(),
                 "layer": fm.get("layer"), "sensitivity": sens, "encrypted": True}
     grams = bigrams(forgetting.payload(content))
@@ -661,7 +670,7 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
     for nid in anchor_ids:
         e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid) or {}
         sens = _sensitivity_of(e)
-        if crypto.is_encrypted_level(sens):
+        if sens in crypto.ENCRYPTED_LEVELS:
             per[nid] = {"effective": [], "non_applicable": []}
             continue
         node = cg.get(nid)
