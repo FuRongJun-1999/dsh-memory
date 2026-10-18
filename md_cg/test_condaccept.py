@@ -79,6 +79,16 @@ for probe, expect in [
     got = condaccept._has_evidence({"content": probe})
     check("证据识别 %-28s → %s" % (probe[:26], "有" if expect else "无"), got is expect)
 
+print("[语义解耦] 形式层与真值层不得合并")
+r_sem = run(PL, mode_value="enforce")
+check("ACCEPT 恒带 acceptance=formal_pass", r_sem["detail"]["acceptance"] == "formal_pass")
+check("ACCEPT 恒带 verification_state=unverified（本闸无权判真）",
+      r_sem["detail"]["verification_state"] == "unverified")
+check("ACCEPT 的 evidence 明写不判内容真值", "不判内容真值" in r_sem["evidence"])
+r_rej = run({"content": "裸断言无出处", "condition_space": FULL}, mode_value="enforce")
+check("REJECT 带 acceptance=formal_reject", r_rej["detail"]["acceptance"] == "formal_reject")
+check("V2 evidence 说明只认标记存在", "只认标记存在" in r_rej["evidence"])
+
 print("[V4] 同槽冲突")
 def node(nid, content):
     return {"id": nid, "content": content}

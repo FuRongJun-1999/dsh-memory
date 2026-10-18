@@ -1,5 +1,24 @@
 # -*- coding: utf-8 -*-
-"""work_done 验收器（condaccept）——按「审信息不审文件」的口径判定。
+"""work_done **形式完备闸**（condaccept）——只判形式完备，不判语义真值。
+
+【正名，2026-10-24】本模块原名「验收器」，名不副实。核对自身实现可见：
+
+    V1 条件空间齐全   结构检查（四个键非空）
+    V2 证据可回溯     **正则匹配**（正文出现「依据：」「第X节」「实测」等标记）
+    V4 同槽冲突       CCG 三要素指纹相同 + 前 200 字**字面**不同
+
+三者全是**可判定的结构/词法/字符比较**，没有一个能做语义判定：它判不出
+「换种说法还是同一条」（语义等价），也判不出「字面不像但意思冲突」（语义矛盾），
+更判不出「这个出处在语义上真能支撑本条断言」。零 LLM 的正确边界就在这里。
+
+故本模块对外语义**降级为形式完备闸**：
+    ACCEPT  = 形式完备（字段齐、有出处标记、无字面同槽冲突）
+    REJECT  = 形式不完备（并说明缺什么）
+    ⇒ **ACCEPT 不等于内容为真**。内容真值由验证单元／外部基底裁决
+      （架构 P3 的 verify，不由本模块承担）。
+
+语义判定为什么不该塞进零 LLM：那是把「能不能判」与「判得对不对」混为一谈，
+一旦下游把形式通过读成内容可信，造成的损害比不做校验更大。
 
 理论依据（统一架构 v1.1 §2.4 / §9.1）：
     理论只承认可认知信息。故验收不看文件是否存在、行数够不够，
@@ -74,8 +93,20 @@ def last_judgement():
 
 
 def _v(state, evidence, detail=None, kind="work_done"):
+    """构造裁决。
+
+    响应体恒带两层解耦的语义（2026-10-24）：
+        acceptance          形式层结论：formal_pass / formal_reject
+        verification_state  真值层结论：本模块恒给 unverified（它无权判真）
+    两者刻意**不合并**——合并会让「形式过了」被读成「内容对了」。
+    诚实边界：节点 frontmatter 尚未落这两个字段（需改 mdcos.add 的 fm 构造，
+    属跨模块改动），当前只在写入响应面提供；这是已知缺口，不假装已完成。
+    """
+    d = dict(detail or {})
+    d.setdefault("acceptance", "formal_pass" if state == "ACCEPT" else "formal_reject")
+    d.setdefault("verification_state", "unverified")
     return {"state": state, "kind": kind, "basis": None,
-            "evidence": evidence, "detail": detail}
+            "evidence": evidence, "detail": d}
 
 
 def _has_evidence(payload):
@@ -156,16 +187,25 @@ def evaluate(payload, ctx):
                    "return_to": "author", "action": "resubmit_with_condition_space"})
 
     if not _has_evidence(payload):
-        return _v("REJECT", "V2 未过：无可回溯证据（无 evidence_ref 且正文无出处/读数）",
-                  {"criterion": "V2"})
+        # 措辞按实际能力写（2026-10-24）：本判据只认**出处标记的存在**，
+        # 不判该出处在语义上是否真能支撑本条断言——后者需要验证单元。
+        return _v("REJECT",
+                  "V2 未过：未见出处标记（无 evidence_ref，正文亦无「依据/出处/来源」、"
+                  "节号、node_id、实测读数等可定位标记）。注意：V2 只认标记存在，"
+                  "不判该出处是否真能支撑本条断言。",
+                  {"criterion": "V2", "checks": "marker_presence_only"})
 
     conflict_nid, why = _slot_conflict(payload, ctx)
     if conflict_nid is not None:
         return _v("REJECT", "V4 未过：%s" % why,
                   {"criterion": "V4", "conflict_with": conflict_nid})
 
-    return _v("ACCEPT", "V1/V2/V4 通过；V3/V5 为只读旁证未阻断",
-              {"criterion": "V1/V2/V4", "slot_conflict": why})
+    return _v("ACCEPT",
+              "形式完备：V1 条件空间齐全、V2 见出处标记、V4 无字面同槽冲突；"
+              "V3/V5 为只读旁证未阻断。**本结论不判内容真值**"
+              "（acceptance=formal_pass, verification_state=unverified）",
+              {"criterion": "V1/V2/V4", "slot_conflict": why,
+               "semantic_judgement": "not_attempted"})
 
 
 def verify_work_done(payload, ctx):
