@@ -1349,6 +1349,46 @@ def _run_groups(with_threads: bool = True) -> int:
     return len(_FAIL)
 
 
+
+# issue #549：redirect_stdout(io.StringIO()) 会把 sys.stdout 换成一个**没有 reconfigure** 的
+# 对象，而 g3_oracle / g4a_target_deterministic 会调 sys.stdout.reconfigure(...) ⇒ 那两组在
+# **任何变异应用之前**就抛异常、计入基线失败 ⇒ 每条变异都报「红 = 预期 + 2」，十二条全部 MISMATCH。
+# 本包装流把写操作交给内部缓冲区，其余属性（reconfigure / fileno / isatty / encoding …）
+# 一律转发给**真实 stdout**，于是那两组能在 redirect 下正常跑。
+class _CapStream:
+    """支持 reconfigure 的 stdout 替身：写进内部缓冲，其余属性转发给真流。"""
+
+    def __init__(self, real):
+        self._real = real
+        self._buf = io.StringIO()
+
+    # --- 缓冲侧 ---
+    def write(self, s):
+        return self._buf.write(s)
+
+    def writelines(self, lines):
+        return self._buf.writelines(lines)
+
+    def flush(self):
+        try:
+            self._real.flush()
+        except Exception:                                   # noqa: BLE001
+            pass
+
+    def getvalue(self):
+        return self._buf.getvalue()
+
+    # --- 转发侧：凡本类没显式定义的，一律交给真流 ---
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+    def reconfigure(self, *a, **kw):
+        fn = getattr(self._real, "reconfigure", None)
+        if fn is not None:
+            return fn(*a, **kw)
+        return None
+
+
 def _mutate_mode(list_only: bool = False) -> int:
     print("!! 定点变异自证：逐条把快照取用改回裸迭代，套件必须按预期条数转红\n")
     if list_only:
@@ -1360,7 +1400,7 @@ def _mutate_mode(list_only: bool = False) -> int:
     # issue #549：基线跑在 redirect_stdout 里，失败项的名字随缓冲区一起被丢弃，
     # 于是「基线失败=2」只给数字不给名字 —— 下一个人要再查一轮才知道是哪两条。
     # 此处保留缓冲区并把 FAIL 行打出来：计数与身份必须同一条输出。
-    _base_buf = io.StringIO()
+    _base_buf = _CapStream(sys.stdout)
     with contextlib.redirect_stdout(_base_buf):
         clean = _run_groups(with_threads=True)
     print("  未变异基线：失败=%d（必须为 0）" % clean)
