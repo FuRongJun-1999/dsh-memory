@@ -527,9 +527,15 @@ def _gate_audit(ctx):
                 "policy": {"source": source}, "error": perr,
                 "hint": "写入被拒（fail-closed）：策略不可用——%s。%s"
                         % (perr["reason"], perr["hint"])}
+    # 条件空间/标签/层随载荷下传（第3步先决条件，2026-10-24）：
+    # 此前 payload 只有 content/action/sensitivity/topic，验收器**根本看不到**
+    # condition_space，于是「按条件空间验收」在设计上就无法实现——不是验收器没写，
+    # 是它拿不到原料。四键均为只读附加字段，既有验证器只用 content，多传无害。
     payload = {"content": a.get("content", ""), "action": a.get("action"),
                "sensitivity": a.get("sensitivity"),
-               "topic": a.get("query") or a.get("intent")}
+               "topic": a.get("query") or a.get("intent"),
+               "condition_space": a.get("condition_space"),
+               "tags": a.get("tags"), "layer": a.get("layer")}
     if (a.get("content_kind") or "").strip() == "hyperedge":
         # 超边验证器（回放比对）需要锚与结构键：fm 键平铺在 a 顶层，
         # 经 hyperedge.audit_payload 装配三键载荷（缺锚由验证器 fail-closed）。
@@ -1014,7 +1020,44 @@ def _hyperedge_extra(a):
     return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
 
 
-# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；落盘前另取「同内容已存在」与「覆写既有同 id 节点」两个读数（P-9b ⑥），命中即在返回体附 dup_of/dup_ratio/dup_compared/dup_hint 与 overwrite_of/overwrite_ratio——**只加提示，不改落盘行为、不改 verdict**；
+#: #492 观测读数调用计数：把「有没有算」从耗时读数变成可断言的整数。
+#: 缺省写入恒不增；显式开启（a["include_dup_readout"] 为真）时每次 +1。
+#: 仅供守卫/诊断（守卫据此断言「缺省不算」），不参与任何判定、不落盘。
+READOUT_CALLS = 0
+
+
+def readout_calls():
+    """返回进程内累计的观测读数计算次数（#492；守卫用，零副作用）。"""
+    return READOUT_CALLS
+
+
+# 生效条件：仅由 `_executor` 在 a["include_dup_readout"] 为真时调用；
+# 不适用条件：本函数不参与落盘与 verdict（返回值只填返回体的提示字段）。
+def _dup_readout(cg, a, nid):
+    """#492：两组纯观测读数（prior/self_coverage + redundancy）的**唯一计算入口**。
+
+    子功能：取「覆写既有同 id 节点」读数（forgetting.prior_node + self_coverage）
+    与「同内容已存在」读数（forgetting.redundancy），复用 forgetting 既有实现，
+    不另写一份重复度算法。必须在 `cg.add` **之前**调用（add 后索引必有 nid：
+    覆写判据恒真、覆盖度恒 1.0）。
+    执行：调用即 `READOUT_CALLS += 1`（成本可观测），随后三次 forgetting 调用。
+    验证方式：`md_cg.test_issue492_dup_readout_opt_in`（A/E 组）+ `readout_calls()`
+    在缺省写入上的增量为 0。
+    """
+    global READOUT_CALLS
+    from . import forgetting as _forgetting
+    READOUT_CALLS += 1
+    _content = a.get("content", "")
+    prior = _forgetting.prior_node(cg, nid)
+    cov = (_forgetting.self_coverage(cg, prior, _content)
+           if prior is not None else None)
+    dup = _forgetting.redundancy(cg, _content,
+                                 layer=a.get("layer") or "knowledge",
+                                 exclude=nid)
+    return prior, cov, dup
+
+
+# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；**仅当 a["include_dup_readout"] 为真**时，落盘前另取「同内容已存在」与「覆写既有同 id 节点」两个读数（P-9b ⑥，计算入口 `_dup_readout`），命中即在返回体附 dup_of/dup_ratio/dup_compared/dup_hint 与 overwrite_of/overwrite_ratio——**只加提示，不改落盘行为、不改 verdict**；缺省路径（含 hooks 自动记忆）不付该成本，两族键不出现；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
 
@@ -1030,7 +1073,8 @@ def _executor(ctx):
     # 模块头注 :9-12：限流/同构聚合只作用 contextual 层，knowledge 等手动纪律
     # 写入不受限）——故**不改落盘行为、不改 verdict**，只在返回体补
     # 「同内容已存在」（dup_of/dup_ratio）与「本次是覆写」（overwrite_of/
-    # overwrite_ratio）两个读数。判据复用 forgetting 的同一实现
+    # overwrite_ratio）两个读数（**#492 起缺省不算**：须 a["include_dup_readout"]
+    # 为真；缺省路径这两族键不出现）。判据复用 forgetting 的同一实现
     # （redundancy/prior_node/self_coverage）；两个读数都必须在 cg.add **之前**
     # 取（add 后索引必有 nid：覆写判据恒真、覆盖度恒 1.0）。
     from . import forgetting as _forgetting
@@ -1041,15 +1085,13 @@ def _executor(ctx):
     #   ⇒ 改为**显式开启**：`a.get("include_dup_readout")` 为真才算（缺省跳过）。**不是删功能**。
     # ★ 不变式（由 test_issue492 的 A 组钉住）：**跳过观测不得影响落盘与 verdict**。
     # ★ 形态变更（已在提交信息与回帖显式声明）：缺省路径上 `dup_of`/`overwrite_of` 由「有值」变「缺键」。
+    # ★ 成本不变量（#492）：缺省路径上**一次都不调用** `_dup_readout`——守卫据
+    #   `readout_calls()` 的增量断言「没算」，而不是只断言 6 个键不出现（后者
+    #   无法区分「没算」与「算完再藏」，成本回归会漏过）。
     _want_readout = bool(a.get("include_dup_readout"))
     _prior = _prior_cov = _dup = None
     if _want_readout:
-        _prior = _forgetting.prior_node(cg, ctx["nid"])
-        _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
-                      if _prior is not None else None)
-        _dup = _forgetting.redundancy(cg, _content,
-                                      layer=a.get("layer") or "knowledge",
-                                      exclude=ctx["nid"])
+        _prior, _prior_cov, _dup = _dup_readout(cg, a, ctx["nid"])
     # #414：与 _gate_gated 共用同一张真源表（_OUTLET_PARAMS）——本出口的形参名
     # 由该表给出，取值为 _write_values(ctx) 单点。逐键语义（密级/session/依赖/
     # 双时间轴/验证态/检验强度/幽灵标记）见 _write_values 内的注释。
@@ -1236,6 +1278,12 @@ def install_default_gates(pipe):
     # 短语层标记；回指是现实写作常态，拒收会把正常记忆挡在门外）。
     pipe.register_before("ghostref", _gate_ghostref, position=1)
     pipe.register_before("deps", _gate_deps)
+    # 条件空间闸（统一架构 v1.1 §2.4 / §9.1）：字段域规范化 + 可观测性。
+    # 默认 observe（放行并记读数），MDCG_CONDGATE=off|observe|enforce 三档。
+    # 置于 audit 之前：条件空间是**字段域**（同 deps），先规范化，后续闸与落盘看到同一份值；
+    # 它不做内容裁决（裁决归 audit），只碰 condition_space 一个键。
+    from . import condgate
+    pipe.register_before("condspace", condgate.before_hook())
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
     pipe.register_before("gated", _gate_gated)

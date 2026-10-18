@@ -662,7 +662,14 @@ register_verifier("code", _verify_code)
 # image_desc / work_done 的**能力**由外部模块注入（见上）。未注入时 DEFER——
 # 诚实说明缺什么，绝不假装通过。
 register_verifier("image_desc", _pending("image_desc", "未注入识图验证器（需视觉能力）"))
-register_verifier("work_done", _pending("work_done", "未注入验收器（需验收标准）"))
+# work_done（2026-10-24）：由「未注入恒 DEFER」改为**内建验收器**。
+# 理由：外部注入依赖 MDCG_VERIFIER_MODULES，而该 env 未被宿主进程继承时验收器
+# 根本不生效（实测：setx 写入注册表，运行中的 DSH 及其子进程读不到）。内建后
+# 不依赖任何环境变量，判据在版本库里可审、可回滚。
+# 判据见 condaccept（V1 条件空间 / V2 证据可回溯 / V4 同槽冲突；V3/V5 只读旁证）。
+# 回滚开关：MDCG_WORKDONE_ACCEPT=observe → 恒 DEFER（回到旧行为）。
+from . import condaccept as _condaccept            # noqa: E402  (尾部注册区；condaccept 不导入 audit，无环)
+register_verifier("work_done", _condaccept.verify_work_done, override=True)
 # ccg_marks：闸门本身不是「能力」而是**准入判据**——只认编外单元的裁决
 # （unit_verdict + verifier）；无裁决时探测复核通道（蜂巢→配置→子代理）并给出
 # 下一步，恒不假装通过。真实复核由外部单元完成，认知图只负责记账。
