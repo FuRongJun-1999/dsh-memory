@@ -1,7 +1,7 @@
 # LoCoMo 第三方独立验证报告 · 灵枢标准归一化检索能力
 
 **验证人**：第三方独立评审（非灵枢系统本身）
-**日期**：2026-09-15 · **被测仓库**：`/root/lingshu-test/repo` @ `51d3426`（工作树干净）
+**日期**：2026-09-15 · **被测仓库**：`<沙箱根>/repo` @ `51d3426`（工作树干净）
 **数据集**：`data/benchmarks/locomo-zh-500/`（LoCoMo 500 题 / 567 条 gold 语料，上游 `mteb/LoCoMo@02e2c3de`）
 **方法**：全流程由本报告作者独立实现 —— 数据装载、查询循环、rank/hit@k/MRR 计算、随机基线、显著性检验均为本人手写，**不调用灵枢任何 `bench_*` 评测脚本**；被测对象仅为灵枢自身组件（`md_cg.mdcg.MdCG`、`md_cg.semantic.en_normalizer`、`lexicon/char_atoms_clean.json`）。唯一例外是 Jaccard 排序函数（3 行通用公开算法），由本人实现以复现灵枢主路线口径——它属于评测脚手架而非被测能力。
 

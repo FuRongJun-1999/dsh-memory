@@ -25,7 +25,7 @@ arm 说明（doc 侧 / query 侧）：
 import json, os, random, shutil, sys, tempfile, time
 from collections import defaultdict
 
-REPO = "/root/lingshu-test/repo"
+REPO = "<沙箱根>/repo"
 DATA = os.path.join(REPO, "data/benchmarks/locomo-zh-500")
 sys.path.insert(0, REPO)
 sys.path.insert(0, os.path.join(REPO, "md_cg/semantic"))

@@ -23,7 +23,7 @@ LoCoMo 第三方独立评测 · 第二组：灵枢「英文主路线」口径的
 import io, json, os, sys
 from collections import defaultdict
 
-REPO = "/root/lingshu-test/repo"
+REPO = "<沙箱根>/repo"
 DATA = os.path.join(REPO, "data/benchmarks/locomo-zh-500")
 sys.path.insert(0, REPO)
 
