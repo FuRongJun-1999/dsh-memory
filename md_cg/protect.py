@@ -445,7 +445,7 @@ def _safe_get(cg, node_id):
         return None
 
 
-# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次；层取形参 layer、索引条目 layer、节点 frontmatter layer 中首个真值（皆假值回落 "knowledge"，与 require_layer_write 缺省同口径）；敏感度取形参 sensitivity、索引条目 sensitivity、节点 frontmatter sensitivity 中首个真值；**既有节点**（索引有条目或节点可读）而三来源皆无有效密级时按 fail-closed 返回 SENSITIVITY_ORDER 最高档（"secret"）；节点不存在（新写入面）时返回 security.DEFAULT_SENSITIVITY；返回 (层, 敏感度) 二元组。
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次；层取形参 layer、索引条目 layer、节点 frontmatter layer 中首个真值（皆假值回落 "knowledge"，与 require_layer_write 缺省同口径）；敏感度取形参 sensitivity、索引条目 sensitivity、节点 frontmatter sensitivity 中首个真值；三来源皆无有效密级时回落 security.DEFAULT_SENSITIVITY（**已知 fail-open 代价，裁定与边界见函数内注释与 test_issue450_writegate_unknown_sens**）；返回 (层, 敏感度) 二元组。
 def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     """既有节点写面的「层 / 敏感度」解析**单点**（不设第二份口径）。
 
@@ -475,16 +475,23 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     #      回填索引条目——回填把「未知」擦成 `internal`，层闸此后**再也看不到**
     #      缺键信号。故当生效值恰为 `DEFAULT_SENSITIVITY` 时回读一次 frontmatter，
     #      确认该键**是否真的声明过**（只读，不改盘、不写索引）。
-    #   ② 为什么 fail-closed：真实密级可能是 restricted/private/secret ⇒ 回落
-    #      `internal` 会放行 ⇒ **fail-open（越权）**——历史口径与 `#359` 的
-    #      「unknown 视同缺省档」同源（其原句「private 已被记录」），但 `#359`
-    #      的裁定只绑定 merge 场景，不能外推到写面层闸。本件按 `#447` 与
-    #      `_readable` 的同向纪律（密级未知按 secret，宁可少读/少写，不可越权）
-    #      **改为 fail-closed**。
-    #   ③ 边界：节点**不存在** ⇒ 新写入面，沿用 `DEFAULT_SENSITIVITY`（既有行为，
-    #      保护的是「既有节点不被降档覆写」，不是「禁止新建」）；节点存在但盘面
-    #      读不出（加密且无密钥/损坏）⇒ 无法确认缺键，保留索引值（不把「读不动」
-    #      当成「缺键」而误锁全库）。
+    #   ② 为什么不改 fail-closed（裁定 2026-10-18，实测后）：真实密级可能是
+    #      restricted/private/secret ⇒ 回落 `internal` 确实会放行（fail-open，越权），
+    #      方向与 `#447`/`_readable` 的「密级未知按 secret」一致。但本仓写面的**常态**
+    #      是「不声明 sensitivity」（缺省即 internal），fail-closed 会把全库 legacy
+    #      节点对非 secret 身份变成只读——全量链实测 3 个用例当场转红
+    #      （test_p31_insight / test_p30_maintain / test_p29_session_ingest_export）。
+    #      功能代价 > 它堵的越权（后者需攻击者已持 internal clearance 且目标真实
+    #      密级更高，即 #359 记的「private 已被记录」那类；#359 的裁定只绑定 merge
+    #      场景，本处沿用其「unknown 视同缺省档」口径但不外推）。
+    #      密级更高），故按「成本>收益取小」**保持 internal 回落**，把边界与代价
+    #      钉在守卫 `md_cg/test_issue450_writegate_unknown_sens.py`。
+    #   ③ 何时改判：出现「缺键且真实密级应为高密级」的实例（届时按 fail-closed 改，
+    #      并同批把 legacy 节点回填 sensitivity，否则就是上面的全库只读）。
+    #   边界：节点**不存在** ⇒ 新写入面，沿用 `DEFAULT_SENSITIVITY`（保护的是
+    #      「既有节点不被降档覆写」，不是「禁止新建」）；节点存在但盘面读不出
+    #      （加密且无密钥/损坏）⇒ 无法确认缺键，保留索引值（不把「读不动」当成
+    #      「缺键」而误锁全库）。
     #   已知缺口：读面·近期事件（`mdcos.py` 的 `recent_events`）= `#447`，本件不覆盖。
     if _sens == DEFAULT_SENSITIVITY:
         if not _node_read:
@@ -496,8 +503,16 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     if not _sens:
         # 既有节点（索引有条目或节点可读）而密级不可判 ⇒ 最保守档；
         # 节点不存在（新写入面）⇒ 缺省档（保护面不拦新建）。
-        if e or _node is not None:
-            return _layer or "knowledge", SENSITIVITY_ORDER[-1]
+        # ★ 裁定（2026-10-18，全量链实测后）：**保持 internal 回落**，不改 fail-closed。
+        #   代价读数：本件首版曾按 fail-closed 返回 SENSITIVITY_ORDER[-1]，全量链
+        #   md_cg 随即 3 个用例转红（test_p31_insight / test_p30_maintain /
+        #   test_p29_session_ingest_export，均因「既有节点未声明 sensitivity ⇒ 被
+        #   判成 secret ⇒ internal 身份的同 id 改写被拒」）。实测 blast radius：
+        #   本仓大多数节点**从不声明 sensitivity**（写面缺省即 internal），fail-closed
+        #   等于把全库 legacy 节点对非 secret 身份变成只读——功能代价大于它堵的
+        #   fail-open（后者需要攻击者已持 internal clearance 且目标真实密级更高）。
+        #   故按「成本>收益取小」维持原语义，并把边界钉在守卫
+        #   `md_cg/test_issue450_writegate_unknown_sens.py`（登记 + 代价 + 何时改判）。
         return _layer or "knowledge", DEFAULT_SENSITIVITY
     return _layer or "knowledge", _sens
 
