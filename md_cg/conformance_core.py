@@ -180,11 +180,45 @@ def _steps():
         # 注意：真实库的读数（958/775/183、零超期）不在此步断言——conformance 在
         # 临时干净库上跑，只验证「指标算得出、缺源不冒充 0」，不绑定生产数据。
 
-    def s_gap_anchor(ctx):
-        has = hasattr(ctx["cg"], "verify_anchor") or hasattr(ctx["cg"], "verifyAnchor")
-        return (PASS if has else GAP), {
-            "missing": None if has else "verifyAnchor（I14 回执校验）未实现",
-            "t_ref": "T7"}
+    def s_anchor_verify(ctx):
+        """I14：回执不得自带真值——原文不可读/已变，校验必须失败。
+
+        四个正负对照（缺一不可）：
+            正常生成 + 正常校验 → 通过
+            篡改回执里的正文指纹 → 失败（回执不能自证）
+            节点不存在 → 失败（**关键**：原文没了回执就必须倒）
+            正文被改写 → 失败（回执绑定的是当时那份原文）
+        """
+        from . import anchor as anc
+        ctx["cg"].add("n_anc", "锚定样本正文", layer="knowledge")
+        made = anc.make_anchor(ctx["cg"], "n_anc", grantor="conformance")
+        receipt = made.get("anchor") or {}
+        out = {
+            "anchor_has_no_content": "content" not in receipt,   # 回执不含正文
+            "field_count": len([k for k in ("anchor_id", "node_id", "grantor",
+                                            "grantee", "created_at", "state_digest",
+                                            "content_hash") if k in receipt]),
+        }
+        out["verify_ok"] = anc.verify_anchor(ctx["cg"], made).get("ok")
+
+        tampered = json.loads(json.dumps(made))
+        tampered["anchor"]["content_hash"] = "0" * 64
+        out["tampered_hash_reason"] = anc.verify_anchor(ctx["cg"], tampered).get("reason")
+
+        ghost = json.loads(json.dumps(made))
+        ghost["anchor"]["node_id"] = "n_does_not_exist"
+        out["missing_node_reason"] = anc.verify_anchor(ctx["cg"], ghost).get("reason")
+
+        ctx["cg"].add("n_anc", "锚定样本正文（已被改写）", layer="knowledge")
+        out["changed_content_reason"] = anc.verify_anchor(ctx["cg"], made).get("reason")
+
+        ok = (out["anchor_has_no_content"] is True
+              and out["field_count"] == 7
+              and out["verify_ok"] is True
+              and out["tampered_hash_reason"] == "content_changed"
+              and out["missing_node_reason"] == "missing_node"
+              and out["changed_content_reason"] == "content_changed")
+        return (PASS if ok else FAIL), out
 
     def s_verdict_schema(ctx):
         """接口形状：真实裁决必须符合 Verdict schema（issue #5 第 15 条）。
@@ -347,7 +381,7 @@ def _steps():
         ("accept_repeatable", s_accept_repeatable),
         ("protected_predicates", s_protected_predicates),
         ("queue_health_readable", s_queue_health),
-        ("gap_anchor_verify", s_gap_anchor),
+        ("anchor_verify", s_anchor_verify),
         ("revise_rollback", s_revise_rollback),
         ("verdict_schema", s_verdict_schema),
         ("gap_cs_not_indexed", s_gap_cs_not_indexed),
