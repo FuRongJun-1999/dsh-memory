@@ -2484,6 +2484,12 @@ class MdCG:
             # issue #33：中文别名入快照（fm 派生，与写入路径同口径）——
             # S1b 跨语言收敛免读文件可判。
             "bucket_zh": fm.get("bucket_zh") or None,
+            # 2026-10-18（gap_cs_not_indexed）：条件空间入快照。
+            # 此前索引 42 键不含该字段，生产库 31139 节点中索引带它者为 0——
+            # 检索面拿到的条目先天没有条件空间，P0-5 的 legacy 姿态因此无法在
+            # 装配层判定（只能逐条读文件）。字段体量约 +8.5%（43MB → ~47MB），
+            # 换来检索期免读盘。存量需一次 rebuild_index 才补齐（见文档）。
+            "condition_space": fm.get("condition_space") or None,
             "importance": fm.get("importance", 0.5),
             # issue50-d（2026-10-02）：重要度**来源**入快照（"hint"|"heuristic"，
             # 旧库无此键 → None）——「这条 0.8 是显式声明还是启发式分」免读
@@ -3262,6 +3268,9 @@ class MdCG:
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
             "bucket_zh": bucket_zh or None,
+            # 2026-10-18：与 _node_entry 同口径（写入路径也要带，否则
+            # 「新写的节点索引有条件空间、重建后反而没有」——两路径分叉的经典形态）。
+            "condition_space": fm.get("condition_space") or None,
             "importance": importance, "created_at": fm["created_at"],
             # issue50-d：重要度来源入快照（与 _node_entry 同口径——写入后即可
             # 免读文件判「0.8 是显式 hint 还是启发式」，不等全量重建）。

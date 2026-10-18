@@ -267,6 +267,7 @@ def _steps():
             "condition_space_in_frontmatter": bool(fm_cs),
             "missing": None if in_index else
                        "condition_space 不进索引 → 检索面无法在装配层判定 legacy 姿态",
+            "stock_needs_rebuild": True,   # 存量索引不含该字段，需一次 rebuild_index
             "t_ref": "P0-5 / T14"}
 
     def s_envelope(ctx):
