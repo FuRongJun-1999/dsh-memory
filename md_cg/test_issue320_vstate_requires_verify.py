@@ -180,20 +180,36 @@ _MUTATIONS = (
 
 
 def _mirror_build():
+    """整树快照（issue #530）——**不再维护白名单**。
+
+    原实现只拷 `md_cg/` + `scripts/` + 根级 .py/三个特定文件名，把其它包目录
+    （`compiler/` `hive/` `swarm/` 等）与 `docs/` `test/` 排除在外。
+    结果：`record` 分支里任何**跨包**依赖在镜像树里都会失败，而失败被某层
+    `except` 吞成 `ok=False, err=None` —— 症状是**被测断言红**，不是**构造红**。
+    白名单本身就是一个会静默失效的依赖清单，故改为整树快照。
+
+    排除项只留「非源码」：`.git` `__pycache__` `*.pyc` `node_modules` `target` `.venv`。
+    """
     dst = tempfile.mkdtemp(prefix="iss320_mut_")
-    for name in ("md_cg", "scripts"):
+    ignore = shutil.ignore_patterns("__pycache__", "*.pyc", "node_modules", "target",
+                                   ".venv", ".git", ".mypy_cache", ".pytest_cache")
+    for name in sorted(os.listdir(_REPO)):
+        if name in (".git",):
+            continue
         src = os.path.join(_REPO, name)
         if os.path.isdir(src):
-            shutil.copytree(src, os.path.join(dst, name),
-                            ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-    for name in sorted(os.listdir(_REPO)):
-        p = os.path.join(_REPO, name)
-        if os.path.isfile(p) and (name.endswith(".py")
-                                  or name in ("README.md", "pyproject.toml",
-                                              "package.json")):
-            shutil.copy2(p, os.path.join(dst, name))
+            shutil.copytree(src, os.path.join(dst, name), ignore=ignore, dirs_exist_ok=True)
+        elif os.path.isfile(src):
+            shutil.copy2(src, os.path.join(dst, name))
+    # 自检（issue #530）：镜像树必须含工作树的**全部顶层目录**（除 .git 类）；
+    # 缺任何一个 ⇒ 立刻红，而不是让被测断言去红。这条挡的正是「白名单漏项」。
+    want = {n for n in os.listdir(_REPO)
+            if os.path.isdir(os.path.join(_REPO, n)) and n not in (".git",)}
+    have = {n for n in os.listdir(dst) if os.path.isdir(os.path.join(dst, n))}
+    missing = sorted(want - have)
+    if missing:
+        raise AssertionError("镜像树缺顶层目录：%r（issue #530 的自检）" % (missing,))
     return dst
-
 
 def _run_in(tree):
     env = dict(os.environ)
