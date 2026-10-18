@@ -76,6 +76,29 @@ interface PendingCall {
  */
 const MAX_RETRIES = 8
 
+/** md_cg 的「令牌校验失败」专用退出码（见 md_cg/mcp_server.py 的 `return 3`）。 */
+const EXIT_TOKEN_REJECTED = 3
+
+/**
+ * #224：启动失败提示按退出码分流。
+ *
+ * 改前三处提示（5 秒内退出 / 放弃终态 / 放弃后请求失败）都把原因指向
+ * 「python 可执行文件与 md_cg 依赖」——退出码 3 时 python 与依赖其实完全正常，
+ * 真正原因（令牌被拒）只在透传的 python stderr 里，用户按提示排查只会白耗一轮。
+ */
+function startupHint(python: string, exitCode: number | null): string {
+  if (exitCode === EXIT_TOKEN_REJECTED) {
+    return `md_cg 以退出码 ${EXIT_TOKEN_REJECTED} 拒启：令牌校验失败（python 与依赖本身正常）。`
+      + '令牌被服务端拒绝的常见原因：租户不一致（mdcg.tenant / MDCG_TENANT 与令牌签发时的租户不同）、'
+      + '已吊销、已过期，或令牌记录不在当前 MDCG_AUX_ROOT / MDCG_TOKEN_FILE 指向的令牌库里。'
+      + '处理：确认后用 config.env.MDCG_TOKEN 注入一枚有效令牌，或删除密钥环（~/.mdcg/token，'
+      + '可用 MDCG_AUX_ROOT 覆盖）后重启以重新自动签发。'
+  }
+  return `请检查 ${python} 可执行文件与 md_cg 依赖；`
+    + `自检 \`${selfCheckCommand(python)}\` 须在插件包根目录运行`
+    + '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12），修复后在 DSH 中重新启用 dsh-memory 插件。'
+}
+
 export class LingshuBridge {
   private readonly options: BridgeOptions
   private proc: ChildProcess | null = null
@@ -93,6 +116,9 @@ export class LingshuBridge {
   private procStartedAt = 0
   /** issue #7：运行期反复退出的滑动窗口（时间戳列表）——防无限重启刷屏 */
   private unexpectedExits: number[] = []
+  /** #224：最近一次子进程退出码——退出码 3 是 md_cg 的「令牌校验失败」专用码，
+   *  三处启动失败提示据此改口，不再一律把人引向「python 与依赖」。 */
+  private lastExitCode: number | null = null
 
   constructor(options: BridgeOptions) {
     this.options = options
@@ -281,6 +307,7 @@ export class LingshuBridge {
         ? Math.round((Date.now() - this.procStartedAt) / 1000)
         : -1
       probe(`exit code=${code} signal=${signal} disposed=${this.disposed} ready=${this.readyState} started=${this.started} uptime=${uptimeS}s`)
+      this.lastExitCode = code
       console.error(`[lingshu-bridge] 灵枢进程退出 code=${code} signal=${signal}（存活 ${uptimeS}s）`)
       this.rl?.close()
       this.rl = null
@@ -294,10 +321,10 @@ export class LingshuBridge {
         )
         this.unexpectedExits.push(Date.now())
         if (uptimeS >= 0 && uptimeS < 5) {
+          // #224：退出码 3 = 令牌被拒，提示改口（不再把人引向 python/依赖）。
           console.error(
-            `[lingshu-bridge] 进程启动后 5 秒内即退出——请检查 ${python} 可执行文件与 md_cg 依赖。` +
-            `自检 \`${selfCheckCommand(python)}\` 须在插件包根目录运行` +
-            '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12）。')
+            `[lingshu-bridge] 进程启动后 5 秒内即退出——`
+            + startupHint(python, this.lastExitCode))
         } else if (this.unexpectedExits.length >= 3) {
           console.error(
             `[lingshu-bridge] 10 分钟内已意外退出 ${this.unexpectedExits.length} 次，` +
@@ -365,10 +392,8 @@ export class LingshuBridge {
       this.readyState = 'failed'
       this.flushBootQueue(false)
       console.error(
-        `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。` +
-        `请检查 ${this.options.python} 可执行文件与 md_cg 依赖；` +
-        `自检 \`${selfCheckCommand(this.options.python)}\` 须在插件包根目录运行` +
-        '（插件已自动锚定 cwd 与 PYTHONPATH，issue #12），修复后在 DSH 中重新启用 dsh-memory 插件。')
+        `[lingshu-bridge] 连续启动失败 ${this.retries} 次，已停止自动重启（不再后台空转）。`
+        + startupHint(this.options.python, this.lastExitCode))
       probe(`give up: ${this.retries} consecutive failures, entering failed terminal state`)
       return
     }
@@ -396,10 +421,8 @@ export class LingshuBridge {
     // issue #6：放弃终态下快速失败——之前进程不在且不再重启，请求只能白等超时
     if (this.gaveUp) {
       return Promise.reject(new Error(
-        '灵枢进程不可用：连续启动失败已达上限，已停止重试。' +
-        `请检查 ${this.options.python} 可执行文件与 md_cg 依赖` +
-        `（自检 \`${selfCheckCommand(this.options.python)}\` 须在插件包根目录运行），` +
-        '修复后重新启用 dsh-memory 插件。'))
+        '灵枢进程不可用：连续启动失败已达上限，已停止重试。'
+        + startupHint(this.options.python, this.lastExitCode)))
     }
     const id = this.nextId++
     const timeout = this.options.timeoutMs

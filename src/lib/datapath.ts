@@ -60,6 +60,30 @@ export const ENV_STATE_ROOT = 'MDCG_STATE_ROOT'
 let cachedStateRoot: string | null = null
 
 /**
+ * 路径环境变量的 `~` 形态展开（#386）。
+ *
+ * 背景：改前 Node 侧四个 env 入口（`MDCG_STATE_ROOT` / `MDCG_DATA_ROOT` /
+ * `MDCG_ROOT` / `MDCG_CHILD_CWD`）直接 `resolve()`，`~` 被当成普通目录名 ——
+ * `MDCG_STATE_ROOT=~/.dsh-memory` 落到 `<仓根>/~/.dsh-memory`；而 Python 侧
+ * `datapath._abs_host_path()` 用 `os.path.expanduser` 落到 `<家目录>/.dsh-memory`。
+ * 同一份配置两侧各写一个库（Node 写 A、Python 读 B），是最难发现的分叉形态。
+ *
+ * 规则（**单点**，四个 env 入口共用）：
+ *   · 仅展开「`~` 本身」与「`~` 后紧跟分隔符」（`~/x`、`~\x`）；
+ *   · `~user` 形态**原样保留**（与 PR #385 的裁定一致；Python 的 expanduser
+ *     会展开 `~user`，属已知的残留分叉，见本单元返回的 residual）；
+ *   · 其余原样返回，由调用方按既有口径 `resolve()`。
+ *
+ * paths.json 的 `data_root` / `root` **不**走本函数：Python 侧对这两个键只做
+ * abspath（不 expanduser），两侧同为字面量；在此展开反而会造出新的分叉。
+ */
+export function expandHome(p: string, home: string = homedir()): string {
+  if (p === '~') return home
+  if (p.startsWith('~/') || p.startsWith('~\\')) return join(home, p.slice(2))
+  return p
+}
+
+/**
  * 用户级状态根（**插件包目录之外**）：路径配置与默认数据根的落点。
  * 优先级：`MDCG_STATE_ROOT` → `$DSH_HOME/.dsh-memory` → `~/.dsh/.dsh-memory`。
  * `DSH_HOME` **未必**由宿主注入（本仓 `dsh/dsh-web-start.bat` 自行 set），
@@ -69,7 +93,8 @@ export function stateRoot(): string {
   if (cachedStateRoot) return cachedStateRoot
   const env = process.env[ENV_STATE_ROOT]
   if (env) {
-    cachedStateRoot = resolve(env)
+    // #386：`~` 形态按 expandHome 展开（与 Python expanduser 同落点）。
+    cachedStateRoot = resolve(expandHome(env))
     return cachedStateRoot
   }
   const dshHome = process.env['DSH_HOME']
@@ -288,7 +313,9 @@ export function runRoot(): string {
   if (cachedRunRoot) return cachedRunRoot
   const candidates: string[] = []
   const override = process.env[ENV_CHILD_CWD]
-  if (override) candidates.push(resolve(override))
+  // #386：`~` 形态先展开再 resolve——否则 `MDCG_CHILD_CWD=~/run` 会把子进程
+  // cwd 定到 `<仓根>/~/run`（与本函数「cwd 必须在包外」的声明相反）。
+  if (override) candidates.push(resolve(expandHome(override)))
   const dshHome = process.env['DSH_HOME']
   if (dshHome) candidates.push(join(resolve(dshHome), '.dsh-memory', 'run'))
   candidates.push(join(homedir(), '.dsh', '.dsh-memory', 'run'))
@@ -310,7 +337,8 @@ export function runRoot(): string {
 /** 数据根（记忆/账本/运行态的父目录）。 */
 export function dataRoot(): string {
   const env = process.env[ENV_DATA_ROOT]
-  if (env) return anchor(env)
+  // #386：env 的 `~` 形态展开（paths.json 的取值不展开——两侧同为字面量）。
+  if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['data_root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
   return defaultDataRoot()
@@ -322,7 +350,8 @@ export function dataRoot(): string {
  */
 export function mdcgRoot(configured?: string): string {
   const env = process.env[ENV_MDCG_ROOT]
-  if (env) return anchor(env)
+  // #386：env 的 `~` 形态展开（paths.json / config 的取值不展开）。
+  if (env) return anchor(expandHome(env))
   const cfg = readUserPaths()['root']
   if (typeof cfg === 'string' && cfg) return anchor(cfg)
   if (configured && configured.trim()) return anchor(configured.trim())

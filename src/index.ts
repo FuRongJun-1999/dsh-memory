@@ -270,6 +270,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       actor: config.mdcg.actor,
       clearance: config.mdcg.clearance,
       autoIssue: !legacyAuth,
+      // #224：签发/复核必须看见与 MCP 子进程**同一套** env 与租户——
+      // 否则令牌记录写到 ~/.mdcg、子进程去 aux 下找（或租户不一致）⇒ rc=3 拒启。
+      tenant: config.mdcg.tenant,
+      env: config.env,
     })
     cred = resolution
     // 注入子进程 env：显式配置与密钥环都在此汇合成**唯一**的 MDCG_TOKEN。
@@ -313,8 +317,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 但两者分居两处是历史事故的温床（「以为在同一处」），故一并留痕；
     // 想合并/搬走：设 MDCG_AUX_ROOT（md_cg.datapath.aux_root() 同口径）。
     ctx.logger.info(
-      `dsh-memory: 身份/凭据根（aux）= ${auxRoot()}`
-      + `（密钥环 ${cred?.keyringPath ?? defaultKeyringPath()}；`
+      `dsh-memory: 身份/凭据根（aux）= ${auxRoot(config.env)}`
+      + `（密钥环 ${cred?.keyringPath ?? defaultKeyringPath(config.env)}；`
       + `与记忆真源分离，可用 MDCG_AUX_ROOT 覆盖）`,
     )
     // 包管理器装的插件 + 路径配置还在旧包内位置：pnpm 下次更新会把该文件连目录一起
@@ -352,6 +356,13 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     } else if (cred.source === 'issued') {
       // 首启引导：自动签发是**改变用户可写权限**的动作，必须留痕（含关闭/吊销方式）。
       ctx.logger.info(`dsh-memory: ${cred.note}`)
+    } else if (!brainReady) {
+      // #224：认知图未就绪时不得打「已开启」——那会把「服务端拒启」伪装成
+      // 「凭据没问题、写入已开」，与真因（透传的 python stderr）互相矛盾。
+      ctx.logger.warn(
+        `dsh-memory: 认知图写入凭据来源=${cred.source}（密钥环 ${cred.keyringPath}），`
+        + '但认知图未就绪——自动记忆 / 转录 / 角色落图当前不会落盘；'
+        + '待桥重连成功后才生效（就绪状态以启动日志为准）。')
     } else {
       ctx.logger.info(
         `dsh-memory: 认知图写入凭据来源=${cred.source}（密钥环 ${cred.keyringPath}）`

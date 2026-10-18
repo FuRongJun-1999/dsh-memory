@@ -40,6 +40,10 @@
 import { delimiter } from 'node:path'
 import { LingshuBridge, type McpCallResult } from '../bridge.js'
 import { pythonPathValue, runRoot } from './datapath.js'
+// 租户单点（#224）：签发侧（token_store）与运行侧（本文件的 mdcgChildEnv）必须
+// 用同一函数算出租户——N62 之后服务端对「令牌记录租户 ≠ 入参租户」fail-closed，
+// 两侧各算一遍就必然分叉（签发按 default、运行按 work ⇒ rc=3 拒启）。
+import { effectiveTenant } from './token_store.js'
 
 /** md_cg 子进程与根目录配置。 */
 export interface MdcgOptions {
@@ -112,7 +116,10 @@ export interface MdcgChildEnvOptions {
  *    而非 `errors="replace"` 那种替换字符）。
  *
  * 确定性对照实验（P1 复现 / P3 消除）见 `test/python-utf8-mode.test.ts`。
- * `opts.env` 最后展开——显式覆盖优先。
+ * `opts.env` 最后展开——显式覆盖优先。**唯一例外是 `MDCG_TENANT`**（#224）：
+ * 它由 `effectiveTenant()` 单点决定（`opts.env.MDCG_TENANT` > `opts.tenant` >
+ * default），放在 `opts.env` 之后写入——否则 `opts.env` 里的空串/其它值会把
+ * 「签发侧算出的租户」再覆盖一次，两侧分叉。其余键的覆盖顺序不变。
  */
 export function mdcgChildEnv(opts: MdcgChildEnvOptions): Record<string, string> {
   return {
@@ -121,12 +128,13 @@ export function mdcgChildEnv(opts: MdcgChildEnvOptions): Record<string, string> 
     MDCG_ROOT: opts.root,
     // 工具面必须是 full：写入通道 mdcg_remember 属细粒度工具（见 MdcgOptions.surface）。
     MDCG_MCP_SURFACE: opts.surface ?? 'full',
-    MDCG_TENANT: opts.tenant ?? 'default',
     MDCG_CLEARANCE: opts.clearance ?? 'private',
     PYTHONPATH: pythonPathValue(),
     ...(opts.actor ? { MDCG_ACTOR: opts.actor } : {}),
     ...(opts.identity ? { MDCG_IDENTITY: opts.identity } : {}),
     ...(opts.env ?? {}),
+    // 租户单点（见 effectiveTenant）：与 token_store 签发/复核同一口径。
+    MDCG_TENANT: effectiveTenant(opts.tenant, opts.env),
   }
 }
 
