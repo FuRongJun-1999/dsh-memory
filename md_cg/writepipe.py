@@ -1219,11 +1219,13 @@ def _gate_autonomy(ctx):
     pr = _am.propose_mutation(cg, action, nid, payload=pay,
                               layer=a.get("layer") or "knowledge",
                               sensitivity=a.get("sensitivity"), info=True)
-    return {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
-            "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
-            "verdict": ctx.get("verdict"),
-            "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                     % (dec["hint"], pr["pid"], nid))}
+    # issue #426-A：入队回执透出 dedup 归因。
+    return _am.apply_dedup(
+        {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
+         "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
+         "verdict": ctx.get("verdict"),
+         "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                  % (dec["hint"], pr["pid"], nid))}, pr)
 
 
 # 生效条件：value 传入即无条件延迟导入并转调 mcp_server._split_ids 后原样返回其结果（本符号无自身分支）；

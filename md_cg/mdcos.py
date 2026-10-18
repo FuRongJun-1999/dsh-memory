@@ -3854,12 +3854,14 @@ class MdCGOS(MdCG):
             layer=e.get("layer") or "knowledge",
             sensitivity=e.get("sensitivity"), info=True)
         # 协议 gate_short_circuit：补 verdict 键（无校验裁决 ⇒ None，与写链面同口径）
-        return {"ok": True, "id": node_id, "committed": False, "deleted": False,
-                "moved_to": "review_queue", "verdict": None,
-                "pid": pr["pid"], "mutation": pay,
-                "autonomy": aut,
-                "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
-                        "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}
+        # issue #426-A：入队回执透出 dedup 归因（同键既有单时不再只回 pid）。
+        return autonomy_modes.apply_dedup(
+            {"ok": True, "id": node_id, "committed": False, "deleted": False,
+             "moved_to": "review_queue", "verdict": None,
+             "pid": pr["pid"], "mutation": pay,
+             "autonomy": aut,
+             "hint": "%s 本次未删除（节点原样在位）：变更单已入审核队列"
+                     "（pid=%s，目标 %s）。" % (dec["hint"], pr["pid"], node_id)}, pr)
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.deletions_log))，记录内容取决于 deletions_log 可读结果；
     def deletions(self):
@@ -4930,12 +4932,14 @@ class MdCGOS(MdCG):
                                   layer=tlayer,
                                   sensitivity=kw.get("sensitivity"), info=True)
         # 协议 gate_gated：同上补三键（ok=True=已受理待审，与写链面口径一致）
-        return {"ok": True, "id": node_id, "committed": False,
-                "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
-                "merged_into": tgt, "moved_to": "review_queue",
-                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
-                "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
-                        "新内容随单）。" % (dec["hint"], pr["pid"], tgt)}
+        # issue #426-A：入队回执透出 dedup 归因。
+        return _am.apply_dedup(
+            {"ok": True, "id": node_id, "committed": False,
+             "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
+             "merged_into": tgt, "moved_to": "review_queue",
+             "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+             "hint": "%s 本次未合并：变更单已入审核队列（pid=%s，目标 %s，"
+                     "新内容随单）。" % (dec["hint"], pr["pid"], tgt)}, pr)
 
 # 生效条件：以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）后交 autonomy_modes.decide 判定——ALLOW 返回 None（调用方照旧 add 落盘，逐位不变）；FORBID 返回 ok=False/verdict="FORBID"/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 先经 self.write_qualify 跑既有资格探针（受保护/越权覆写照旧当场抛出、不静默入队）再经 autonomy_modes.propose_mutation 出变更单并返回 ok=True/verdict="CONFIRM"/committed=False/moved_to="review_queue" 的终态（**不落盘**）；既有节点（C 改写）confirm/plan 两档出单、full 档放行；新节点（A 新增）confirm/full 两档放行、plan 档 FORBID（计划外零变更）；
     def _autonomy_gate_rewrite(self, node_id, content, layer, kw,
@@ -5011,11 +5015,13 @@ class MdCGOS(MdCG):
                                   layer=layer,
                                   sensitivity=kw.get("sensitivity"), info=True)
         # 协议 gate_gated 需三键中的 id（同上）
-        return {"ok": True, "id": node_id, "verdict": "CONFIRM", "node_id": node_id,
-                "committed": False, "gate": gate, "moved_to": "review_queue",
-                "pid": pr["pid"], "mutation": pay, "autonomy": aut,
-                "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                        % (dec["hint"], pr["pid"], node_id)}
+        # issue #426-A：入队回执透出 dedup 归因。
+        return _am.apply_dedup(
+            {"ok": True, "id": node_id, "verdict": "CONFIRM", "node_id": node_id,
+             "committed": False, "gate": gate, "moved_to": "review_queue",
+             "pid": pr["pid"], "mutation": pay, "autonomy": aut,
+             "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                     % (dec["hint"], pr["pid"], node_id)}, pr)
 
 # 生效条件：node_id 不在索引中（新节点）时返回 None（新写入面没有「既有资格闸」，其层闸由落盘面把守）；在索引中时以 override=False 跑 protect.guard_overwrite（既有节点覆写前的统一双闸：principal 层闸按**既有节点真层** + 引擎级写保护闸）与（target_layer 非空且与真层不同时）protect.guard_move（受保护节点移出保护层的降级闸），任一拒绝抛出的 AccessDenied 一律照抛、ProtectionError 仅在 override 为假时照抛（override 为真时放行——真实写入那一次会带授权并写快照，本探针**不写快照**）；全部通过返回 None；本函数不落盘、不改索引、不写任何快照；
     def write_qualify(self, node_id, target_layer=None, override=False,
