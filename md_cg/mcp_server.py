@@ -1149,6 +1149,37 @@ def _int_arg(a, key, default):
     return int(v) if v is not None else default
 
 
+# 生效条件：k 可转 int 且（k<1 或 k>mdcg.GLOBAL_CAP）时返回 warning dict（code/k/min/max + hint，超上限另带 clamped_to=GLOBAL_CAP）；k 在 [1, GLOBAL_CAP] 内、或不可转 int 时返回 None。
+def _k_warning(k):
+    """issue #303 O4：read 面 k 越界的**显式信号**（保留夹紧行为，只透出）。
+
+    外部校准实测：read 的 k=10^18 / -1 / 0 均返回「形似正常」的结果——库层
+    对上限自然截断（GLOBAL_CAP=500）、对 0/负数走切片语义，调用方拿不到
+    「你传的值非法」的信号（静默归一）。本函数只**报告**，不改传参、不改
+    结果集、不改 meta（夹紧行为逐位保留）：
+      · k>GLOBAL_CAP：实际最多返回 GLOBAL_CAP 条（可由 meta.cap 核对）；
+      · k<1：0 是既有「显式空结果」语义（#M1 口径），负数走库层切片，
+        两者都不是「取缺省」，故给 warning 让调用方自己决定是否重试。
+    """
+    try:
+        kv = int(k)
+    except (TypeError, ValueError):
+        return None
+    from .mdcg import GLOBAL_CAP
+    if 1 <= kv <= GLOBAL_CAP:
+        return None
+    w = {"code": "k_out_of_range", "k": kv, "min": 1, "max": GLOBAL_CAP}
+    if kv > GLOBAL_CAP:
+        w["clamped_to"] = GLOBAL_CAP
+        w["hint"] = ("k=%d 超过单次输出上限 %d：本次实际最多返回 %d 条"
+                     "（夹紧行为不变，meta.cap 可核对）；要更多结果请分页或收窄查询"
+                     % (kv, GLOBAL_CAP, GLOBAL_CAP))
+    else:
+        w["hint"] = ("k=%d 越界（<1）：0 是「显式空结果」语义、负数由库层切片语义"
+                     "处理；本次未按缺省值替换。若要取缺省请省略 k" % kv)
+    return w
+
+
 # ★ issue #525：**「一律返 null」是有意的两面分工，不是缺陷**（本件零行为改动，只登记语义）。
 #   ① **防探测**：非法 id（穿越/绝对路径/NUL/超长）与「节点不存在」**返回同一个 `null`** ⇒
 #      调用方**无法用 read 枚举「哪些 id 存在」** ⇒ 这是安全属性。
@@ -1158,6 +1189,14 @@ def _int_arg(a, key, default):
 #      而「不存在」保持 `null` 是 `md_cg/protocol.py` 的 `node_missing.returns_null = True` 协议真源
 #      （由 test_protocol A11/B8/B10 钉住）⇒ 改它须连带改协议真源与那三条断言（#274 已裁：属行为变更，不是补漏）。
 #   ★ 若将来要细分区因 ⇒ **须先确认「防探测」这条安全属性是否仍需要**；不能只改 `read` 而不动 `get` 的分工。
+#   ★ 2026-10-18（#303 O5）：细分区因已落地，口径——**只**把「格式非法」
+#     （`mdcos.valid_node_id` 判否：穿越/绝对路径/NUL/超长/空语义值）收敛为
+#     结构化 `{"ok": false, "error": "invalid_node_id"}`；「形态合法但不存在/
+#     不可读」仍返回 `null`（协议 node_missing 真源不变）。**防探测属性不受
+#     影响**：非法形态本就在 id 空间之外，不可能对应任何真实节点；合法形态的
+#     枚举面与改动前一致（一律 null）。空串 `""` 是 #274 裁定的显式
+#     node_missing 形态，不按格式非法处理（M2-B8/N3b 钉住）。要带原因取值
+#     仍用 `get`（not_found + readable_sensitivities）。
 def _node_view(node, offset: int = 0):
     if not node:
         return None
@@ -2520,12 +2559,28 @@ def _cg_dispatch(cg, a):
                         "node_id": _nid, "got_type": type(_nid).__name__,
                         "hint": "node_id 必须是字符串 id；要按关键词检索请改用 "
                                 "query（本层不再把类型错静默降级为检索）"}
+            # issue #303 O5：**格式非法**与「不存在」分开——非法形态用结构化
+            # error（invalid_node_id，判据单点 mdcos.valid_node_id，与写面
+            # add/restore 同一真源）；形态合法但不存在仍是协议登记的 null。
+            # 空串刻意留在 null 路（#274 裁定的显式 node_missing 形态，M2-B8/N3b
+            # 钉住；它不是「格式非法」的漏判，见 _node_view 上方 #525/#303 注释）。
+            if _nid:
+                from .mdcos import valid_node_id as _valid_node_id
+                if not _valid_node_id(_nid):
+                    return {"ok": False, "error": "invalid_node_id",
+                            "node_id": _nid,
+                            "hint": "node_id 形态非法（须匹配 "
+                                    "mdcg._NODE_ID_RE：1–128 字符的字母数字 _ . @ - "
+                                    "中文 逗号，且不含 '..'）：这不是「节点不存在」，"
+                                    "重试前请先校正 id；带原因取值用 get"}
             return _node_view(cg.get(_nid), offset=int(a.get("offset") or 0))
         q = a.get("query") or a.get("intent") or ""
+        # issue #303 O4：k 越界的信号单点（保留夹紧/切片行为，只在返回体加 warning）
+        _kwarn = _k_warning(_int_arg(a, "k", 20))
         # 显式 0 也是「显式」（2026-09-24 修复）：旧写法 `if a.get("budget_tokens")`
         # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
         if a.get("budget_tokens") is not None:
-            return cg.recall(q, budget_tokens=int(a["budget_tokens"]),
+            _out = cg.recall(q, budget_tokens=int(a["budget_tokens"]),
                              k=_int_arg(a, "k", 20), context=a.get("context"),
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
@@ -2533,6 +2588,10 @@ def _cg_dispatch(cg, a):
                              session=a.get("session"),
                              validity=a.get("validity"),
                              **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
+            if _kwarn and isinstance(_out, dict):
+                _out = dict(_out)
+                _out["warning"] = _kwarn
+            return _out
         from . import refindex
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
@@ -2542,10 +2601,13 @@ def _cg_dispatch(cg, a):
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
             res, meta = cg.search(q, **search_args)
-        return {"meta": meta, "results": [
+        _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
             for n, s, q2 in res]}
+        if _kwarn:
+            _out["warning"] = _kwarn
+        return _out
 
     if op == "audit":
         # 路线 C（2026-10-05，多主体世界模型对齐 v0.1 §4）：证据审计面——
@@ -2567,6 +2629,19 @@ def _cg_dispatch(cg, a):
             _cap = auditview.DEFAULT_CAP
         return auditview.build(cg, _nid, cap=max(1, min(64, _cap)))
 
+    # #303 设计边界裁定（O1/O2，保持现状并在此文档化；不改行为）：
+    #   O1 content 含 NUL **判合法**：六要素闸与 1MiB 闸都不含 NUL 判据，NUL 不
+    #      破坏六要素/正文结构，落盘与读回原样保留（本机实测：committed=true，
+    #      磁盘字节含 \x00，读回仅按既有写入纪律归一末尾换行）——故按「二进制
+    #      安全正文」口径保留。若将来要拒，属于**新增判据**（须连带六要素/体积闸
+    #      与守卫），不是修漏。
+    #   O2 未知 content_kind **不硬拒**：content_kind 是「内容类型提示」，不是
+    #      受枚举白名单校验的安全边界；audit 对未知类型判 BLINDSPOT，写链按
+    #      「宁转审不静默丢」转审核队列（实测 rm_rf → committed=false,
+    #      moved_to=review_queue, state=BLINDSPOT，未落主库）。这是有意取舍：
+    #      硬拒会让新类型在第一跳就断流，而转审保留人工裁决。
+    #   O3 op 缺失按签名推导：见 `_cg_call` 生效条件行——响应体带 op_derived=true
+    #      与 hint（已有文档化行为，保持现状）。
     if op == "write":
         # 写入路径拦截器链（Pi 钩子化移植，writepipe.py）：六道闸以扩展
         # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于

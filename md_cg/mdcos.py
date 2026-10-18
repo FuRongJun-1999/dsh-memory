@@ -770,8 +770,16 @@ def _read_foreign_sampled(cg):
 # 白名单字符类不含 斜杠/反斜杠/冒号/百分号，'..' 另判：`../`、绝对路径、盘符、
 #       `..` 加反斜杠、URL 编码形态（%2e%2e%2f / ..%2f）一律拒；
 # 合法 id（字母数字 _ . @ - 与 中文 与 逗号）行为不变。
-def _restore_id_ok(node_id) -> bool:
-    """node_id 是否可进入 restore 的落盘路径拼接（fail-closed，判据同 add）。"""
+def valid_node_id(node_id) -> bool:
+    """node_id 是否为**形态合法**（可能存在的节点 id）——判据单点。
+
+    issue #303 O5（2026-10-18）：读面此前对「格式非法」（穿越路径 / 绝对路径 /
+    NUL / 超长）与「节点不存在」一律返回 null，调用方无法据此校正。判据必须与
+    写面 `MdCG.add` 的 P0-1 白名单**同源**，否则读面会承认写面永远写不出的 id：
+    同一 `_NODE_ID_RE`（1–128 字符、字符类白名单）+ 同一 '..' 禁令 +
+    同一 `_NODE_ID_FORBIDDEN`。本函数是 `_restore_id_ok`（restore 先拦后读）
+    与 MCP 读面 `invalid_node_id` 的共同实现，不另写第二份判据。
+    """
     from .mdcg import _NODE_ID_RE, _NODE_ID_FORBIDDEN
     if not isinstance(node_id, str):
         return False
@@ -780,6 +788,15 @@ def _restore_id_ok(node_id) -> bool:
     if node_id in _NODE_ID_FORBIDDEN:
         return False
     return bool(_NODE_ID_RE.match(node_id))
+
+
+def _restore_id_ok(node_id) -> bool:
+    """node_id 是否可进入 restore 的落盘路径拼接（fail-closed，判据同 add）。
+
+    判据本体已收口到 `valid_node_id`（issue #303 O5 的读面判据与 restore 共用
+    同一真源）；本函数只保留历史名字供既有调用点/守卫引用。
+    """
+    return valid_node_id(node_id)
 
 
 

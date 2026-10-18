@@ -177,14 +177,29 @@ def self_coverage(cg, node_id, content):
     return round(_coverage(bigrams(payload(content)), body), 4)
 
 
-# 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
+# 生效条件：先按 cg.index 的 nodes 求出同层候选集（剔除 nid==exclude；layer 为真值时只收 str(layer 字段 or "")==layer 的节点）并记 candidate_total；content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0，**不带 truncated 键**）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），按索引序遍历候选，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。**截断必须可观测**（issue #358）：若 break 发生在候选集耗尽之前（scanned<candidate_total），best 追加 candidate_total（同层候选总数真值）与 truncated=True；未截断时两键**不出现**——正常写入报文与改动前逐位一致（保住 test_mode_parity 的 Q 组对拍）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
-    """Q1 重复？——新内容被既有同层节点覆盖的最大比例。"""
+    """Q1 重复？——新内容被既有同层节点覆盖的最大比例。
+
+    issue #358 ①（外部校准）：MAX_COMPARE=240 按索引序截断近重复比对，而
+    返回体只有 compared——同层先写 300 节点后，位于第 241 个之后的近重复
+    **漏比且调用方无从得知**（实测 candidate_total=301 / compared=240 /
+    with=None；assess 判 ACCEPT 而非 MERGE）。处置：截断时返回体显式带
+    candidate_total（同层候选总数）与 truncated=True，assess 的 entropy
+    同步透出并在 reason 末尾标注；**不改 limit、不改比对顺序、不改裁决**。
+    未截断时不新增键（与历史返回体逐位一致）。
+    """
     new = bigrams(payload(content))
     best = {"max": 0.0, "with": None, "jaccard": 0.0, "compared": 0}
     if not new:
         return best
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # 候选集先一次算出（同一索引快照，不改变原先后序）：candidate_total 是
+    # 「本该比多少个」的真值，与 compared（实际计入数，空正文节点不计）分开。
+    cands = [nid for nid in nodes
+             if nid != exclude
+             and (not layer or str(nodes[nid].get("layer") or "") == layer)]
+    candidate_total = len(cands)
     # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
     # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
     # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处循环外探一次、
@@ -198,11 +213,9 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
     else:
         _probe = None
     n = 0
-    for nid in list(nodes.keys()):
-        if nid == exclude:
-            continue
-        if layer and str(nodes[nid].get("layer") or "") != layer:
-            continue
+    scanned = 0
+    for nid in cands:
+        scanned += 1
         try:
             node = (cg.get(nid, probe=False) if _probe is not None
                     else cg.get(nid))
@@ -222,6 +235,11 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
         if n >= limit:
             break
     best["compared"] = n
+    # issue #358 ①：截断可观测——只有真的没扫完候选集才落键（未截断时返回体
+    # 与改动前逐位一致；mode_parity Q 组对拍依赖这一点）。
+    if scanned < candidate_total:
+        best["candidate_total"] = candidate_total
+        best["truncated"] = True
     return best
 
 
@@ -252,7 +270,7 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。red 截断（red.truncated 为真）时 entropy 追加 candidate_total/truncated 两键且 reason 末尾追加截断提示（issue #358 ①）；未截断时不落这两键。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
     """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。
@@ -319,6 +337,12 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         "overwrite_ratio": (self_coverage(cg, prior, content)
                             if prior is not None else None),
     }
+    # issue #358 ①：去重比对被 MAX_COMPARE 截断时，读数必须随裁决一起可见
+    # （否则调用方只看到 compared=240，无法知道还有 candidate_total-240 个
+    # 同层节点没比）。同样只在截断时落键，未截断报文零变化。
+    if red.get("truncated"):
+        entropy["candidate_total"] = red.get("candidate_total")
+        entropy["truncated"] = True
 
     dedup_skipped = None
     if imp["score"] >= PROTECT_IMPORTANCE:
@@ -373,6 +397,13 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         verdict, why = "ACCEPT", f"新信息 {novelty:.2f}≥{NOVELTY_MIN}"
     else:
         verdict, why = "DEFER", "重要度与新信息均不足判据（待定）"
+
+    # issue #358 ①：截断提示并入 reason（审计面一眼可见）；仅截断时追加，
+    # 未截断的既有文案逐字不变。
+    if red.get("truncated"):
+        why += ("；⚠ 同层候选 %s 个超过单次比对上限 %s：本次仅比对 %s 个"
+                "（truncated，重复度可能被低估）"
+                % (red.get("candidate_total"), MAX_COMPARE, red.get("compared")))
 
     return {"verdict": verdict, "reason": why, "redundancy": red,
             "importance": imp, "entropy": entropy,
