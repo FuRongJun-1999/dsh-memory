@@ -196,11 +196,21 @@ def _dict_returns_in_block(path, tool):
                 and c.comparators[0].value == tool):
             continue
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Dict):
-                ks = [k.value for k in sub.value.keys
-                      if isinstance(k, ast.Constant)]
+            if not isinstance(sub, ast.Return):
+                continue
+            d = None
+            if isinstance(sub.value, ast.Dict):
+                d = sub.value
+            elif (isinstance(sub.value, ast.Call) and sub.value.args
+                  and isinstance(sub.value.args[0], ast.Dict)):
+                # 返回体经**单层包装**（`return _am.apply_dedup({...}, _pr)`）：
+                # 字典字面量仍是返回体本身，键集判据必须覆盖它。不认这一层会让
+                # `review_queue` 那条分支从扫描面消失 ⇒ G6f 锚点假红（#426-A 包装后实测）。
+                d = sub.value.args[0]
+            if d is not None:
+                ks = [k.value for k in d.keys if isinstance(k, ast.Constant)]
                 out.append((sub.lineno, ks,
-                            ast.get_source_segment(src, sub.value) or ''))
+                            ast.get_source_segment(src, d) or ''))
     return sorted(out)
 
 

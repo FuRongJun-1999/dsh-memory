@@ -77,14 +77,25 @@ check("B2 非法验证基底前置拦截", not out["ok"]
       and "test" in out["error"])  # 错误里含合法枚举
 
 # 写路径：DEFER 入审核队列（无验收器恒 DEFER 是设计行为）
+# 2026-10-18：`work_done` 写入新增**形式完备闸**（condaccept）：缺条件空间四维的写入
+# 当场打回作者（REJECT，不再静默入队）。本腿要验的是「过闸后入审核队列」这一分支，
+# 故必须补齐四维 + 证据；否则它测的是打回分支，不是 B3 的分支。
 out = ex.tool_lingshu_cg(
-    {"op": "write", "content": "# 功能名：工具面冒烟\n# 【内容】测试节点",
+    {"op": "write", "content": "# 功能名：工具面冒烟\n# 【内容】测试节点\n# 依据：本用例自身的断言（hive/test_exec_tools.py B3）",
      "content_kind": "work_done", "verification_basis": "test",
+     "condition_space": {"observation_position": "会话陈述",
+                         "observation_tool": "会话记录",
+                         "existence_constraint": "测试夹具，无外部依赖"},
+     "evidence_ref": "test:hive/test_exec_tools.py#B3",
      "layer": "contextual"},   # M3.2：worker 直写限 contextual（缺省被拒）
     "job_t")
-check("B3 write 过闸 DEFER 入队（op 成功+committed=false）",
-      out.get("ok") is True and out.get("committed") is False
-      and out.get("moved_to") == "review_queue", str(out)[:200])
+# 2026-10-18 契约变更：`work_done` 有了形式完备闸（condaccept 注册为 work_done
+# 验证器）⇒ 补齐四维 + 出处后**当场 ACCEPT 落盘**，不再恒 DEFER 入队。
+# 旧断言（committed=false / moved_to=review_queue）对应「无验收器」时代；现改为钉
+# 新契约：过闸即落盘，且判据读数可回溯（state=ACCEPT）。
+check("B3 write 过闸即落盘（work_done 形式完备闸 ACCEPT）",
+      out.get("ok") is True and out.get("committed") is True
+      and (out.get("verdict") or {}).get("state") == "ACCEPT", str(out)[:200])
 
 # route/read：测试自写一个已落盘节点（库层直写）再查
 from md_cg.mdcos import MdCGSecure

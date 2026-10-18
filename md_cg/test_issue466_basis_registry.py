@@ -137,10 +137,15 @@ def _sources(*dirs):
 #: 判据不自证：语料剔除被测对象自身（否则本文件的字面量会自证）
 _SELF = os.path.relpath(os.path.abspath(__file__), _REPO).replace(os.sep, "/")
 _ALLSRC = _sources("md_cg", "scripts", "test")
+#: 端到端**行为断言集**（写临时空库，不碰生产库）：按文件名前缀归类会把它算成
+#: 生产写面，故显式放测试侧（与 `test_*` 同档）。
+_TEST_HARNESS = {"md_cg/conformance_core.py"}
 _PROD = {k: v for k, v in _ALLSRC.items()
-         if not os.path.basename(k).startswith("test_") and k != _SELF}
+         if not os.path.basename(k).startswith("test_") and k != _SELF
+         and k not in _TEST_HARNESS}
 _TEST = {k: v for k, v in _ALLSRC.items()
-         if os.path.basename(k).startswith("test_") and k != _SELF}
+         if (os.path.basename(k).startswith("test_") or k in _TEST_HARNESS)
+         and k != _SELF}
 
 print("== A 组：闭集与两子档 ==")
 _check("A01 untrusted 已在闭集 VERIFICATION_BASIS 内（先于实现落地时为预期红）",
@@ -190,6 +195,14 @@ def _direct_consts(node):
     return []
 
 
+#: `md_cg/interface_schema.py` 的**类型标记表**同样用 `"basis"` 作键（该文件 `:19`
+#: 自述类型标记：`str / int / num / bool / list / dict / "nullable:X" / "enum:a|b"`）。
+#: 那些值是**字段类型**、不是 verification_basis 的取值；不排除就会把
+#: `"basis": "nullable:str"` 报成「未登记」（实测 B01 的唯一违规项）。
+#: 真实基底值不可能以这两个前缀开头（闭集见 nodefile.VERIFICATION_BASIS）。
+_TYPE_MARKER = re.compile(r"^(?:nullable:|enum:)")
+
+
 # 生效条件：texts 为 {rel: 源码}；返回 [(rel, 值)]——仅取 verification_basis/basis 关键字的**直接**字符串量。
 def _literal_bases(texts):
     found = []
@@ -201,13 +214,13 @@ def _literal_bases(texts):
         for n in ast.walk(tree):
             if isinstance(n, ast.keyword) and n.arg in ("verification_basis", "basis"):
                 for v in _direct_consts(n.value):
-                    if v not in _NOISE:
+                    if v not in _NOISE and not _TYPE_MARKER.match(str(v)):
                         found.append((rel, v))
             if isinstance(n, ast.Dict):
                 for k, v in zip(n.keys, n.values):
                     if isinstance(k, ast.Constant) and k.value in ("verification_basis", "basis"):
                         for v2 in _direct_consts(v):
-                            if v2 not in _NOISE:
+                            if v2 not in _NOISE and not _TYPE_MARKER.match(str(v2)):
                                 found.append((rel, v2))
     return found
 

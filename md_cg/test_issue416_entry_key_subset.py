@@ -253,7 +253,11 @@ def _md_cg_sources():
     for root, dirs, names in os.walk(os.path.join(_REPO, "md_cg")):
         dirs[:] = [d for d in dirs if d not in ("__pycache__", "jobs", "target")]
         for n in names:
-            if n.endswith(".py") and not n.startswith("test_"):
+            # `conformance_core.py` 是**端到端行为断言集**（`python -m
+            # md_cg.conformance_core`，写临时空库、不碰生产库），按文件名前缀
+            # 归类会把它当生产写面 ⇒ 其夹具写入被误判「未登记」。显式按测试侧排除。
+            if (n.endswith(".py") and not n.startswith("test_")
+                    and n != "conformance_core.py"):
                 p = os.path.join(root, n)
                 out[os.path.relpath(p, _REPO).replace(os.sep, "/")] = io.open(
                     p, encoding="utf-8").read()

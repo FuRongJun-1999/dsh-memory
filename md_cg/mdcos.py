@@ -3211,11 +3211,16 @@ class MdCGOS(MdCG):
 
 # 生效条件：遍历 self.index["nodes"]；仅取 layer=="self" 且 tags 含 AUDIT_TAG 的节点，pid 为真值时再要求 tags 含 f"pid:{pid}"；按 (created_at, id) 升序返回不含正文的条目；
     def review_records(self, pid: str = None):
-        """列出裁决记录节点（self 层 / audit 标签），供外部来源审计。"""
+        """列出裁决记录节点（**按 AUDIT_TAG 识别**），供外部来源审计。
+
+        2026-10-18：判据从「layer == self」改为「带 AUDIT_TAG」——审计件的**语义**
+        是「结构事件」，其层位是承载细节。此前写面已把审计记录移到 structural 层
+        （self 层 769/780 是这类记录，把真自我锚点挤到 11 条），若这里仍钉 self，
+        写面与读面就会各说一套（实测：review_records 命中 0 条、三条复核面守卫转红）。
+        标签是**单一真源**：写面与读面共用同一个 `AUDIT_TAG`。
+        """
         out = []
         for nid, e in list(self.index["nodes"].items()):
-            if e.get("layer") != "self":
-                continue
             tags = e.get("tags") or []
             if self.AUDIT_TAG not in tags:
                 continue
