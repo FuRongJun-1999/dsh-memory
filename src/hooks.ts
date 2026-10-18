@@ -293,7 +293,11 @@ const COND_ROLE_POS: Record<string, string> = {
 }
 function condSpace(role: string): Record<string, unknown> {
   // 时间维取**小时粒度**：避免把每次调用都变成不同条件（那会让归纳的共享条件退化为单点）。
-  const hour = Math.floor(Date.now() / 3600000) * 3600000
+  // 单位必须是**秒**：md_cg/nodefile.py 的 FULL_TIME_WINDOW_MAX = 9999999999.0 是秒级上限
+  // （约 2286 年）。用毫秒（Date.now() 原值约 1.76e12）会超过该上限，时间槽被判非法丢弃，
+  // 于是只余三槽 ⇒ condition_space_text(require_full=True) 返回空串 ⇒ 归纳的 common_pos
+  // 恒空、knowledge 层恒空 —— 即"补了 condition_space 与不补等价"（issue #538 实测）。
+  const hour = Math.floor(Date.now() / 3600000)
   return {
     observation_position: COND_ROLE_POS[role] ?? ("dsh-hook/" + role),
     time_window: [hour, hour] as [number, number],
