@@ -569,7 +569,16 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
               "weight": 0.6} for t in state["state_links"]]
 
     nid = state_node_id(subject)
+    # 2026-10-18：补条件空间四维。这里不是"推断内容"，是**自述产生过程**——
+    # 状态卡由系统自身周期刷新产生，故观测位置/工具/存在约束都可如实声明。
+    # 此前缺这三维，导致 self 层状态卡（importance 可达 1.0）判 legacy_blindspot：
+    # 一张"自我状态卡"却是依据不明，与它 importance 1.0 的定位自相矛盾。
     cg.add(nid, _render(state), layer="self", tags=tags, edges=edges,
+           condition_space={
+               "observation_position": "self:" + str(subject),
+               "observation_tool": "self_state.refresh（周期快照）",
+               "existence_constraint": "库内可写且状态卡非空",
+           },
            importance=float(state["importance_self"]), confidence=0.9,
            verification_basis="data", override=True, actor=actor,
            self_state=True, state_subject=subject, state_version=version,
@@ -639,7 +648,13 @@ def relate(cg, frm, to, relation_type="collaborator", strength=0.5,
                 f"# 强度：{w}\n"
                 f"# 条件：{condition or '（未声明）'}\n"
                 f"# 备注：{note or '（无）'}\n")
+        # 2026-10-18：关系节点同样自述产生过程（由 relate 显式建立）
         cg.add(nid, body, layer="self", tags=tags,
+               condition_space={
+                   "observation_position": "self:%s↔%s" % (a, b),
+                   "observation_tool": "self_state.relate（显式建边）",
+                   "existence_constraint": condition or "关系已显式声明",
+               },
                edges=[{"target": b, "relation_type": rt, "weight": w,
                        "condition": condition}],
                importance=w, confidence=0.8, verification_basis="other",
