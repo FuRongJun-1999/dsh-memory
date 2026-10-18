@@ -248,16 +248,30 @@ def e_group():
 # ------------------------------------------------------------------ 定点变异
 #: (说明, 相对仓根的路径, 原文, 替换, 预期转红的前缀元组)
 _MUTATIONS = (
-    ("V1 MERGE 支不再判降密级（回到 #315 修前形态：无 fail-closed 闸）",
-     "md_cg/forgetting.py",
-     '    if _merge_downgrades(fm.get("sensitivity"), sensitivity):',
-     '    if False:  # MUTATED V1',
+    # #397（28d2e4e 前已合入）把 MERGE 支实参从 kw.get("sensitivity") 改为有效密级
+    # `_sens_eff`，旧锚点命中 0 次、V1/V2 形同虚设（与 #313 V4/V5 随 #345 失效同类）。
+    # 锚点随真源迁到 reinforce 调用处的 `sensitivity=_sens_eff,`；该行在函数内出现
+    # 两次（另一处是 record_drop），故带上紧随其后的 #417 注释行定位到唯一一处。
+    ("V1 MERGE 支不再传密级（回到 #315 修前形态）",
+     "md_cg/mdcos.py",
+     "\r\n" + " " * 16 + "sensitivity=_sens_eff," + "\r\n" + " " * 16 + "# #417",
+     "\r\n" + " " * 16 + "sensitivity=None," + "\r\n" + " " * 16 + "# #417",
      ("A2", "A3", "A5")),
-    # V2/V3（2026-10-18，dsh-bounty#899 修复）：两条原锚点实测结构性失效——
-    # V2「目标侧换 internal」在 secret 目标上仍判降级（行为不变，红项=0）；
-    # V3「方向反转」红了 5 项但期望的 A2 不命中（命中 0/1，非恰好点红）。
-    # 按「变异必须恰好点红」纪律删除，不保留假变异。降密级判据面已由
-    # V1（闸整体短路）+ V5（incoming 换 None）两条覆盖。
+    ("V2 补错常量：传写死的 internal（报告的 P2 对照腿）",
+     "md_cg/mdcos.py",
+     "\r\n" + " " * 16 + "sensitivity=_sens_eff," + "\r\n" + " " * 16 + "# #417",
+     "\r\n" + " " * 16 + 'sensitivity="internal",' + "\r\n" + " " * 16 + "# #417",
+     ("A2", "A3", "E3")),
+    ("V3 prefeed 支的 reinforce 不再传密级（同族未接线写点）",
+     "md_cg/mdcos.py",
+     "\r\n" + " " * 16 + "sensitivity=sensitivity)",
+     "\r\n" + " " * 16 + ")",
+     ("E2",)),
+    ("V4 判据面反转：merge_downgrades 的方向写反（改判低密级并入高密级）",
+     "md_cg/security.py",
+     "    return new > tgt",
+     "    return new < tgt",
+     ("A2", "A3", "K4")),
     ("V5 判据被架空：reinforce 内把 incoming 密级换成 None（fail-closed 形同虚设）",
      "md_cg/forgetting.py",
      '    if _merge_downgrades(fm.get("sensitivity"), sensitivity):',

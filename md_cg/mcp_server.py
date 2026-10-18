@@ -825,8 +825,10 @@ KERNEL_TOOLS = [
                                      "传 sensitivity 覆盖时自动退回全量"),
             max_nodes=_p("integer", "ref action=check：最多巡检节点数（默认 2000，"
                                     "越限返回 truncated=true）"),
-            sensitivity=_p("string", "index_doc 的密级（默认 internal 并显式写入；"
-                                     "路径命中私有提示时保守降为 private）"),
+            sensitivity=_p("string", "密级声明：index_doc 的节点密级（默认 internal 并显式"
+                                     "写入；路径命中私有提示时保守降为 private）；"
+                                     "maintain prefeed 的待写内容密级（issue #315——"
+                                     "MERGE 并入更低密级节点时 fail-closed 拒绝）"),
             ref=_p("object", "ref op：直接给 code_ref/doc_ref 对象（与 node_id 二选一）"),
             root=_p("string", "ref op：覆盖 ref 里记录的 root（索引结果的跨机器搬迁）"),
             name=_p("string", "sustain：心跳名（默认 md_cg）；"
@@ -1309,6 +1311,25 @@ def _identity_call(cg, a):
                     "hint": "指定 subject_id 可获取完整画像（锚点+位置+特征）"}
         return cg.identity_profile(sid)
     if act == "observe":
+        # ★issue #418（**第二入口**，2026-10-16 回归实测）：role 类型闸此前只装在
+        # `mdcg_remember` 分支（见本文件下方 ★issue #418 段），而本入口（`cg
+        # op=identity` 与 `mdcg_identity` **共用**）把 `role` 直传
+        # `cg.identity_observe` ⇒ 非法 role 照样落盘，下次装载被自家装载器判
+        # frontmatter 损坏而**隔离**（不进索引、get/search 读不到），回执却是
+        # `{"ok": true, "node_id": …}`——「说存住了，其实读不到」逐字同形。
+        # 判据取**同一单点** `nodefile.valid_role`（不另写第二份类型判据）；
+        # 回执取协议声明的 `gate_hard_reject` 形态（WRITE_TRIO + gate/error/
+        # verdict/hint，verdict=None 是盲区声明），与 remember 分支逐键对齐。
+        # `id` 用写入本该使用的那个 id（`identity._nid` 与 observe 内部同源），
+        # 使「被拒的那条写入」可被调用方对上号；本次**未落任何盘**。
+        from . import nodefile as _nf418i
+        if not _nf418i.valid_role(a.get("role")):
+            _txt418 = a.get("content") or a.get("text") or ""
+            return {"ok": False, "id": identity._nid("obs", sid, _txt418[:32]),
+                    "committed": False, "gate": "role_type", "error": "role_not_str",
+                    "verdict": None, "got_type": type(a.get("role")).__name__,
+                    "hint": "role 须为字符串（省略即合法）；非字符串会让节点落盘后被自家"
+                            "装载器判 frontmatter 损坏而**隔离**（不进索引、get/search 读不到）。"}
         return cg.identity_observe(
             sid, a.get("content") or a.get("text") or "",
             kind=a.get("subject_kind"), role=a.get("role"),
@@ -3345,6 +3366,13 @@ def _maintain_call(cg, a):
         importance_hint=a.get("importance"), node_id=a.get("node_id"),
         write=bool(a.get("write")), min_jaccard=a.get("min_jaccard"),
         ids=a.get("ids"), actor=actor, include_partial=a.get("include_partial"),
+        # issue #315/#313（审阅 B1「正确落点」）：action=prefeed 的调用方声明
+        # 密级在此前**整条丢失**——本分派不读 a["sensitivity"]，下游
+        # maintain 也没有该形参 ⇒ MERGE 裁决时 reinforce 收 None，
+        # merge_downgrades(target, None) 恒 False ⇒ 声明 private 的正文以
+        # 明文聚合行并入 internal 节点（隔离沙箱实测）。现逐级透传到
+        # cg.prefeed 的两条落库支（add / reinforce）。
+        sensitivity=a.get("sensitivity"),
         min_conf=a.get("min_conf"), basis_text=a.get("basis_text"),
         prefixes=a.get("prefixes"), aeis_root=a.get("aeis_root"),
         sample_n=a.get("sample_n"), prefix=a.get("prefix"),
@@ -4589,7 +4617,29 @@ def _attach_theory(p):
 
 
 # 生效条件：环境变量 MDCG_ROOT 非空且其 os.path.abspath 规范化后的 basename 小写不以 "_md_cg_" 开头、且 _build_principal() 返回的 err 为空时，构造 MdCGSecure(root, principal=principal, autoflush=1) 并对 sys.stdin 逐行 method 分派（initialize 回 protocolVersion=PROTOCOL_VERSION 与 SERVER_NAME/SERVER_VERSION，tools/list 回 tools_for_surface()，tools/call 经 call_tool 后回 content，shutdown 跳出循环），遍历结束后调用 sustain.stop_all() 与 cg.close() 并返回 0；MDCG_ROOT 为空或 basename 命中 "_md_cg_" 前缀返回 2，令牌校验失败返回 3；
-# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)；登记表损坏/不可读（TenantRegistry.load_error 留痕或读取抛异常，N124 2026-09-25）时向 stderr 写「登记根绑定失效回落 MDCG_ROOT」告警后按未登记同形回落（零闸变，只开口）。
+# 生效条件：a/b 任一为空串或 None 时返回 False；否则返回 os.path.realpath(a) == os.path.realpath(b)（realpath 解析 junction/symlink；抛 OSError 时返回 False）。
+def _same_root(a, b) -> bool:
+    """判两个路径是否指向**同一物理位置**（issue #542）。
+
+    为何必须 realpath 而非 abspath：abspath 只做字符串归一（解析 `..`），
+    **不解析 junction / symlink**，故「同一目录的两种写法」会被判为不同根。
+    实测（Windows）：
+      · `os.path.realpath(junction) == os.path.realpath(真实目标)` → True
+      · `os.path.abspath(junction) == os.path.abspath(真实目标)` → **False**
+    ⇒ 用 abspath 做租户根同一性判定时，junction 指向他人登记根**不命中反查**，
+    #98「身份与根未对照」的 fail-closed 失效（可跨租户读）。
+
+    另注大小写变形（`ROOTB`）同理：只按原串比较时亦不命中。
+    """
+    if not a or not b:
+        return False
+    try:
+        return os.path.realpath(a) == os.path.realpath(b)
+    except OSError:
+        return False
+
+
+# 生效条件：env 缺省取 os.environ；返回 (root, err)——MDCG_TENANT 已登记（登记表路径可经 MDCG_TENANT_REGISTRY 覆盖，缺省 ~/.mdcg/_tenants.json）时 root=登记根，与显式 MDCG_ROOT 冲突（按 _same_root 判同一物理位置，非字符串比较）返回 (None, 冲突说明)；未登记租户回落 MDCG_ROOT；两者皆空返回 (None, None)；登记表损坏/不可读（TenantRegistry.load_error 留痕或读取抛异常，N124 2026-09-25）时向 stderr 写「登记根绑定失效回落 MDCG_ROOT」告警后按未登记同形回落（零闸变、只开口）；#98 反查分支同样以 _same_root 判同一性。
 def _resolve_root(env=None):
     """租户 × 认知图根解析（issue #35 接线，独立函数供守卫测试）。
 
@@ -4625,7 +4675,10 @@ def _resolve_root(env=None):
                 f"MDCG_ROOT={root or '(未设)'}；请修复登记表"
                 f"（MDCG_TENANT_REGISTRY，缺省 ~/.mdcg/_tenants.json）。\n")
         if t_root:
-            if root and os.path.abspath(root) != os.path.abspath(t_root):
+            # issue #542：同一性判定必须 realpath（解析 junction/symlink）。
+            # 修前用 abspath（只做字符串归一）⇒ junction 形态被误判为「与登记根不一致」
+            # 而 **误拒**（可用性面；此为 `:4267` 侧的失效方向）。
+            if root and not _same_root(root, t_root):
                 return None, (f"MDCG_TENANT={tenant} 已登记根 {t_root}，"
                               f"与显式 MDCG_ROOT={root} 不一致（fail-closed）")
             root = t_root
@@ -4657,7 +4710,11 @@ def _resolve_root(env=None):
                         _tr = _reg98.root_of(_tn)
                     except Exception:
                         continue
-                    if _tr and os.path.abspath(_tr) == os.path.abspath(root):
+                    # issue #542：反查同一性同样必须 realpath。
+                    # 修前用 abspath ⇒ junction/大小写变形**不命中反查** ⇒ #98 的
+                    # 「身份与根未对照」fail-closed 被绕过（安全面；此为 `:4366` 侧
+                    # 的失效方向，与上方 :4267 的误拒相反）。
+                    if _tr and _same_root(_tr, root):
                         _owner98 = _tn
                         break
                 if _owner98:

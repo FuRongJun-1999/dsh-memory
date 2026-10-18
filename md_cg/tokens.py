@@ -465,14 +465,72 @@ def parse_token(token: str):
 # 签发 / 校验 / 派生 / 吊销
 # --------------------------------------------------------------------------
 
-# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None，随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典。
+# 生效条件：无入参；恒返回是否显式放行首启自举的布尔值——环境变量 MDCG_ALLOW_ROOT_ISSUE 去空白转小写后属 {"1","true","yes","on"} 即真，其余（未设/空串/"0"/"false" 等）为假。
+def _allow_root_issue_env() -> bool:
+    """`MDCG_ALLOW_ROOT_ISSUE` 是否显式打开（issue #543 的显式自举开关）。"""
+    return (os.environ.get("MDCG_ALLOW_ROOT_ISSUE", "") or "").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
+# 生效条件：spec["can_admin"] 为假时直接返回（非管理级角色不受本闸约束）；为真时——allow_bootstrap 显式为真、或环境开关打开、或 authorized_by 具 can_admin 时放行；否则读 _load(path) 的 tokens 映射，为空（空库首启）时放行自举；非空时抛 TokenError（含既定凭据数与两条放行方式指路）。
+def _authorize_issue(role: str, spec: dict, *, path=None,
+                     authorized_by=None, allow_bootstrap=None) -> None:
+    """签发**授权闸**（issue #543）：管理级角色不得被「谁都能签」。
+
+    判据顺序（任一满足即放行）：
+      ① 非管理级角色（`can_admin` 为假）—— 本闸只管最高权；
+      ② `allow_bootstrap=True` 显式传入（供测试/初始化路径显式表态）；
+      ③ `MDCG_ALLOW_ROOT_ISSUE` 环境开关打开（运维显式放行）；
+      ④ `authorized_by` 是一个**既有管理级 Principal**（委派，推荐路径）；
+      ⑤ **凭据库为空** —— 全新安装的首启自举，保留既有体验。
+
+    fail-closed：库**非空**且以上皆不满足 ⇒ 拒绝（不给「换个空目录就能自铸」留门）。
+    """
+    if not spec.get("can_admin"):
+        return
+    if allow_bootstrap is True:
+        return
+    if _allow_root_issue_env():
+        return
+    if authorized_by is not None and getattr(authorized_by, "can_admin", False):
+        return
+    existing = (_load(path).get("tokens") or {})
+    if not existing:
+        return                                   # 空库首启自举（既有体验）
+    raise TokenError(
+        "拒绝签发管理级令牌（role=%s）：凭据库非空（已有 %d 条），"
+        "而本次签发未出示既有管理级凭据。三条放行方式："
+        "① 由既有 designer 令牌经 tokens derive --role %s 派生；"
+        "② 显式设 MDCG_ALLOW_ROOT_ISSUE=1（运维放行）；"
+        "③ 全新安装（凭据库为空）时本闸自动放行。"
+        "（issue #543：签发此前无授权门，叠加 MDCG_AUX_ROOT 可换库 ⇒ 自铸最高权身份）"
+        % (role, len(existing), role))
+
+
+# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None；**先过 _authorize_issue() 授权闸**（issue #543：管理级角色在**凭据库非空**时须由既有管理级凭据委派或显式开关 MDCG_ALLOW_ROOT_ISSUE=1；空库首启允许自举），随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典。
 def issue(role: str, actor: str = None, clearance: str = None,
           tenant: str = "default", ttl: float = None, label: str = "",
           issued_by: str = "root", parent: str = None, delegable: bool = None,
-          layers_allow=None, ops_allow=None, path: str = None):
-    """签发一枚令牌。明文 token 只在返回值里出现一次，不落盘。"""
+          layers_allow=None, ops_allow=None, path: str = None,
+          _authorized_by=None, _allow_bootstrap=None):
+    """签发一枚令牌。明文 token 只在返回值里出现一次，不落盘。
+
+    issue #543（安全性）：签发动作此前**没有任何授权门** —— 只要求目标目录可写，
+    不校验调用者身份、也不看是否已有更高权凭据。叠加「凭据库位置由
+    `MDCG_AUX_ROOT` 决定」（datapath.aux_root），构成提权原语：
+    **换一个空目录 + 设一个环境变量 = 拿到 designer 全权身份**
+    （实测可写入 anchor/self 受保护层）。故补 `_authorize_issue()` 授权闸。
+
+    兼容性（刻意保守，避免破坏文档化的首启流程）：
+      · **空库首启允许自举**最高角色（全新安装的既有体验不变）；
+      · **库非空**时要再签 `can_admin` 角色，必须能出示既有管理级凭据
+        （`_authorized_by` 传 Principal）、或显式设 `MDCG_ALLOW_ROOT_ISSUE=1`；
+      · 非管理级角色（recorder 等）**不受影响**。
+    """
     role = normalize_role(role)
     spec = role_spec(role)
+    _authorize_issue(role, spec, path=path, authorized_by=_authorized_by,
+                     allow_bootstrap=_allow_bootstrap)
     clearance = _clamp_level(clearance or spec["clearance_cap"],
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])

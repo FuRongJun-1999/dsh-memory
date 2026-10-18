@@ -499,10 +499,46 @@ def _whitelist_roots(env_var: str) -> list:
     return [ws]
 
 
-# 生效条件：path 为 None/空串时直接返回（无路径参数，如 stat/action——不触任何回落与配置写）；否则取 `_whitelist_roots(env_var)`（env 已配用它；未配回落 mdcg 记忆库根；连库根也无则取工作区并把它配置下来）后，对 realpath(expanduser(path)) 与每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 与「显式登记」指路）。
+# 生效条件：path 为 None/空串时直接返回（无路径参数，如 stat/action——不触任何回落与配置写）；否则拒绝「纯空白串」（issue #540，见 _whitespace_only_reason），再取 `_whitelist_roots(env_var)`（env 已配用它；未配回落 mdcg 记忆库根；连库根也无则取工作区并把它配置下来）后，对 realpath(expanduser(path)) 与每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 与「显式登记」指路）。
+#
+# issue #540：为什么不能再用 `str(path).strip() == ""` 判「没给参数」
+#   str.strip() 剥的是**全部 Unicode 空白**，而其中若干在该平台上**是合法文件名字符**。
+#   实测（Windows）——这一区分是本判据的全部依据：
+#     · `'   '`（ASCII 空格）建文件 → OSError「Permission denied」
+#     · `'\t'`（TAB）建文件        → OSError「Invalid argument」
+#       ⇒ 这两个**无法成为文件名**，当作「无路径参数」不产生可落盘的落点。
+#       既有契约 `test_p14_root_fallback.c4_no_path_arg` 正是钉住这一语义
+#       （`None`/`''`/`'   '` 不触回落、不写配置）——**本修复保留它**。
+#     · `'\u00a0'`（NBSP）建文件   → **成功**
+#     · `'\u3000'`（全角空格）建文件 → **成功**
+#       ⇒ 这两个**能真的建出文件**，而旧判据把它们当「无参数」早退放行
+#       ⇒ 实测 `op=export` + `out="\u00a0"` 把整库正文写到白名单根之外。
+#   故判据 = 「全部由空白构成，**且含 ASCII 空格以外的空白**」⇒ 拒绝。
+#   **不枚举黑名单**（Unicode 空白远多于常见几个，枚举法天然滞后）。
+_ASCII_SPACE = " "
+
+
+def _whitespace_only_reason(path) -> str:
+    """path 是否为「纯空白**且含非 ASCII 空格**」的可疑串；是则返回理由，否则返回 ""。
+
+    为何放行纯 ASCII 空格：见上方注释——该形态无法成为文件名（OS 拒绝），
+    且 `test_p14_root_fallback` 的 c4 契约把它定义为「无路径参数」。
+    本函数只拦「能被平台当成实际文件名」的那一类空白。
+    """
+    if not isinstance(path, str) or path == "" or path.strip() != "":
+        return ""
+    if path.strip(_ASCII_SPACE) == "":            # 仅由 ASCII 空格构成 ⇒ 沿用 c4 契约
+        return ""
+    return (f"路径全部由空白字符构成，拒绝（疑似绕过根约束）：{path!r}"
+            f"——纯空白不是「没给路径参数」；若要表达未提供，请传 None 或空串")
+
+
 def check_path_root(path, env_var: str, what: str) -> None:
-    if path is None or str(path).strip() == "":
+    if path is None or str(path).strip(_ASCII_SPACE) == "":
         return                                   # 无路径参数（如 stat/action）
+    _why = _whitespace_only_reason(path)
+    if _why:
+        raise PermissionError(f"{what} {_why}")
     roots = _whitelist_roots(env_var)
     real = os.path.realpath(os.path.expanduser(str(path)))
     for r in roots:
@@ -534,8 +570,14 @@ def check_export_target(path, lib_root, what: str,
     平台口径：比较用 normcase(realpath(...))——Windows 的盘符大小写与
     长路径前缀形态在 realpath 下不保证归一，只按原串比较即可能被绕过。
     """
-    if path is None or str(path).strip() == "":
-        return                                   # 未指定落点
+    if path is None or str(path).strip(_ASCII_SPACE) == "":
+        return                                   # 未指定落点（含纯 ASCII 空格，同 c4 契约）
+    # issue #540：同 check_path_root —— 含非 ASCII 空白的纯空白串不是「未指定落点」。
+    # 本函数是 #211 新增的第二道落点约束，当时照抄了 `str(path).strip() == ""`，
+    # 故同样可被 NBSP/U+3000 等绕过（实测本函数对这批输入亦全部早退放行）。
+    _why = _whitespace_only_reason(path)
+    if _why:
+        raise PermissionError(f"{what} {_why}")
     raw = os.path.expanduser(str(path))
 
     def _norm(p):

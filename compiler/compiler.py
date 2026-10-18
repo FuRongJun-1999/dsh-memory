@@ -18,34 +18,22 @@ from .name_checker import NameChecker
 from .condition_vm import Opcode
 
 
-# 生效条件：val 为 None 时返回 0.0（德/知足 的无操作数形态）；val 可经 float() 转换且 math.isfinite 为真时返回该数；float() 抛 TypeError/ValueError（名实不符）或 OverflowError（整数超出双精度可表示范围）时抛 SyntaxError；结果为 inf/nan（非有限数）同样抛 SyntaxError——编译期「必须是数值」闸单点，德/知足 共用同一判据，不得各自复制。
 def _finite_operand(val, line, what):
-    """编译期数值闸单点（issue #434/#435）：非数值与 inf/nan 一律结构化拒绝。
+    """数值操作数闸（单点）：非数值或非有限值 ⇒ SyntaxError 名实不符。
 
-    Python 的 float() 接受 'inf'/'nan'/'infinity'（含大小写与符号）——
-    「能转换」不等于「是数值」。非有限值一旦进入 DE/ZHIZU 字节码会永久
-    毒化信任寄存器（NaN 破坏比较自反性、inf 恒超阈值），故 fail-closed。
-
-    复核意见 1：float(10**400) 抛的是 **OverflowError**（不是 TypeError/
-    ValueError）——只捕后两者会把「超出双精度范围」变成裸异常穿透主入口。
+    issue #435：float('inf') / float('nan') 是合法转换、不抛异常，故单靠
+    try/except 拦不住——「必须是数值」的闸会被穿透，而它们进信任寄存器后
+    永久毒化且不报错（NaN 破坏相等自反 ⇒「止」永不触发；inf 恒超任何阈值
+    ⇒「知足」恒早退）。故此处按「有限」判定，与「名实不符」同一口径拒绝。
     """
-    if val is None:
-        return 0.0
     try:
-        num = float(val)
+        num = float(val) if val is not None else 0.0
     except (TypeError, ValueError):
-        # 以名举实：非数值操作数（未声明标识符）编译期拦截——名实不符
         raise SyntaxError(
             f"L{line} {what} 的操作数必须是数值，得到 '{val}'（名实不符）")
-    except OverflowError:
-        # 整数操作数超出双精度可表示范围（float() 无法承载）——结构化拒
-        raise SyntaxError(
-            f"L{line} {what} 的操作数必须是有限数值，得到 '{val}'"
-            f"（超出双精度可表示范围——fail-closed）")
     if not math.isfinite(num):
         raise SyntaxError(
-            f"L{line} {what} 的操作数必须是有限数值，得到 '{val}'"
-            f"（inf/nan 非有限数——fail-closed）")
+            f"L{line} {what} 的操作数必须是有限数值，得到 '{val}'（名实不符）")
     return num
 
 
@@ -202,7 +190,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
-# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 _finite_operand(val, line, '德')（None→0.0、非数值或 inf/nan 抛 SyntaxError 名实不符）；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 _finite_operand(val, line, '知足') 为阈值新建标签并挂 pending 与 zhizu_labels（同一数值闸）；其余指令向 warnings 追加未接入提示。
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels，非数值操作数同 DE 口径抛 SyntaxError 名实不符（issue #434，裸 float 不再穿透编译主入口）；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -210,8 +198,7 @@ class Compiler:
         if op == TokenType.DAO:
             self._emit(Opcode.DAO, val if val is not None else "无名路径")
         elif op == TokenType.DE:
-            # #434/#435：与 知足 同一数值闸（_finite_operand 单点）
-            self._emit(Opcode.DE, _finite_operand(val, s.line, "德"))
+            self._emit(Opcode.DE, _finite_operand(val, s.line, '德'))
         elif op == TokenType.ZIRAN:
             self._emit(Opcode.ZIRAN)
         elif op == TokenType.WUWEI:
@@ -219,10 +206,9 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            # #434：知足 分支此前裸 float()，非数值标识符（如官方示例
-            # 「知足 验证单元」）以裸 ValueError 穿透 compile_source。
-            # #435：inf/nan 同样穿透——统一走 _finite_operand。
-            threshold = _finite_operand(val, s.line, "知足")
+            # issue #434：非数值阈值转结构化 SyntaxError（compile_source 已窄捕）；
+            # issue #435：同口径拦 inf/nan。两处判据收口在 _finite_operand 单点。
+            threshold = _finite_operand(val, s.line, '知足')
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))

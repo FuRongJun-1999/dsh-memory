@@ -2763,6 +2763,11 @@ class MdCG:
                     真源 trust.py）。**覆写既有节点时默认继承**——add 是全量重建
                     fm，不显式继承会把已 verified 静默打回 unverified（与
                     lifecycle_state 同构的坑）；显式传入则走迁移裁决，非法即拒。
+                    例外（issue #352 §B）：既有态为 verified、**正文变了**、且本次
+                    写方无 verify 权限（`Principal.allows_op("verify")` 为假，与
+                    #320 同一判据）时，缺省继承落 doubted——否则无 verify 权限的
+                    改写会把验证标带进新正文（#320 的闸只看入参，看不见这条继承
+                    路）。有 verify 权限的写方与裸库照旧继承（既有语义零变化）。
         check_strength: 检验强度（hoop/smoking_gun/doubly_decisive，真源
                     nodefile.CHECK_STRENGTHS）——与 verification_basis（来源**类型**）
                     正交的**裁决力**分级（多主体世界模型对齐 v0.1 §2 L1）。
@@ -3124,7 +3129,34 @@ class MdCG:
         _v_alias = fm.pop(trust.STATE_FIELD, None)   # **extra 通道的兼容写法
         want_vstate = verification_state or _v_alias
         if want_vstate is None:
-            fm[trust.STATE_FIELD] = prev_vstate
+            # issue #352 §B（2026-10-15）：**没有 verify 权限的改写不得把验证标
+            # 带上**——判据与 #320 同一处（`Principal.allows_op("verify")`）。
+            # 旧形态（缺省即继承）下，不带 verification_state 的同 id 改写会把旧
+            # 节点的「✓ 已验证」原样挂到新正文上：#320 的闸只看**入参**
+            # （`_require_verify_for_vstate`），看不见这条继承路，于是 ops 里没有
+            # verify 的 record 令牌与工具面 `mdcg_remember` 都能借它把新正文带成
+            # 「已验证」。证据针对的是**旧正文**，故只在正文真的变了时才降
+            # （verified→doubted 是 TRANSITIONS 里的合法迁移，不需 override）。
+            # 边界：无 principal 的裸库 / ops 未声明（`Principal()` 缺省）⇒
+            # `allows_op` 为真，逐位继承，既有语义零变化；正文比对走读回内容
+            # （盘面形态：nodefile.dumps 补尾换行），不用索引条目的 content_hash
+            # ——该键的基准随写入路径而异（直调 add 落原串、重建扫描落盘面形态）。
+            _inherit = prev_vstate
+            if prev_vstate == "verified" and prev_entry is not None:
+                _principal = getattr(self, "principal", None)
+                _may_verify = (not callable(getattr(_principal, "allows_op", None))
+                               or _principal.allows_op("verify"))
+                if not _may_verify:
+                    try:
+                        _prev_body = (self.get(node_id) or {}).get("content")
+                    except Exception:          # noqa: BLE001 —— 读面失败按未变处置
+                        _prev_body = None
+                    _new_body = content or ""
+                    if not _new_body.endswith("\n"):
+                        _new_body += "\n"
+                    if _prev_body is not None and _prev_body != _new_body:
+                        _inherit = "doubted"
+            fm[trust.STATE_FIELD] = _inherit
         else:
             _pe_v = prev_entry or {}
             trust.require_transition(
