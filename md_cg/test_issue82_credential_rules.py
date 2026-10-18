@@ -46,8 +46,10 @@ SIX = ("# 功能名：t\n# 生效条件：t\n# 子功能：t\n# 执行：t\n"
        "# 验证方式：t\n# 不适用条件：t\n")
 
 POLICY = os.path.join(REPO, "data", "policy.json")
-RULE7_IDX = 6
-RULE12_IDX = 11
+# v0.9.0：policy.forbidden 由 12 条增为 13 条（#557 R1 在 password 族之前插入 app_secret 条目），
+# 两个锚点随规则身份右移一位；身份仍由 _anchor_preflight 逐条内容断言（不是只靠序号）。
+RULE7_IDX = 7
+RULE12_IDX = 12
 # 注意：本文件源码里写 \\s / \\t，Python 解析后为 \s / \t（与 policy.json 解码后同形）
 OLD_SEP = "\\s*[:=：]\\s*"
 NEW_SEP = "(?:\\s*[:=：]\\s*|[ \\t]+)"
@@ -105,7 +107,10 @@ def _cases(rules):
         out.append((name, bool(ok), detail))
 
     forb = rules.get("forbidden") or []
-    add("G5 禁表可加载且条数=12", len(forb) == 12, "n=%d" % len(forb))
+    add("G5 禁表可加载且条数=13", len(forb) == 13, "n=%d" % len(forb))
+    add("G5b password 族恰两条（身份不随序号漂移）",
+        len([r for r in forb if "password" in r]) == 2,
+        "n=%d" % len([r for r in forb if "password" in r]))
 
     for name, tail in (("是形态·中文", "我的密码是abc123456"),
                        ("is形态·英文", "the password is abc123456"),

@@ -175,7 +175,9 @@ def group_t():
         tf = env['MDCG_TOKEN_FILE']
 
         def _pr():
-            return _tk.verify_token(_tk.issue('designer', actor='u03g', path=tf)['token'], path=tf)
+            return _tk.verify_token(
+                _tk.issue('designer', actor='u03g', path=tf, _allow_bootstrap=True)['token'],
+                path=tf)   # 测试搭架：闸的证明在 test_issue543
 
         _sg.set_policy(_e.SUBSYSTEM, signer='hmac-local',
                        sign_on=['handshake', 'evidence'],

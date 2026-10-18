@@ -86,7 +86,7 @@ MARK = "I43CANARY"
 # 那样即自证空转）。计数随策略真源 `data/policy.json` 变更同步：
 #   11 → 12（2026-10-09 issue #82.1 提交 0590b650「禁表扩边界」新增第 12 条
 #   『是/为/等于/is』凭据形态；该笔只改了 data/policy.json + 新守卫，未同步本件）。
-_EXPECTED_FORBIDDEN = 12
+_EXPECTED_FORBIDDEN = 13       # v0.9.0：#557 R1 在 password 族前插入 app_secret 条目（12 -> 13）
 _EXPECTED_REQUIRED = 6       # 六要素（功能名/生效条件/子功能/执行/验证方式/不适用条件）
 
 

@@ -111,7 +111,8 @@ def _tokfile():
 
 # 生效条件：role 为 tokens.ROLE_SPECS 角色名；签发该角色令牌（actor 缺省 evt-<role>）后经 verify_token 取回 Principal；**签发与校验都只落临时令牌库**；未知角色/参数非法时抛原异常（不吞）。
 def _principal(role, actor=None, **kw):
-    r = tokens.issue(role, actor=actor or ("evt-" + role), path=_tokfile(), **kw)
+    r = tokens.issue(role, actor=actor or ("evt-" + role), path=_tokfile(),
+                     _allow_bootstrap=True, **kw)   # 测试搭架：签发闸的证明在 test_issue543
     return tokens.verify_token(r["token"], path=_tokfile())
 
 

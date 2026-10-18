@@ -54,7 +54,8 @@ def _mk_junction(link: str, target: str) -> bool:
     """建目录 junction（Windows）；非 Windows 退化为 symlink。返回是否成功。"""
     if os.name == "nt":
         r = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace")   # 第15条：不依赖 locale
         return os.path.isdir(link) and r.returncode == 0
     try:
         os.symlink(target, link, target_is_directory=True)

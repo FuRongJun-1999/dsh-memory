@@ -414,7 +414,7 @@ def g6_baseline_red():
     import subprocess
     proc = subprocess.run([sys.executable, "-X", "utf8", "-c", code],
                           capture_output=True, text=True, env=env,
-                          cwd=pkg_root)
+                          cwd=pkg_root, encoding="utf-8", errors="replace")   # 第15条：不依赖 locale
     out = (proc.stdout or "") + (proc.stderr or "")
     tail = [ln for ln in out.splitlines() if ln.startswith("BASELINE_RED=")]
     nred = int(tail[-1].split("=")[1]) if tail else -1

@@ -28,6 +28,9 @@ def _finite_operand(val, line, what):
     """
     try:
         num = float(val) if val is not None else 0.0
+    except OverflowError:   # v0.9.0：10**400 超出 float 表示范围（OverflowError 不是 ValueError），按「非有限数值」拒
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是有限数值（超出浮点表示范围），得到 '{val}'（名实不符）")
     except (TypeError, ValueError):
         raise SyntaxError(
             f"L{line} {what} 的操作数必须是数值，得到 '{val}'（名实不符）")

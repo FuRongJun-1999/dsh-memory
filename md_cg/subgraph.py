@@ -216,6 +216,8 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
     """
     if max_depth is not None:
         max_depth = max(0, min(int(max_depth), MAX_DEPTH_HARD))
+    if max_nodes is not None:
+        max_nodes = int(max_nodes)   # v0.9.0：nan/inf 预算必须结构化拒绝（int() 抛 ValueError/OverflowError），不得解除上界
     seen, edges, truncated = {}, [], False
     seen_edges = set()
     stack = [(nid, 0, nid)]
@@ -414,7 +416,7 @@ def _node_terms_and_grams(cg, nid):
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": None,
                     "unjudgeable": True}
-        if sens in crypto.ENCRYPTED_LEVELS:
+        if crypto.is_encrypted_level(sens):   # v0.9.0：加密档判定走单点谓词
             return {"grams": set(), "pos": set(), "neg": set(),
                     "layer": e.get("layer"), "sensitivity": sens,
                     "encrypted": True}
@@ -424,7 +426,7 @@ def _node_terms_and_grams(cg, nid):
     fm = node.get("frontmatter") or {}
     content = node.get("content") or ""
     sens = _sensitivity_of(fm)
-    if sens in crypto.ENCRYPTED_LEVELS:
+    if crypto.is_encrypted_level(sens):   # v0.9.0：加密档判定走单点谓词
         return {"grams": set(), "pos": set(), "neg": set(),
                 "layer": fm.get("layer"), "sensitivity": sens, "encrypted": True}
     grams = bigrams(forgetting.payload(content))
@@ -670,7 +672,7 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
     for nid in anchor_ids:
         e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid) or {}
         sens = _sensitivity_of(e)
-        if sens in crypto.ENCRYPTED_LEVELS:
+        if crypto.is_encrypted_level(sens):   # v0.9.0：加密档判定走单点谓词
             per[nid] = {"effective": [], "non_applicable": []}
             continue
         node = cg.get(nid)

@@ -83,11 +83,11 @@ def main():
                      clearance_cap="internal", description="N62 哑登记 tenantC")
         os.environ["MDCG_TENANT_REGISTRY"] = reg_path
         d_a = tokens.issue("designer", actor="dummy-designer-a", tenant="tenantA",
-                           path=tf)          # 角色默认 clearance=secret
+                           path=tf, _allow_bootstrap=True)   # 测试搭架；闸的证明在 test_issue543
         d_c = tokens.issue("designer", actor="dummy-designer-c", tenant="tenantC",
-                           path=tf)          # 登记 cap=internal < secret
+                           path=tf, _allow_bootstrap=True)   # 测试搭架；闸的证明在 test_issue543
         d_d = tokens.issue("designer", actor="dummy-designer-d", tenant="tenantD",
-                           path=tf)          # tenantD 未登记
+                           path=tf, _allow_bootstrap=True)   # 测试搭架；闸的证明在 test_issue543
 
         # ---------- R1 ② 覆盖 fail-closed ----------
         print("== R1 租户绑定被入参覆盖 → 拒绝（fail-closed）==")

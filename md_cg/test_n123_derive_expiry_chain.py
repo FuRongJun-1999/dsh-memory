@@ -61,7 +61,8 @@ def main():
     try:
         # ========== 攻击复现 ①：derive 长 TTL 子令牌不被父界夹紧 ==========
         print("\n[1] derive 夹紧：子 expires_at = min(请求值, 父 expires_at)")
-        d = tokens.issue("designer", actor="n123-designer", ttl=3600.0, path=tf)
+        d = tokens.issue("designer", actor="n123-designer", ttl=3600.0, path=tf,
+                          _allow_bootstrap=True)   # 测试搭架
         child = tokens.derive(d["token"], "record", actor="n123-child",
                               ttl=999999.0, path=tf)
         dexp = d["expires_at"]
@@ -86,7 +87,8 @@ def main():
 
         # ========== 攻击复现 ③：真实自然到期端到端 ==========
         print("\n[3] 端到端：父 ttl=0.4 自然到期 → 长 TTL 子令牌（ttl=999999）失效")
-        d3 = tokens.issue("designer", actor="n123-e2e", ttl=0.4, path=tf)
+        d3 = tokens.issue("designer", actor="n123-e2e", ttl=0.4, path=tf,
+                           _allow_bootstrap=True)   # 测试搭架
         c3 = tokens.derive(d3["token"], "record", actor="n123-e2e-child",
                            ttl=999999.0, path=tf)
         check("派生时子界已被父夹紧",
@@ -100,7 +102,8 @@ def main():
 
         # ========== 正向 ④：父无界时取请求值（不误夹成无界/不过度收窄） ==========
         print("\n[4] 父无界：子 TTL 取请求值")
-        d4 = tokens.issue("designer", actor="n123-bounded", path=tf)  # 无 ttl
+        d4 = tokens.issue("designer", actor="n123-bounded", path=tf,
+                          _allow_bootstrap=True)  # 无 ttl；测试搭架
         check("父无界 expires_at=None", d4["expires_at"] is None)
         c4 = tokens.derive(d4["token"], "record", actor="n123-bounded-child",
                            ttl=60.0, path=tf)
@@ -124,7 +127,8 @@ def main():
 
         # ========== 正向 ⑤：子自身先到期仍按自身拒（不因沿链放宽） ==========
         print("\n[5] 子自身过期仍拦截")
-        d5 = tokens.issue("designer", actor="n123-self", ttl=3600.0, path=tf)
+        d5 = tokens.issue("designer", actor="n123-self", ttl=3600.0, path=tf,
+                          _allow_bootstrap=True)   # 测试搭架
         c5 = tokens.derive(d5["token"], "record", actor="n123-self-child",
                            ttl=0.05, path=tf)
         time.sleep(0.15)
@@ -135,7 +139,8 @@ def main():
         # ========== 加固 ⑥：存量库三层链 + 防环 ==========
         print("\n[6] 存量库三层链传播 + parent 环防护")
         # 三层链：gp（无界）→ p（已过期）→ gc；修复前 verify(gc) 只看自身 → OK
-        d6 = tokens.issue("designer", actor="n123-gp", path=tf)
+        d6 = tokens.issue("designer", actor="n123-gp", path=tf,
+                          _allow_bootstrap=True)   # 测试搭架
         p6 = tokens.derive(d6["token"], "orchestr", actor="n123-p", path=tf)
         # 手工构造第三层（正常 derive 封口 delegable=False，模拟存量库/手工库）
         data6 = json.load(open(tf, encoding="utf-8"))

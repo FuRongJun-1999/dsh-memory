@@ -246,7 +246,7 @@ def verify(ix, nodes):
     bad = []
     ends, starts, uncertain = {}, {}, set()
     for nid, entry in nodes.items():
-        start, end = trust.time_window_of(entry, "observed")
+        start, end = trust.time_window_of(entry, "observed", _allow_nonfinite=True)   # 与 _classify 同口径，否则 verify 与 index 的 uncertain 集合分裂
         if start is not None and end is not None and math.isfinite(start):
             if not math.isfinite(end):
                 uncertain.add(nid)
@@ -439,7 +439,7 @@ class StgIndex:
         elif math.isfinite(t):
             bucket = 0
             self.by_time.add((t, nid))
-            _s, end = trust.time_window_of(e, "observed")
+            _s, end = trust.time_window_of(e, "observed", _allow_nonfinite=True)   # v0.9.0：与 :216 同口径，nan/inf 终点进 uncertain_ends
             if not math.isfinite(end):
                 self.uncertain_ends.add(nid)
             elif end != t:

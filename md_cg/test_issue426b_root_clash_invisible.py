@@ -116,7 +116,7 @@ class _Env:
         return ((r or {}).get("chains") or {}).get("doc") or {}
 
     def node_id(self):
-        for n in (self.own.index.get("nodes") or {}):
+        for n in list((self.own.index.get("nodes") or {})):   # H-4：先取快照再迭代（原裸迭代点，G1a 判据）
             if n.startswith("doc_"):
                 return n
         return ""

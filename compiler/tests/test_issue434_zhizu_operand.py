@@ -89,6 +89,9 @@ check("K06 德 的非数值结构化错误不回归",
 print("== E 组：源码面锚点（判据单点在场） ==")
 _src = open(os.path.join(_REPO, "compiler", "compiler.py"),
             encoding="utf-8").read()
+# v0.9.0：判据是「两分支都经 _finite_operand 单点」，不是引号风格；源码用单引号，
+# 故比较前把两者归一（只归一引号，不归一任何判据内容）。
+_src = _src.replace(chr(39), chr(34))
 check("E01 数值闸单点 _finite_operand 存在", "def _finite_operand(" in _src, "")
 check("E02 ZHIZU 分支经单点取值（不再裸 float(val)）",
       '_finite_operand(val, s.line, "知足")' in _src, "")

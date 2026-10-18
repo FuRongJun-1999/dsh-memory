@@ -72,7 +72,8 @@ def _err(fn):
 
 
 def _principal(role, **kw):
-    r = _tk.issue(role, actor="iss398-" + role, path=_tk.token_file(None), **kw)
+    r = _tk.issue(role, actor="iss398-" + role, path=_tk.token_file(None),
+                  _allow_bootstrap=True, **kw)   # 测试搭架：闸的证明在 test_issue543
     return _tk.verify_token(r["token"], path=_tk.token_file(None))
 
 

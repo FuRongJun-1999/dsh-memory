@@ -248,7 +248,8 @@ def main():
         check("坏令牌拒绝启动（fail-closed，退出码 3）", rc.returncode == 3,
               ((rc.stderr or "").strip().splitlines() or [""])[0][:80])
 
-        d2 = tokens.issue("designer", actor="mcp-designer", path=tf)
+        d2 = tokens.issue("designer", actor="mcp-designer", path=tf,
+                          _allow_bootstrap=True)   # 测试搭架：闸的证明在 test_issue543
         v2 = tokens.derive(d2["token"], "verifier", actor="mcp-verify", path=tf)
         venv = dict(env)
         venv["MDCG_TOKEN"] = v2["token"]
