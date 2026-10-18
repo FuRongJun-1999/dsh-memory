@@ -199,7 +199,10 @@ def test_g2_no_old_layer_residue(tmp_path):
     assert after["path"] == "contextual/mv192.md"
     assert after["layer"] == "contextual"
     assert len(cg.index["nodes"]) == n_before, "搬迁不得增删节点计数"
-    assert not [e for e in cg.index["nodes"].values()
+    # test_h4_sustain_snapshot 的 G1a 不变式：凡从 cg.index 取回的 nodes 均先取快照，
+    # 不得对 cg.index["nodes"] 直接可见迭代（裸迭代点会被 G1a 计为违规）。
+    _nodes_snap = list(cg.index["nodes"].values())
+    assert not [e for e in _nodes_snap
                 if e.get("path") == old_rel], "旧路径条目残留"
     assert MdCG._count_buckets(cg.index["nodes"]) == cg.index["buckets"], \
         "桶计数未随搬迁重算"
