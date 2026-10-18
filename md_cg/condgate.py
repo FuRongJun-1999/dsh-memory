@@ -36,7 +36,7 @@ __all__ = ["FOUR_DIMS", "mode", "normalize_condition_space", "slot_key",
 FOUR_DIMS = ("observation_position", "observation_tool",
              "time_window", "existence_constraint")
 
-#: 键名别名 → 四维（2026-10-24 供给改造）。
+#: 键名别名 → 四维（2026-10-18 供给改造）。
 #: 实测：库内已有作者按中文名填写（观测位置/观测工具/存在约束），
 #: 因键名不匹配被判「缺失」——那不是没填，是**写法不被识别**。
 #: 归一是供给改造的一部分，不改判据强度。
@@ -68,7 +68,7 @@ _CS_PAIR = re.compile(r"([^=＝：:；;]+?)\s*[=＝：:]\s*([^；;]+)")
 
 
 def parse_condition_space_from_content(content):
-    """从正文的「# 条件空间：...」一行解析出四维（2026-10-24 补）。
+    """从正文的「# 条件空间：...」一行解析出四维（2026-10-18 补）。
 
     背景：作者指南 v1 已声明这是**推荐写法**，但首版实现只认 condition_space
     字段，导致「按指南写」的样本照样被打回——文档承诺了、代码没做，属假承诺。
@@ -92,7 +92,7 @@ def parse_condition_space_from_content(content):
 
 
 def autofill_time_window(cs, now=None):
-    """time_window 缺失时用**系统时间**补 [now, now]（2026-10-24 使用者裁定）。
+    """time_window 缺失时用**系统时间**补 [now, now]（2026-10-18 使用者裁定）。
 
     诚实边界：这填的是「观测发生的时刻」，不是「有效期」。需要更宽有效期的
     作者应显式声明区间；本函数不替作者推测有效期（那是猜）。
@@ -111,10 +111,27 @@ MODES = ("off", "observe", "enforce")
 _STATS = {"seen": 0, "complete": 0, "partial": 0, "missing": 0, "enforced": 0}
 
 
+_WARNED_MODES = set()
+
+
 def mode():
-    """当前档位。非法值回落 observe（fail-open：不让配置错误变成全阻塞）。"""
+    """当前档位。非法值回落 observe（文档缺省），并**写一次 stderr 告警**。
+
+    P0-3（外部评审 2026-10-18）：condgate 与 condaccept 曾对非法值回落**相反方向**
+    （一个 fail-open 变不拦、一个 fail-closed 变全拦），且都静默。同一条写路径上
+    两个闸方向相反又不告警，等于让操作者以为配置生效了。现统一为「回落文档缺省
+    并显式告警」——方向仍按各自缺省（职责不同），但绝不静默。
+    """
     raw = (os.environ.get(ENV_MODE) or "").strip().lower()
-    return raw if raw in MODES else "observe"
+    if raw and raw not in MODES:
+        if raw not in _WARNED_MODES:
+            _WARNED_MODES.add(raw)
+            import sys as _sys
+            _sys.stderr.write(
+                "[condgate] 非法档位 %r（可选 %s），回落文档缺省 observe\n"
+                % (raw, "|".join(MODES)))
+        return "observe"
+    return raw or "observe"
 
 
 def reset_stats():
@@ -197,7 +214,7 @@ def before_hook():
         if m == "off":
             return None
         a = ctx["a"]
-        # 供给改造（2026-10-24）：字段优先，缺失处由正文「# 条件空间：」行补齐，
+        # 供给改造（2026-10-18）：字段优先，缺失处由正文「# 条件空间：」行补齐，
         # 最后用系统时间补 time_window。三级来源都显式，不猜。
         from_field = _canon_keys(a.get("condition_space"))
         from_content = parse_condition_space_from_content(a.get("content"))

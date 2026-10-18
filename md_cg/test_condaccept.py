@@ -98,12 +98,21 @@ r = run(PL, {"nid": "me", "cg": FakeCG(hits=[node("other", same_slot_other)])})
 check("同槽异值 → REJECT", r["state"] == "REJECT" and "V4" in r["evidence"])
 r = run(PL, {"nid": "other", "cg": FakeCG(hits=[node("other", same_slot_other)])})
 check("命中自身 → 排除，不判冲突（自指防护）", r["state"] == "ACCEPT")
+# P0-1（外部评审 2026-10-18）：判不了 ≠ 没问题。旧断言把「检索失败」钉成 ACCEPT，
+# 直接违反 I5（无证据只能 DEFER/BLINDSPOT）。现改为 BLINDSPOT，断言随之收紧。
 r = run(PL, {"nid": "me", "cg": FakeCG(boom=True)})
-check("检索失败 → 视为无法判定而非无冲突（仍 ACCEPT 但 detail 记录）", r["state"] == "ACCEPT")
+check("检索失败 → BLINDSPOT（不得落到 ACCEPT）", r["state"] == "BLINDSPOT")
+check("BLINDSPOT 带 v4_status=unknown", r["detail"]["v4_status"] == "unknown")
+check("BLINDSPOT 的 acceptance 是 undetermined（既非 pass 也非 reject）",
+      r["detail"]["acceptance"] == "undetermined")
+r_nocg = run(PL, {"nid": "me", "cg": None})
+check("无 cg 同样 BLINDSPOT", r_nocg["state"] == "BLINDSPOT")
+# 不适用 ≠ 判不了：无 CCG 槽位时 V4 无从谈起，不阻断但必须标注。
 r = run({"content": "只有功能名没有三要素\n" + EV, "condition_space": FULL,
          "evidence_ref": ["x"]}, {"nid": "me", "cg": FakeCG(hits=[node("o", same_slot_other)])})
-check("无 CCG 三要素 → 无槽位，V4 按设计跳过（不猜、不误判）",
-      r["state"] == "ACCEPT" and "无槽位" in str(r["detail"].get("slot_conflict")))
+check("无 CCG 三要素 → V4 不适用(na)，不阻断但显式标注",
+      r["state"] == "ACCEPT" and r["detail"]["v4_status"] == "na")
+check("na 与 unknown 是不同状态（不混为一谈）", r["detail"]["v4_status"] != "unknown")
 
 print("[灰度] observe 与 enforce")
 r_obs = run(PL, mode_value="observe")
@@ -113,7 +122,10 @@ check("observe detail 保留真实判定", r_obs["detail"]["observe"] is True an
 r_enf = run(PL, mode_value="enforce")
 check("enforce 返回真实判定 ACCEPT", r_enf["state"] == "ACCEPT")
 os.environ["MDCG_WORKDONE_ACCEPT"] = "bogus"
-check("非法档位回落 enforce（缺省档随 2026-10 裁定改为 enforce）", condaccept.mode() == "enforce")
+condaccept._WARNED_MODES.clear()
+check("非法档位回落文档缺省 enforce", condaccept.mode() == "enforce")
+check("非法档位必须留告警痕迹（P0-3：配置错误不静默猜）",
+      "bogus" in condaccept._WARNED_MODES)
 del os.environ["MDCG_WORKDONE_ACCEPT"]
 check("未设档位默认 enforce（同上）", condaccept.mode() == "enforce")
 
