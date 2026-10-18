@@ -57,6 +57,10 @@ def main():
     tf = os.path.join(tmp, "theory.json")
     os.environ["MDCG_THEORY_FILE"] = tf
     os.environ["MDCG_SIGNER_KEY_FILE"] = kf
+    # #279：signer.signers_file 对显式路径设了受信目录闸（dirname(env)）。
+    # sf_a/sf_b 都在本 tmp 内——与 test_p23_links / test_issue191 同惯例，
+    # 把受信面指到本测试的 tmp（顺带不再依赖宿主机 ~/.mdcg 的既有状态）。
+    os.environ["MDCG_SIGNERS_FILE"] = os.path.join(tmp, "_signers.json")
     os.environ.pop("MDCG_SIGNER", None)
     os.environ.pop("MDCG_SIGNER_MODULE", None)
     os.environ.pop("MDCG_NODE_ID", None)
@@ -213,7 +217,8 @@ def main():
             except Exception:  # noqa: BLE001
                 pass
         shutil.rmtree(tmp, ignore_errors=True)
-        for k in ("MDCG_THEORY_FILE", "MDCG_SIGNER_KEY_FILE"):
+        for k in ("MDCG_THEORY_FILE", "MDCG_SIGNER_KEY_FILE",
+                  "MDCG_SIGNERS_FILE"):
             os.environ.pop(k, None)
 
     print(f"\nP24 跨节点证据：{PASS} passed, {FAIL} failed")
