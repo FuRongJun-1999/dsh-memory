@@ -57,12 +57,36 @@ def g_d_hour_granularity():
     print("  PASS D 时间维为小时粒度（3600000ms + Math.floor）")
 
 
+def g_e_semantic_render():
+    """语义面：复刻 condSpace 的产出，喂给 nodefile.condition_space_text(require_full=True)。
+
+    这条补的是「四槽齐全」与「能被唯一合成入口渲染」之间的一步：
+    源码面只证明槽名在，语义面证明它们组合起来是合法生效条件。
+    """
+    sys.path.insert(0, ROOT)
+    from md_cg import nodefile
+    for role in ("user", "assistant", "tool"):
+        cs = {
+            "observation_position": "dsh-hook/%s-message" % role,
+            "time_window": [0.0, 0.0],
+            "observation_tool": "dsh-memory-hook",
+            "existence_constraint": "%s-message-minlen1" % role,
+        }
+        txt = nodefile.condition_space_text(cs, require_full=True)
+        assert txt, "%s 的四槽应能渲染成非空条件文本，实得空串" % role
+        for k in list(cs):
+            partial = dict((kk, vv) for kk, vv in cs.items() if kk != k)
+            assert nodefile.condition_space_text(partial, require_full=True) == "", \
+                "缺 %s 时不应渲染成功" % k
+    print("  PASS E 语义面：四槽齐全 ⇒ 可渲染；缺任一槽 ⇒ 空串（非恒真）")
+
 def main():
     print("=== #538 自动记忆钩子的四槽 condition_space（源码面）===")
     g_a_three_calls()
     g_b_four_slots()
     g_c_slots_match_nodefile()
     g_d_hour_granularity()
+    g_e_semantic_render()
     print("===== 全绿 =====")
 
 
