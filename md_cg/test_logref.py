@@ -154,11 +154,35 @@ def load_tool():
     return mod
 
 
+_DECLARED_ROOTS = None
+
+
+def declare_roots(tmp: str) -> None:
+    """显式声明本守卫的读写白名单根（`MDCG_INGEST_ROOT`，多根）。
+
+    2026-10-10 裁定 dsh #85 选 A 之后，`check_path_root` 未配置该变量时**不再放开**：
+    回落记忆库根 / 工作区，于是本守卫的每个 tempfile 夹具路径都被拒（`op=ref` 与
+    `probe_src` 全段 PermissionError）。本守卫此前**从未设置该变量**（全文件零
+    `os.environ` 引用），缺陷不在被测实现而在守卫自己——它把「部署声明可读写根」
+    这一步漏了，读数被误当成「实现坏了」并长期挂在「已知基线红」里。
+
+    **必须可重入**：被测工具 `scripts/_mdcg_reindex_dshlogs.py` 按设计清 `ENV_CLEAN`
+    （含 `MDCG_INGEST_ROOT`，它要求白名单由命令行显式给出、不靠环境），所以每跑一次
+    工具都要重新声明一次，否则守卫侧自己的 `probe_src` 又被拒。
+    """
+    global _DECLARED_ROOTS
+    _DECLARED_ROOTS = tmp + os.pathsep + REPO
+    os.environ["MDCG_INGEST_ROOT"] = _DECLARED_ROOTS
+
+
 def run_tool(argv: list) -> tuple:
     """直调入口 main(argv)（沙箱友好）：返回 (rc, 每会话报告, TOTAL, stderr)。"""
     buf_out, buf_err = io.StringIO(), io.StringIO()
     with contextlib.redirect_stdout(buf_out), contextlib.redirect_stderr(buf_err):
         rc = TOOL.main(list(argv))
+    if _DECLARED_ROOTS:
+        # 工具按设计清 ENV_CLEAN ⇒ 守卫侧的白名单声明失效；在此重新声明（见 declare_roots）。
+        os.environ["MDCG_INGEST_ROOT"] = _DECLARED_ROOTS
     rows, total = {}, None
     for ln in buf_out.getvalue().splitlines():
         ln = ln.strip()
@@ -1075,6 +1099,8 @@ def main(argv=None) -> int:
         print("!! 红基线模式：md_cg/logref.py 经定点变异 —— %s ⇒ 「id 撞即跳」"
               % "；".join(lbl for lbl, _a, _r in _MUTATIONS))
     tmp = tempfile.mkdtemp(prefix="n203_p1_guard_")
+    _prev_ingest = os.environ.get("MDCG_INGEST_ROOT")
+    declare_roots(tmp)                    # 部署声明（见 declare_roots 的说明）
     try:
         sroot = make_fixture(tmp)
         for label, fn in SECTIONS:
@@ -1086,6 +1112,12 @@ def main(argv=None) -> int:
                    % (type(exc).__name__, exc, traceback.format_exc()[-400:]))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+        global _DECLARED_ROOTS
+        _DECLARED_ROOTS = None
+        if _prev_ingest is None:
+            os.environ.pop("MDCG_INGEST_ROOT", None)
+        else:
+            os.environ["MDCG_INGEST_ROOT"] = _prev_ingest
     print("\n结果：PASS %d / FAIL %d" % (PASS, FAIL))
     if FAILS:
         print("失败项：" + "；".join(FAILS))
