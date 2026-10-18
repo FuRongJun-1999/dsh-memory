@@ -125,6 +125,27 @@ def _steps():
         sb = (b.get("verdict") or {}).get("state")
         return (PASS if sa == sb else FAIL), {"first": sa, "second": sb}
 
+    def s_protected_predicates(ctx):
+        """P1-7：钉住「受保护」的可判定谓词，并暴露七类与谓词不同集这个事实。
+
+        文档已改为「七类=政策清单」，代码只认三条真源。本步既验证三条真源生效，
+        也**如实断言**第四条不成立——未打保护位的 knowledge 节点不受保护。
+        这是把「文档承诺 > 代码兑现」变成可见读数，而不是掩盖它。
+        """
+        from . import protect
+        out = {}
+        ctx["cg"].add("n_anchor", "锚点样本内容", layer="anchor")
+        out["layer_protected"] = protect.is_protected(ctx["cg"], "n_anchor")[0]
+        ctx["cg"].add("n_explicit", "显式保护样本", layer="knowledge",
+                      protected=True, protection_reason="信任评估记录")
+        out["explicit_protected"] = protect.is_protected(ctx["cg"], "n_explicit")[0]
+        ctx["cg"].add("n_plain", "普通知识样本", layer="knowledge", importance=0.5)
+        out["plain_protected"] = protect.is_protected(ctx["cg"], "n_plain")[0]
+        ok = (out["layer_protected"] is True
+              and out["explicit_protected"] is True
+              and out["plain_protected"] is False)
+        return (PASS if ok else FAIL), out
+
     def s_gap_anchor(ctx):
         has = hasattr(ctx["cg"], "verify_anchor") or hasattr(ctx["cg"], "verifyAnchor")
         return (PASS if has else GAP), {
@@ -152,6 +173,7 @@ def _steps():
         ("reject_no_evidence", s_reject_no_evidence),
         ("blindspot_not_accept", s_blindspot_not_accept),
         ("accept_repeatable", s_accept_repeatable),
+        ("protected_predicates", s_protected_predicates),
         ("gap_anchor_verify", s_gap_anchor),
         ("gap_rollback", s_gap_rollback),
         ("gap_legacy_retrieve", s_gap_legacy),
