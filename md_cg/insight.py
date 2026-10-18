@@ -78,7 +78,7 @@ def _append(cg, rec):
         fsutil._note_append_failure(log_path(cg), ValueError("record_too_large: issue #443"))
         return rec
     try:
-        append_jsonl(log_path(cg), rec)
+        fsutil.append_jsonl_ledger(log_path(cg), rec)
     except Exception:                              # noqa: BLE001
         pass
     return rec

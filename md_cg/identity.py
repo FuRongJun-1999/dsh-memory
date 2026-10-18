@@ -147,7 +147,7 @@ def log(cg, rec):
             fsutil._note_append_failure(os.path.join(cg.root, AUDIT_FILE),
                                         ValueError("record_too_large: issue #443"))
             return
-        _ok = append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
+        _ok = fsutil.append_jsonl_ledger(os.path.join(cg.root, AUDIT_FILE), rec)
     except OSError:
         pass
 

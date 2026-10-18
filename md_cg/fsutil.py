@@ -376,6 +376,59 @@ def append_jsonl(path: str, record: dict, strict: bool = False) -> bool:
             pass
 
 
+# issue #546：审计/台账面的**独立写入点**（每进程一个分片）+ 读面合并。
+#
+# 为什么不是给 append_jsonl 加锁：它的 docstring 已规定「本函数只用于**丢一条
+# 无所谓**的簿记；任何不能丢的东西必须用 ShardedLog——每个写者独占一个分片，
+# **不共享写入点**」。所以病在「调用面选错了函数」，不在「这个函数缺锁」。
+#
+# 实测（6 写者 × 400 行）：共享单文件丢 538 行（22.4%）且全部报成功；
+# 每写者独立文件丢 0 行（0.0%）。唯一变量就是写入点是否共享。
+def ledger_shard_path(base: str, pid=None) -> str:
+    """单写者的分片路径：<base 去掉扩展名>.<pid><扩展名>。"""
+    root, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".jsonl"
+    return "%s.%d%s" % (root, os.getpid() if pid is None else int(pid), ext)
+
+
+# 生效条件：base 为台账基准路径；把记录追加到**本进程独占的分片**，复用 append_jsonl
+# 的既有失败契约（best-effort 返回 bool；strict 由调用方决定）。与 append_jsonl 同族：
+# **调用方必须消费返回值**（E11 钉子同时覆盖两者，issue #546）。
+def append_jsonl_ledger(base: str, record: dict, strict: bool = False) -> bool:
+    """追加到本进程独占分片（issue #546）。"""
+    return append_jsonl(ledger_shard_path(base), record, strict=strict)
+
+
+# 生效条件：base 为台账基准路径；读面**同时**读旧单文件 base 与全部分片
+# <stem>.*<ext>（旧单文件 + 新分片共存时历史不断代）。返回按出现顺序拼接的记录列表；
+# 单文件/单分片的读失败不阻断其它（各自 try）。
+def read_jsonl_ledger(base: str) -> list:
+    """读旧单文件 + 全部分片（issue #546 的读面合并）。"""
+    out = []
+    try:
+        out.extend(read_jsonl(base))
+    except OSError:
+        pass
+    root, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".jsonl"
+    d = os.path.dirname(os.path.abspath(base)) or "."
+    try:
+        names = sorted(os.listdir(d))
+    except OSError:
+        return out
+    prefix = os.path.basename(root) + "."
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(ext)):
+            continue
+        try:
+            out.extend(read_jsonl(os.path.join(d, name)))
+        except OSError:
+            continue
+    return out
+
+
 # 生效条件：os.path.exists(path) 为假时生成器直接结束不产出；否则逐行 strip，空行跳过，json.loads 成功则 yield 该对象，抛 ValueError 的行跳过，其余异常不捕获。
 def read_jsonl(path: str):
     """读 append-only 日志，跳过被截断/粘连的坏行（不因自身簿记而失败）。"""

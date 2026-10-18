@@ -226,13 +226,27 @@ def _has_oserror_handler(node):
     return False
 
 
+#: issue #546：append 家族——审计台账迁到 append_jsonl_ledger 后，E11/E12 的扫描面
+#: 必须同步扩展；否则「try 内不得裸调用 append」这条防护对新增调用点静默失效。
+_APPEND_FAMILY = ("append_jsonl", "append_jsonl_ledger")
+
+
+def _append_call_name(call):
+    """取调用名：Name 取 id，Attribute 取 attr，其余 None。"""
+    _fn = getattr(call, "func", None)
+    if isinstance(_fn, ast.Name):
+        return _fn.id
+    if isinstance(_fn, ast.Attribute):
+        return _fn.attr
+    return None
+
+
 def _bare_append_in(node):
     """返回该节点内「裸调用」append_jsonl（返回值被丢弃，形态为表达式语句）的行号。"""
     out = []
     for x in ast.walk(node):
         if isinstance(x, ast.Expr) and isinstance(x.value, ast.Call) \
-                and isinstance(x.value.func, ast.Name) \
-                and x.value.func.id == "append_jsonl":
+                and _append_call_name(x.value) in _APPEND_FAMILY:
             out.append(x.value.lineno)
     return out
 
@@ -255,8 +269,8 @@ for _dp, _dn, _fns in os.walk(os.path.join(_REPO, "md_cg")):
             if not isinstance(_n, ast.Try) or not _has_oserror_handler(_n):
                 continue
             _has_call = any(
-                isinstance(_c, ast.Call) and isinstance(_c.func, ast.Name)
-                and _c.func.id == "append_jsonl" for _c in ast.walk(_n))
+                isinstance(_c, ast.Call) and _append_call_name(_c) in _APPEND_FAMILY
+                for _c in ast.walk(_n))
             if not _has_call:
                 continue
             _guarded += 1

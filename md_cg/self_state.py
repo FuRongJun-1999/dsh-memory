@@ -158,7 +158,7 @@ def _append_log(cg, rec):
             fsutil._note_append_failure(log_path(cg),
                                         ValueError("record_too_large: issue #443"))
             return
-        _ok = append_jsonl(log_path(cg), rec)
+        _ok = fsutil.append_jsonl_ledger(log_path(cg), rec)
     except OSError:
         pass
 
@@ -167,7 +167,7 @@ def _append_log(cg, rec):
 def history(cg, limit=100, subject=None):
     """自我状态留痕（倒序）。"""
     try:
-        recs = list(read_jsonl(log_path(cg)))
+        recs = list(fsutil.read_jsonl_ledger(log_path(cg)))
     except OSError:
         recs = []
     if subject:
