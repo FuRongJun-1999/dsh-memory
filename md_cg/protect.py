@@ -40,7 +40,7 @@ import time
 
 from . import nodefile
 from .fsutil import append_jsonl, atomic_write
-from .security import DEFAULT_SENSITIVITY
+from .security import DEFAULT_SENSITIVITY, SENSITIVITY_ORDER
 
 PROTECTED_LAYERS = ("self", "anchor")
 AUTO_PROTECT_IMPORTANCE = 0.70
@@ -436,7 +436,16 @@ def guard_move(cg, node_id, to_layer, override=False, actor=None):
         f"节点 {node_id} 受写保护（{why}）；降级移出保护层需显式 override=True")
 
 
-# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次；层取形参 layer、索引条目 layer、节点 frontmatter layer 中首个真值（皆假值回落 "knowledge"，与 require_layer_write 缺省同口径）；敏感度取形参 sensitivity、索引条目 sensitivity、节点 frontmatter sensitivity 中首个真值（皆假值回落 security.DEFAULT_SENSITIVITY）；返回 (层, 敏感度) 二元组。
+# 生效条件：cg.get(node_id) 抛异常时返回 None（读面失败不阻断判据本身），否则原样返回其读面结果（含 None=不可读/不存在）。
+def _safe_get(cg, node_id):
+    """`cg.get` 的**不抛**包装（层闸判据用；读面失败不得把闸炸穿）。"""
+    try:
+        return cg.get(node_id)
+    except Exception:                     # noqa: BLE001 —— 读面失败不阻断判据本身
+        return None
+
+
+# 生效条件：cg 具备可调用的 _maybe_reload_index 时先调一次；层取形参 layer、索引条目 layer、节点 frontmatter layer 中首个真值（皆假值回落 "knowledge"，与 require_layer_write 缺省同口径）；敏感度取形参 sensitivity、索引条目 sensitivity、节点 frontmatter sensitivity 中首个真值；**既有节点**（索引有条目或节点可读）而三来源皆无有效密级时按 fail-closed 返回 SENSITIVITY_ORDER 最高档（"secret"）；节点不存在（新写入面）时返回 security.DEFAULT_SENSITIVITY；返回 (层, 敏感度) 二元组。
 def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     """既有节点写面的「层 / 敏感度」解析**单点**（不设第二份口径）。
 
@@ -451,23 +460,46 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     e = _entry(cg, node_id) or {}
     _layer = layer or e.get("layer")
     _sens = sensitivity or e.get("sensitivity")
+    _node = None
+    _node_read = False
     if not _layer or not _sens:
-        try:
-            node = cg.get(node_id)
-        except Exception:                     # noqa: BLE001 —— 读面失败不阻断判据本身
-            node = None
-        if node:
-            f = node.get("frontmatter") or {}
+        _node = _safe_get(cg, node_id)
+        _node_read = True
+        if _node:
+            f = _node.get("frontmatter") or {}
             _layer = _layer or f.get("layer")
             _sens = _sens or f.get("sensitivity")
-    # ★ issue #450：缺 `sensitivity` 键 ⇒ 回落 DEFAULT_SENSITIVITY（= "internal"）。**本件不改行为，只登记安全语义**（见下三要素）。
-    #   ① **为什么回落 `internal`**：与 **`#359` 同口径、理由同源** —— 其原句「**unknown 视同缺省档即可挡住报告的攻击（private 已被记录）**」；
-    #      而 `internal` 是本库默认写档（`DEFAULT_SENSITIVITY`），**不是最宽松的一级**（最宽松是 `public`，`SENSITIVITY_ORDER[0]`）。
-    #      **本件场景与 `#359` 不同**（#359 是 merge 写入合并，本件是**层闸目标解析**），但**安全语义相同**（unknown 视同缺省）⇒ 故沿用其理由。
-    #   ② **安全代价**：真实密级可能是 `restricted`/`private`/`secret` ⇒ 回落 `internal` 会放行 ⇒ **fail-open（越权）**。
-    #   ③ **什么条件下改为 fail-closed**：**若出现「缺键且真实密级应为高密级」的实例 ⇒ 改为 fail-closed**（届时不必重新判，照此改）。
-    #   已知缺口：**读面·近期事件（`mdcos.py` 的 `recent_events`）= `#447`，本件不覆盖**。
-    return _layer or "knowledge", _sens or DEFAULT_SENSITIVITY
+    # ★ issue #450（fail-closed 版）：**「缺 sensitivity 键」是 unknown，不是 internal。**
+    #   ① 为什么要查盘面：`MdCGSecure._scan_nodes` 用
+    #      `e["sensitivity"] = fm.get("sensitivity") or DEFAULT_SENSITIVITY`
+    #      回填索引条目——回填把「未知」擦成 `internal`，层闸此后**再也看不到**
+    #      缺键信号。故当生效值恰为 `DEFAULT_SENSITIVITY` 时回读一次 frontmatter，
+    #      确认该键**是否真的声明过**（只读，不改盘、不写索引）。
+    #   ② 为什么 fail-closed：真实密级可能是 restricted/private/secret ⇒ 回落
+    #      `internal` 会放行 ⇒ **fail-open（越权）**——历史口径与 `#359` 的
+    #      「unknown 视同缺省档」同源（其原句「private 已被记录」），但 `#359`
+    #      的裁定只绑定 merge 场景，不能外推到写面层闸。本件按 `#447` 与
+    #      `_readable` 的同向纪律（密级未知按 secret，宁可少读/少写，不可越权）
+    #      **改为 fail-closed**。
+    #   ③ 边界：节点**不存在** ⇒ 新写入面，沿用 `DEFAULT_SENSITIVITY`（既有行为，
+    #      保护的是「既有节点不被降档覆写」，不是「禁止新建」）；节点存在但盘面
+    #      读不出（加密且无密钥/损坏）⇒ 无法确认缺键，保留索引值（不把「读不动」
+    #      当成「缺键」而误锁全库）。
+    #   已知缺口：读面·近期事件（`mdcos.py` 的 `recent_events`）= `#447`，本件不覆盖。
+    if _sens == DEFAULT_SENSITIVITY:
+        if not _node_read:
+            _node = _safe_get(cg, node_id)
+        if _node is not None:
+            _fm = _node.get("frontmatter") or {}
+            if not _fm.get("sensitivity"):
+                _sens = None
+    if not _sens:
+        # 既有节点（索引有条目或节点可读）而密级不可判 ⇒ 最保守档；
+        # 节点不存在（新写入面）⇒ 缺省档（保护面不拦新建）。
+        if e or _node is not None:
+            return _layer or "knowledge", SENSITIVITY_ORDER[-1]
+        return _layer or "knowledge", DEFAULT_SENSITIVITY
+    return _layer or "knowledge", _sens
 
 
 # 生效条件：经 _resolve_target 解析出节点真层与敏感度后，cg.principal 非 None 且具备 require_layer_write 时调 principal.require_layer_write(layer, sensitivity)（越权抛 AccessDenied），返回解析出的层；cg 无 principal（裸 MdCG）时不做任何判定。
