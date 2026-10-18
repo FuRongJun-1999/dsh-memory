@@ -26,6 +26,7 @@ import hashlib
 import os
 import re
 import time
+from collections import deque
 
 from .fsutil import append_jsonl
 
@@ -206,13 +207,16 @@ def parent_of(cg, nid):
     return ps[0] if ps else None
 
 
-# 生效条件：max_depth 非 None 时先 max(0, min(int(max_depth), MAX_DEPTH_HARD)) 收敛；以 nid 为根迭代 DFS，已入 seen 的节点跳过，len(seen) >= max_nodes（max_nodes 传 0 时首次循环即成立）置 truncated=True 并 break，depth >= max_depth 且 children 非空时置 truncated=True 并 continue，否则对 children(cg,cur) 逆序、对未出现过的 (ch,cur) 追加 part_of 边并压栈；返回 {'root','nodes','paths','edges','n_nodes','n_edges','truncated'}；
+# 生效条件：max_depth 非 None 时先 max(0, min(int(max_depth), MAX_DEPTH_HARD)) 收敛；max_nodes 非 None 时 int() 收敛（nan/inf 抛 ValueError/OverflowError，不得解除上界）；以 nid 为根迭代 BFS（deque.popleft），已入 seen 的节点跳过，len(seen) >= max_nodes（max_nodes 传 0 时首次循环即成立）置 truncated=True 并 break，depth >= max_depth 且邻接非空时置 truncated=True 并 continue，否则按 children_index 顺序把未出现过的 (ch,cur) 追加 part_of 边并入队；返回前只保留两端均已 admit 的边；返回 {'root','nodes','paths','edges','n_nodes','n_edges','truncated'}；
 def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
-    """递归展开子树（迭代 DFS，防递归深度爆栈）。
+    """按最短层级展开子树（迭代 BFS，防递归深度爆栈）。
 
     返回 `{"root","nodes","paths","edges","n_nodes","n_edges","truncated"}`；
     `paths` 为 `节点 id → "根/子/孙"` 层级路径（flatten 后仍可定位来源）。
     边为 `part_of(child→parent)`，与 AEIS flatten 的方向一致。
+
+    v0.9.0 起改为 BFS：① 共享子节点按最短层级登记路径；② 节点预算耗尽时不预拷贝宽邻接表；
+    ③ 返回前只保留两端均已 admit 的边（边闭合，不把未 admit 的子节点留在边里）。
     """
     if max_depth is not None:
         max_depth = max(0, min(int(max_depth), MAX_DEPTH_HARD))
@@ -220,21 +224,21 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
         max_nodes = int(max_nodes)   # v0.9.0：nan/inf 预算必须结构化拒绝（int() 抛 ValueError/OverflowError），不得解除上界
     seen, edges, truncated = {}, [], False
     seen_edges = set()
-    stack = [(nid, 0, nid)]
-    while stack:
-        cur, depth, path = stack.pop()
+    queue = deque([(nid, 0, nid)])
+    while queue:
+        cur, depth, path = queue.popleft()
         if cur in seen:
             continue
         if len(seen) >= max_nodes:
             truncated = True
             break
         seen[cur] = path
+        adjacency = children_index(cg).get(cur) or ()
         if max_depth is not None and depth >= max_depth:
-            if children(cg, cur):
+            if adjacency:
                 truncated = True
             continue
-        kids = children(cg, cur)
-        for ch in reversed(kids):
+        for ch in adjacency:
             key = (ch, cur)
             if key not in seen_edges:
                 seen_edges.add(key)
@@ -242,7 +246,13 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
                               "relation_type": "part_of",
                               "confidence": 1.0, "verified": 0})
             if ch not in seen:
-                stack.append((ch, depth + 1, f"{path}/{ch}"))
+                # 预算守卫必须在入队前：已 admit + 在飞 达上界即停，既不超预算，也不预扫整份宽邻接；
+                # 已登记的边在返回前按 admit 面过滤（下面那行），不会留下指向未 admit 节点的边。
+                if len(seen) + len(queue) >= max_nodes:
+                    truncated = True
+                    break
+                queue.append((ch, depth + 1, f"{path}/{ch}"))
+    edges = [e for e in edges if e["source"] in seen and e["target"] in seen]
     return {"root": nid, "nodes": list(seen.keys()), "paths": seen,
             "edges": edges, "n_nodes": len(seen), "n_edges": len(edges),
             "truncated": truncated}

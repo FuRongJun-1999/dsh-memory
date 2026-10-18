@@ -391,6 +391,7 @@ ENV_CATEGORY_ROWS = [
     ('LINGSHU_PYTHON / LINGSHU_REPO', 'env', 'dsh-memory-main', '解释器路径 / 目录', ''),
     ('MAGICK_HOME / ImageMagick_HOME', 'env', 'dsh-memory-main', '目录路径', '经 *_ENV 常量间接读取，朴素字面量扫描抓不到'),
     ('MDCG_ACTOR', 'env', 'dsh-memory-main', '字符串', '★ 两处默认值不同（同一 env 名，默认分叉）'),
+    ('MDCG_ALLOW_ROOT_ISSUE', 'env', 'dsh-memory-main', '开关（1/true/yes/on 放行管理级令牌自铸）', '★ #543 签发授权闸的运维逃生口；缺省未设=关（tokens.py:471）'),
     ('MDCG_ARCHIVE_ROOT', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_AUX_ROOT', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_BRAIN_PYTHONPATH', 'env', 'dsh-memory-main', '路径列表', '★ 文档承诺 vs 代码读取错位（只在另一副本被读）'),
