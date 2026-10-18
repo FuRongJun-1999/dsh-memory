@@ -95,25 +95,41 @@ def settle(base: int, e: float, rounds: int):
     }
 
 
+#: `read_json` 的「读件失败」哨兵：文件缺失 / 文件存在但 JSON 解析失败。
+#: 为什么不用 None 表达（#511）：合法 JSON 的 `null` 也是 None，三态会被压成两态。
+_MISSING = object()
+_BAD_JSON = object()
+
+#: 读件形状闭集（`_file_shape` 的返回；#511 的 `bad_files` 出口据此判定）。
+SHAPES = ("ok", "missing", "bad_json", "nonmap")
+
+
 def read_json(path: str):
-    """读 JSON；缺失或坏件返回 None（fail-soft：评分不因单个坏件中断，但会计入 bad_files）。"""
+    """读 JSON：文件缺失返回 `_MISSING`、解析失败返回 `_BAD_JSON`，其余返回 `json.load` 原值。
+
+    fail-soft：评分不因单个坏件中断。**读件失败的命名出口是 `build()["bad_files"]`**
+    （由 `job_record` 经 `_file_shape` 逐文件判定）：`bad_json`（坏件）与 `nonmap`
+    （合法 JSON 但顶层非映射）计入；`missing` 是另一态、不混入该键——两态由此可分
+    （#511 修前 `_obj` 把三态归一成 `{}`，`result.json` 一路在 `build()` 全 9 键上
+    与「文件缺失」逐位相同）。
+    """
     if not os.path.isfile(path):
-        return None
+        return _MISSING
     try:
         with io.open(path, encoding="utf-8") as fh:
             return json.load(fh)
     except Exception:
-        return None
+        return _BAD_JSON
 
 
 # 生效条件：path 给定时读 JSON 并把**非映射**载荷（合法 JSON 的 list/str/number/null）
-# 一律按「读件失败」处理返回 {}；是 dict 则原样返回；缺失/坏件经 read_json 得 None ⇒ {}。
+# 一律按「读件失败」处理返回 {}；是 dict 则原样返回；缺失/坏件经 read_json 得哨兵 ⇒ {}。
 def _obj(path: str) -> dict:
     """读件 → 映射；**非映射一律当读件失败**（issue #399；口径同 #155③ `_read_status`）。
 
     为什么必须单点：`read_json(...) or {}` **只兜空值**——「合法 JSON 但顶层不是对象」
     （`[1,2,3]` / `"x"` / `123`）会原样留下，下游 `.get(...)` 立刻 AttributeError ⇒ 单个
-    坏件把**整张评分表**打崩（本模块 `:99` 自述契约却是 fail-soft：不因单个坏件中断，
+    坏件把**整张评分表**打崩（本模块 `read_json` 自述契约却是 fail-soft：不因单个坏件中断，
     只计入 bad_files）。#155③ 已在 `hive_mcp/mcp_server.py._read_status` 立过同款判据，
     本处复用同一口径，**不另造第二份**。
     """
@@ -121,11 +137,41 @@ def _obj(path: str) -> dict:
     return v if isinstance(v, dict) else {}
 
 
+# 生效条件：path 与 obj 给定时返回该读件的形状（`SHAPES` 之一）；obj 必须是同路径的
+# `_obj(path)` 结果（`job_record` 的三行既有调用）。
+def _file_shape(path: str, obj: dict) -> str:
+    """读件形状**单点**（#511）：`ok` / `missing` / `bad_json` / `nonmap`。
+
+    为什么必须单点：`_obj` 已把非映射归一成 `{}`（#399 的 fail-soft 口径）。本函数
+    **不复制**它的映射性判据，而是观察它的输出：合法映射时 `_obj` 原样返回盘面载荷
+    （与本次读回值相等），非映射时返回 `{}`（任何非映射都不等于 `{}`）⇒ 映射性判据
+    仍只有 `_obj` 一处。缺失/解析失败由 `read_json` 的哨兵直接区分（`null` 是「合法
+    JSON 非映射」，落 `nonmap`，不再与缺失同态）。
+
+    不适用条件：`obj` 不是 `_obj(path)` 的结果时结论无意义（调用点唯一，不做校验）；
+    本函数为判定重读一次文件（评分面小文件；不以读件次数换判据复制）。
+    """
+    v = read_json(path)
+    if v is _MISSING:
+        return "missing"
+    if v is _BAD_JSON:
+        return "bad_json"
+    return "ok" if obj == v else "nonmap"
+
+
 def job_record(job_dir: str):
-    """一个 job 目录 → 记录 dict（含 spec/status/result 的关键面）。"""
+    """一个 job 目录 → 记录 dict（含 spec/status/result 的关键面）。
+
+    `bad_files`：三个文件里**存在但读不成映射**的那些文件名（`nonmap`/`bad_json`；
+    #511 的命名出口）。文件缺失是另一态（`missing`），不混入该键。
+    """
     spec = _obj(os.path.join(job_dir, "spec.json"))
     status = _obj(os.path.join(job_dir, "status.json"))
     result = _obj(os.path.join(job_dir, "result.json"))
+    _shapes = {nm: _file_shape(os.path.join(job_dir, nm), o)
+               for nm, o in (("spec.json", spec), ("status.json", status),
+                             ("result.json", result))}
+    bad_files = sorted(nm for nm, sh in _shapes.items() if sh in ("nonmap", "bad_json"))
     cmds = spec.get("commands")
     deterministic = bool(cmds) if isinstance(cmds, list) else bool(cmds)
     return {
@@ -140,17 +186,20 @@ def job_record(job_dir: str):
         "deterministic": deterministic,
         "handoff": bool(result.get("need_continue") or result.get("handoff_ready")),
         "usage": result.get("usage"),
+        "bad_files": bad_files,
     }
 
 
-def scan(jobs_dir: str):
-    """扫 jobs/ → (records, skipped, legacy, bad)。
+def _scan_detail(jobs_dir: str):
+    """扫 jobs/ → (records, skipped, legacy, bad, bad_files)。
 
-    skipped=不合 id 契约且非历史格式；legacy=历史格式（`h<时间戳>_<hex>`）；bad=读件失败。
+    bad_files 是**全池**的读件失败清单（`<job_id>/<文件名>`，含进了 bad_ids 的件——
+    「该件的 status 给不出 state」与「它的 spec/result 读不成映射」是两件事，各有出口）。
+    `scan()` 是对外 4 元组形态的兼容包装（#511：只加旁路清单，不改既有返回形状）。
     """
-    recs, skipped, legacy, bad = [], [], [], []
+    recs, skipped, legacy, bad, bad_files = [], [], [], [], []
     if not os.path.isdir(jobs_dir):
-        return recs, skipped, legacy, bad
+        return recs, skipped, legacy, bad, bad_files
     for name in sorted(os.listdir(jobs_dir)):
         d = os.path.join(jobs_dir, name)
         if not os.path.isdir(d) or name.startswith("_"):
@@ -162,6 +211,7 @@ def scan(jobs_dir: str):
         ident, task, unit, num = parsed
         r = job_record(d)
         r.update({"identity": ident, "task": task, "unit": unit, "number": num})
+        bad_files.extend("%s/%s" % (name, nm) for nm in r["bad_files"])
         if not r["state"]:
             # #158：坏件/空目录**只进 bad_ids，不计分**——修前这里 append 之后仍
             # 无条件 `recs.append(r)`，于是同一件既被标「读件失败」又拿满 Δ，
@@ -169,7 +219,18 @@ def scan(jobs_dir: str):
             bad.append(name)
             continue
         recs.append(r)
-    return recs, skipped, legacy, bad
+    return recs, skipped, legacy, bad, bad_files
+
+
+def scan(jobs_dir: str):
+    """扫 jobs/ → (records, skipped, legacy, bad)。
+
+    skipped=不合 id 契约且非历史格式；legacy=历史格式（`h<时间戳>_<hex>`）；
+    bad=`status.json` 给不出 state（缺失/坏件/合法 JSON 非映射/空对象）⇒ 只进 bad_ids
+    不计分（#158）。`spec.json`/`result.json` 的读件失败**不进** bad_ids——它们不影响
+    「该件是否可评分」，经记录的 `bad_files` 出口上报（#511；全池清单见 `_scan_detail`）。
+    """
+    return _scan_detail(jobs_dir)[:4]
 
 
 def score(records):
@@ -235,7 +296,7 @@ def score(records):
 
 
 def build(jobs_dir: str):
-    recs, skipped, legacy, bad = scan(jobs_dir)
+    recs, skipped, legacy, bad, _bad_files = _scan_detail(jobs_dir)
     by_unit, by_task = score(recs)
     # identity 大小写变体：只按 casefold 分组；**不做模糊合并**（合并是使用者的决定，猜错即改分）。
     _iv = {}
@@ -245,6 +306,10 @@ def build(jobs_dir: str):
     # task 命名漂移：一个 task 名是另一个的子串 ⇒ 疑似同一工作的两种叫法（只报不合，不自动归并）。
     _ts = sorted({a["task"] for a in by_task})
     task_prefix_pairs = sorted({(a, b) for a in _ts for b in _ts if a != b and a in b})
+    # #511：读件失败的**命名出口**（`<job_id>/<文件名>`，只含「存在但读不成映射」）。
+    # 由 `_scan_detail` 在扫池时一次收集（含进了 bad_ids 的件：job 级失败与文件级
+    # 失败各有出口，不互相吞掉）。
+    bad_files = sorted(_bad_files)
     return {
         "note": ("对内域评分：本站只做评价（V2 资金发生在站外）。"
                  "口径：Δ = max(1, round_half_up(base × 2E/(round+1)))，"
@@ -257,6 +322,7 @@ def build(jobs_dir: str):
             "skipped": len(skipped),
             "legacy": len(legacy),
             "bad": len(bad),
+            "bad_files": len(bad_files),
             "by_state": {s: sum(1 for r in recs if r["state"] == s)
                          for s in sorted({r["state"] for r in recs})},
             "delta_sum": sum(r["delta"] for r in by_unit),
@@ -266,6 +332,7 @@ def build(jobs_dir: str):
         "identity_variants": identity_variants,
         "task_prefix_pairs": task_prefix_pairs,
         "bad_ids": bad,
+        "bad_files": bad_files,
         "by_unit": by_unit,
         "by_task": by_task,
     }
@@ -293,6 +360,11 @@ def main(argv=None):
             print("⚠ task 近名（疑似同一工作的两种叫法，未合并）:", json.dumps(doc["task_prefix_pairs"], ensure_ascii=False))
         if doc["legacy_ids"]:
             print("历史格式目录 %d 个（id 契约 v2 之前，未计入）" % len(doc["legacy_ids"]))
+        if doc["bad_files"]:
+            # #511：读件失败（存在但读不成映射）的命名出口——与「文件缺失」分开报。
+            print("⚠ 读件失败 %d 个（spec/result 存在但读不成映射，缺失不计）:" % len(doc["bad_files"]))
+            for bf in doc["bad_files"]:
+                print("   ", bf)
         print()
         print("== by_task（项目完成情况，Top 8）==")
         for a in doc["by_task"][:8]:

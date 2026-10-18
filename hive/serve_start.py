@@ -632,7 +632,7 @@ def _lifecycle_jobs(cfg):
     return _jobs_from({**os.environ, **(env or {})})
 
 
-# 生效条件：jobs 给定时以其为池（None/空串回落模块级 JOBS），始终返回 {ok:True, alive, heartbeat, jobs_dir:<生效池>}；hb 为真而 serve_alive(jobs) 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且生效池路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过）按值计数写入 job_states。
+# 生效条件：jobs 给定时以其为池（None/空串回落模块级 JOBS），始终返回 {ok:True, alive, heartbeat, jobs_dir:<生效池>}；hb 为真而 serve_alive(jobs) 为假时额外附 stale_heartbeat（pid、pid_alive(pid)、pid_is_self_program(pid)、以及按 hb.get("ts", 0) 缺失记 0 算出的 age_s）；alive 为真且生效池路径存在时额外遍历其中各子目录的 status.json，把 json.load(f).get("state", "?")（缺 state 键记 "?"，抛 OSError/ValueError 的条目跳过；**合法 JSON 但顶层非映射（list/str/number/null）按读件失败跳过**——#427，判据同 scoreboard._obj，不静默归一）按值计数写入 job_states。
 def status(jobs=None):
     jobs = jobs or JOBS
     hb = heartbeat(jobs)
@@ -654,9 +654,16 @@ def status(jobs=None):
             sp = os.path.join(jobs, jid, "status.json")
             if not os.path.isfile(sp):
                 continue
+            # #427：合法 JSON 但顶层非映射（[1,2,3]/"x"/null/123）不是异常，`.get`
+            # 会抛 AttributeError 并打崩整条 `--status` 观测面。读回值先过形状闸，
+            # 非映射按「读件失败」跳过——判据同 scoreboard._obj（#399/#155③），
+            # 不静默归一成 "?"。
             try:
                 with open(sp, "r", encoding="utf-8") as f:
-                    st = json.load(f).get("state", "?")
+                    v = json.load(f)
+                if not isinstance(v, dict):
+                    continue
+                st = v.get("state", "?")
                 states[st] = states.get(st, 0) + 1
             except (OSError, ValueError):
                 pass
