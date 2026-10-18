@@ -45,7 +45,6 @@ import hashlib
 import json
 import math
 import os
-import re
 import time
 
 from . import lifecycle, nodefile, protect
@@ -274,46 +273,6 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：给定 cg、待写 content、目标节点 id（redundancy 返回的 red["with"]）时，双方
-# 正文经 payload() 剥掉 CCG 固定标签后各取**数值序列**；当且仅当**两侧都恰好 1 个数值且
-# 不相等**时返回 {"new": str, "existing": str}，否则 None（无冲突）。
-#
-# 为什么只认「单值替换」（issue #553，P0 判断问题）：
-#   病象——`测试库端口是 5433` 已存在时写 `5432`，bigram 覆盖率仍 0.857 ≥ DUP_MERGE
-#   ⇒ 走 MERGE ⇒ 数值变更/纠正被当成「重复确认」，旧值反而被强化。
-#   而**适用域必须收紧**：一条内容里有多个数值槽时（如 test_b3 的
-#   `端口 8080 / 8081 / {port} / 9091`），只改其中一个槽**很可能是同义复述**，
-#   按「集合不同即冲突」判会大面积误拦 —— 实测让 `test_b3_merge_keeps_content`
-#   10 条断言失败。故只在「整条只有一个数值」时判冲突，多值内容走原 MERGE 逻辑。
-#   这与 #553 报告的两个例子（端口 5433→5432、天数 14→30）的形态一致。
-#
-# 处置在 assess 的 MERGE 分支：判为冲突则 DEFER（进审核队列待复核），不 DROP ——
-# 新值必须**有去向**，与 #296（限流 DEFER 无去向）是两条不同缺陷。
-# 不适用条件：不判「哪一方数值是对的」（本层看不见真值来源）；不判单位/正负号/词序
-# 变化（仍需人工复核）；两侧数值个数 != 1 时不介入（交由重复度与重要度判据）。
-_NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
-
-
-def numeric_conflict(cg, content, target_id):
-    """单值替换冲突判据（issue #553）：新正文与既有节点是否「只有一个数值且不同」。
-
-    返回 {"new": str, "existing": str} 表示冲突；None 表示无冲突、无对照、或两侧数值
-    个数 != 1（多值内容不介入）。
-    """
-    if not target_id:
-        return None
-    try:
-        node = cg.get(target_id)
-    except Exception:                           # noqa: BLE001
-        return None
-    if not node:
-        return None
-    new = _NUMBER_RE.findall(payload(content or ""))
-    old = _NUMBER_RE.findall(payload((node.get("content") or "")))
-    if len(new) == 1 and len(old) == 1 and new[0] != old[0]:
-        return {"new": new[0], "existing": old[0]}
-    return None
-
 # 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。red 截断（red.truncated 为真）时 entropy 追加 candidate_total/truncated 两键且 reason 末尾追加截断提示（issue #358 ①）；未截断时不落这两键。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
@@ -429,17 +388,8 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         verdict, why = "DROP", (f"确定性内部产生且冗余 {red['max']:.2f}≥{DUP_DROP}"
                                f"（低熵噪音，不编码）")
     elif red["max"] >= DUP_MERGE:
-        # issue #553：**单值替换不是重复确认**——重复度是 bigram 覆盖率，而「5432」与
-        # 「5433」只差 1 个字符，覆盖率仍过 DUP_MERGE 阈值。判据见 numeric_conflict()
-        # （只在「两侧恰好 1 个数值且不同」时介入，多值内容走原 MERGE 逻辑）。
-        _num = numeric_conflict(cg, content, red["with"])
-        if _num:
-            verdict, why = "DEFER", (
-                f"数值变更：新值 {_num['new']} vs 既有 {_num['existing']}"
-                f"（重复度 {red['max']:.2f}≥{DUP_MERGE}）——不合并，待复核")
-        else:
-            verdict, why = "MERGE", (f"重复度 {red['max']:.2f}≥{DUP_MERGE}"
-                                    f"（并入 {red['with']}，强化既有）")
+        verdict, why = "MERGE", (f"重复度 {red['max']:.2f}≥{DUP_MERGE}"
+                                f"（并入 {red['with']}，强化既有）")
     elif red["max"] >= DUP_DROP:
         verdict, why = "DEFER", (f"半重复 {red['max']:.2f}∈[{DUP_DROP},{DUP_MERGE})"
                                 f" 且未触发不可遗忘保护"
