@@ -156,22 +156,15 @@ def log(cg, rec):
 
 # 生效条件：cg.root 下 AUDIT_FILE 路径缺失或打开即抛 OSError 时返回空列表；否则逐行解析非空 JSON（json.loads 抛 ValueError 的行跳过），读取中途抛 OSError 时返回已解析的部分 out，正常返回 out[-int(limit or 100):]，其中 limit 为 0/空串等假值时按 100 取值；
 def history(cg, limit=100):
-    p = os.path.join(cg.root, AUDIT_FILE)
-    out = []
-    if not os.path.exists(p):
-        return out
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except ValueError:
-                    continue
-    except OSError:
-        return out
+    """身份操作留痕（**读写配对**）。
+
+    2026-10-18：写面已迁到**本进程独占分片**（`fsutil.append_jsonl_ledger`，文件名
+    `<stem>.<pid>.jsonl`），读面却仍只 open 旧单文件 `_identity.jsonl` ⇒ 命中恒空
+    （实测 `test_p10_identity` 的「身份操作留痕可查 []」）。改用成对的
+    `fsutil.read_jsonl_ledger`：它同时读旧单文件与全部分片，历史不断代
+    ——这正是 `afad11b3` 回退「五件台账迁移」时所指的「写读必须配对」。
+    """
+    out = fsutil.read_jsonl_ledger(os.path.join(cg.root, AUDIT_FILE))
     return out[-int(limit or 100):]
 
 

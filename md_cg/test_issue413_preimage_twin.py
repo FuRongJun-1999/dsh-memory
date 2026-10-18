@@ -124,24 +124,33 @@ _check("A01 态①「节点不存在」**不可达** _allow：guard_write 返回
        _nx is None, _nx)
 _check("A02 且 snapshot(不存在节点) 返回 None（该态自证：前像确实拍不出来）",
        protect.snapshot(_cga, "no_such_node") is None)
+# ★2026-10-18 契约变更（80aa70d8 #413-2）：前像拍不出来时**不再放行**——`_allow` 改为
+# fail-closed（N228：无前像的 override 不可回滚）。旧断言钉的是「放行 + snapshot=None
+# 可观测」的旧契约；现改为钉 fail-closed：抛 ProtectionError、错误串点名前像不可得、
+# 审计面留 `<action>_denied` 行（拒绝事件同样不静默）。
+_err = None
 with mock.patch.object(MdCGOS, "_write_node",
                        side_effect=OSError("模拟前像写盘失败")):
-    _fa = protect.guard_write(_cga, "pr_t", override=True, actor="guard413")
-_check("A03 态②「启用但失败」**可达**：前像写失败 ⇒ snapshot None，override 仍放行",
-       isinstance(_fa, dict) and _fa.get("override") is True, _fa)
-_check("A04 可见化：返回体显式带 snapshot=None（放行事实可观测，不静默）",
-       "snapshot" in (_fa or {}) and (_fa or {}).get("snapshot") is None, _fa)
+    try:
+        _fa = protect.guard_write(_cga, "pr_t", override=True, actor="guard413")
+    except protect.ProtectionError as exc:
+        _err = str(exc)
+        _fa = None
+_check("A03 态②「启用但失败」**可达**：前像写失败 ⇒ fail-closed 抛 ProtectionError",
+       _err is not None and _fa is None, (_err, _fa))
+_check("A04 可见化：错误串点明「前像不可得」且声明 fail-closed（拒绝可观测）",
+       bool(_err) and "前像不可得" in _err and "fail-closed" in _err, _err)
 _ap = os.path.join(_cga.root, protect.AUDIT_FILE)
 _rows = []
 if os.path.exists(_ap):
     with open(_ap, encoding="utf-8") as _f:
         _rows = [json.loads(l) for l in _f if l.strip()]
-_ovr = [r for r in _rows if r.get("action") == "override_write"]
-_check("A05 登记：审计面留有该 override 记录且 snapshot 字段为 null（事件不静默）",
-       bool(_ovr) and any(r.get("snapshot") is None for r in _ovr),
+_denied = [r for r in _rows if str(r.get("action") or "").endswith("_denied")]
+_check("A05 登记：审计面留有该 `<action>_denied` 行（拒绝不静默）",
+       bool(_denied),
        [{"a": r.get("action"), "s": r.get("snapshot")} for r in _rows][-3:])
-_check("A06 语义未变（本件不改 fail-open/fail-closed）：前像缺失时仍 override=True",
-       (_fa or {}).get("override") is True)
+_check("A06 语义已按 #413-2 收口：前像缺失时**不再**返回 override=True（可回滚优先）",
+       _fa is None)
 _cga.close()
 
 print("== K 组：非恒真对照与过度方向 ==")
