@@ -36,10 +36,23 @@ ENVELOPE_FIELDS = ("items", "completeness", "hit_count", "snapshot_id",
 
 
 def _snapshot_id(cg):
-    """索引快照标识：取索引文件的修改时间与节点数，稳定且无需额外状态。"""
+    """索引快照标识 = 节点数 + 索引文件 mtime。
+
+    首版读 cg._index_mtime（该属性不存在）→ 恒得 0，于是所有快照都叫 snap-N-0，
+    **跨快照比较失去意义**（而 snapshot_id 的全部用途就是显式声明版本差异）。
+    改为直接取索引文件 mtime；取不到（如内存库）则回落 0 并如实反映。
+    """
+    import os as _os
     idx = getattr(cg, "index", None) or {}
     n = len((idx.get("nodes") or {}))
-    return "snap-%d-%d" % (n, int(getattr(cg, "_index_mtime", 0) or 0))
+    path = getattr(cg, "index_path", None)
+    mtime = 0
+    if path:
+        try:
+            mtime = int(_os.path.getmtime(str(path)))
+        except OSError:
+            mtime = 0
+    return "snap-%d-%d" % (n, mtime)
 
 
 def retrieve(cg, query, k=10, layer=None, session=None,
