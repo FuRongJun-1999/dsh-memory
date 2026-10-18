@@ -581,6 +581,71 @@ def _match(got, exp):
     return got == exp
 
 
+# 受限名（执行 / 动态求值 / 反射面）——取**逃逸必需**的那几个。
+# 与 scripts/bootstrap_loop.py 的 `_GEN_BANNED_NAMES`（P1-7 批次 26）同源，
+# 但按其自举场景收窄：那边是「LLM 产出代码」的沙箱，可从严；
+# 本处是**白箱单元表**的执行面，表中有合法单元正常使用 getattr / vars
+# （见 _ESCAPE_ATTRS 下方的实测说明），且这两个名字**单独不构成逃逸**
+# （逃逸必需的是 `__subclasses__` + `__globals__` 属性链，已由 _ESCAPE_ATTRS 拦下）。
+_BANNED_NAMES = frozenset({
+    "eval", "exec", "compile", "open", "__import__", "breakpoint", "input",
+    "globals", "locals", "setattr", "delattr",
+    "exit", "quit", "memoryview",
+})
+
+#: 反射逃逸链**专项**属性名（issue #544）——取**最小充分集**，不照搬
+#: bootstrap_loop 的「一切 dunder 皆拒」（`attr.startswith("__")`）。
+#:
+#: 为什么必须收窄（实测数据，Windows/Python 3.11.15，清缓存后）：
+#:   · 基线 `--audit`：675/686 通过（98.4%）
+#:   · 按「一切 dunder」判据：额外拒掉 19 条**正在通过**的单元 ⇒ 不可用
+#:   · 按下方最小集：额外拒掉 **0 条**正在通过的单元（仍 675/686）
+#:
+#: 最小集的推导：PoC 逃逸链只需
+#:   `object.__subclasses__()` → `getattr(_c,'__init__').__globals__` → `['__builtins__']`
+#: 故**必需**的只有 `__subclasses__` / `__globals__` / `__builtins__` 三条；
+#: 其余为**同类旁路**（经类层级上溯 / 直接取代码对象），一并拦以堵等价取道。
+#:
+#: 刻意**不**列入 `getattr` / `vars` / `__class__` / `__bases__` 等**名称**：
+#: 单元表中有 4 条**合法**单元正常使用它们（元编程-动态建类 / 元编程-元类定制 /
+#: 面向对象-运算符重载 / 异常-异常链），拦掉即误伤——而它们**单独不足以**
+#: 构成逃逸（上面的必需集已覆盖组合面）。
+_ESCAPE_ATTRS = frozenset({
+    "__subclasses__", "__globals__", "__builtins__",
+    "__mro__", "__baseclasses__",
+    "__dict__", "__getattribute__", "__reduce__", "__reduce_ex__",
+    "__code__", "__closure__", "__func__", "__loader__", "__spec__",
+})
+
+
+# 生效条件：code 为待校验源码文本；ast.parse 失败抛原语法异常，ast.walk 命中
+# Name.id 属 _BANNED_NAMES、Attribute.attr 属 _ESCAPE_ATTRS 或为 ("system","popen")
+# 任一即抛 ValueError（**不执行**）；全部通过时无返回。
+def _ast_gate(code: str) -> None:
+    """issue #544：受限命名空间之外的第二道门——反射逃逸链 AST 门。
+
+    为什么必须另立此门：builtins 白名单**对反射取道无解**。白名单里
+    `object`/`type` 本就在（#185 的决定），于是
+    `object.__subclasses__()` → `__init__.__globals__['__builtins__']`
+    可取回**真 builtins**，再用它 `open()` 写任意文件 —— 而 L1/L2/L3 三层
+    全部仍报 ok:true（逃逸对校验结论不可见）。本函数在 exec **之前**拦掉该链。
+
+    判据取**最小充分集**（见 `_ESCAPE_ATTRS` 说明），而非「一切 dunder」：
+    后者会误伤单元表里多条合法单元（实测差 19 条），故不用。
+    AST 全遍历，lambda/推导式内的同名调用同样覆盖。
+    """
+    tree = ast.parse(code)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in _BANNED_NAMES:
+            raise ValueError("沙箱拒绝受限名 %s（行 %s）——反射逃逸链入口"
+                             % (node.id, getattr(node, "lineno", "?")))
+        if isinstance(node, ast.Attribute):
+            if node.attr in _ESCAPE_ATTRS or node.attr in ("system", "popen"):
+                raise ValueError(
+                    "沙箱拒绝受限属性 .%s（行 %s）——反射逃逸链入口"
+                    % (node.attr, getattr(node, "lineno", "?")))
+
+
 def main():
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         p = json.load(f)
@@ -602,6 +667,14 @@ def main():
         return
     ns = {"__builtins__": _safe_builtins(), "__name__": "__mdcg_verify__"}
     try:
+        # issue #544（P1）：受限命名空间的 builtins 白名单**挡不住反射取道** ——
+        # `object.__subclasses__()` → `__init__.__globals__['__builtins__']`
+        # 可取回**真 builtins**，进而 open/exec 任意代码（实测：逃逸后写出仓库外
+        # 标记文件，且 L1/L2/L3 三层仍报 ok:true —— 逃逸对校验结论不可见）。
+        # 白名单里 type/object/getattr 本就在（#185 决定），故补**AST 门**：
+        # 拒绝 dunder 属性访问与受限名——与 scripts/bootstrap_loop.py 的
+        # `_safe_exec_gen`（P1-7 批次 26）同款判据，那边**已实测守住**同一取道。
+        _ast_gate(p["code"])
         exec(compile(p["code"], "<verify>", "exec"), ns)
     except Exception as e:
         out["exec"] = "error"
