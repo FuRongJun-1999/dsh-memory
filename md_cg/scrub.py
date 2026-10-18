@@ -616,7 +616,15 @@ def _contradiction(cg, content, related, max_compare=10):
 def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
           limit=None, unverified_days: float = UNVERIFIED_DAYS,
           lexical: bool = True, min_sim: float = 0.15) -> dict:
-    """对指定节点（默认全库）做污染体检。**只读**，不改动任何节点。"""
+    """对指定节点（默认全库）做污染体检。**只读**，不改动任何节点。
+
+    `min_severity` 是**含等号**的档位门限（`>=`）：`SEVERITY_ORDER` 为
+    {"high":3, "medium":2, "low":1, "info":0}，只要某条 issue 的档位
+    **不低于** `min_severity` 就纳入返回。故 `min_severity="low"` **会**保留
+    `low` 级 issue（`1 < 1` 为假 ⇒ 不跳过）；`"medium"` 及以上则滤掉 `low`。
+    缺键按 0 计（等于把未知档位当 info）。实测：同一低重要情境噪音节点在
+    `info`/`low` 下都返回 1 条、`medium`/`high` 下返回 0 条。
+    """
     nodes = _nodes(cg)
     ids = list(nodes.keys()) if node_ids is None else (
         [node_ids] if isinstance(node_ids, str) else list(node_ids))
