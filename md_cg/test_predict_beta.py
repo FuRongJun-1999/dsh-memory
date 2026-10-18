@@ -104,8 +104,11 @@ def main():
         ok(st and st["prediction"]["beta_mean"] == 0.4615, "③c快照可读")
         node = cg.get(self_state.state_node_id())
         ok("后验可信度" in (node.get("content") or ""), "③d正文渲染含后验可信度")
-        with open(os.path.join(root, "_self_state.jsonl"), encoding="utf-8") as f:
-            tail = [json.loads(x) for x in f if x.strip()][-1]
+        # 走模块 API 而不是直接开文件：self_state 的留痕自 #546 起用 ShardedLog
+        # （每个写者独占 _self_state.<pid>.jsonl，读侧 read_jsonl_ledger 合并分片）。
+        # 直接 open("_self_state.jsonl") 会 FileNotFoundError —— 本行修前正是如此。
+        _hist = self_state.history(cg, limit=1)
+        tail = _hist[0] if _hist else {}
         ok(tail.get("prediction_beta_mean") == 0.4615,
            "③e留痕字段 prediction_beta_mean")
 
