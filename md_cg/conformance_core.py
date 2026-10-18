@@ -223,21 +223,63 @@ def _steps():
             "schema_defined": "envelope" in sc._SCHEMAS,
             "t_ref": "issue#5-15"}
 
+    def s_revise_rollback(ctx):
+        """修订与回滚闭环（2026-10-18 落地后，替代原 gap_revise + gap_rollback）。
+
+        四条：CAS 不符必须 DEFER；新版落盘后旧版转 superseded；
+        回滚使旧版复活、新版转被取代；全程不删除任何节点。
+        """
+        from . import revise as rv
+        ctx["cg"].add("n_v1", "第一版内容", layer="knowledge")
+        bad = rv.revise(ctx["cg"], "n_v1", GOOD_BODY.replace("conformance 核心闭环样本", "第二版"),
+                        expect_state="archived")          # 故意给错的状态
+        good = rv.revise(ctx["cg"], "n_v1", GOOD_BODY.replace("conformance 核心闭环样本", "第二版"),
+                         expect_state="active")
+        out = {
+            "cas_mismatch_verdict": bad.get("verdict"),
+            "revise_verdict": good.get("verdict"),
+            "old_state_after": good.get("state_to"),
+            "new_id_present": bool(good.get("new_id")),
+            "token_present": bool(good.get("rollback_token")),
+        }
+        rb = rv.rollback(ctx["cg"], good.get("rollback_token") or {})
+        out["rollback_verdict"] = rb.get("verdict")
+        out["old_after_rollback"] = rb.get("state_old_after")
+        out["new_after_rollback"] = rb.get("state_new_after")
+        out["old_still_readable"] = ctx["cg"].get("n_v1") is not None
+        ok = (out["cas_mismatch_verdict"] == "DEFER"
+              and out["revise_verdict"] == "ACCEPT"
+              and out["old_state_after"] == "superseded"
+              and out["new_id_present"] and out["token_present"]
+              and out["rollback_verdict"] == "ACCEPT"
+              and out["old_after_rollback"] == "active"
+              and out["new_after_rollback"] == "superseded"
+              and out["old_still_readable"] is True)
+        return (PASS if ok else FAIL), out
+
     def s_gap_revise(ctx):
         """四动作里的「改」整条未实现（外部 issue #5 核对后钉住）。
 
         revise / state_from / rollback_token 在代码里**全仓 0 命中**，而文档 §五
         给出了完整签名。这是最容易误导读者的一处：签名看起来像既有能力。
         """
-        has = hasattr(ctx["cg"], "revise")
+        # 2026-10-18 已落地：md_cg/revise.py（revise + rollback）。
+        # 本步骤保留为「能力存在性」守卫——若有人删掉该模块，这里会立刻转 GAP。
+        from . import revise as _rv
+        has = hasattr(_rv, "revise")
         return (PASS if has else GAP), {
-            "missing": None if has else "revise（四动作之「改」）未实现；state_from/rollback_token 亦无",
+            "missing": None if has else "revise 模块缺失（曾于 2026-10-18 落地）",
             "t_ref": "T11 / §五 实现状态表"}
 
     def s_gap_rollback(ctx):
-        has = hasattr(ctx["cg"], "rollback")
+        # 2026-10-18 已落地：rollback 在 md_cg/revise.py（不在 cg 上）。
+        # 首版查的是 ctx["cg"].rollback，属**探针指错对象**——能力在而判据看错位置，
+        # 会得到「未实现」的假结论（与记忆里那条「探针不纯」同型）。
+        from . import revise as _rv
+        has = hasattr(_rv, "rollback")
         return (PASS if has else GAP), {
-            "missing": None if has else "rollback（前像恢复）未实现", "t_ref": "T11"}
+            "missing": None if has else "rollback 模块缺失（曾于 2026-10-18 落地）",
+            "t_ref": "T11"}
 
     def s_gap_legacy(ctx):
         return GAP, {
@@ -259,6 +301,7 @@ def _steps():
         ("protected_predicates", s_protected_predicates),
         ("queue_health_readable", s_queue_health),
         ("gap_anchor_verify", s_gap_anchor),
+        ("revise_rollback", s_revise_rollback),
         ("verdict_schema", s_verdict_schema),
         ("gap_envelope", s_gap_envelope),
         ("gap_revise", s_gap_revise),
