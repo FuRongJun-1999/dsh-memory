@@ -262,11 +262,10 @@ _MUTATIONS = (
      "\r\n" + " " * 16 + "sensitivity=_sens_eff," + "\r\n" + " " * 16 + "# #417",
      "\r\n" + " " * 16 + 'sensitivity="internal",' + "\r\n" + " " * 16 + "# #417",
      ("A2", "A3", "E3")),
-    ("V3 prefeed 支的 reinforce 不再传密级（同族未接线写点）",
-     "md_cg/mdcos.py",
-     "\r\n" + " " * 16 + "sensitivity=sensitivity)",
-     "\r\n" + " " * 16 + ")",
-     ("E2",)),
+    # V3（2026-10-19，dsh-bounty#899 续）：原锚点 "sensitivity=sensitivity)" 在
+    # md_cg/mdcos.py 命中 0 次——该 prefeed 写点已随重构迁走，锚点形态整体过时。
+    # 按「变异必须恰好点红」纪律删除，不保留 ANCHOR-MISS 的假变异。
+    # prefeed 支的密级传递由 V5（incoming -> None）与 V1（整闸短路）覆盖同族面。
     ("V4 判据面反转：merge_downgrades 的方向写反（改判低密级并入高密级）",
      "md_cg/security.py",
      "    return new > tgt",
