@@ -164,6 +164,17 @@ def _steps():
             "missing": None if has else "verifyAnchor（I14 回执校验）未实现",
             "t_ref": "T7"}
 
+    def s_gap_revise(ctx):
+        """四动作里的「改」整条未实现（外部 issue #5 核对后钉住）。
+
+        revise / state_from / rollback_token 在代码里**全仓 0 命中**，而文档 §五
+        给出了完整签名。这是最容易误导读者的一处：签名看起来像既有能力。
+        """
+        has = hasattr(ctx["cg"], "revise")
+        return (PASS if has else GAP), {
+            "missing": None if has else "revise（四动作之「改」）未实现；state_from/rollback_token 亦无",
+            "t_ref": "T11 / §五 实现状态表"}
+
     def s_gap_rollback(ctx):
         has = hasattr(ctx["cg"], "rollback")
         return (PASS if has else GAP), {
@@ -188,6 +199,7 @@ def _steps():
         ("protected_predicates", s_protected_predicates),
         ("queue_health_readable", s_queue_health),
         ("gap_anchor_verify", s_gap_anchor),
+        ("gap_revise", s_gap_revise),
         ("gap_rollback", s_gap_rollback),
         ("gap_legacy_retrieve", s_gap_legacy),
     ]
