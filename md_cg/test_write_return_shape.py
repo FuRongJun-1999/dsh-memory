@@ -196,11 +196,22 @@ def _dict_returns_in_block(path, tool):
                 and c.comparators[0].value == tool):
             continue
         for sub in ast.walk(node):
-            if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Dict):
-                ks = [k.value for k in sub.value.keys
-                      if isinstance(k, ast.Constant)]
-                out.append((sub.lineno, ks,
-                            ast.get_source_segment(src, sub.value) or ''))
+            if not isinstance(sub, ast.Return):
+                continue
+            # 生效条件：返回体是字典字面量时直接取；若是**包了一层调用**
+            # （如 return _am.apply_dedup({...}, _pr)），则递归看它的 args——
+            # 被包一层的字典仍是「工具分支块内的字典返回」，而按 ast.Dict 硬匹配
+            # 会**静默看不见它**（不报错，表现为锚点漂移）。issue #552。
+            cand = []
+            if isinstance(sub.value, ast.Dict):
+                cand.append(sub.value)
+            elif isinstance(sub.value, ast.Call):
+                for arg in list(sub.value.args) + [kw.value for kw in sub.value.keywords]:
+                    if isinstance(arg, ast.Dict):
+                        cand.append(arg)
+            for d in cand:
+                ks = [k.value for k in d.keys if isinstance(k, ast.Constant)]
+                out.append((d.lineno, ks, ast.get_source_segment(src, d) or ''))
     return sorted(out)
 
 
