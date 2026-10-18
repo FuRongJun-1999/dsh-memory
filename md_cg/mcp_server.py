@@ -3830,6 +3830,18 @@ def _runtime_token_recheck(p):
     return None
 
 
+# 生效条件：给定 nid 与工具面入参 dict a 时，调用 writepipe.oversize_response —— 全仓
+# 写入硬上限的**唯一构造点**（issue #212）——返回拒收响应体，或 None 表示过闸。
+# issue #557 R2：本仓 31 个 mdcg_* 入口里此前只有 whitebox/service_info/remember 三处
+# 判上限，而 rejected / unresolved / propose 等**写内容的入口全部不判** ⇒ 「5 个 >1 MiB
+# 文件落盘；record 令牌 8 次写满 10 MB」。此处复用同一构造点、延迟 import 防环，
+# 不新增常量、不复制判据（#324 分支会量「除 content 之外其余字段」的总字节，故
+# hypothesis/reason/question/known_clues 同样受约束）。
+def _oversize_r2(nid, a):
+    from .writepipe import oversize_response as _os
+    return _os(nid, a or {})
+
+
 def _dispatch(cg, name, args):
     a = args or {}
     # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**（见 _runtime_token_recheck）
@@ -4173,15 +4185,28 @@ def _dispatch(cg, name, args):
         return cg.mine_fix_pairs(a.get("events") or [])
 
     if name == "mdcg_rejected":
+        # issue #557 R2：本入口原无写入硬上限闸 —— 负记忆正文（hypothesis/reason）
+        # 由调用方给，可单次写入任意大。复用 write/remember 的**唯一构造点**
+        # （#324 分支会量「除 content 之外其余字段」的总字节，故 hypothesis/reason
+        # 同样受约束），不新增常量、不复制判据。
+        _ov = _oversize_r2(a.get("node_id") or "", a)
+        if _ov:
+            return _ov
         return {"id": cg.add_rejected(a.get("hypothesis", ""), a.get("reason", ""),
                                       verification_basis=a.get("verification_basis") or "test",
                                       tags=a.get("tags"))}
 
     if name == "mdcg_unresolved":
+        _ov = _oversize_r2(a.get("node_id") or "", a)   # issue #557 R2：同上
+        if _ov:
+            return _ov
         return {"id": cg.add_unresolved(a.get("question", ""), a.get("known_clues", ""),
                                         a.get("goal", ""))}
 
     if name == "mdcg_propose":
+        _ov = _oversize_r2(a.get("node_id") or "", a)   # issue #557 R2：propose 入队前同判
+        if _ov:
+            return _ov
         pr = cg.propose(a.get("node_id", ""), a.get("content", ""), info=True,
                         layer=a.get("layer") or "knowledge",
                         tags=a.get("tags"), condition_space=a.get("condition_space"),
