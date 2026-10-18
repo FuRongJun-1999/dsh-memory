@@ -108,12 +108,12 @@ def leg_A():
     """写者读不到该节点 ⇒ override 必须被拒，且盘面零变化。"""
     print("\n[A 无前像 ⇒ fail-closed]")
     root = _fresh("a")
-    w = MdCGSecure(root, principal=_princ("designer", "internal", "sessB"), autoflush=1)
+    w = MdCGSecure(root, principal=_princ("designer", "secret", "sessB"), autoflush=1)
     readable = w.get("selfnode") is not None
     h0, a0 = _hist(root), len(_audit(root))
     old_fm, old_ct = _disk(root)
     try:
-        w.add("selfnode", "B 覆写 V1", "self", sensitivity="internal", override=True)
+        w.add("selfnode", "B 覆写 V1", "self", sensitivity="private", override=True)  # 与节点同档：让拒绝来自**前像不可得**，而不是先被密级闸挡下
         exc = ""
     except Exception as e:                                                            # noqa: BLE001
         exc = "%s: %s" % (type(e).__name__, str(e))
@@ -169,7 +169,7 @@ def leg_C():
     """同一闸覆盖 forget / move 两条出口（直调三出口共用的单点 `_allow` 的调用者）。"""
     print("\n[C 同一闸覆盖 forget / move]")
     root = _fresh("c")
-    w = MdCGSecure(root, principal=_princ("designer", "internal", "sessB"), autoflush=1)
+    w = MdCGSecure(root, principal=_princ("designer", "secret", "sessB"), autoflush=1)
     cases = [("forget", lambda: protect.guard_forget(w, "selfnode", override=True, actor="w-B")),
              ("move", lambda: protect.guard_move(w, "selfnode", "knowledge", override=True,
                                                  actor="w-B"))]

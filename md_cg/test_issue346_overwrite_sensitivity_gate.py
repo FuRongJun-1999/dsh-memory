@@ -231,8 +231,20 @@ def group_e(tmp):
     _check("E0 定位成功：MdCG.add 与 MdCGSecure.propose 均可达",
            add_fn is not None and prop_fn is not None)
     rl_add = _calls(add_fn, "require_layer") if add_fn else []
-    _check("E1 MdCG.add 调 protect.require_layer 恰一处（判据单点，不自写比较）",
-           len(rl_add) == 1, "calls=%d" % len(rl_add))
+    # 2026-10-19：调用点由 1 增至 2——#346 的**同层覆写闸**与 N221 的**跨层闸**各一处，
+    # 两者调的是**同一个** `protect.require_layer` 单点。判据的目的不是「数调用点」，
+    # 而是「不自写第二份比较」；故改为「≥1 处」+ 结构面 E1b 钉住不出现自写比较。
+    _check("E1 MdCG.add 经 protect.require_layer 判层闸（≥1 处；两个层闸共用单点）",
+           len(rl_add) >= 1, "calls=%d" % len(rl_add))
+    _inline = []
+    if add_fn is not None:
+        for node in ast.walk(add_fn):
+            if isinstance(node, ast.Name) and node.id == "SENSITIVITY_ORDER":
+                _inline.append(node.lineno)
+            if isinstance(node, ast.Call) and getattr(node.func, "id", "") == "_rank":
+                _inline.append(node.lineno)
+    _check("E1b add 内不自写密级比较（不出现 SENSITIVITY_ORDER / _rank）",
+           _inline == [], "inline=%s" % _inline)
     rl_prop = _calls(prop_fn, "require_layer") if prop_fn else []
     _check("E2 MdCGSecure.propose 调 protect.require_layer 恰一处（入队闸）",
            len(rl_prop) == 1, "calls=%d" % len(rl_prop))

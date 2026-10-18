@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import os
 import sys
 
@@ -88,9 +89,17 @@ def _anchor_preflight():
     if len(forb) <= RULE12_IDX:
         print("ANCHOR-MISS: forbidden 条数不足（%d）" % len(forb))
         sys.exit(2)
-    if NEW_SEP not in forb[RULE7_IDX]:
-        print("ANCHOR-MISS: 第 7 条缺新分隔段")
-        print("  期望含 = %r" % NEW_SEP)
+    # 判据是**能力**、不是字面量：第 7 条须能命中「横空白分隔」形态。
+    # 2026-10-19：#557 R1 把第 7/12 条重写为 `[\s]*[:=：]?[\s]*…`（覆盖更宽，
+    # 横空白形态仍在），字面量 `(?:\s*[:=：]\s*|[ 	]+)` 不再逐字存在——按字面量钉
+    # 会把「能力仍在」误判成锚点缺失（实测 ANCHOR-MISS exit 2）。
+    try:
+        _re7 = re.compile(forb[RULE7_IDX])
+    except re.error as exc:
+        print("ANCHOR-MISS: 第 7 条不是可编译正则：%s" % exc)
+        sys.exit(2)
+    if not _re7.search("我的密码 abc123456"):
+        print("ANCHOR-MISS: 第 7 条不再命中「横空白分隔」形态（能力面锚点）")
         print("  盘上实读 = %r" % forb[RULE7_IDX])
         sys.exit(2)
     if "是|为|等于|is" not in forb[RULE12_IDX]:
@@ -161,8 +170,12 @@ def _cases(rules):
     add("G8 如实边界·换行分隔 ⇒ ACCEPT（有意不收：跨行匹配易误伤）",
         _verdict(rules, _nl) == "ACCEPT", str(_verdict(rules, _nl)))
     _short = "密码 abc12345"
-    add("G8 如实边界·值尾长不足 ⇒ ACCEPT（值侧未动，宁漏勿伤）",
-        _verdict(rules, _short) == "ACCEPT", str(_verdict(rules, _short)))
+    # 2026-10-19 契约更新（#557 R1，1a3a6db8）：值侧由
+    # `[A-Za-z0-9_\-]*\d[A-Za-z0-9_\-]{5,}` 放宽为「≥6 字符且含数字/符号」
+    # （为支持引号包裹与含符号口令），故「密码 abc12345」（8 字符含数字）现在是
+    # **凭据形态** ⇒ REJECT。原断言「值尾长不足 ⇒ ACCEPT」钉的是放宽前的值侧。
+    add("G8 值侧随 #557 R1 放宽 ⇒ REJECT（≥6 字符且含数字/符号即凭据形态）",
+        _verdict(rules, _short) == "REJECT", str(_verdict(rules, _short)))
     return out
 
 
