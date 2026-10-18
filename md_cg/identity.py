@@ -84,6 +84,8 @@ AUDIT_FILE = "_identity.jsonl"
 
 TAG_ANCHOR = "identity_anchor"
 TAG_TRAIT = "identity_trait"
+OP_TOOL = "identity.observe/anchor/trait"
+
 TAG_OBS = "identity_observation"
 TAG_CONTRACT = "identity_contract"
 
@@ -187,8 +189,15 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
     if evidence:
         tg.append(f"evidence:{evidence}")
     cs = dict(condition_space or {})
+    # 2026-10-18：subject/kind **不是四维之一**，此前把它们塞进 condition_space，
+    # 把真正的四维挤掉了——实测 identity_self_lingshu 因此判 legacy_blindspot。
+    # 二者在 tags 里已有（subject:xxx / kind:xxx），此处保留只为不破坏既有读取方，
+    # 另补齐四维（产生过程自述，非内容推断）。
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", "identity.observe")
+    cs.setdefault("existence_constraint", "身份观测面可写")
     extra = {"role": role} if role else {}
     # issue #258：sensitivity 透传（缺省 None ⇒ 行为逐位不变，既有调用方零变更）。
     # 此前该形参**不存在** ⇒ 跨节点证据包导入时密级被静默回落到缺省 internal。
@@ -225,6 +234,10 @@ def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
     cs = dict(condition_space or {})
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    # 2026-10-18：补四维（subject/kind 非四维，见 observe 处说明）
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", OP_TOOL)
+    cs.setdefault("existence_constraint", "身份面可写")
     tg = [f"subject:{subject_id}", TAG_ANCHOR, f"kind:{k}"]
     cg.add(nid, text, layer=layer, tags=tg, condition_space=cs,
            importance=importance, verification_basis="data", override=override)
@@ -248,6 +261,10 @@ def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
     cs = dict(condition_space or {})
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    # 2026-10-18：补四维（subject/kind 非四维，见 observe 处说明）
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", OP_TOOL)
+    cs.setdefault("existence_constraint", "身份面可写")
     tg = [f"subject:{subject_id}", TAG_TRAIT, f"kind:{k}"]
     if position:
         tg.append(f"position:{position}")
