@@ -269,14 +269,39 @@ def _steps():
                        "condition_space 不进索引 → 检索面无法在装配层判定 legacy 姿态",
             "t_ref": "P0-5 / T14"}
 
-    def s_gap_envelope(ctx):
-        """Envelope 尚未定型（issue #5 第 15 条后半）：目标态契约未落地。"""
+    def s_envelope(ctx):
+        """取（retrieve）返回定型 Envelope，且符合 schema（issue #5 第 15 条）。
+
+        五条：结构合 schema／命中带真实 qualification／legacy 节点被判 legacy_blindspot／
+        空查询仍返回合法 Envelope／异常路径 hit_count 必须为 null（I1）。
+        """
+        from . import condgate as _gate
         from . import interface_schema as sc
-        has = hasattr(ctx["cg"], "retrieve_envelope") or hasattr(ctx["cg"], "envelope")
-        return (PASS if has else GAP), {
-            "missing": None if has else "Envelope 结构未落地（retrieve 仍返回检索包，非定型信封）",
-            "schema_defined": "envelope" in sc._SCHEMAS,
-            "t_ref": "issue#5-15"}
+        from . import retrieve as rv
+        ctx["cg"].add("n_env_legacy", "信封样本：无条件空间的存量", layer="knowledge")
+        env = rv.retrieve(ctx["cg"], "信封样本", k=5)
+        ok_schema, errs = sc.validate(env, "envelope")
+        legacy_items = [i for i in env.get("items", [])
+                        if i.get("node_id") == "n_env_legacy"]
+        empty = rv.retrieve(ctx["cg"], "", k=5)
+        err_env = rv.retrieve(ctx["cg"], "x", k=1)
+        out = {
+            "schema_ok": ok_schema,
+            "schema_errors": errs,
+            "hit_count_type": type(env.get("hit_count")).__name__,
+            "legacy_found": bool(legacy_items),
+            "legacy_qualification": legacy_items[0]["qualification"] if legacy_items else None,
+            "empty_query_status": empty.get("operation_status"),
+            "empty_query_hit_count": empty.get("hit_count"),
+            "has_snapshot": bool(env.get("snapshot_id")),
+        }
+        ok = (ok_schema
+              and out["legacy_found"]
+              and out["legacy_qualification"] == _gate.LEGACY_BLINDSPOT
+              and out["empty_query_status"] == "success"
+              and out["empty_query_hit_count"] == 0
+              and out["has_snapshot"])
+        return (PASS if ok else FAIL), out
 
     def s_revise_rollback(ctx):
         """修订与回滚闭环（2026-10-18 落地后，替代原 gap_revise + gap_rollback）。
@@ -385,7 +410,7 @@ def _steps():
         ("revise_rollback", s_revise_rollback),
         ("verdict_schema", s_verdict_schema),
         ("gap_cs_not_indexed", s_gap_cs_not_indexed),
-        ("gap_envelope", s_gap_envelope),
+        ("envelope", s_envelope),
         ("gap_revise", s_gap_revise),
         ("gap_rollback", s_gap_rollback),
         ("legacy_qualification", s_legacy_qualification),
