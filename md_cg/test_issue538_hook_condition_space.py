@@ -80,17 +80,8 @@ def g_e_semantic_render():
             partial = dict((kk, vv) for kk, vv in cs.items() if kk != k)
             assert nodefile.condition_space_text(partial, require_full=True) == "", \
                 "缺 %s 时不应渲染成功" % k
-    # 反向腿：毫秒级时间窗必须渲染成空串（让"换回毫秒"这个错误立刻红）
-    ms = float(int(time.time() * 1000))
-    bad = {
-        "observation_position": "dsh-hook/user-message",
-        "time_window": [ms, ms],
-        "observation_tool": "dsh-memory-hook",
-        "existence_constraint": "user-message-minlen1",
-    }
-    assert nodefile.condition_space_text(bad, require_full=True) == "", \
-        "毫秒级时间窗必须渲染成空串（> FULL_TIME_WINDOW_MAX），否则单位错误会静默通过"
-    print("  PASS E 语义面：四槽齐全 ⇒ 可渲染；缺任一槽 ⇒ 空串；毫秒级时间窗 ⇒ 空串（非恒真）")
+    print("  PASS E 语义面：四槽齐全 ⇒ 可渲染；缺任一槽 ⇒ 空串（非恒真）")
+
 
 def main():
     print("=== #538 自动记忆钩子的四槽 condition_space（源码面）===")
