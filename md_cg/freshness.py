@@ -358,9 +358,14 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     d = decay_factor(g, dt_days, floor, SCORE_CEIL, enabled=enabled)
     r = refresh_factor(src.get("access_count"), src.get("last_access"),
                        src.get("importance"), enabled=enabled)
+    # issue #379-A（G1e）：`protected` 必须与 `protected_floor` **同源**——
+    # 修前这里只读 `src["protected"]` 位，于是 layer=anchor / importance≥0.70 的
+    # 受保护条目在下界判据里算「受保护」（floor 抬高）而在依据里报 protected=False，
+    # 同一份 dict 给出两个相反读数。现两处都走 protect 的单点（∪ 显式位）。
+    _prot = bool(src.get("protected") or _is_protected_entry(src)[0])
     return d * r, {"gamma": g, "dt_days": dt_days, "unit": DT_UNIT,
                    "decay": d, "refresh": r, "floor": floor,
-                   "protected": bool(src.get("protected"))}
+                   "protected": _prot}
 
 
 # --------------------------------------------------------------------------
