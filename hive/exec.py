@@ -1118,7 +1118,14 @@ _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          # issue #95：下面这些是实测「原文进入消息」的形态
                          "token", ".pgpass", ".my.cnf",
                          "login.keyring", "keyring.json",
-                         "logins.json", "key4.db", "signons.sqlite")
+                         "logins.json", "key4.db", "signons.sqlite",
+                         # issue #557 R4：补常见凭据形态。报告只给读数（「8 个里 7 个」）
+                         # 未列出文件名，故按「业界标准凭据文件位置」补齐高置信族；
+                         # 误伤可走部署管理员显式通道（拒读文案已注明）。
+                         "hosts.yml",          # gh CLI 的 token 所在（~/.config/gh/）
+                         "secrets.json", "secrets.yaml", "secrets.yml",  # k8s/compose
+                         ".terraformrc",       # terraform 凭据
+                         "known_hosts.bak")    # 备份形态（排除常读的 known_hosts 本体）
 
 
 # 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES（含 config.local.json——N141，批次 49）、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖；.token 后缀族——N141 补部署令牌文件 orch.token/designer.token）、或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .env/.pem/.key/.p12/.pfx/.kdbx/.token 结尾时返回原因说明串，否则返回 None。
@@ -1153,8 +1160,11 @@ def _sensitive_read(real: str) -> str | None:
     # 同时精确名补 config.local.json（serve 部署配置，serve_start.py
     # DEFAULT_CONFIG，api_key 所在）——子代理 read_file / 编排者
     # context_files 一句话即可外发外部网关，两者是默认部署的最后一道闸。
+    # issue #557 R4：后缀族补 Java/OpenVPN/KeePass 旧版/terraform state ——
+    # 这些名字不带 "credential"/"key" 字样，故此前三族都放过。
     if name.startswith(".env") or name.endswith(
-            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx", ".token")):
+            (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx", ".token",
+             ".jks", ".keystore", ".ovpn", ".kdb", ".tfstate")):
         return f"密钥/环境凭据文件（{name}）"
     return None
 
