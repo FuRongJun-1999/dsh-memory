@@ -199,6 +199,13 @@ def _mk_mixed(root, name="mixed"):
     cg.flush()
     cg.index["nodes"]["notime_0"].pop("temporal", None)
     cg.index["nodes"]["notime_0"].pop("time_window", None)
+    # 2026-10-18：`_add` 还写了**嵌套载体** `condition_space.time_window`；只 pop 平铺键
+    # 时该节点仍可判时间（`trust.time_window_of` 两载体都读）⇒ 它落进 by_time 而非
+    # untimed，A16 的时间子集变 14/14 ⇒ `_index_pairs` 判「没收窄」走全量臂（no_convergence）。
+    # 本夹具的意图是「无时间」（见函数 docstring 的「无时间」一档），故连嵌套键一起清掉。
+    _cs = cg.index["nodes"]["notime_0"].get("condition_space")
+    if isinstance(_cs, dict):
+        _cs.pop("time_window", None)
     cg.index["nodes"]["nan_0"]["temporal"] = float("nan")
     return cg
 
