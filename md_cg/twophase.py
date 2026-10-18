@@ -189,9 +189,9 @@ def pending(cg, limit: int = 200) -> list:
     return out[:max(0, int(limit))]
 
 
-# 生效条件：cg 的 index["nodes"] 为映射时——遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
+# 生效条件：cg 的 index["nodes"] 为映射时——先按该映射查（_merge_target_in）；未命中且 cg 有 _scan_nodes 时**回退盘面扫描**再查同一条复合判据（扫描抛异常按未命中）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
 def _merge_target(cg, nid):
-    """源 id 是否已被**合并**进某个目标节点（#417）——事实来源＝**盘面**。
+    """源 id 是否已被**合并**进某个目标节点（#417/#498）——事实来源＝**盘面**。
 
     为什么需要它：MERGE 的落盘对象是**目标节点**（`forgetting.reinforce`），
     源 id 本就不会成文；而崩溃窗口落在「内容已并入目标、`commit` 还没落账」
@@ -203,8 +203,34 @@ def _merge_target(cg, nid):
     **不含来源节点 id** —— 拿它反查来源永远查不到（"判据与事实不符"换个地方复发）。
     故 `forgetting.reinforce` 另立一列把来源 id 落盘（并有界保留），本函数据此反查；
     索引命中后**仍回盘复核**（索引是派生物，盘面才是事实来源）。
+
+    #498（P1）：**索引是派生物，且可能陈旧**——崩溃窗口内 `_index.json` 未持久化、
+    或本进程是长活实例（签名未变 ⇒ 不重载）时，索引里没有 `merge_source_ids`
+    这个键，于是判据看不到盘面明明已经存在的合并痕迹，结论与盘面相反。故索引
+    **落空后回退盘面扫描**（复用库层唯一扫描实现 `_scan_nodes`，不新写第二套
+    遍历），扫出的条目交给**同一条**复合判据（仍 `cg.get(tid)` 回盘复核）。
+    语义不放宽：盘面确无痕迹时照旧返回 None ⇒ `_judge` 仍判 `interrupted`。
+    代价只落在 miss 冷路径（恢复期），命中路径仍只读索引。
     """
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    tgt = _merge_target_in(cg, nid, nodes)
+    if tgt is not None:
+        return tgt
+    scan = getattr(cg, "_scan_nodes", None)
+    if scan is None:
+        return None
+    try:
+        disk_nodes = scan()              # 盘面全量扫描（只读、不写盘）
+    except Exception:                    # noqa: BLE001 —— 扫不动不猜测
+        return None
+    if not isinstance(disk_nodes, dict):
+        return None
+    return _merge_target_in(cg, nid, disk_nodes)
+
+
+# 生效条件：nodes 为映射时遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；字段形态不符/无命中一律返回 None；恒不写盘、不抛。索引面与盘面扫描面**共用**这一条复合判据（单点，不各写一份）。
+def _merge_target_in(cg, nid, nodes):
+    """在给定条目映射（索引或盘面扫描结果）上反查合并痕迹——复合判据的**单点**。"""
     for tid, e in tuple(nodes.items()):          # H-4(a)：迭代前取快照
         if not isinstance(e, dict):
             continue

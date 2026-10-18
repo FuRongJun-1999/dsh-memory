@@ -655,6 +655,176 @@ def dispatch_of(path: str):
     return INGEST_REGISTRY.get(os.path.splitext(path or "")[1].lower())
 
 
+# --------------------------------------------------------------------------
+# 库内路径闸（issue #425）：库内节点文件 / 回收站 / 保护历史**不是外部文档**
+# --------------------------------------------------------------------------
+# 病象：`ingest dir path=<库根>` 或 `ingest file path=trash/<id>.md` 时，遍历把
+# 各层节点文件、回收站、保护历史当外部 md 重新切成 doc_* 节点——
+#   · restricted 节点正文被抄进 internal 节点（无令牌访客可检索）；
+#   · 已 forget+accept 删除的节点从 trash/ 复活成活节点。
+# 根因（条件层）：摄取链只判「path 非空」，不判「它是不是记忆库自己」；而 doc 节点
+# 的密级判据（`docindex.sensitivity_for`）只看路径段，源节点 frontmatter 里的
+# `sensitivity: restricted` 根本不参与 ⇒ 重索引必然降级。库内节点文件的密级真源
+# 是节点 frontmatter（`cg.get` 面），**不是**路径——本链不读它，故这里 **fail-closed**：
+# 库根本身、各层目录、trash/、_protected_history/、hippocampus/ 一律拒绝/剪枝，
+# 不猜、不降级。库根下**普通子目录**仍可作为外部资料根（保留既有用法）。
+# 姊妹判据：export 侧已有 `security.check_export_target`（#211），本闸是 ingest 侧对应的一道。
+
+#: 库根下不得被 ingest 当外部文档的子树（相对库根首段）。
+#: 层目录从 `mdcg.LAYERS` 取（唯一真源），不在此复制一份。
+_LIBRARY_EXTRA_RESERVED = ("trash", "_protected_history", "hippocampus",
+                           "_index_log", "export")
+
+
+def library_reserved_dirs():
+    """库根下保留子树的首段名（层目录 + 回收站/保护历史/海马体等）。
+
+    层目录**只从 `mdcg.LAYERS` 取**（唯一真源，不在此复制一份）；取不到即
+    fail-closed 抛错——宁可本次摄取失败，也不静默放宽成「层目录可被当外部文档」。
+    """
+    from .mdcg import LAYERS as _LAYERS
+    return tuple(_LAYERS) + _LIBRARY_EXTRA_RESERVED
+
+
+def library_rel(cg, path):
+    """path 相对记忆库根的路径（正斜杠）；不在库内返回 None，等于库根返回 ""。
+
+    realpath + normcase 后比较：符号链接/大小写不改变「是否库内」的结论。
+    """
+    root = getattr(cg, "root", None)
+    if not root or not path or not str(path).strip():
+        return None
+    try:
+        lib = os.path.normcase(os.path.realpath(root))
+        real = os.path.normcase(os.path.realpath(os.path.expanduser(str(path))))
+    except (OSError, ValueError):
+        return None
+    if real == lib:
+        return ""
+    if real.startswith(lib.rstrip(os.sep) + os.sep):
+        return os.path.relpath(real, lib).replace("\\", "/")
+    return None
+
+
+def library_reserved(cg, rel):
+    """相对库根的路径是否落在保留子树（含库根本身）——这些不是外部文档。"""
+    if rel is None:
+        return False
+    if rel == "":
+        return True
+    return rel.replace("\\", "/").split("/")[0] in library_reserved_dirs()
+
+
+def library_skip_rel(cg, root):
+    """root 是库根**祖先**时，返回库根相对 root 的路径（遍历时整枝剪掉）；否则 None。
+
+    issue #425 C7：`MDCG_INGEST_ROOT` 设成库根上级目录时，`dir` 空 path 会从上级
+    开始 walk，把整个记忆库扫进来。剪枝比「逐文件判」便宜且不漏（层目录、trash、
+    _protected_history 都在库根之下）。
+    """
+    try:
+        lib = os.path.normcase(os.path.realpath(cg.root))
+        r = os.path.normcase(os.path.realpath(root))
+    except (OSError, ValueError):
+        return None
+    if lib == r:
+        return None
+    rel = os.path.relpath(lib, r).replace("\\", "/")
+    if rel == ".." or rel.startswith("../"):
+        return None
+    return rel
+
+
+# 生效条件：cg 无 root 或 path 为空时返回 None（无路径参数不判）；否则按 realpath 判——path 等于库根或落在库根保留子树（层目录/trash/_protected_history/hippocampus 等）内时返回 ok=False 的拒绝回执（error 点名 issue #425 与原因）；库外或库根下普通子目录返回 None（放行）。
+def library_ingest_guard(cg, path, what="ingest"):
+    """库内路径闸的**单点**判定（issue #425）：返回拒绝回执或 None。"""
+    rel = library_rel(cg, path)
+    if not library_reserved(cg, rel):
+        return None
+    where = "记忆库根" if rel == "" else f"记忆库保留子树「{rel.split('/')[0]}」"
+    return {"ok": False, "path": path, "error": (
+        f"{what} 拒绝：{path} 落在{where}内——库内节点文件/回收站/保护历史"
+        f"**不是外部文档**（issue #425：重新索引会把 restricted 正文抄成 internal、"
+        f"把已删除节点复活）。外部资料请放在**库根之外**的根再摄取"
+        f"（设 MDCG_INGEST_ROOT）；库内节点的维护/重建不走 ingest 面。")}
+
+
+# --------------------------------------------------------------------------
+# 来源密级继承（issue #452）：判据面必须同时看**绝对路径**与相对路径的段
+# --------------------------------------------------------------------------
+# 病象：`docindex.index_dir` 产出的 item["path"] 是**相对被摄取根**的；而
+# `refindex.add_items` 用 `docindex.sensitivity_for(it["path"])` 判密级。
+# 当**摄取根本身就是敏感目录**（`ingest(path=<…>/private)`）时，`private` 这一段
+# 正是 root 自身，被 relpath 抹掉 ⇒ 提示永远命中不了，敏感文档以 internal 落库，
+# internal 档身份读得回其正文摘要。同一内容换成父目录摄取则正确判 private 并
+# fail-closed——同一份文档、同一个写者，只因 path 参数不同而一紧一松。
+#
+# 根因（条件层）：判据的**输入面**取错了路径（相对路径丢了根自身的段），
+# 不是 sensitivity_for 的实现有问题。故修法：判据仍只有 `docindex.sensitivity_for`
+# 一处，但喂给它的是**源文件的绝对路径**（绝对路径的段集合 ⊇ 相对路径的段集合，
+# 只会更严、不会更松）。item["path"] 保持相对 root 不变——节点 id / doc_ref 的
+# 稳定标识与回读口径不受影响（换 id 会动存量幂等，不在本条范围）。
+def source_sensitivity(path, explicit=None):
+    """源文件密级判据的**唯一取值点**（issue #452）：路径面取绝对路径。
+
+    判据本体仍只有 `docindex.sensitivity_for` 一处；本函数只补两件事：
+      ① **路径面**喂绝对路径（绝对路径的段集合 ⊇ 相对路径，只会更严）；
+      ② **来源声明面**（issue #425 修复建议 3）：源文件 frontmatter 里若带
+         `sensitivity`，取「路径判据」与「来源声明」中**更严**的一档——
+         否则把一份 restricted 节点文件复制到库外再摄取，密级就凭空降成
+         internal（「删掉的比留下的更泄露」同族）。缺键/值域非法时不猜，
+         按路径判据（既有语义）；库内节点文件由 `library_ingest_guard` 直接拒，
+         走不到这里。
+    """
+    from . import docindex, nodefile
+    from .security import SENSITIVITY_ORDER
+    s, _basis = docindex.sensitivity_for(path, explicit)
+    cands = [s]
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            fm, _content = nodefile.loads(f.read())
+    except (OSError, ValueError):
+        fm = {}
+    fm_s = fm.get("sensitivity") if isinstance(fm, dict) else None
+    if isinstance(fm_s, str) and fm_s in SENSITIVITY_ORDER:
+        cands.append(fm_s)
+    return max(cands, key=SENSITIVITY_ORDER.index)
+
+
+def add_items_with_source_sensitivity(cg, items, *, kind, root, layer=None,
+                                      sensitivity=None, conflicts=None):
+    """按**来源文件**分组调 `refindex.add_items`，每组带该文件继承来的密级。
+
+    `refindex.add_items` 只接受一个批次级 `sensitivity`，而密级提示可能落在
+    **被摄取根自身**的名字上（#452）。故按 item["path"]（相对 root 的源文件路径）
+    分组，每组以 `source_sensitivity(join(root, rel), sensitivity)` 作为该组的
+    密级——判据仍是 `docindex.sensitivity_for` 单点，只是输入面补上了绝对路径。
+    doc 之外（code_ref）不涉密级继承，保持原批次一次调用。
+    返回 `(ids, sens_counts)`，与 `refindex.add_items` 同形。
+    """
+    from . import refindex
+    if kind != "doc_ref" or not items:
+        return refindex.add_items(cg, items, kind=kind, root=root, layer=layer,
+                                  sensitivity=sensitivity, conflicts=conflicts)
+    groups = {}
+    for it in items:
+        groups.setdefault(it.get("path") or "", []).append(it)
+    if len(groups) <= 1:
+        rel = next(iter(groups), "")
+        s = source_sensitivity(os.path.join(root, rel), sensitivity) if rel else sensitivity
+        return refindex.add_items(cg, items, kind=kind, root=root, layer=layer,
+                                  sensitivity=s, conflicts=conflicts)
+    ids, sens = [], {}
+    for rel, grp in groups.items():
+        s = source_sensitivity(os.path.join(root, rel), sensitivity)
+        _ids, _sens = refindex.add_items(cg, grp, kind=kind, root=root, layer=layer,
+                                         sensitivity=s, conflicts=conflicts)
+        ids.extend(_ids)
+        for k, v in (_sens or {}).items():
+            sens[k] = sens.get(k, 0) + v
+    return ids, sens
+
+
 # 生效条件：required 形参 cg 总被存入；可选形参 sensitivity 为假值（None/空串）时内部 Ingestor 的 sensitivity 回落模块级常量 SESSION_SENSITIVITY，为真值时用传入的 sensitivity。
 class FileDispatcher:
     """单一入口吃多种文件：按扩展名分派到会话流 / 文档 / 代码三条摄取链。"""
@@ -701,6 +871,12 @@ class FileDispatcher:
                     "supported": sorted(INGEST_REGISTRY)}
         if not os.path.isfile(path):
             return {"ok": False, "path": path, "error": "文件不存在"}
+        # issue #425：库内节点文件 / trash/<id>.md / _protected_history 快照
+        # **不是外部文档**——单文件链同样过闸（否则一条 file 摄取即可把
+        # restricted 正文抄成 internal，或把已删除节点复活）。
+        _g = library_ingest_guard(self.cg, path, "ingest file")
+        if _g is not None:
+            return _g
         if kind == "session":
             return self.ingest_jsonl(path, dry_run=dry_run)
         return self._ingest_doc_or_code(path, kind, layer=layer,
@@ -727,7 +903,7 @@ class FileDispatcher:
                     "note": "预演：只抽取计数，未写盘"}
         ref_kind = "code_ref" if kind == "code" else "doc_ref"
         _cf = []                     # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
-        ids, sens = refindex.add_items(
+        ids, sens = add_items_with_source_sensitivity(
             self.cg, items, kind=ref_kind,
             root=os.path.dirname(path) or ".", layer=layer,
             sensitivity=sensitivity, conflicts=_cf)
@@ -743,7 +919,16 @@ class FileDispatcher:
 # 生效条件：调用即 os.walk(root) 统计每个文件名经 dispatch_of 得到的 kind（无匹配记 "unsupported"）并返回 dry_run 预演计数结果。
     def _dry_dir(self, root):
         counts = {}
-        for _dp, _dn, fns in os.walk(root):
+        _lib_rel = library_skip_rel(self.cg, root)     # issue #425 C7：库根整枝剪掉
+        for dp, dns, fns in os.walk(root):
+            rel_dir = os.path.relpath(dp, root).replace("\\", "/")
+            if rel_dir == ".":
+                rel_dir = ""
+            if _lib_rel is not None:
+                dns[:] = [d for d in dns
+                          if ("%s/%s" % (rel_dir, d) if rel_dir else d) != _lib_rel
+                          and not ("%s/%s" % (rel_dir, d) if rel_dir else d)
+                          .startswith(_lib_rel + "/")]
             for name in fns:
                 k = dispatch_of(name) or "unsupported"
                 counts[k] = counts.get(k, 0) + 1
@@ -758,20 +943,32 @@ class FileDispatcher:
         from . import refindex
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
+        # issue #425：库根本身 / 层目录 / trash / _protected_history / hippocampus
+        # **不是外部文档**——直接拒绝（fail-closed），不猜扫描根。
+        _g = library_ingest_guard(self.cg, root, "ingest dir")
+        if _g is not None:
+            return _g
         if dry_run:
             return self._dry_dir(root)
+        # issue #425 C7：root 是库根**祖先**时整枝剪掉库根（与 SKIP_DIRS 同处生效）。
+        _lib_rel = library_skip_rel(self.cg, root)
+        _skip = [_lib_rel] if _lib_rel else None
         ledger = refindex.Ledger(self.cg.root)
         out = {"ok": True, "kind": "dir", "root": root, "chains": {}}
+        if _lib_rel:
+            out["library_pruned"] = [_lib_rel]
         for ref_kind, key in (("doc_ref", "doc"), ("code_ref", "code")):
             items, errors, stats = refindex.index_dir(
                 root, kind=ref_kind, patterns=patterns, max_files=max_files,
                 max_items=max_items, incremental=incremental, ledger=ledger,
-                commit=False)
+                skip_dirs=_skip, commit=False)
             _cf = []                 # #352-E：同 id 已被另一个源根占用 ⇒ 不覆写
-            ids, sens = refindex.add_items(self.cg, items, kind=ref_kind,
-                                           root=root, layer=layer,
-                                           sensitivity=sensitivity,
-                                           conflicts=_cf)
+            # issue #452：按来源文件继承密级（判据面补上绝对路径的段）。
+            ids, sens = add_items_with_source_sensitivity(
+                self.cg, items, kind=ref_kind,
+                root=root, layer=layer,
+                sensitivity=sensitivity,
+                conflicts=_cf)
             for _c in _cf:           # 冲突源文件的水位一并丢掉（否则下次增量跳过）
                 ledger.drop(_c.get("src")
                             or os.path.join(root, _c.get("path") or ""))
@@ -788,9 +985,11 @@ class FileDispatcher:
             if _cf:                  # #352-E：冲突不静默
                 out["chains"][key]["conflict_count"] = len(_cf)
                 out["chains"][key]["conflicts"] = _cf[:20]
-        # 会话流（.jsonl）逐个增量摄取
-        jsons = sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
-                                 recursive=True))[:max_files]
+        # 会话流（.jsonl）逐个增量摄取——库内台账/回收站下的 jsonl 同样不是
+        # 外部会话（issue #425：`hippocampus/*.jsonl` 等库内账本不得被当会话源）。
+        jsons = [p for p in sorted(glob.glob(os.path.join(root, "**", "*.jsonl"),
+                                             recursive=True))[:max_files]
+                 if not library_reserved(self.cg, library_rel(self.cg, p))]
         ses = []
         for p in jsons:
             r = self.ingest_jsonl(p)
@@ -815,10 +1014,13 @@ class FileDispatcher:
                 return DSHSessionSource(path)
         return JsonlSource(path)
 
-# 生效条件：path 不是文件时返回 ok=False 的「文件不存在」；否则经 _auto_source(path) 选源后调 self.ingestor.ingest(src, dry_run=dry_run, max_events=max_events)，并补上 ok=True/kind/path/source_class 后返回。
+# 生效条件：path 不是文件时返回 ok=False 的「文件不存在」；path 落在记忆库保留子树（层目录/trash/_protected_history/hippocampus 等）内时返回 ok=False 的库内路径拒绝（issue #425）；否则经 _auto_source(path) 选源后调 self.ingestor.ingest(src, dry_run=dry_run, max_events=max_events)，并补上 ok=True/kind/path/source_class 后返回。
     def ingest_jsonl(self, path, dry_run=False, max_events=None):
         if not os.path.isfile(path):
             return {"ok": False, "error": f"文件不存在：{path}"}
+        _g = library_ingest_guard(self.cg, path, "ingest jsonl")
+        if _g is not None:
+            return _g
         src = self._auto_source(path)
         res = self.ingestor.ingest(src, dry_run=dry_run, max_events=max_events)
         res.update({"ok": True, "kind": "session", "path": path,
