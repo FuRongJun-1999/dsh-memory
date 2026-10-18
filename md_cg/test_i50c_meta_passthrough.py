@@ -439,11 +439,11 @@ _ALREADY = ('        if pid in self._closed_pids():\n'
             '            return {"ok": False, "error": "already_decided"}')
 _VERIFY_RO = ('        if (edits and "verify" in edits) or (redteam and "verify" in redteam):')
 _NOOP = '        if decision == DECISION_NOOP:'
-_NEG_UNION = ('            neg = list(fm.get("non_applicable_conditions") or [])\n'
-              '            for x in (item.get("extra") or {}).get("non_applicable_conditions") or []:\n'
-              '                if x not in neg:\n'
-              '                    neg.append(x)\n'
-              '            fm["non_applicable_conditions"] = neg')
+_NEG_UNION = ('                neg = list(fm.get("non_applicable_conditions") or [])\n'
+              '                for x in (item.get("extra") or {}).get("non_applicable_conditions") or []:\n'
+              '                    if x not in neg:\n'
+              '                        neg.append(x)\n'
+              '                fm["non_applicable_conditions"] = neg')
 _TAGS_MAP = '            tags = list(item.get("tags") or [])'
 _CS_MAP = '                           condition_space=item.get("condition_space"), **extra)'
 

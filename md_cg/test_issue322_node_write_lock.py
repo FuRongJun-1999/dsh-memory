@@ -160,7 +160,8 @@ def _race(root, env, worker, writers):
     ps = [subprocess.Popen([sys.executable, "-X", "utf8", "-c", worker, _REPO,
                             root, nid, layer, body, str(t0)], env=env,
                            cwd=env["HOME"], stdout=subprocess.PIPE,
-                           stderr=subprocess.PIPE, text=True)
+                           stderr=subprocess.PIPE, text=True,
+                           encoding="utf-8", errors="replace")
           for nid, layer, body in writers]
     res = []
     for p in ps:
@@ -382,7 +383,8 @@ def group_a4():
             ps.append(subprocess.Popen(
                 [sys.executable, "-X", "utf8", "-c", worker, _REPO,
                  root] + extra, env=env, cwd=env["HOME"],
-                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True))
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                encoding="utf-8", errors="replace"))
         res = []
         for p in ps:
             o, e = p.communicate(timeout=180)
@@ -438,14 +440,16 @@ def group_a5():
                               "internal", "0", str(t0)],
                              env=env, cwd=env["HOME"],
                              stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True),
+                             stderr=subprocess.PIPE, text=True,
+                             encoding="utf-8", errors="replace"),
             # B：未声明（应继承**当前**密级），读到旧值后睡 0.5s 再落盘
             subprocess.Popen([sys.executable, "-X", "utf8", "-c", _W_SECURE,
                               _REPO, root, nid, CCG % "B-INHERIT",
                               "", "0.5", str(t0)],
                              env=env, cwd=env["HOME"],
                              stdout=subprocess.PIPE,
-                             stderr=subprocess.PIPE, text=True),
+                             stderr=subprocess.PIPE, text=True,
+                             encoding="utf-8", errors="replace"),
         ]
         res = []
         for p in ps:
@@ -609,6 +613,7 @@ def _run_in(tree):
     p = subprocess.run([sys.executable, "-X", "utf8", "-m",
                         "md_cg.test_issue322_node_write_lock"],
                        cwd=tree, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
                        timeout=1800,
                        env=dict({k: v for k, v in os.environ.items()
                                  if not k.startswith("PYTHON")},

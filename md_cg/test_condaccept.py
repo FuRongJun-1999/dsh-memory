@@ -103,9 +103,9 @@ check("observe detail 保留真实判定", r_obs["detail"]["observe"] is True an
 r_enf = run(PL, mode_value="enforce")
 check("enforce 返回真实判定 ACCEPT", r_enf["state"] == "ACCEPT")
 os.environ["MDCG_WORKDONE_ACCEPT"] = "bogus"
-check("非法档位回落 observe", condaccept.mode() == "observe")
+check("非法档位回落 enforce（缺省档随 2026-10 裁定改为 enforce）", condaccept.mode() == "enforce")
 del os.environ["MDCG_WORKDONE_ACCEPT"]
-check("未设档位默认 observe", condaccept.mode() == "observe")
+check("未设档位默认 enforce（同上）", condaccept.mode() == "enforce")
 
 print("[变异自证] 判据是否真在起作用")
 importlib.reload(condaccept)

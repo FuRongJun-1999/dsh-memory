@@ -117,7 +117,8 @@ def _round(tag, k=4):
     ps = [subprocess.Popen(
         [sys.executable, "-X", "utf8", "-c", _W_MERGE, _REPO, root, str(i),
          str(t0), BASE], env=env, cwd=env["HOME"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+        encoding="utf-8", errors="replace")
         for i in range(k)]
     res = []
     for p in ps:
@@ -256,6 +257,7 @@ def _run_in(tree):
     p = subprocess.run([sys.executable, "-X", "utf8", "-m",
                         "md_cg.test_issue348_merge_rmw_lock"],
                        cwd=tree, capture_output=True, text=True, timeout=2400,
+                       encoding="utf-8", errors="replace",
                        env=dict({k: v for k, v in os.environ.items()
                                  if not k.startswith("PYTHON")},
                                 PYTHONPATH=tree, PYTHONUTF8="1"))
