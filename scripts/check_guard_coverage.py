@@ -17,6 +17,7 @@
   2  环境/解析错误（fail-closed：读不到 package.json / workflows / 收集面）
   3  登记表格式错误（缺理由或缺复核人）
   4  gate/CI 点名的仓内脚本路径在磁盘上不存在（#179 反向判据）
+  5  登记的「定点变异腿」守卫缺腿（#429：防回退依据被删/被清空而无人察觉）
 
 用法：
   python -X utf8 scripts/check_guard_coverage.py                 # 人读覆盖矩阵
@@ -27,10 +28,13 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import re
+import shutil
 import sys
+import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -50,6 +54,25 @@ COLLECT_GLOBS = (
     "md_cg/test_*.py",
     "hive/test_*.py",
 )
+
+# 必须有**定点变异腿**的守卫（issue #429 的元判据：守卫撤不住回退，CI 就不会报警）。
+# 判据强度（如实）：本表只判「腿还在」——源码里存在**真实的** `"--mutate" in sys.argv`
+# 分支（AST 判，不认 docstring 里的用法字样）与**真实定义**的镜像树装置 `_mirror_build`
+# （AST 判 FunctionDef，不认子串）；登记件**整份缺失**同样报出（与 missing_named_paths
+# 的「点名缺失必报」同口径）。**不判**腿跑起来真的转红（那要起子进程 + 复制整棵树，
+# 成本不适合进 gate）；运行时证据由各守卫的 `--mutate` 读数提供（#429 的两条见其 docstring）。
+# 口径：新增「随安全修复提交的防回退守卫」时在此登记，从而「腿被删/被清空」在
+# code review 与 gate 上当场可见；与 EXCEPTIONS 相反——本表**只增不减**（删腿须显式改这里）。
+MUTATE_GUARDS = {
+    "md_cg/test_issue93_remember_redaction.py": {
+        "issue": 429,
+        "why": "#93 防回退依据：撤回「打码结果写回 content」一行 ⇒ G5/G6 必须转红",
+    },
+    "md_cg/test_issue91_verifier_sandbox.py": {
+        "issue": 429,
+        "why": "#91 防回退依据：撤回子进程执行器的 __builtins__ 限制 ⇒ G1/G7/G8 必须转红",
+    },
+}
 
 # 「执行面」在 package.json 里的脚本键。**正反两向必须共用这一个常量**：
 # 正向（gather_surfaces 判「守卫有没有执行面」）与反向（missing_named_paths 判
@@ -98,6 +121,7 @@ EXIT_MEANING = {
     2: "环境/解析错误（fail-closed）",
     3: "登记表格式错误",
     4: "gate/CI 点名的仓内脚本路径不存在（点名缺失）",
+    5: "登记的定点变异腿守卫缺腿（防回退依据被删而无人察觉）",
 }
 
 
@@ -281,6 +305,151 @@ def missing_named_paths(repo_root: str) -> list:
     return missing
 
 
+def _is_sys_argv(node) -> bool:
+    """`sys.argv`（Attribute 形态）。"""
+    return (isinstance(node, ast.Attribute) and node.attr == "argv"
+            and isinstance(node.value, ast.Name) and node.value.id == "sys")
+
+
+def _is_mutate_const(node) -> bool:
+    """字面量 `"--mutate"`。"""
+    return isinstance(node, ast.Constant) and node.value == "--mutate"
+
+
+def _has_mutate_branch(src: str) -> bool:
+    """源码里是否有**真实的** `"--mutate" in sys.argv` 分支（AST 判，不认 docstring）。
+
+    两侧方向都认：`"--mutate" in sys.argv`（仓内两条守卫的写法）与
+    `sys.argv` 在左的比较形态。
+    """
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Compare):
+            continue
+        sides = [node.left] + list(node.comparators)
+        if any(_is_sys_argv(s) for s in sides) and any(_is_mutate_const(s) for s in sides):
+            return True
+    return False
+
+
+def _has_mirror_build(src: str) -> bool:
+    """源码里是否有**真实定义**的 `_mirror_build`（AST 判 FunctionDef，不认子串）。"""
+    tree = ast.parse(src)
+    return any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+               and n.name == "_mirror_build" for n in ast.walk(tree))
+
+
+_CRITERION_SELFCHECK: list = []
+
+
+def _criterion_selfcheck() -> str:
+    """本判据的**判别力自检**（合成样本，不依赖本仓现状与登记表）。
+
+    为什么内嵌：`--selftest` 不在任何自动链上（gate / workflow / run_tests 都不调它），
+    而配对测试 `scripts/test_check_guard_coverage.py` 只经 `build()` 间接看到本判据。
+    把判别力自检放进判据本体，`build()` 的每次调用（含配对测试与真仓运行）都会覆盖到：
+    判据自己被改坏（例如退回子串匹配）时，真仓的 `exit_code == 0` 断言当场转红。
+
+    返回 "" 表示通过；否则返回失败原因。进程内缓存（同一进程只跑一次）。
+    """
+    if _CRITERION_SELFCHECK:
+        return _CRITERION_SELFCHECK[0]
+    bad = []
+    good = ("import sys\n\ndef _mirror_build():\n    return None\n\n"
+            "if __name__ == '__main__':\n"
+            "    if '--mutate' in sys.argv:\n        raise SystemExit(1)\n")
+    doc_only = ('"""用法：x.py [--mutate]"""\n\n\ndef _mirror_build():\n    return None\n')
+    no_mirror = ("import sys\n\nif __name__ == '__main__':\n"
+                 "    if '--mutate' in sys.argv:\n        raise SystemExit(1)\n")
+    if not (_has_mutate_branch(good) and _has_mirror_build(good)):
+        bad.append("合格样本被误判缺腿（过度收紧方向）")
+    if _has_mutate_branch(doc_only):
+        bad.append("只有 docstring 里的 --mutate 字样被当成真实分支（判据退化为子串匹配）")
+    if not _has_mirror_build(doc_only):
+        bad.append("真实定义的 _mirror_build 未被识别")
+    if _has_mirror_build(no_mirror):
+        bad.append("无 _mirror_build 的样本被误判为有装置")
+    # 整份缺失分支：在合成目录里放一份「本元守卫」占位（满足适用前提），
+    # 再登记一个不存在的守卫 ⇒ 必须报「文件不存在」。
+    d = tempfile.mkdtemp(prefix="guardcov_self_")
+    os.makedirs(os.path.join(d, "scripts"))
+    open(os.path.join(d, "scripts", "check_guard_coverage.py"), "w",
+         encoding="utf-8").write("# 占位\n")
+    saved = dict(MUTATE_GUARDS)
+    try:
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS["scripts/test_guard_absent.py"] = {"issue": 0, "why": "自检"}
+        got = _scan_mutate_legs(d)
+        if not (len(got) == 1 and "文件不存在" in got[0]):
+            bad.append("登记件整份缺失未被点名：%s" % got)
+    finally:
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS.update(saved)
+        shutil.rmtree(d, ignore_errors=True)
+    _CRITERION_SELFCHECK.append("" if not bad else "；".join(bad))
+    return _CRITERION_SELFCHECK[0]
+
+
+def _scan_mutate_legs(repo_root: str) -> list:
+    """判据本体（**不**做自检，供 `_criterion_selfcheck` 复用，避免递归）。"""
+    if not os.path.isfile(os.path.join(repo_root, "scripts",
+                                       "check_guard_coverage.py")):
+        return []
+    out = []
+    for rel, meta in sorted(MUTATE_GUARDS.items()):
+        p = os.path.join(repo_root, rel.replace("/", os.sep))
+        if not os.path.isfile(p):
+            out.append("%s（issue #%s）：文件不存在 —— 防回退依据被整份删除 —— %s"
+                       % (rel, meta.get("issue", "?"), meta.get("why", "")))
+            continue
+        try:
+            src = _read(p)
+        except OSError as ex:
+            raise OSError("读不到登记的变异腿守卫 %s：%s" % (rel, ex))
+        miss = []
+        try:
+            if not _has_mutate_branch(src):
+                miss.append("无 --mutate 分支（须 `\"--mutate\" in sys.argv`，文档字样不算）")
+            if not _has_mirror_build(src):
+                miss.append("无镜像树装置 _mirror_build（须真实定义）")
+        except SyntaxError as ex:
+            miss.append("源码无法解析：%s" % ex)
+        if miss:
+            out.append("%s（issue #%s）：%s —— %s"
+                       % (rel, meta.get("issue", "?"), "、".join(miss),
+                          meta.get("why", "")))
+    return out
+
+
+def missing_mutate_legs(repo_root: str) -> list:
+    """登记的「定点变异腿」守卫里，腿已不在的项（排序）。
+
+    #429 的元缺陷是「守卫撤不住回退」；它的上一层是「连撤腿都没人察觉」——
+    本函数判三件事，任一不满足即报出：
+      ① 登记件**整份缺失**（防回退依据被删）；
+      ② 无**真实的** `"--mutate" in sys.argv` 分支（AST 判；docstring 里的用法字样不算）；
+      ③ 无**真实定义**的镜像树装置 `_mirror_build`（AST 判）。
+    腿的**运行时**判别力（回退 ⇒ 指定红项）由各守卫自己的 `--mutate` 模式自证，
+    不在本函数面内（如实）。
+
+    适用前提：只在**本元守卫自身在场**的仓里判（`scripts/check_guard_coverage.py`
+    存在）。合成语料仓 / 裸 clone 里没有本件 ⇒ 登记表不适用，返回 []——这与
+    「登记件缺失」不同：前者是**判据不适用**，后者是**判据对象被删**。
+
+    判别力自检：每次调用先跑 `_criterion_selfcheck()`（进程内只跑一次）；自检失败
+    也作为一项报出（fail-closed）——这样 `--selftest` 不接入自动链时，判据本身的
+    退化仍会被配对测试的 `exit_code == 0` 断言逮住。
+    """
+    if not os.path.isfile(os.path.join(repo_root, "scripts",
+                                       "check_guard_coverage.py")):
+        return []
+    out = []
+    why = _criterion_selfcheck()
+    if why:
+        out.append("判据自检失败（本判据已失去判别力）：" + why)
+    return out + _scan_mutate_legs(repo_root)
+
+
 def build(repo: str) -> dict:
     guards = gather_guards(repo)
     sf = gather_surfaces(repo)
@@ -315,6 +484,7 @@ def build(repo: str) -> dict:
         "workflows": sf["workflows"],
         "n_collected_tests": len(sf["collected_tests"]),
         "missing_named": missing_named_paths(repo),
+        "missing_mutate_legs": missing_mutate_legs(repo),
     }
 
 
@@ -333,9 +503,9 @@ def render(info: dict) -> None:
             extra = "  [已登记例外] " + r["exception_reason"][:40]
         print("  %-36s %-14s %s%s" % (r["guard"], mark, r["why"][:56], extra))
     print("")
-    print("  小计：守卫 %d ｜ 有执行面 %d ｜ 登记例外 %d ｜ 未登记孤儿 %d ｜ 点名缺失 %d"
+    print("  小计：守卫 %d ｜ 有执行面 %d ｜ 登记例外 %d ｜ 未登记孤儿 %d ｜ 点名缺失 %d ｜ 缺变异腿 %d"
           % (info["n_guards"], info["n_covered"], info["n_exception"], len(info["orphans"]),
-             len(info["missing_named"])))
+             len(info["missing_named"]), len(info.get("missing_mutate_legs", []))))
     if info["bad_registry"]:
         print("  [登记表格式错误] " + "；".join(info["bad_registry"]))
     for m in info["missing_named"]:
@@ -343,6 +513,11 @@ def render(info: dict) -> None:
     if info["missing_named"]:
         print("  FAIL：点名缺失 %d 项 —— %s" % (len(info["missing_named"]),
                                                "；".join(info["missing_named"])))
+    for m in info.get("missing_mutate_legs", []):
+        print("  [缺变异腿] %s" % m)
+    if info.get("missing_mutate_legs"):
+        print("  FAIL：登记的定点变异腿守卫缺腿 %d 项 —— 防回退依据已失去判别力（#429）"
+              % len(info["missing_mutate_legs"]))
     for o in info["orphans"]:
         print("  [孤儿] %s —— 既无执行面又未登记；请接进 gate/CI，或登记理由" % o)
 
@@ -354,6 +529,8 @@ def exit_code(info: dict) -> int:
         return 1
     if info["missing_named"]:
         return 4  # #179：被 gate/CI 点名的仓内脚本路径在盘上不存在
+    if info.get("missing_mutate_legs"):
+        return 5  # #429：登记的防回退守卫缺变异腿（撤不住回退而无人察觉）
     return 0
 
 
@@ -413,13 +590,84 @@ def selftest() -> int:
     except OSError:
         pass
 
+    # 4) #429：登记的变异腿守卫缺腿必须退 5；腿在则不报。
+    #    判据面（三条，逐条合成样本）：① 登记件整份缺失 ⇒ 报出；② 只有 docstring 里的
+    #    `--mutate` 字样、没有真实分支 ⇒ 报出；③ 有真实分支但无 _mirror_build ⇒ 报出。
+    #    合格样本 = 真实 `if "--mutate" in sys.argv:` + 真实 def _mirror_build。
+    #    注意：合成仓必须**自带** scripts/check_guard_coverage.py（适用前提），否则
+    #    登记表整体不适用（返回 []），样本会失去判别力。
+    mroot = tempfile.mkdtemp(prefix="guardcov_mut_")
+    os.makedirs(os.path.join(mroot, "scripts"))
+    os.makedirs(os.path.join(mroot, ".github", "workflows"))
+    open(os.path.join(mroot, "package.json"), "w", encoding="utf-8").write(
+        json.dumps({"scripts": {"gate": "python scripts/check_alpha.py"}}))
+    open(os.path.join(mroot, ".github", "workflows", "w.yml"), "w", encoding="utf-8").write(
+        "run: python scripts/check_beta.py\n")
+    open(os.path.join(mroot, "scripts", "check_alpha.py"), "w", encoding="utf-8").write("# x\n")
+    open(os.path.join(mroot, "scripts", "check_beta.py"), "w", encoding="utf-8").write("# x\n")
+    open(os.path.join(mroot, "scripts", "check_guard_coverage.py"), "w",
+         encoding="utf-8").write("# 适用前提占位\n")
+    # 占位件本身也是 scripts/check_*.py ⇒ 若无配对测试会被判孤儿、把 exit_code 拖成 1，
+    # 使「退 5 / 退 0」的断言测不到目标判据。给它一份配对测试（run_tests 收集面内）。
+    open(os.path.join(mroot, "scripts", "test_check_guard_coverage.py"), "w",
+         encoding="utf-8").write("# 配对测试占位\n")
+    good_rel = "scripts/test_guard_good.py"
+    doc_only_rel = "scripts/test_guard_doconly.py"
+    no_mirror_rel = "scripts/test_guard_nomirror.py"
+    gone_rel = "scripts/test_guard_gone.py"
+    open(os.path.join(mroot, good_rel), "w", encoding="utf-8").write(
+        "import sys\n\n\ndef _mirror_build():\n    return None\n\n\n"
+        "if __name__ == '__main__':\n"
+        "    if '--mutate' in sys.argv:\n        raise SystemExit(1)\n")
+    open(os.path.join(mroot, doc_only_rel), "w", encoding="utf-8").write(
+        '"""用法：test_guard.py [--mutate]"""\n\n\n'
+        "def _mirror_build():\n    return None\n")
+    open(os.path.join(mroot, no_mirror_rel), "w", encoding="utf-8").write(
+        "import sys\n\nif __name__ == '__main__':\n"
+        "    if '--mutate' in sys.argv:\n        raise SystemExit(1)\n")
+    saved_mut = dict(MUTATE_GUARDS)
+    try:
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS[good_rel] = {"issue": 0, "why": "合格样本"}
+        if missing_mutate_legs(mroot):
+            fails.append("腿完整的守卫被误报缺腿：%s" % missing_mutate_legs(mroot))
+        MUTATE_GUARDS[doc_only_rel] = {"issue": 0, "why": "docstring 字样样本"}
+        mm = missing_mutate_legs(mroot)
+        if not (len(mm) == 1 and doc_only_rel in mm[0]):
+            fails.append("只有 docstring 里 --mutate 字样的守卫未被点名：%s" % mm)
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS[no_mirror_rel] = {"issue": 0, "why": "缺装置样本"}
+        mm = missing_mutate_legs(mroot)
+        if not (len(mm) == 1 and no_mirror_rel in mm[0]):
+            fails.append("缺 _mirror_build 的守卫未被点名：%s" % mm)
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS[gone_rel] = {"issue": 0, "why": "整份缺失样本"}
+        mm = missing_mutate_legs(mroot)
+        if not (len(mm) == 1 and "文件不存在" in mm[0]):
+            fails.append("登记件整份缺失未被点名：%s" % mm)
+        if exit_code(build(mroot)) != 5:
+            fails.append("缺变异腿应退 5，实为 %d" % exit_code(build(mroot)))
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS[good_rel] = {"issue": 0, "why": "合格样本"}
+        if exit_code(build(mroot)) != 0:
+            fails.append("腿完整应退 0，实为 %d" % exit_code(build(mroot)))
+        # 适用前提的正向控制：合成仓里**没有**本元守卫 ⇒ 登记表不适用、返回 []。
+        bare = tempfile.mkdtemp(prefix="guardcov_bare_")
+        os.makedirs(os.path.join(bare, "scripts"))
+        if missing_mutate_legs(bare) != []:
+            fails.append("无本元守卫的合成仓应判「不适用」，实为 %s"
+                         % missing_mutate_legs(bare))
+    finally:
+        MUTATE_GUARDS.clear()
+        MUTATE_GUARDS.update(saved_mut)
+
     for f in fails:
         print("  [FAIL] " + f)
     print("")
     if fails:
         print("  自检：%d 项失败" % len(fails))
         return 1
-    print("  自检：全部通过（判据有判别力：覆盖/配对测试/孤儿/登记/ fail-closed 五面）")
+    print("  自检：全部通过（判据有判别力：覆盖/配对测试/孤儿/登记/fail-closed/变异腿 六面）")
     return 0
 
 

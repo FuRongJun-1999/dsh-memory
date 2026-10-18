@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # 功能名：工具面 op 闸词不得弱于规范面真源（issue #398）
 # 生效条件：python -X utf8 -m md_cg.test_issue398_toolface_op_parity [--mutate]；被测面＝md_cg/mcp_server.py 的 _MDCG_TOOL_OP / _MDCG_OP_REQUIRE 派生表与其在 _dispatch 的消费
-# 子功能：A 组＝复现报告两条链（README 逐字窄化令牌驱动 mdcg_self_state(refresh) 真落盘；guest 可调 mdcg_review_records）+ 规范出口同判；K 组＝非恒真对照（含过度收紧方向：把闸词收到比真源更严 ⇒ 正常调用被误拒）；E 组＝**全表一致性断言**（30 条逐条与 op_table 真源对齐核验，凡工具面弱于真源的当场报出）
-# 执行：--mutate 时在镜像树里把两处改回 read（回缺陷）、把正常条目收到更严（过度收紧）、新增一条未登记弱化条目，守卫必须按指定项转红
+# 子功能：A 组＝复现报告两条链（README 逐字窄化令牌驱动 mdcg_self_state(refresh) 真落盘；guest 可调 mdcg_review_records）+ 规范出口同判；K 组＝非恒真对照（含过度收紧方向：把闸词收到比真源更严 ⇒ 正常调用被误拒）；E 组＝**全表一致性断言**（30 条逐条与 op_table 真源对齐核验，凡工具面弱于真源的当场报出）；S 组＝**收尾块可执行**（issue #438：S01 静态钉「__main__ 之后无模块级语句 / main 内单 return 且 return 前有 rmtree」；S02 在隔离 TEMP 下子进程实跑，钉「结论行恰 1 条且 iss398_* 无残留」）
+# 执行：--mutate 时在镜像树里把两处改回 read（回缺陷）、把正常条目收到更严（过度收紧）、新增一条未登记弱化条目、把收尾块搬回模块级并复现双 return（#438 回退），守卫必须按指定项转红
 # 验证方式：全部 PASS 即通过（退出码 0）；--mutate 下每条变异的红项集合须与预期**逐项相符**
-# 不适用条件：不判库层（mdcos/tokens）自身的读可见性过滤；不判 cg 面 op 表（op_table）本身；已知的 7 条同类弱化条目**登记在案不修**（见 E 组 KNOWN_WEAK，非本报告面）；不判 stg 面
+# 不适用条件：不判库层（mdcos/tokens）自身的读可见性过滤；不判 cg 面 op 表（op_table）本身；已知的 7 条同类弱化条目**登记在案不修**（见 E 组 KNOWN_WEAK，非本报告面）；不判 stg 面；S02 只判「本守卫自身的收尾块可执行」，不判其它守卫的临时目录卫生
 """issue #398 守卫：`_MDCG_OP_REQUIRE` 的工具面闸词不得弱于规范面真源。
 
 病象（修前）：`mdcg_self_state` 与 `mdcg_review_records` 的闸词写成粗粒度 `read`，而真源
@@ -212,6 +212,87 @@ _check("E06 站点 1/2 在派生表中的值与真源一致（self_state / revie
        (_ms._MDCG_OP_REQUIRE["mdcg_self_state"],
         _ms._MDCG_OP_REQUIRE["mdcg_review_records"]))
 
+print("== S 组：收尾块可执行（issue #438 的回归判据） ==")
+
+
+def _tail_static():
+    """静态：`if __name__ == "__main__":` 必须是模块最后一条语句；main() 里只有
+    一个顶层 return，且 return 之前有 `shutil.rmtree(_TMP…)`。
+
+    #438 的病灶是「收尾块写在 `sys.exit(main())` 之后」⇒ 恒为死代码：既不打结论行，
+    也永不回收 _TMP（每次执行泄漏 1 个 iss398_*）。把「收尾块在 main() 里、且在
+    return 之前」「__main__ 之后无模块级语句」钉成判据，回退到缺陷形态当场转红。
+    """
+    with open(os.path.abspath(__file__), encoding="utf-8") as f:
+        tree = ast.parse(f.read())
+    main_if = None
+    for i, node in enumerate(tree.body):
+        if (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+                and any(isinstance(c, ast.Constant) and c.value == "__main__"
+                        for c in [node.test.left] + list(node.test.comparators))):
+            main_if = i
+    after = [] if main_if is None else [type(n).__name__ for n in tree.body[main_if + 1:]]
+    fn = next((n for n in tree.body
+               if isinstance(n, ast.FunctionDef) and n.name == "main"), None)
+    returns = [] if fn is None else [n for n in fn.body if isinstance(n, ast.Return)]
+    cleanup_idx = []
+    if fn is not None:
+        for i, n in enumerate(fn.body):
+            for sub in ast.walk(n):
+                if (isinstance(sub, ast.Call) and isinstance(sub.func, ast.Attribute)
+                        and sub.func.attr == "rmtree"):
+                    cleanup_idx.append(i)
+    ok = (main_if is not None and not after and len(returns) == 1
+          and bool(cleanup_idx) and min(cleanup_idx) < fn.body.index(returns[0]))
+    return ok, {"__main__ 之后": after, "main 顶层 return 数": len(returns),
+                "rmtree 位置": cleanup_idx}
+
+
+_tail_ok, _tail_detail = _tail_static()
+_check("S01 收尾块在 main() 内且在 return 之前；__main__ 之后无模块级语句（#438）",
+       _tail_ok, _tail_detail)
+
+
+def _tail_behavior():
+    """行为：在**隔离的 TEMP** 下子进程跑一遍本守卫，结论行必须出现、临时目录不得残留。
+
+    这是 #438 的直接判据（不是推演）：缺陷形态下 summary 块在 `sys.exit()` 之后，
+    输出里没有「issue #398 结果：」，且 iss398_* 目录留在隔离 TEMP 里。
+    """
+    d = tempfile.mkdtemp(prefix="iss398_tail_")
+    env = dict(os.environ)
+    env["PYTHONPATH"] = _REPO
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # 防自递归：子进程只做一层 S02（它再起的孙进程按 depth>=1 跳过 S02）。
+    env["MDCG_ISSUE398_TAIL_DEPTH"] = str(
+        int(os.environ.get("MDCG_ISSUE398_TAIL_DEPTH", "0")) + 1)
+    for k in ("MDCG_ROOT", "MDCG_STATE_ROOT", "MDCG_AUX_ROOT", "MDCG_DATA_ROOT",
+              "MDCG_EXPORT_ROOT", "MDCG_TOKEN_FILE", "MDCG_TOKEN", "MDCG_VERIFY_KEY"):
+        env.pop(k, None)
+    for k in ("TMPDIR", "TEMP", "TMP"):          # tempfile.gettempdir() 的三个来源
+        env[k] = d
+    try:
+        pr = subprocess.run([sys.executable, "-X", "utf8", "-m",
+                             "md_cg.test_issue398_toolface_op_parity"],
+                            capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", cwd=_REPO, env=env, timeout=900)
+        out = (pr.stdout or "") + (pr.stderr or "")
+        lines = [ln for ln in out.splitlines() if ln.startswith("issue #398 结果：")]
+        leftovers = sorted(x for x in os.listdir(d) if x.startswith("iss398_"))
+        ok = (pr.returncode == 0 and len(lines) == 1 and not leftovers)
+        return ok, "rc=%d 结论行=%r 残留=%r" % (pr.returncode, lines[:1], leftovers)
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+_TAIL_DEPTH = int(os.environ.get("MDCG_ISSUE398_TAIL_DEPTH") or 0)
+if _TAIL_DEPTH > 0:
+    print("  SKIP S02（子进程侧：已有一层 S02 在跑，按 TAIL_DEPTH 跳过，防自递归）")
+else:
+    _tb_ok, _tb_detail = _tail_behavior()
+    _check("S02 隔离 TEMP 下跑完：结论行恰 1 条且 iss398_* 无残留（#438）",
+           _tb_ok, _tb_detail)
+
 # ---------------------------------------------------------------- 定点变异表
 # 锚点跨行用 chr(10) 拼接；_apply_text 按目标文件实际行尾折算（mcp_server.py 为 CRLF）。
 _SELF_OK = '    "mdcg_metacognition": "read", "mdcg_self_state": "self_state",'
@@ -222,6 +303,40 @@ _READ3_OK = '    "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read
 _READ3_TIGHT = '    "mdcg_recall": "write", "mdcg_search": "read", "mdcg_get": "read",'
 _PROTECT_OK = '    "mdcg_protect": "protect",'
 _PROTECT_BAD = '    "mdcg_protect": "read",'
+# #438 的回退锚点（M5）：把收尾块搬回模块级、并复现「双 return」缺陷形态。
+# 锚点用**逐行拼接**构造（不写成整段三引号字面量）：否则锚点文本会同时出现在
+# 「被变异的目标块」与「锚点字面量自身」里，命中数=2 ⇒ M5 永远 ANCHOR-MISS。
+def _L(*lines):
+    return chr(10).join(lines) + chr(10)
+
+
+_TAIL_OK = _L(
+    '    shutil.rmtree(_TMP, ignore_errors=True)',
+    '    print("")',
+    '    if FAILS:',
+    '        print("issue #398 结果：%d 失败" % len(FAILS))',
+    '    else:',
+    '        print("issue #398 结果：全部通过（弱化集 %d 条，全部登记在案）" % len(_CUR_WEAK))',
+    '    return 1 if (FAILS or _bad) else 0',
+    '',
+    '',
+    'if __name__ == "__main__":',
+    '    sys.exit(main())',
+)
+_TAIL_BAD = _L(
+    '    return 1 if (FAILS or _bad) else 0',
+    '    return 1 if (FAILS or _bad) else 0',
+    '',
+    '',
+    'if __name__ == "__main__":',
+    '    sys.exit(main())',
+    'shutil.rmtree(_TMP, ignore_errors=True)',
+    'print("")',
+    'if FAILS:',
+    '    print("issue #398 结果：%d 失败" % len(FAILS))',
+    'else:',
+    '    print("issue #398 结果：全部通过（弱化集 %d 条，全部登记在案）" % len(_CUR_WEAK))',
+)
 
 _MUTATIONS = (
     # M1 回缺陷（站点 1 闸词回 read）⇒ 工具面放行 + self 层真落盘（A03/A04）；
@@ -242,6 +357,13 @@ _MUTATIONS = (
     ("M4 未登记弱化：mdcg_protect 闸词回 read", "md_cg/mcp_server.py",
      ((_PROTECT_OK, _PROTECT_BAD),),
      ("E03",)),
+    # M5 **#438 的回退即红自证**：把收尾块搬回模块级（`sys.exit(main())` 之后）并
+    # 复现双 return ⇒ S01（静态：__main__ 之后无模块级语句 / return 前有 rmtree）与
+    # S02（行为：隔离 TEMP 下无结论行、iss398_* 残留）必须转红。
+    # 本变异显式 tail_depth="0"，让镜像子进程真的跑 S02（其余变异为防递归跳过它）。
+    ("M5 #438 回退：收尾块搬回模块级 + 双 return", "md_cg/test_issue398_toolface_op_parity.py",
+     ((_TAIL_OK, _TAIL_BAD),),
+     ("S01", "S02"), "0"),
 )
 
 
@@ -273,18 +395,29 @@ def _apply_text(text, rel, pairs):
     return text, ""
 
 
-def _run_in(tree):
+def _run_in(tree, tail_depth="1"):
     env = dict(os.environ)
     env["PYTHONPATH"] = tree
     env["PYTHONUTF8"] = "1"
     env["PYTHONDONTWRITEBYTECODE"] = "1"
+    # 镜像子进程默认跳过 S02（防递归 + 省时）；M5（收尾块回退）显式给 "0" 让 S02 真跑。
+    env["MDCG_ISSUE398_TAIL_DEPTH"] = tail_depth
     for k in ("MDCG_ROOT", "MDCG_STATE_ROOT", "MDCG_AUX_ROOT",
               "MDCG_DATA_ROOT", "MDCG_EXPORT_ROOT", "MDCG_TOKEN_FILE"):
         env.pop(k, None)
-    pr = subprocess.run([sys.executable, "-X", "utf8", "-m",
-                         "md_cg.test_issue398_toolface_op_parity"],
-                        capture_output=True, text=True, encoding="utf-8",
-                        errors="replace", cwd=tree, env=env, timeout=1800)
+    # 隔离 TEMP（#438 卫生面）：M5 是**有意复现**「收尾块成死代码」的变异，
+    # 该次子进程会按缺陷形态泄漏一个 iss398_*；把镜像运行的 TEMP 指到一次性目录，
+    # 使变异腿本身不污染真实 %TEMP%（其余变异与基线在目录删掉时一并回收）。
+    _td = tempfile.mkdtemp(prefix="iss398_run_")
+    for k in ("TMPDIR", "TEMP", "TMP"):
+        env[k] = _td
+    try:
+        pr = subprocess.run([sys.executable, "-X", "utf8", "-m",
+                             "md_cg.test_issue398_toolface_op_parity"],
+                            capture_output=True, text=True, encoding="utf-8",
+                            errors="replace", cwd=tree, env=env, timeout=1800)
+    finally:
+        shutil.rmtree(_td, ignore_errors=True)
     out = (pr.stdout or "") + (pr.stderr or "")
     reds = [ln.split("FAIL ", 1)[1].strip()
             for ln in out.splitlines() if ln.strip().startswith("FAIL ")]
@@ -301,21 +434,23 @@ def _mutate():
         if rc != 0 or reds:
             bad.append("未变异镜像基线即红")
             print(chr(10).join(out.splitlines()[-25:]))
-        for desc, rel, pairs, exp in _MUTATIONS:
+        for mut in _MUTATIONS:
+            desc, rel, pairs, exp = mut[:4]
+            depth = mut[4] if len(mut) > 4 else "1"
             p = os.path.join(tree, rel)
             with open(p, encoding="utf-8", newline="") as f:
                 bak = f.read()
-            mut, why = _apply_text(bak, rel, pairs)
-            if mut is None:
+            mut_src, why = _apply_text(bak, rel, pairs)
+            if mut_src is None:
                 bad.append("%s —— %s" % (desc, why))
                 print("  ANCHOR-MISS " + desc + "  " + why)
                 continue
             with open(p, "w", encoding="utf-8", newline="") as f:
-                f.write(mut)
+                f.write(mut_src)
             for root, dd, ff in os.walk(tree):
                 if os.path.basename(root) == "__pycache__":
                     shutil.rmtree(root, ignore_errors=True)
-            rc2, reds2, out2 = _run_in(tree)
+            rc2, reds2, out2 = _run_in(tree, depth)
             with open(p, "w", encoding="utf-8", newline="") as f:
                 f.write(bak)
             hit = sorted({r.split(" ")[0] for r in reds2})
@@ -358,16 +493,18 @@ def main():
     _bad = _mutate() if "--mutate" in sys.argv else 0
     if "--mutate" in sys.argv and _bad == 0:
         _bad += _revert_proof()
-    return 1 if (FAILS or _bad) else 0
+    # 收尾块（#438）：原先它写在模块级、且在一条重复 return 之后 ⇒ 恒为死代码，
+    # 既不打结论行也永不回收 _TMP（每次执行泄漏 1 个 iss398_*）。收进 main() 的
+    # return 之前，恢复「跑完即清理、末段必有结论行」的可执行语义。
+    shutil.rmtree(_TMP, ignore_errors=True)
+    print("")
+    if FAILS:
+        print("issue #398 结果：%d 失败" % len(FAILS))
+    else:
+        print("issue #398 结果：全部通过（弱化集 %d 条，全部登记在案）" % len(_CUR_WEAK))
     return 1 if (FAILS or _bad) else 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
-shutil.rmtree(_TMP, ignore_errors=True)
-print("")
-if FAILS:
-    print("issue #398 结果：%d 失败" % len(FAILS))
-else:
-    print("issue #398 结果：全部通过（弱化集 %d 条，全部登记在案）" % len(_CUR_WEAK))
 
