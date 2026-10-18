@@ -547,6 +547,47 @@ def _neg_max_coverage() -> float:
     return _REPLAY_NEG_MAX_DEFAULT
 
 
+
+# 生效条件：neg_terms 非空且 body 非空时，把负条件与正文各自归一（小写、去空白与标点）后比对——
+# 归一后的负条件长度 ≥ 4 且**是正文的连续子串**，或二者的最长连续公共子串覆盖负条件的
+# ≥ 90% 且长度 ≥ 6 时返回 True（＝复述）；否则返回 False。
+def _neg_echo(neg_terms, body: str) -> bool:
+    """负条件是否是**正文里的一整句/整分句**（issue #278 的漏拒面，2026-10-18）。
+
+    判据（理论口径）：不适用条件必须是**可独立陈述的外部情境**——它对条件空间 C 的
+    排除效力来自「它描述的情境有别于 C」。若它等于正文的某个完整分句（或整段正文），
+    那它排除的就是正文自己的断言：形式上「有负条件」，实际零信息——属 T0 ③
+    「静默错误」类（判据在位但不起作用，且从读数看不出）。
+
+    为什么是**整分句相等**而不是「出现在正文里」：短名词短语做负条件是合法形态
+    （「依赖写 caret」本身就是正文里的短语，用作「采用 caret 语义时」这一情境），
+    按「出现在正文里」判会把这类正确写法误杀（实测 test_issue278_neg_window W2）。
+    抄正文的缺陷形态是**整句照搬**（分句边界内一字不差），故只认分句级相等。
+
+    为什么不用词面覆盖率：覆盖率是词袋口径，**分不开**「抄整句」与「与正文共享领域词
+    的邻近情境」（#278 实测两者 coverage 都可能很高）。分句级相等是**语序+边界**判据，
+    正好区分这两者。
+    """
+    def _norm(x) -> str:
+        s = "".join(str(i) for i in (x or []))
+        s = s.lower()
+        return "".join(ch for ch in s if ch.isalnum())
+
+    n = _norm(neg_terms)
+    if not n:
+        return False
+    b = _norm(body)
+    if not b:
+        return False
+    if n == b:                     # 整段正文当负条件
+        return True
+    # 分句边界：中英文标点 + 换行（归一后标点被去掉，故先切再归一）
+    for clause in re.split("[，。；：、！？" + "\n\r" + ",.;:!?]+", str(body or "")):
+        if clause and _norm(clause) == n:
+            return True
+    return False
+
+
 # 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典；pos_recall 只认「生效条件在正文上有覆盖率」，不含负条件一票否决。
 def replay_check(pos_terms, neg_terms, body: str) -> dict:
     """回放生产判定：正例召回 + 负例剔除 + 无自相矛盾。
@@ -592,13 +633,18 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
         #   **L1 也不判「是否重复」**（那是 L2 = no_conflict 的事）。
         #   修前这里还挂了 `coverage < 阈值`，与 prompt 的「邻近易混」互斥（P∧Q 无解）
         #   ⇒ 技术类知识被系统性拒（#278 的读数）。
-        neg_separated = _neg_hit(tw_neg, neg_terms)
+        # ★ 复述闸（#278 漏拒面，2026-10-18）：负条件若是正文的连续子串（或近逐字），
+        #   它排除的就是正文自己 ⇒ 零信息，不得算「已分离」。这一条与 L1「允许共享
+        #   领域词」不冲突：共享词不等于保留语序（见 _neg_echo 的判据说明）。
+        neg_separated = _neg_hit(tw_neg, neg_terms) and not _neg_echo(neg_terms, body)
     else:
         neg_separated = True
 
     # 3. 生效条件与不适用条件不得互相覆盖
-    no_conflict = (not pos_text) or (not neg_text) \
-        or _weighted_coverage(tw_pos, neg_text) < 0.5
+    #    阈值走单点 `_neg_max_coverage()`（#278 分层后它只管 L2「与生效条件/已有知识
+    #    重复」，不再管「与正文域外」——见上方 L1 说明与 test_issue278_neg_window W6b）。
+    no_conflict = ((not pos_text) or (not neg_text)
+                   or _weighted_coverage(tw_pos, neg_text) < _neg_max_coverage())
 
     ok = pos_recall and neg_separated and no_conflict
     return {"pos_recall": pos_recall, "neg_separated": neg_separated,

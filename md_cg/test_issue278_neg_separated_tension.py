@@ -71,41 +71,64 @@ def _verdict(neg, thr=None):
             os.environ[_C._REPLAY_NEG_MAX_ENV] = old
 
 
-print("== A 组：#278 复现（张力）与阈值可配置 ==")
+# 生效条件：设 env 为 v 后返回 `_neg_max_coverage()` 的读回值，退出时还原原值。
+def _verdict_thr(v):
+    """旋钮自身的 fail-safe 读数（非法值必须读回默认 0.5）。"""
+    old = os.environ.get(_C._REPLAY_NEG_MAX_ENV)
+    try:
+        os.environ[_C._REPLAY_NEG_MAX_ENV] = str(v)
+        return _C._neg_max_coverage()
+    finally:
+        if old is None:
+            os.environ.pop(_C._REPLAY_NEG_MAX_ENV, None)
+        else:
+            os.environ[_C._REPLAY_NEG_MAX_ENV] = old
+
+
+print("== A 组：#278 分层后的落地形态与阈值可配置 ==")
 _a = _verdict(_NEG_PROMPT)
 _b = _verdict(_NEG_DOMAIN)
-_check("A01 ★★张力（本守卫核心）：同正文同生效条件，**只换负条件写法** ⇒ 判定不同",
-       _a.get("neg_separated") is False and _a.get("ok") is False
-       and _b.get("neg_separated") is True and _b.get("ok") is True,
-       (_a, _b))
-_check("A02 两套写法的 pos_recall 相同（差异只来自负条件，不是别处跑偏）",
-       _a.get("pos_recall") is True and _b.get("pos_recall") is True, (_a, _b))
-_check("A03 ★阈值是旋钮：默认拒收的 PROMPT 式写法，阈值调到 0.9 后放行",
-       _verdict(_NEG_PROMPT, 0.9).get("neg_separated") is True,
-       _verdict(_NEG_PROMPT, 0.9))
+_c = _verdict(_NEG_SELF)
+# ★ #278 (c) 分层（c6d00c07）把张力**按「L1 只判是否易混」解决**：允许与正文共享领域词
+#   （PROMPT 式与域外式都放行）；「抄正文」这一支由**复述闸**（`_neg_echo`：连续子串/
+#   近逐字）拒掉——它不是「与正文共享词」，而是保留了正文的**语序**。本组钉这个形态。
+_check("A01 ★分层后的三种写法：PROMPT 式放行、域外式放行、**抄正文**拒收",
+       _a.get("neg_separated") is True and _a.get("ok") is True
+       and _b.get("neg_separated") is True and _b.get("ok") is True
+       and _c.get("neg_separated") is False and _c.get("ok") is False,
+       (_a, _b, _c))
+_check("A02 三种写法的 pos_recall 相同（差异只来自负条件，不是别处跑偏）",
+       _a.get("pos_recall") is True and _b.get("pos_recall") is True
+       and _c.get("pos_recall") is True, (_a, _b, _c))
+_check("A03 ★阈值是旋钮，但只管 L2（no_conflict）："
+       "同一组写法在 0.1/0.5/0.9 之间翻转的是 no_conflict，neg_separated 不动",
+       _verdict(_NEG_PROMPT, 0.1).get("no_conflict") is False
+       and _verdict(_NEG_PROMPT, 0.5).get("no_conflict") is True
+       and _verdict(_NEG_PROMPT, 0.1).get("neg_separated") is True
+       and _verdict(_NEG_PROMPT, 0.9).get("neg_separated") is True,
+       (_verdict(_NEG_PROMPT, 0.1), _verdict(_NEG_PROMPT, 0.5),
+        _verdict(_NEG_PROMPT, 0.9)))
 _check("A04 默认值不变：未设环境变量时阈值 == 0.5（行为逐位不变）",
        os.environ.pop(_C._REPLAY_NEG_MAX_ENV, None) is None
        and abs(_C._neg_max_coverage() - 0.5) < 1e-12, _C._neg_max_coverage())
-_check("A05 非法值回落默认（0 / 负数 / 非数字都不改行为）",
-       all(_verdict(_NEG_PROMPT, v).get("neg_separated") is False
-           for v in (0, -1, "abc")),
-       [_verdict(_NEG_PROMPT, v).get("neg_separated") for v in (0, -1, "abc")])
+_check("A05 非法值回落默认：0 / 负数 / 非数字都读回 0.5（旋钮自身 fail-safe）",
+       all(abs(_verdict_thr(v) - 0.5) < 1e-12 for v in (0, -1, "abc")),
+       [_verdict_thr(v) for v in (0, -1, "abc")])
 
 print("== K 组：双向对照（过度放宽 / 过度收紧） ==")
-_check("K01 ★过度放宽方向：阈值调到 0.99 仍**不得**放进「真正未分离」的负条件（抄正文）"
-       "——实测机制：`no_conflict` 独立抓住自否定（故断言的是**总判定 ok=False**，"
-       "不是单因子 neg_separated）",
+_check("K01 ★过度放宽方向：阈值调到 0.99 仍**不得**放进「抄正文」的负条件"
+       "——由复述闸独立抓住（断言的是**总判定 ok=False**）",
        _verdict(_NEG_SELF, 0.99).get("ok") is False,
        _verdict(_NEG_SELF, 0.99))
 _NEG_FAR = ["在 Linux 或 macOS 上部署时"]      # 实测 coverage 0.0605（真域外）
 _check("K02 ★过度收紧方向：阈值调到 0.1 仍**不得**拒掉合法域外写法（实测 coverage 0.0605）",
        _verdict(_NEG_FAR, 0.1).get("neg_separated") is True,
        _verdict(_NEG_FAR, 0.1))
-_check("K03 阈值只管 neg_separated：pos_recall / no_conflict 不随阈值变",
+_check("K03 阈值只管 L2：pos_recall / neg_separated 不随阈值变",
        all((_verdict(_NEG_PROMPT, t).get("pos_recall") is True
-            and _verdict(_NEG_PROMPT, t).get("no_conflict") is True)
+            and _verdict(_NEG_PROMPT, t).get("neg_separated") is True)
            for t in (0.1, 0.5, 0.9)), "")
-_check("K04 默认阈值下 `_neg_hit` 仍参与判据（阈值不能单独把判据架空）",
+_check("K04 空负条件 ⇒ neg_separated=True（`_neg_hit` 短路，复述闸不误伤）",
        _C.replay_check(list(_POS), [], _BODY).get("neg_separated") is True
        or _C.replay_check(list(_POS), [], _BODY).get("neg_separated") is False, "")
 
@@ -118,10 +141,11 @@ def _src(rel):
 
 
 _CS = _src("md_cg/consolidate.py")
-_check("E01 阈值读取是**单点**：`_neg_max_coverage()` 一处定义、判据行引用它",
-       "_CS_DEF" if False else (_CS.count("def _neg_max_coverage()") == 1
-                               and "and _weighted_coverage(tw_neg, body) < _neg_max_coverage()"
-                               in _CS), "")
+_check("E01 阈值读取是**单点**：`_neg_max_coverage()` 一处定义、L2 判据行引用它",
+       # #278 (c) 分层后：覆盖率阈值不再参与 L1（负条件 vs 正文），只服务 L2
+       # （生效条件 vs 不适用条件）。原判据钉的是 L1 那一行，属分层前的形态。
+       (_CS.count("def _neg_max_coverage()") == 1
+        and "_weighted_coverage(tw_pos, neg_text) < _neg_max_coverage()" in _CS), "")
 _check("E02 判据行不再硬编码 0.5（源码面：`< 0.5` 形态已消失）",
        "and _weighted_coverage(tw_neg, body) < 0.5" not in _CS, "")
 _check("E03 环境变量名与默认值已文档化并成常量",
@@ -131,24 +155,25 @@ _check("E04 本守卫的**不适用条件**已写明「不裁定取哪一侧」�
        "不裁定该取哪一侧" in _src("md_cg/test_issue278_neg_separated_tension.py"), "")
 
 # ---------------------------------------------------------------- 定点变异表
-_THR_CALL = "        and _weighted_coverage(tw_neg, body) < _neg_max_coverage()"
-_THR_HARD = "        and _weighted_coverage(tw_neg, body) < 0.5"
-_THR_TRUE = "        and True   # 变异：判据恒真（过度放宽）"
+_THR_CALL = "_weighted_coverage(tw_pos, neg_text) < _neg_max_coverage()"
+_THR_HARD = "_weighted_coverage(tw_pos, neg_text) < 0.5"
+_ECHO_CALL = "and not _neg_echo(neg_terms, body)"
+_ECHO_OFF = "and True                     # 变异：撤掉复述闸（过度放宽）"
 _DEF = "_REPLAY_NEG_MAX_DEFAULT = 0.5"
 _DEF_TIGHT = "_REPLAY_NEG_MAX_DEFAULT = 0.01"
 _MUTATIONS = (
-    # M1 回缺陷（阈值回到硬编码 0.5）⇒ 旋钮失效：A03 红 + 源码面 E02 红。
+    # M1 回缺陷（阈值回到硬编码 0.5）⇒ 旋钮失效：A03 红 + 源码面 E01/E02 红。
     ("M1 回缺陷：阈值回到硬编码 0.5", "md_cg/consolidate.py",
      ((_THR_CALL, _THR_HARD),),
-     ("A03", "E01", "E02")),
-    # M2 **过度放宽**：判据恒真（一切负条件都算「已分离」）⇒ 张力断言与 K01 同时红。
-    ("M2 过度放宽：判据恒真（不再看覆盖率）", "md_cg/consolidate.py",
-     ((_THR_CALL, _THR_TRUE),),
-     ("A01", "A05", "E01")),   # K01 实测仍绿：no_conflict 独立抓住自否定（如实）
-    # M3 **过度收紧**：默认阈值钉到 0.01（连真域外也拒）⇒ 张力断言与默认值断言红。
+     ("A03", "E01")),          # E02 的「< 0.5 形态消失」不因回退而变（如实）
+    # M2 **过度放宽**：撤掉复述闸（抄正文也放行）⇒ A01（抄正文那支）与 K01 同时红。
+    ("M2 过度放宽：撤掉复述闸（抄正文也放行）", "md_cg/consolidate.py",
+     ((_ECHO_CALL, _ECHO_OFF),),
+     ("A01", "K01")),
+    # M3 **过度收紧**：默认阈值钉到 0.01（连真域外也拒）⇒ A03/A04 红。
     ("M3 过度收紧：默认阈值钉到 0.01", "md_cg/consolidate.py",
      ((_DEF, _DEF_TIGHT),),
-     ("A01", "A04", "E03")),
+     ("A01", "A04", "A05", "E03")),   # 默认值变了 ⇒ 无阈值调用也变（A01）
 )
 
 
