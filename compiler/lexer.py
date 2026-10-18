@@ -519,29 +519,47 @@ class Lexer:
     
     # ---- 字符串读取 ----
     
-# 生效条件：self.source[self.pos] 为 `"` 时 end_quote 取 `"`、为 `“` 时取 `”`，随后逐字符累积进 result 直到遇 end_quote；遇 `\n` 时向 self.errors 记 "字符串未闭合" 并 break（此时 self.pos 仍在串长内，仍会 pos+=1、column+=1 跳过该换行），最后 _emit(TokenType.STRING, 累积内容)。
+# 生效条件：self.source[self.pos] 为 `"` 时 end_quote 取 `"`、为 `“` 时取 `”`，随后逐字符累积进 result 直到遇 end_quote；遇 `\n` 时向 self.errors 记 "字符串未闭合"（行列指向该串起始位置）、先 emit 该 STRING（列号沿用修前口径＝换行后一列）再消费换行并令 self.line += 1、self.column = 1（issue #436：换行不是结束引号，不得吞掉行号）；扫描到 EOF 仍未遇 end_quote 同样记 "字符串未闭合"（不静默接受）；只有真正遇到 end_quote 时才 pos+=1、column+=1 跳过结束引号。
     def _read_string(self):
-        """读取字符串"""
+        """读取字符串（issue #436：未闭合不得吞换行、不得压平后续行号）"""
         quote_char = self.source[self.pos]
         end_quote = '"' if quote_char == '"' else "\u201d"
-        
+        start_line, start_col = self.line, self.column
+
         self.pos += 1
         self.column += 1
         result = []
-        
-        while self.pos < len(self.source) and self.source[self.pos] != end_quote:
+        closed = False
+
+        while self.pos < len(self.source):
             ch = self.source[self.pos]
-            if ch == "\n":
-                self.errors.append(f"L{self.line}:C{self.column} 字符串未闭合")
+            if ch == end_quote:
+                closed = True
                 break
+            if ch == "\n":
+                # 未闭合：换行是**错误边界**，不是结束引号。
+                # 错误报文指向该串**起始**位置（修前指向换行处，会随
+                # 「未闭合串吞行」整体错位）；STRING token 的列号保持修前
+                # 口径（换行后一列），不引入显示层漂移。
+                self.errors.append(
+                    f"L{start_line}:C{start_col} 字符串未闭合")
+                self._emit(TokenType.STRING, "".join(result),
+                           self.column + 1)
+                self.pos += 1          # 消费换行
+                self.line += 1         # 行号推进（修复前被吞）
+                self.column = 1
+                return
             result.append(ch)
             self.pos += 1
             self.column += 1
-        
-        if self.pos < len(self.source):
-            self.pos += 1  # 跳过结束引号
+
+        if closed:
+            self.pos += 1              # 仅在真遇到结束引号时跳过它
             self.column += 1
-        
+        else:
+            # EOF 处未闭合：必须报错（修复前静默接受）
+            self.errors.append(f"L{start_line}:C{start_col} 字符串未闭合")
+
         self._emit(TokenType.STRING, "".join(result))
     
     # ---- 注释跳过 ----
