@@ -1092,6 +1092,26 @@ class MdCGOS(MdCG):
             _sess = kw.get("session") or getattr(self, "session", None)
             if _sess and not kw.get("session"):
                 kw["session"] = _sess
+            # issue #550：同 id 覆写时，**调用方未提供的字段必须继承旧值**，
+            # 不得因父类签名默认值而被重置（importance 0.7->0.5 会连带把
+            # protected 从 true 降为 false：importance 同时是元数据与保护闸输入）。
+            # 判据：用 `in kw` 判定「真未传」—— 本方法签名是 (node_id, content,
+            # layer, role, **kw)，省略的字段不在 kw 里；显式传值/None 都是调用方意图。
+            # 取旧值必须走 get() 返回的 **frontmatter 子字典**（实测 get() 返回
+            # {content, frontmatter, id, path} 四键，字段在嵌套层）。
+            try:
+                _old = self.get(node_id)
+            except Exception:                           # noqa: BLE001
+                _old = None
+            _ofm = (_old or {}).get("frontmatter") if isinstance(_old, dict) else None
+            if isinstance(_ofm, dict) and _ofm:
+                for _ik in ("importance", "confidence", "tags",
+                            "verification_basis", "condition_space"):
+                    if _ik in kw:
+                        continue
+                    _ov = _ofm.get(_ik)
+                    if _ov is not None:
+                        kw[_ik] = _ov
             nid = super().add(node_id, content, layer=layer, **kw)
             e = self.index["nodes"].get(nid)
             if e is not None and role is not None:
