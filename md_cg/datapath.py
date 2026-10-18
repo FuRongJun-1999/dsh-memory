@@ -79,7 +79,19 @@ def _reserved_device_tail(path: str) -> bool:
     return stem.upper() in _RESERVED_DEVICE_NAMES
 
 
-# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；平台为 Windows（os.name=="nt"）
+#: UTF-8 严格解码失败时标准库/Node 都会产出的**替换符**（#426-F）。路径里出现它
+#: 几乎必然是「编码失真」而不是用户真想要一个 U+FFFD 目录：插件侧 `readFileSync(pf,
+#: 'utf8')` 对 GBK/ANSI 保存的 paths.json **不抛**，把非法字节替换成它，`JSON.parse`
+#: 仍成功 ⇒ 插件拿乱码串当记忆根注入 `MDCG_ROOT`，新写入分叉进乱码空库（原库从插件
+#: 面消失）。Python 侧对**同一文件**是严格解码（`_read_user_paths` 的 utf-8-sig ⇒
+#: PathsConfigError），两侧口径就此分叉。故本模块在**所有根解析的归一单点**上把
+#: 「含 U+FFFD」判为误配 fail-closed——两侧同口径：要么取到真路径，要么响亮失败。
+_REPLACEMENT_CHAR = "\ufffd"
+
+
+# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；归一结果含 U+FFFD 替换符
+# （编码失真哨兵，#426-F）时**无条件**抛 ValueError（任何平台——该字符不是任何
+# 正常配置的产物，fail-closed 优于把新写入分叉进乱码库）；平台为 Windows（os.name=="nt"）
 # 且命中两因之一时抛 ValueError——① 归一结果以设备命名空间前缀（"\\\\.\\"）开头：
 # 保留设备名末段（aux/con/nul/prn/com1-9/lpt1-9 等）被 GetFullPathNameW 吞成设备
 # 路径（例 D:\sandbox\aux → \\.\aux）；② 归一结果末段直判为保留设备名
@@ -91,6 +103,16 @@ def _reserved_device_tail(path: str) -> bool:
 # 「该路径」指代。
 def _abs_host_path(p: str, env_key: str = "") -> str:
     r = os.path.abspath(os.path.expanduser(p))
+    if _REPLACEMENT_CHAR in r:
+        who = env_key or "该路径"
+        raise ValueError(
+            f"{who} 归一后含 U+FFFD 替换符（{r!r}）——这是**编码失真**的痕迹，"
+            "不是合法目录名：paths.json 若以 GBK/ANSI 保存（PowerShell 5 的 "
+            "Set-Content 不带 -Encoding、cmd 的 echo >、旧编辑器另存为 ANSI），"
+            "宽松 UTF-8 解码会把非法字节替换成该字符，于是「记忆真源」变成一个"
+            "乱码目录，新写入分叉进空库、原库从插件面消失（#426-F）。请把该文件"
+            "改存为 UTF-8（含 BOM 亦可），或删掉它回到用户级默认数据根；"
+            "本侧与 Python 侧同一口径：**要么取到真路径，要么响亮失败**。")
     if os.name == "nt" and (r.startswith("\\\\.\\")
                             or _reserved_device_tail(r)):
         who = env_key or "该路径"

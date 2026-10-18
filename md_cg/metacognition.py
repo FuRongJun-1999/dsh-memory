@@ -39,11 +39,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from collections import Counter
 
 from .fsutil import append_jsonl, read_jsonl
+from .security import visible_to
 
 LOG_FILE = "_metacognition.jsonl"
 
@@ -97,11 +99,82 @@ def _jaccard(a, b) -> float:
     return len(A & B) / len(A | B)
 
 
-# 生效条件：形参 rec 被复制并 setdefault("t", time.time()) 后，向 os.path.join(cg.root, LOG_FILE) 追加写入抛 OSError 时静默跳过，两类情形均返回补过 t 的 rec 副本；
+# 生效条件：形参 s 经 str(s or "").encode("utf-8") 取 sha1 十六进制前 8 位返回（空串也有确定值）；
+def _digest(s) -> str:
+    """不可逆摘要（#445：台账不落查询原文，只落摘要）。
+
+    与 `scrub.py` 的 payload-free 留痕同口径（sha1 前 8 位）：审计面可判
+    「两次是不是同一段查询」，但不持有原文。**不是**加密强度——短查询可被
+    字典比对，故本摘要**只入台账**，读面（self_check/blindspots/history 的
+    非授权读者）连摘要也不返回（只回 similarity/states/计数）。
+    """
+    return hashlib.sha1(str(s or "").encode("utf-8")).hexdigest()[:8]
+
+
+# 生效条件：cg 无 principal 属性（纯 MdCGOS，无身份/密级模型）时返回 True；principal.can_admin 为真时返回 True（设计者=全局观测本职，与 consistency_history/_readable 同款豁免）；否则记录自带 sensitivity 缺失/为空时返回 False（fail-closed：密级不可判即不可读，与 consistency_history「升级前无 sensitivity 键的旧记录一律去原文」同口径），sensitivity 为真值时要求 cg._readable 可调用并委派 security.visible_to(cg, rec)（= cg._readable：clearance × 密级 ∧ 会话绑定；**有 principal 却无判据载体 ⇒ 不可证可见 ⇒ False**，判据异常同样按不可见）。
+def _can_read_record(cg, rec) -> bool:
+    """台账记录的读可见性**单点**（#445/#426-D）。
+
+    台账（`_reflection.jsonl` / `_metacognition.jsonl`）的记录里没有节点
+    `path`，因此**不能**复用 `_readable` 的「密级缺失 → 回读盘面」分支；本
+    函数只做三件事：无身份模型不设限、设计者豁免、其余按记录自带密级走
+    `security.visible_to`（复用既有单点，不另写一份 rank/会话判据）。
+
+    为什么要自己再判一次 `callable`：`security.visible_to` 在**无钩子**时按
+    「不设限」返回 True（那是给纯 MdCGOS 的口径）；本函数走到这一步时已确认
+    **有** principal，此时「没有判据载体」不等于「无越权可言」，而是「不可证
+    可见」——按 fail-closed 返回 False（与 `node_visible` 的缺席处置同向）。
+    """
+    p = getattr(cg, "principal", None)
+    if p is None:
+        return True                       # 无身份模型：无「越权」可言
+    if getattr(p, "can_admin", False):
+        return True
+    if not isinstance(rec, dict):
+        return False                      # 非对象行：密级不可判 ⇒ fail-closed
+    sens = str((rec or {}).get("sensitivity") or "").strip().lower()
+    if not sens:
+        return False                      # 密级不可判 ⇒ fail-closed（宁可少读）
+    if not callable(getattr(cg, "_readable", None)):
+        return False                      # 有身份模型但无判据载体 ⇒ 不可证可见
+    return visible_to(cg, rec)
+
+
+# 生效条件：rec 为 dict/None；返回其副本，并把 query/query_digest/query_len 三键一并摘除后置 query_redacted=True（无 query 键时原样复制、不加标记）；
+def _redact_query(rec) -> dict:
+    """读面去原文：低权读者只回 similarity/states/计数，不回落原文（#445）。
+
+    `query_digest` 一并摘除：摘要虽不可逆，但对短查询构成**确认型旁路**
+    （猜一句、比一次摘要），故只在台账落盘、不在读面透出。
+    """
+    if not isinstance(rec, dict):
+        return rec                        # 非对象行原样（无可摘的键面）
+    out = dict(rec or {})
+    if "query" in out or "query_digest" in out or "query_len" in out:
+        out.pop("query", None)
+        out.pop("query_digest", None)
+        out.pop("query_len", None)
+        out["query_redacted"] = True
+    return out
+
+
+# 生效条件：形参 rec 被复制并 setdefault("t", time.time()) 后，向 os.path.join(cg.root, LOG_FILE) 追加写入抛 OSError 时静默跳过，两类情形均返回补过 t 的 rec 副本；cg.principal 存在且 can_write 为假时**不写盘**（只算不留痕，#426-D D3：不可写身份不得持久追加台账）；写入前把 query 原文换成 query_digest（sha1 前 8 位）+ query_len，台账不落原文（#445）。
 def _log(cg, rec: dict) -> dict:
     """独立留痕（append-only）。失败不阻塞主流程。"""
     rec = dict(rec)
     rec.setdefault("t", time.time())
+    # #445：台账只落「键名 + 不可逆摘要」，查询原文留在调用方上下文。
+    # 先摘再判写闸：本函数的返回值也不得携带原文（同一判据不因分支顺序漂移）。
+    if "query" in rec:
+        _q = rec.pop("query")
+        rec["query_digest"] = _digest(_q)
+        rec["query_len"] = len(str(_q or ""))
+        rec["query_redacted"] = True
+    # #426-D D3：无写权限的身份（无令牌访客等）不得经 self_check/report
+    # 持久追加台账——修前访客 10 次 self_check 把台账灌大 60KB。
+    _p = getattr(cg, "principal", None)
+    if _p is not None and not getattr(_p, "can_write", True):
+        return rec
     try:
 # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
 # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
@@ -112,11 +185,27 @@ def _log(cg, rec: dict) -> dict:
     return rec
 
 
-# 生效条件：形参 cg 的 reflection_log 属性缺失或为假值时回落到 os.path.join(cg.root, "_reflection.jsonl")，返回该路径 read_jsonl 结果的 list；
+# 生效条件：形参 cg 的 reflection_log 属性缺失或为假值时回落到 os.path.join(cg.root, "_reflection.jsonl")，返回该路径 read_jsonl 结果中**读可见**的记录 list——逐条经 _can_read_record（无身份模型/设计者不设限；其余读者：缺 sensitivity 键 fail-closed 剔除、有密级经 security.visible_to 判 clearance × 会话绑定）；不可见记录**连计数都不进**（宁可少读）；
 def _reflections(cg) -> list:
+    """反思台账的**唯一读取点**（#445：可见性判据收在这里，不在各读面各写一份）。
+
+    为什么把闸放在这里而不是各消费点：`_reflection.jsonl` 有**四个**读面——
+    `trace` / `trust`（纯数值）、`blindspots` / `self_check`（带 query 文本）、
+    `autonomy.proposals`（带 query 文本，经 `cg(op=insight, action=explore)`
+    对 insight op 暴露）。修前只有前两者被逐面加过过滤，`autonomy` 直接读
+    `_reflections` 原样把原文放进 `proposals[].query`（复核实测 role=output
+    可读回属主查询原文）。判据放在**读取单点**，新读面自动继承；各消费点
+    不再各写一份（本仓反复栽过的「同一判据两份」形态）。
+
+    口径：`reflect()` 写台账时**恒不带 sensitivity 键**（md_cg/mdcg.py:5364-5375），
+    故对非设计者这是**全量 fail-closed**——低权读者读不到任何反思记录（含
+    trace/trust 的数值面）。这是刻意的「宁可少读」：记录密级不可判时，连
+    「有几条、相似度多少」都是原文的派生信息（issue #445 已证模糊猜测可钓出
+    原文）。设计者（can_admin）与纯 MdCGOS（无 principal）读数不变。
+    """
     path = getattr(cg, "reflection_log", "") or os.path.join(
         cg.root, "_reflection.jsonl")
-    return list(read_jsonl(path))
+    return [r for r in read_jsonl(path) if _can_read_record(cg, r)]
 
 
 # 生效条件：形参 cg 的 index 属性缺失或为假值、或其 "nodes" 键缺失、或该键值为假值（如空 dict）时返回 {}，否则返回该 "nodes" 值；
@@ -286,12 +375,16 @@ def calibration(cg, max_scan: int = 2000) -> dict:
 # 观测面 3：盲区地图（我知道我不知道什么）
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 cg 的反思留痕按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
+# 生效条件：形参 cg 的反思留痕由 _reflections 给出（**已按读可见性过滤**——单点在读取面，本函数不另写第二份判据），再按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
 def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
     """盲区地图：反复 BLINDSPOT / DEFER 的查询邻域 + 未解问题清单。
 
     智能论推论三：盲区不是失败记录，是知识。因此按**邻域聚合**输出，
     可直接驱动 unresolved 层建节点（补条件）。
+
+    #445：items 里的 `query` 是调用方查询原文——可见性判据在 `_reflections`
+    （台账唯一读取点），不可见记录连计数都不进（宁可少读）。无身份模型
+    （纯 MdCGOS）与设计者不受限，既有调用方读数不变。
     """
     recs = _reflections(cg)[-int(window):]
     agg = {}
@@ -503,6 +596,10 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
         acc += a
         if isinstance(r.get("d_curr"), (int, float)):
             ds.append(float(r["d_curr"]))
+        # #445：可见性判据在 `_reflections`（台账唯一读取点）——走到这里的
+        # 记录**都已通过** `_can_read_record`，故原文可原样回给读者；不可见
+        # 记录根本不进 sims（连 similarity/计数都不回：对短查询，相似度与
+        # 条数本身就是原文的派生信息，issue #445 已证模糊猜测可钓出全文）。
         hist.append({"query": r.get("query"), "similarity": round(s, 4),
                      "d_curr": r.get("d_curr"), "states": st,
                      "t": r.get("t")})
@@ -552,12 +649,19 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
 # 留痕查询 / 自描述
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录，返回 ok=True 与倒序的 records；
+# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录；逐条按 _can_read_record 过滤——可见记录原样返回，不可见记录经 _redact_query 去原文（query/query_digest/query_len 摘除并置 query_redacted=True）；返回 ok=True 与倒序的 records；
 def history(cg, limit: int = 100) -> dict:
-    """元认知留痕（倒序，最新在前）。"""
+    """元认知留痕（倒序，最新在前）。
+
+    #426-D：`_metacognition.jsonl` 是全库共享台账，修前 history 整行倒序返回，
+    无令牌访客可读到属主 self_check 的查询原文。现按读可见性单点
+    `_can_read_record` 过滤：无身份模型/设计者原样；其余读者对缺 sensitivity
+    键（升级前旧记录）与超密级记录一律去原文。
+    """
     recs = list(read_jsonl(os.path.join(cg.root, LOG_FILE)))
     if limit:
         recs = recs[-int(limit):]
+    recs = [r if _can_read_record(cg, r) else _redact_query(r) for r in recs]
     return {"ok": True, "n": len(recs), "records": recs[::-1]}
 
 
