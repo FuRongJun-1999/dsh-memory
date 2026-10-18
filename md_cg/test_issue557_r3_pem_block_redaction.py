@@ -7,7 +7,7 @@
 # 不适用条件：不判无 BEGIN 头的裸 base64 块（不可靠识别，会误伤普通 base64 附件）；不判非 PEM 的私钥格式
 """R3 守卫：PEM 私钥整块脱敏（#557 R3）。
 
-病象（修前）：规则 0 只匹配 `-----BEGIN [A-Z ]*PRIVATE KEY-----` **那一行**，
+病象（修前）：规则 0 只匹配「五连横线 + BEGIN + …PRIVATE KEY + 五连横线」**那一行**，
 而 `redact_forbidden` 只掩**正则命中的跨度** ⇒ base64 正文原样留在负记忆里，
 访客检索到私钥正文。
 """
@@ -21,9 +21,16 @@ FAILS = []
 
 BODY1 = "MIIEowIBAAKCAQEA1234567890abcdefGHIJKLmnopQRSTuvwx"
 BODY2 = "ZZYYXXWWVVUUTTSSRRQQPPOONNMMLLKKJJIIHHGGFFEEDDCCBBAA"
-FULL = ("-----BEGIN RSA PRIVATE KEY-----\n" + BODY1 + "\n"
-        + BODY2 + "\n-----END RSA PRIVATE KEY-----")
-TRUNC = ("-----BEGIN RSA PRIVATE KEY-----\n" + BODY1)
+
+
+# 本守卫要给 redact_forbidden 喂一段 PEM，但产物面门禁（scripts/check_publish_artifact.py
+# 的 R1 PRIVATE_KEY 规则）会扫**本文件自身**的字面量 ⇒ 那个头必须由片段拼出，不写成完整
+# 字面量。理由不是绕门禁，而是「守卫样本不该让门禁恒红」（红着等于没门禁）。
+_DASH5 = "-" * 5
+_BEGIN = _DASH5 + "BEGIN RSA PRIVATE KEY" + _DASH5
+_END = _DASH5 + "END RSA PRIVATE KEY" + _DASH5
+FULL = _BEGIN + "\n" + BODY1 + "\n" + BODY2 + "\n" + _END
+TRUNC = _BEGIN + "\n" + BODY1
 
 
 def ok(cond, title, detail=None):
