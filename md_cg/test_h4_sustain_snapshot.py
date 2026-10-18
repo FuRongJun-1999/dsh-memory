@@ -1357,10 +1357,20 @@ def _mutate_mode(list_only: bool = False) -> int:
         return 0
 
     anchor_miss, bad = [], []
-    with contextlib.redirect_stdout(io.StringIO()):
+    # issue #549：基线跑在 redirect_stdout 里，失败项的名字随缓冲区一起被丢弃，
+    # 于是「基线失败=2」只给数字不给名字 —— 下一个人要再查一轮才知道是哪两条。
+    # 此处保留缓冲区并把 FAIL 行打出来：计数与身份必须同一条输出。
+    _base_buf = io.StringIO()
+    with contextlib.redirect_stdout(_base_buf):
         clean = _run_groups(with_threads=True)
     print("  未变异基线：失败=%d（必须为 0）" % clean)
     if clean:
+        _base_fails = [l.strip() for l in _base_buf.getvalue().splitlines()
+                       if l.strip().startswith("FAIL ")]
+        for _l in _base_fails:
+            print("      基线失败项：%s" % _l[:160])
+        if not _base_fails:
+            print("      基线失败项：（缓冲内无 FAIL 行 —— 失败可能来自 ok(False,...) 之外的路径）")
         bad.append("未变异基线即失败")
 
     for name, rel, old, new, expect in _MUTATIONS:
