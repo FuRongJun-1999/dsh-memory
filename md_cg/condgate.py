@@ -32,7 +32,8 @@ import os
 import re
 
 __all__ = ["FOUR_DIMS", "mode", "normalize_condition_space", "slot_key",
-           "before_hook", "stats", "reset_stats"]
+           "before_hook", "stats", "reset_stats", "qualify",
+           "QUALIFIED", "LEGACY_BLINDSPOT"]
 
 #: 条件空间四维（0.0.1 信息条件性；3.1 四维定义）。键名与库内既有 fm 一致。
 FOUR_DIMS = ("observation_position", "observation_tool",
@@ -67,6 +68,41 @@ def _canon_keys(cs):
 
 _CS_LINE = re.compile(r"^[ \t]*#[ \t]*条件空间[ \t]*[：:][ \t]*(.+?)[ \t]*$", re.M)
 _CS_PAIR = re.compile(r"([^=＝：:；;]+?)\s*[=＝：:]\s*([^；;]+)")
+
+
+QUALIFIED = "qualified"
+LEGACY_BLINDSPOT = "legacy_blindspot"
+
+
+def qualify(fm):
+    """判定一条**已存在**的信息的资格姿态（P0-5 legacy 姿态）。
+
+    **入参必须是节点的 frontmatter，不能是索引条目。**
+    实测（2026-10-18）：索引条目共 42 个键但**不含 condition_space**，生产库
+    31139 个节点里索引带该字段的数量为 **0**——条件空间只存在于节点文件 frontmatter。
+    故传索引条目进来会恒判 legacy_blindspot，那是「数据在别处」而不是「判据有效」。
+    这条同时说明 P0-5 的根因比「姿态未定义」更深：**检索面手里没有这个数据**，
+    要用它必须逐条读文件（31139 节点不可接受）或把该字段写进索引（须单独权衡）。
+
+    背景（外部评审第二份 P0-5）：库内 954/957 条存量无条件空间。检索命中它们时
+    两种默认都不对——默认隐藏会一夜失去 99.3% 的记忆；默认照常返回则静默违反
+    P1-1（无条件空间不得 ACCEPT）。
+
+    故给出第三种姿态：**可读，但不得 ACCEPT**——返回本函数的判定，由调用方在
+    结果上标注，而不是把节点藏起来或假装它合格。
+
+    返回：
+        qualified         四维齐全，可进入正常资格判定
+        legacy_blindspot  条件空间缺失/不完整 → 应标 BLINDSPOT，且**不回填**
+                          （从内容反推条件空间属于猜，违反 0.0.1）
+    """
+    if not isinstance(fm, dict):
+        return LEGACY_BLINDSPOT
+    cs = fm.get("condition_space")
+    normalized, missing, _unknown = normalize_condition_space(cs)
+    if normalized and not missing:
+        return QUALIFIED
+    return LEGACY_BLINDSPOT
 
 
 def parse_condition_space_from_content(content):

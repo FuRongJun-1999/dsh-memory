@@ -214,6 +214,27 @@ def _steps():
             "golden_target_only": [g["name"] for g in golden if g["status"] == "target_only"],
         }
 
+    def s_gap_cs_not_indexed(ctx):
+        """P0-5 的真正根因：condition_space 不在索引里，检索面拿不到。
+
+        实测：索引条目 42 键不含该字段；生产库 31139 节点中索引带它者为 0。
+        故「检索时给 legacy 结论标 BLINDSPOT」在装配层无法直接做——要么逐条读
+        文件（31139 节点不可接受），要么把该字段写进索引（须权衡索引体积与迁移）。
+        这是比「姿态未定义」更根本的一条，单列以免被前一条的进展掩盖。
+        """
+        ctx["cg"].add("n_idx", "索引字段探测", layer="knowledge", condition_space={
+            "observation_position": "a", "observation_tool": "b",
+            "time_window": [1, 2], "existence_constraint": "c"})
+        ent = ctx["cg"].index["nodes"]["n_idx"]
+        in_index = "condition_space" in ent
+        fm_cs = ((ctx["cg"].get("n_idx") or {}).get("frontmatter") or {}).get("condition_space")
+        return (PASS if in_index else GAP), {
+            "condition_space_in_index": in_index,
+            "condition_space_in_frontmatter": bool(fm_cs),
+            "missing": None if in_index else
+                       "condition_space 不进索引 → 检索面无法在装配层判定 legacy 姿态",
+            "t_ref": "P0-5 / T14"}
+
     def s_gap_envelope(ctx):
         """Envelope 尚未定型（issue #5 第 15 条后半）：目标态契约未落地。"""
         from . import interface_schema as sc
@@ -281,11 +302,37 @@ def _steps():
             "missing": None if has else "rollback 模块缺失（曾于 2026-10-18 落地）",
             "t_ref": "T11"}
 
-    def s_gap_legacy(ctx):
-        return GAP, {
-            "missing": "检索面未按 condition_space 缺失打 BLINDSPOT / legacy 标记",
-            "t_ref": "T14",
-            "note": "P0-5 未实现：检索面当前不区分有无条件空间"}
+    def s_legacy_qualification(ctx):
+        """P0-5 legacy 姿态：判定能力已在，检索面自动装配待接。
+
+        姿态本身（可读、但不得 ACCEPT、不回填）已由 condgate.qualify 提供；
+        尚未做的是把它接进 _emit 装配点（改 _emit 影响全部检索路径，须单独权衡）。
+        本步骤如实区分这两件事，不把「判定有了」说成「已经标在结果上了」。
+        """
+        from . import condgate as gate
+        # 直接 add 绕过写入闸，模拟一条「存量」：无条件空间
+        ctx["cg"].add("n_legacy", "存量节点：没有条件空间", layer="knowledge")
+        ctx["cg"].add("n_qualified", "合格节点：四维齐全", layer="knowledge",
+                      condition_space={"observation_position": "a",
+                                       "observation_tool": "b",
+                                       "time_window": [1, 2],
+                                       "existence_constraint": "c"})
+        # 必须从 frontmatter 取——索引条目不含 condition_space（见 condgate.qualify）
+        legacy_fm = (ctx["cg"].get("n_legacy") or {}).get("frontmatter") or {}
+        # 首版拿 n_plain 当合格样本——它本就没有条件空间，判 legacy 是对的，
+        # 于是「样本没资格」被误读成「判据失效」（与记忆里「探针不纯」同型）。
+        new_fm = (ctx["cg"].get("n_qualified") or {}).get("frontmatter") or {}
+        out = {
+            "legacy_verdict": gate.qualify(legacy_fm),
+            "qualified_verdict": gate.qualify(new_fm),
+            "legacy_readable": ctx["cg"].get("n_legacy") is not None,
+            "legacy_auto_annotated": False,
+        }
+        ok = (out["legacy_verdict"] == gate.LEGACY_BLINDSPOT
+              and out["qualified_verdict"] == gate.QUALIFIED
+              and out["legacy_readable"] is True)
+        status = PASS if ok else FAIL
+        return status, out
 
     return [
         ("clean_init", s_clean_init),
@@ -303,10 +350,11 @@ def _steps():
         ("gap_anchor_verify", s_gap_anchor),
         ("revise_rollback", s_revise_rollback),
         ("verdict_schema", s_verdict_schema),
+        ("gap_cs_not_indexed", s_gap_cs_not_indexed),
         ("gap_envelope", s_gap_envelope),
         ("gap_revise", s_gap_revise),
         ("gap_rollback", s_gap_rollback),
-        ("gap_legacy_retrieve", s_gap_legacy),
+        ("legacy_qualification", s_legacy_qualification),
     ]
 
 
