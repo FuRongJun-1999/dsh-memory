@@ -398,10 +398,15 @@ _MUTATIONS = (
      + " " * 8 + 'min_conf=a.get("min_conf"),',
      " " * 8 + 'min_conf=a.get("min_conf"),',
      ("G2c", "G4d", "G4e")),
+    # issue #543（2026-10-17）：本锚点原为 16 空格，而 940c7a69 给 reinforce 调用
+    # 套了 `with merge_rmw_lock(self):`（mdcos.py:5511）⇒ 目标行缩进从 16 变 20，
+    # 锚点命中 0 次、--mutate 恒 FAIL。改 20 后命中 1 次（M3 报红项 6，前缀命中 5/5）。
+    # 教训：**变异锚点依赖缩进，而缩进会随「套一层 with/try」这类无关重构改变** ——
+    # 故锚点要么带上下文行定位（不只靠空白），要么在每次改缩进的提交里同步（第 111 条）。
     ("M3 mdcos.prefeed 的 reinforce 支丢密级（a15f5f2 接线点，同族防线）",
      "md_cg/mdcos.py",
-     _CRLF + " " * 16 + "sensitivity=sensitivity)",
-     _CRLF + " " * 16 + ")",
+     _CRLF + " " * 20 + "sensitivity=sensitivity)",
+     _CRLF + " " * 20 + ")",
      ("G2b", "G2c", "G4b", "G4c", "G4d")),
 )
 
