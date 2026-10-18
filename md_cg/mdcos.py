@@ -3111,8 +3111,13 @@ class MdCGOS(MdCG):
         # 闸）；不交给 _write_sensitivity 继承，否则存量 private 审计件重写时
         # 会继续 private、问题原地保留。
         extra = {"sensitivity": DEFAULT_SENSITIVITY}
-        self.add(nid, body, layer="self", override=True, role=self.AUDIT_ROLE,
-                 tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
+        # 2026-10-18（重放，此前被 11a15098 的 merge 覆盖）：layer 由 self 改
+        # structural —— self 层属层保护（is_protected 恒真），实测 self 层 780 条里
+        # 769 条是这类裁决审计记录（98.6%），把真正的自我锚点挤到只剩 11 条。
+        # 审计痕迹的语义是「结构事件」，不属「扮演依据」。
+        # 同时打 audit_trace 标签——它是 self_surface 过滤的判据单点。
+        self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
+                 tags=["audit", "audit_trace", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
                  pid=rec["pid"], round=rec["round"], decision=rec["decision"],

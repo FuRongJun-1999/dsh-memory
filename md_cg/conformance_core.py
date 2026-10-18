@@ -313,6 +313,107 @@ def _steps():
             "golden_target_only": [g["name"] for g in golden if g["status"] == "target_only"],
         }
 
+    def s_inv_write_trace(ctx):
+        """不变量 I9 / I10 / I12 / I11-judge 面。
+
+        I9  写入即留痕      写一条成功记录后，审计台账必须新增条目
+        I10 committed=false 不得称已固化   REJECT 时 committed 必须为 False
+        I12 moved_to 必须回显四态裁决      REJECT 的 moved_to 不得为空/与 verdict 脱节
+        I11 judge 面        缺条件空间的 claim 在 judge 面不得 ACCEPT
+        """
+        from . import condaccept
+        audit = os.path.join(ctx["root"], "_audit.jsonl")
+
+        def audit_lines():
+            if not os.path.isfile(audit):
+                return 0
+            with open(audit, "r", encoding="utf-8", errors="replace") as fh:
+                return sum(1 for line in fh if line.strip())
+
+        before = audit_lines()
+        ok_write = ctx["write"](GOOD_BODY.replace("conformance 核心闭环样本", "留痕样本"))
+        after = audit_lines()
+        bad = ctx["write"]("# 功能名：无C\n无出处。\n")
+        bv = bad.get("verdict") or {}
+        out = {
+            "audit_grew_on_write": after > before,
+            "audit_before_after": [before, after],
+            "reject_committed_false": bad.get("committed") is False,
+            "reject_moved_to": bad.get("moved_to"),
+            "reject_state": bv.get("state"),
+            "moved_to_echoes_state": (bad.get("moved_to") not in (None, "")
+                                      and bv.get("state") == "REJECT"),
+        }
+        # I11 judge 面：缺条件空间的 claim 不得 ACCEPT
+        jv = condaccept.verify_work_done(
+            {"content": "有出处依据：第10.1节", "condition_space": None},
+            {"nid": "n_judge", "cg": None})
+        out["judge_face_state"] = jv["state"]
+        out["judge_face_not_accept"] = jv["state"] != "ACCEPT"
+        ok = (out["audit_grew_on_write"] and out["reject_committed_false"]
+              and out["moved_to_echoes_state"] and out["judge_face_not_accept"])
+        return (PASS if ok else FAIL), out
+
+    def s_inv_zero_llm(ctx):
+        """不变量 I4 / I13。
+
+        I4  judge 零 LLM：核心判定模块**不得 import 网络或 LLM 库**（AST 走查，
+            比"跑两次结果一样"更强——后者证明确定性，前者证明结构上没有外部调用）。
+        I13 不得代做可见面决策：接口上**不存在** inject/visibility 这类能力。
+        """
+        import ast
+        from pathlib import Path as _P
+        NET_LLM = {"requests", "httpx", "urllib", "urllib3", "socket",
+                   "openai", "anthropic", "aiohttp", "http"}
+        offenders = []
+        for name in ("condgate", "condaccept", "anchor", "retrieve"):
+            p = _P(os.path.dirname(os.path.abspath(__file__))) / (name + ".py")
+            if not p.is_file():
+                continue
+            tree = ast.parse(p.read_text(encoding="utf-8"))
+            mods = set()
+            for n in ast.walk(tree):
+                if isinstance(n, ast.Import):
+                    mods |= {a.name.split(".")[0] for a in n.names}
+                elif isinstance(n, ast.ImportFrom) and n.module:
+                    mods.add(n.module.split(".")[0])
+            if mods & NET_LLM:
+                offenders.append({"module": name, "bad": sorted(mods & NET_LLM)})
+        # I13：接口上不应存在可见面决策能力
+        forbidden = [m for m in ("should_inject", "decide_visible", "inject_decision")
+                     if hasattr(ctx["cg"], m)]
+        out = {"net_or_llm_offenders": offenders, "visible_decision_api": forbidden}
+        ok = (not offenders) and (not forbidden)
+        return (PASS if ok else FAIL), out
+
+    def s_inv_envelope_i1(ctx):
+        """不变量 I1：非 success 时 hit_count 必须为 null。
+
+        构造一次真实失败（对已关闭/异常的库调 retrieve），断言 hit_count is None。
+        若这里给出 0，调用方会把"故障"读成"没有"——这正是 I1 要防的。
+        """
+        from . import retrieve as rv
+
+        class Boom(object):
+            """最小替身：index 可用，search 必抛。"""
+            index = {"nodes": {}}
+            index_path = None
+
+            def search(self, *a, **k):
+                raise RuntimeError("injected failure")
+
+            def get(self, nid):
+                return None
+
+        env = rv.retrieve(Boom(), "任意查询", k=3)
+        out = {"status": env.get("operation_status"),
+               "hit_count": env.get("hit_count"),
+               "completeness": env.get("completeness")}
+        ok = (out["status"] == "operation_error"
+              and out["hit_count"] is None
+              and out["completeness"] is False)
+        return (PASS if ok else FAIL), out
+
     def s_gap_cs_not_indexed(ctx):
         """P0-5 的真正根因：condition_space 不在索引里，检索面拿不到。
 
@@ -477,6 +578,9 @@ def _steps():
         ("anchor_verify", s_anchor_verify),
         ("revise_rollback", s_revise_rollback),
         ("verdict_schema", s_verdict_schema),
+        ("inv_write_trace", s_inv_write_trace),
+        ("inv_zero_llm", s_inv_zero_llm),
+        ("inv_envelope_i1", s_inv_envelope_i1),
         ("gap_cs_not_indexed", s_gap_cs_not_indexed),
         ("envelope", s_envelope),
         ("gap_revise", s_gap_revise),
