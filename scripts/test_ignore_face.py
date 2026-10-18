@@ -116,6 +116,13 @@ def main():
                       stdin_text="\n".join(tracked)).stdout or "").splitlines():
         if "\t" in line:
             src, path = line.split("\t", 1)
+            # `check-ignore -v` 对**否定规则**（`!pattern`）也会输出一行，而否定规则的
+            # 语义正是「**不被忽略**」——把它算成「被遮住」是判据方向反了。
+            # 实测差异：本机 git（Git for Windows）走 stdin 批量时不输出否定行，
+            # CI（ubuntu git）会输出 ⇒ 同一份规则两边结论相反（`receipts/.gitkeep`
+            # 与 `!receipts/.gitkeep` 这一对）。按语义过滤，两边同结论。
+            if src.rsplit(":", 1)[-1].startswith("!"):
+                continue
             matched[path] = src
     check("入库件零命中忽略规则（--no-index 口径；新规则不得遮住入库面）",
           not matched, list(matched.items())[:4])

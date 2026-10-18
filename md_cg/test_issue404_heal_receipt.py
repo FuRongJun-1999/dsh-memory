@@ -32,6 +32,8 @@ if _REPO not in sys.path:
     sys.path.insert(0, _REPO)
 
 from md_cg import _guard_kit as GK       # noqa: E402
+from unittest import mock                    # noqa: E402
+
 from md_cg import sustain                # noqa: E402
 from md_cg.mdcos import MdCGOS           # noqa: E402
 
@@ -48,8 +50,15 @@ def _check(name, cond, detail=""):
         FAILS.append(name)
 
 
+#: 本用例要构造「**删除必败**」的路径（readonly_idx 指定）。
+#: 为什么不用 `chmod 0o444`：Unix 上能否 unlink 取决于**目录**的写权限，文件自身的
+#: 只读位不阻止删除——CI（ubuntu）实测 A 组 6 条断言全红，而本机（Windows，只读文件
+#: 不可删）全绿。改为在 `_rows` 里对这批路径注入 OSError，平台无关。
+_FAIL_REMOVE = set()
+
+
 def _mk(tag, n_temps, readonly_idx=()):
-    """合成库 + n_temps 个「直接落在层目录下」的陈旧临时件（只读位由 readonly_idx 指定）。"""
+    """合成库 + n_temps 个「直接落在层目录下」的陈旧临时件（删除必败项由 readonly_idx 指定）。"""
     root = os.path.join(_TMP, tag)
     os.makedirs(root, exist_ok=True)
     cg = MdCGOS(root)
@@ -63,13 +72,21 @@ def _mk(tag, n_temps, readonly_idx=()):
         old = time.time() - 30 * 24 * 3600
         os.utime(p, (old, old))
         if i in readonly_idx:
-            os.chmod(p, 0o444)
+            _FAIL_REMOVE.add(os.path.abspath(p))
         paths.append(p)
     return cg, root, paths
 
 
 def _rows(cg, root, paths):
-    r = sustain.heal(cg, name="md_cg")
+    _real_remove = os.remove
+
+    def _rm(p, *a, **kw):
+        if os.path.abspath(str(p)) in _FAIL_REMOVE:
+            raise PermissionError(13, "模拟不可删（平台无关注入）", str(p))
+        return _real_remove(p, *a, **kw)
+
+    with mock.patch.object(os, "remove", side_effect=_rm):
+        r = sustain.heal(cg, name="md_cg")
     row = [a for a in r.get("actions", []) if a.get("code") == "sweep_temps"]
     ap = os.path.join(root, "_sustain.jsonl")
     led = []
