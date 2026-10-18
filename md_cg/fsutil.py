@@ -443,10 +443,20 @@ def append_jsonl_ledger(base: str, record: dict, strict: bool = False) -> bool:
 
 
 # 生效条件：base 为台账基准路径；读面**同时**读旧单文件 base 与全部分片
-# <stem>.*<ext>（旧单文件 + 新分片共存时历史不断代）。返回按出现顺序拼接的记录列表；
+# <stem>.<pid><ext>（旧单文件 + 新分片共存时历史不断代）。返回按**时间序**拼接的记录
+# 列表（旧单文件在最前——它是旧版本写的、必早于任何分片；分片按 pid **数值**升序）；
 # 单文件/单分片的读失败不阻断其它（各自 try）。
+#
+# issue #556 修两处错（病象：旧库升级后 `self_state.refresh(strict=True)` 恒
+# `chain_broken`；非 strict 时版本号倒退、两条 version=2）：
+#   ① **旧单文件被读两次** —— 旧匹配条件 `<stem>.` 前缀 + `.jsonl` 后缀把 `<stem>.jsonl`
+#      自己也算了进去（它同时满足两者）。改为「前缀之后必须是纯数字 pid」，base 自身
+#      因而不命中。
+#   ② **分片按文件名字典序** —— `_self_state.10000.jsonl` 排在 `_self_state.9999.jsonl`
+#      之前，于是「最新一条」取错。改为解析 pid 后**按数值**排序。
+#   两处都只在「旧单文件与分片共存」或「pid 跨位数」时显形，全新单进程库看不出来。
 def read_jsonl_ledger(base: str) -> list:
-    """读旧单文件 + 全部分片（issue #546 的读面合并）。"""
+    """读旧单文件 + 全部分片（issue #546 的读面合并；#556 修重复读与排序）。"""
     out = []
     try:
         out.extend(read_jsonl(base))
@@ -457,13 +467,20 @@ def read_jsonl_ledger(base: str) -> list:
         ext = ".jsonl"
     d = os.path.dirname(os.path.abspath(base)) or "."
     try:
-        names = sorted(os.listdir(d))
+        names = os.listdir(d)
     except OSError:
         return out
     prefix = os.path.basename(root) + "."
+    shards = []
     for name in names:
         if not (name.startswith(prefix) and name.endswith(ext)):
             continue
+        mid = name[len(prefix):len(name) - len(ext)]
+        if not mid.isdigit():          # #556 ①：排除旧单文件与任何非 <pid> 形态
+            continue
+        shards.append((int(mid), name))
+    shards.sort()                       # #556 ②：按 pid 数值升序，非字典序
+    for _pid, name in shards:
         try:
             out.extend(read_jsonl(os.path.join(d, name)))
         except OSError:
