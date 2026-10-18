@@ -57,6 +57,7 @@ import time
 
 from . import nodefile
 from .datapath import mdcg_root, state_root
+from . import fsutil
 from .fsutil import FileLock, append_jsonl
 from .mdcg import LAYERS
 
@@ -954,7 +955,7 @@ def read_ledger(limit=None) -> list:
 # 生效条件：rec 为 dict 时向 sleep_root()/SLEEP_LEDGER 追加一行 JSON（先 makedirs(sleep_root())）；无返回值，写入失败抛 OSError。
 def _append_ledger(rec: dict):
     os.makedirs(sleep_root(), exist_ok=True)
-    append_jsonl(ledger_path(), rec)
+    fsutil.append_jsonl_ledger(ledger_path(), rec)
 
 
 # 生效条件：batch 为真值时返回台账中是否存在 batch 相同且 merged 为真的记录（幂等判据）；batch 为假值返回 False。

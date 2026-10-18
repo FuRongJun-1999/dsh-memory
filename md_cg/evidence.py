@@ -37,6 +37,7 @@ from . import identity as _identity
 from . import security as _sec
 from . import signer as _signer
 from .datapath import aux_root
+from . import fsutil
 from .fsutil import publish
 
 NODE_ID_ENV = "MDCG_NODE_ID"
@@ -507,7 +508,7 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
 # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
 # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
 # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
-        _ok = append_jsonl(os.path.join(inbox_dir(swarm), "_rejected.jsonl"), rec)
+        _ok = fsutil.append_jsonl_ledger(os.path.join(inbox_dir(swarm), "_rejected.jsonl"), rec)
     except OSError:
         pass
     out = {"ok": False, "rejected": True, "reason": reason,

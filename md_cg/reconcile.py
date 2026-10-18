@@ -38,6 +38,7 @@ import os
 import time
 
 from . import nodefile
+from . import fsutil
 from .fsutil import append_jsonl
 
 #: 关闭开关：仅当 `MDCG_RECONCILE` 的 strip 后取值**恰好为 "0"** 时关闭
@@ -126,7 +127,7 @@ def _trace(cg, record: dict) -> None:
 # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
 # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
 # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
-        _ok = append_jsonl(trace_path(cg), record)
+        _ok = fsutil.append_jsonl_ledger(trace_path(cg), record)
     except OSError:
         pass
 
