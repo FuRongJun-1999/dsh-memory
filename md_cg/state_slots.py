@@ -7,7 +7,7 @@
   · 源＝`md_cg/state_events.py` 的 append-only 台账 `<root>/_state_events.jsonl`；
   · 查询时**现算**——不落盘、不建缓存、不写任何盘面文件；
   · 台账追加一条，投影立刻随之变化（无缓存、无物化表 ⇒ 无第二真源、无漂移面）；
-  · 本模块**只读**台账（经 `state_events.read`；`append` 归 `state_events`）。
+  · 本模块**只读**台账（经 `state_events.iter_read`；`append` 归 `state_events`）。
 
 投影单元字段（设计稿 §3 表逐字）：
     subject / slot / value / state(active|retired) / t_from / t_to /
@@ -126,51 +126,137 @@ def _replay(subject, slot, recs, *, history=True) -> dict:
     return unit
 
 
-# 生效条件：recs 为台账记录序列（落盘序，可空）时——按 (subject, slot) 分组（组序＝首现序）后按 (str(subject), str(slot)) 字典序稳定排序，逐组经 _replay；include_retired 为假时剔除 state=='retired' 的单元，为真时全留；返回单元列表（recs 为空返回 []）；history 透传 _replay（假时不带 history 键）。
+# 生效条件：recs 为落盘序记录（可迭代、可空）时——按 (subject, slot) 分组并稳定排序，经共享分页回放单点返回全量单元；history 为假时不带 history 键；不改写入参记录。
 def _project(recs, *, include_retired=False, history=True) -> list:
-    """记录序列 → 单元列表（project 与 status 共用的回放单点）。"""
+    """落盘序记录 → 全量投影；流式分组后逐组释放原始记录。"""
+    return _project_history_page(recs, include_retired=include_retired,
+                                 history=history)[1]
+
+
+# 生效条件：完整消费落盘序 recs 后，按稳定字典序只构造 limit 条结果（None 为全量，负数归零）；总数不受 limit 影响；被过滤和超额单元不构造 history。
+def _project_history_page(recs, *, include_retired=False, history=True,
+                          limit=None) -> tuple:
+    """一次扫描，分组后只为本页单元回放/构造历史，返回 (总数, 单元)。"""
     groups = {}
     for rec in recs:
         key = (rec.get("subject"), rec.get("slot"))
         groups.setdefault(key, []).append(rec)
     # 排序键经 str() 归一：台账是外部可写面（append-only），非字符串 subject/slot 会让
     # 裸元组比较抛 TypeError；字符串形态（正常）下与裸元组字典序逐位一致。
-    out = []
+    cap = None if limit is None else max(0, int(limit))
+    out, total = [], 0
     for key in sorted(groups, key=lambda k: (str(k[0]), str(k[1]))):
-        unit = _replay(key[0], key[1], groups[key], history=history)
-        if unit["state"] == "retired" and not include_retired:
+        rows = groups.pop(key)
+        if not include_retired and _is_void(rows[-1]):
             continue
-        out.append(unit)
-    return out
+        total += 1
+        if cap is None or len(out) < cap:
+            out.append(_replay(key[0], key[1], rows, history=history))
+    return total, out
 
 
-# 生效条件：cg 可解析出 root（经 state_events.ledger_path）时——以 state_events.read(cg, subject=subject, slot=slot) 为源（subject/slot 非 None 才过滤，空串亦为合法过滤值）、现算回放，返回单元列表；include_retired=False 剔除 state=='retired' 的单元；history=False 时单元不带 history 键；台账缺失/为空返回 []（不报错）。**零落盘、零缓存**——同一调用序列中台账追加一条，下一次调用结果即变。
+# 生效条件：recs 为落盘序记录迭代器时，返回逐单元现值投影；include_retired 为假时剔除退役单元；每单元只留当前字段，零落盘零缓存。
+def _project_current(recs, *, include_retired=False) -> list:
+    """不保留历史的全量投影（现值归约单点见下）。"""
+    return _project_current_page(recs, include_retired=include_retired)[1]
+
+
+# 生效条件：完整消费 recs；每单元只存计数/最后有值起端/最终闭合端；返回 (总数, 前 limit 条投影)，None 为全量，负数归零；不保留已撤回值正文。
+def _project_current_page(recs, *, include_retired=False, limit=None) -> tuple:
+    """单遍现值投影：每个 (subject, slot) 只保留当前单元，空间随单元数增长。
+
+    不保留事件正文或完整历史；不缓存、不写盘。撤回仍保留最后有值事件的
+    起端与档位，连续撤回使用最后撤回的闭合端；后续有值事件自然复活。
+    """
+    groups = {}
+    for rec in recs:
+        key = (rec.get("subject"), rec.get("slot"))
+        group = groups.get(key)
+        if group is None:
+            # count, last valued event's four required fields, final retraction endpoints.
+            group = [0, None, None]
+            groups[key] = group
+        group[0] += 1
+        if _is_void(rec):
+            group[2] = (rec.get("t"), rec.get("seq"))
+            if group[1] is not None:
+                # Retraction preserves provenance, but its old value is not returned.
+                _, t_from, seq_from, tier = group[1]
+                group[1] = (None, t_from, seq_from, tier)
+        else:
+            group[1] = (rec.get("new"), rec.get("t"), rec.get("seq"), rec.get("tier"))
+            group[2] = None
+    cap = None if limit is None else max(0, int(limit))
+    out, total = [], 0
+    for key in sorted(groups, key=lambda k: (str(k[0]), str(k[1]))):
+        count, valued, closed = groups.pop(key)
+        retired = closed is not None
+        if retired and not include_retired:
+            continue
+        total += 1
+        if cap is not None and len(out) >= cap:
+            continue
+        value, t_from, seq_from, tier = valued if valued is not None else (
+            None, None, None, TIER_UNSPECIFIED)
+        t_to, seq_to = closed if retired else (None, None)
+        out.append({"subject": key[0], "slot": key[1],
+                    "value": None if retired else value,
+                    "state": "retired" if retired else "active",
+                    "t_from": t_from, "t_to": t_to,
+                    "seq_from": seq_from, "seq_to": seq_to,
+                    "tier": TIER_UNSPECIFIED if tier is None else tier,
+                    "alternatives": [], "blindspots": [], "event_count": count})
+    return total, out
+
+
+# 生效条件：cg 可解析 root 时现算回放；history=False 单遍读取且不保留历史，history=True 返回原样七字段历史；subject/slot 非 None 才过滤；include_retired=False 剔除退役单元；缺失/空台账返回 []。零落盘零缓存，后续追加立即可见。
 def project(cg, subject=None, slot=None, include_retired=False,
             history=True) -> list:
     """槽位寄存器投影（查询时现算）：list[dict]（单元字段见模块头）。
 
-    纯读函数：不改台账、不写盘、不缓存；过滤委托 `state_events.read`（单点），
-    本模块不另写一套条件解析。
+    纯读函数：不改台账、不写盘、不缓存；过滤委托 `state_events.iter_read`
+    （与 read 共用单点），本模块不另写一套条件解析。
     """
-    recs = state_events.read(cg, subject=subject, slot=slot)
-    return _project(recs, include_retired=include_retired, history=history)
+    return project_page(cg, subject=subject, slot=slot,
+                        include_retired=include_retired, history=history,
+                        limit=None)[1]
 
 
-# 生效条件：cg 可解析出 root 时——一次 state_events.read(cg) 后返回只读统计 dict：events（台账记录总数）/ subjects（去重 subject 数）/ slots（去重 slot 数）/ retired（回放后 state=='retired' 的单元数）/ bad_rows（state_events.BAD_ROWS 累计值，坏行采样与告警由该模块负责）；台账缺失/为空时 events/subjects/slots/retired 皆 0。
+# 生效条件：参数与 project 同形；完整扫描同一台账一次后返回 (命中总数, 按原排序前 limit 条单元)；None 返回全量，0/负数只计数；全量坏行诊断保留，零落盘零缓存。
+def project_page(cg, subject=None, slot=None, include_retired=False,
+                 history=True, limit=50) -> tuple:
+    """投影分页：总数精确；未返回的单元不构造结果或七字段历史。
+
+    仍完整读一次台账。history=True 的分组保持全部原始事件，回放后即释放；
+    history=False 仅保留每个单元的当前元数据。limit 不截断事件读取。
+    """
+    recs = state_events.iter_read(cg, subject=subject, slot=slot)
+    if not history:
+        return _project_current_page(recs, include_retired=include_retired, limit=limit)
+    return _project_history_page(recs, include_retired=include_retired, limit=limit)
+
+
+# 生效条件：cg 可解析 root 时——一次完整 iter_read 扫描后返回 events/subjects/slots/retired/bad_rows；每单元只留最后事件是否撤回，不保留历史；空台账计数皆 0，坏行计数与告警仍由 state_events 负责。
 def status(cg) -> dict:
     """台账与投影的只读读数（不计语义、不改任何状态）。
 
-    只读一次台账后回放：`bad_rows` 的口径是「累计**跳过动作次数**」（同一坏行每次
+    只读一次台账后统计：`bad_rows` 的口径是「累计**跳过动作次数**」（同一坏行每次
     read 均计一次，见 `state_events`）——本函数每次调用只产生**一次** read。
     `slots` 为去重**槽位名**数（同一槽位名挂在多个主体下只算一次）；
     `retired` 为回放后退役单元数（值已作废、未复活）。
     """
-    recs = state_events.read(cg)
-    units = _project(recs, include_retired=True, history=False)
-    return {"events": len(recs),
-            "subjects": len({r.get("subject") for r in recs}),
-            "slots": len({r.get("slot") for r in recs}),
-            "retired": sum(1 for u in units if u["state"] == "retired"),
+    subjects, slots, retired_by_key = set(), set(), {}
+    events = 0
+    for rec in state_events.iter_read(cg):
+        subject, slot = rec.get("subject"), rec.get("slot")
+        subjects.add(subject)
+        slots.add(slot)
+        retired_by_key[(subject, slot)] = _is_void(rec)
+        events += 1
+    return {"events": events,
+            "subjects": len(subjects),
+            "slots": len(slots),
+            "retired": sum(retired_by_key.values()),
             "bad_rows": state_events.BAD_ROWS}
 
 
