@@ -4495,7 +4495,9 @@ class MdCG:
                    # 不进默认检索候选——判据单点 lifecycle.is_archived
                    # （缺键=active fail-open），与生产路径 `MdCGOS._candidates`
                    # 同一口径（此前基类面未接，属已登记的已知未覆盖面）。
-                   and not lifecycle.is_archived(e)):
+                    # 2026-10-18：is_archived → is_retired（archived ∪ superseded）。
+                    # 被修订取代的旧版本同样不得进默认检索面，否则新旧并存污染结果。
+                    and not lifecycle.is_retired(e)):
                 entries.append(e)
 
         # 默认关：索引里可能残留门控字段（曾开启过 / 回填过）→ 返回前剥离，

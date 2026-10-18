@@ -52,8 +52,13 @@ import time
 from . import protect
 from .fsutil import append_jsonl
 
-#: 状态全集。顺序即「降级方向」：active → converged → demoted → archived。
-STATES = ("active", "converged", "demoted", "archived")
+#: 状态全集。顺序即「降级方向」：active → converged → demoted → superseded → archived。
+#:
+#: superseded（2026-10-18 新增，使用者裁定方案 A）：**被新版本取代的旧版本**。
+#: 背景：revise 在内容寻址下必产新节点，旧版本若留 active 会污染检索面并撞 V4 同槽
+#: 冲突；直接 archived 又违反「禁止跳级」。故单列一档，语义是「有新版、旧版退出默认
+#: 检索面但保留可读可恢复」——与 archived（主动归档、不再需要）区分开。
+STATES = ("active", "converged", "demoted", "superseded", "archived")
 #: frontmatter 字段名（索引快照同名透出）。刻意避开 `state`——见模块 docstring
 #: 「为何不叫 state」：该名已被裁决四态占用，同名会让读面产生歧义。
 STATE_FIELD = "lifecycle_state"
@@ -64,7 +69,7 @@ HISTORY_KEEP = 20
 AUDIT_FILE = "_lifecycle.jsonl"
 
 #: 降级序位（用于「受保护豁免降级」的判定）
-_RANK = {"active": 0, "converged": 1, "demoted": 2, "archived": 3}
+_RANK = {"active": 0, "converged": 1, "demoted": 2, "superseded": 3, "archived": 4}
 
 #: 合法迁移表——**逐级降级、逐级回升**，不跳级：
 #:   active   ⇄ converged        定型 / 定型撤销
@@ -83,6 +88,16 @@ TRANSITIONS = frozenset({
     ("demoted", "active"),
     ("demoted", "archived"),
     ("archived", "active"),
+    # ---- superseded（2026-10-18）：修订取代 ----
+    # 任何在用状态都可被新版取代——取代不必先降权（与 active→demoted 同一先例）。
+    ("active", "superseded"),
+    ("converged", "superseded"),
+    ("demoted", "superseded"),
+    # 撤销取代（回滚到旧版本）/ 进一步归档
+    ("superseded", "active"),
+    ("superseded", "archived"),
+    # 刻意不收录：superseded→converged / superseded→demoted（不应回到降权轴——
+    # 被取代是「版本关系」，与「重要性弱化」是两个维度，混回降权轴会丢失取代语义）
 })
 
 
@@ -143,6 +158,23 @@ def is_archived(e) -> bool:
     `subgraph.children_index/parents_index` 结构面、rust 检索内核。
     """
     return state_of(e) == "archived"
+
+
+# 生效条件：入参 e 为索引条目（或同形 frontmatter 副本）时，state_of(e) 为 archived 或 superseded 即返回 True；缺键/非法值回落 active ⇒ False。
+def is_retired(e) -> bool:
+    """**已退出默认检索面**的判据单点（archived ∪ superseded）。
+
+    为什么单列而不改 is_archived（2026-10-18，方案 A 配套）：
+      · is_archived 的名字与语义是「归档」，被多个消费点按字面引用；把 superseded
+        塞进去会让「归档」与「被取代」两个不同理由共用一个名字，正是本仓反复吃过的
+        「同一语义两份实现 / 一名多义」形态。
+      · 故保留 is_archived 原义（仅 archived），新增本函数表达「退役面」的并集；
+        检索面/续接注入面改用本函数，显式管理查询面仍按 archived 单独判。
+
+    边界：superseded 与 archived 一样——**退役不删除**，cg.get 照常可读、
+    可显式恢复到 active（见 TRANSITIONS）。
+    """
+    return state_of(e) in ("archived", "superseded")
 
 
 # 生效条件：按 _RANK.get(dst, 0) > _RANK.get(src, 0) 判定，src 或 dst 不在 _RANK 键中时该侧按 0 参与比较。

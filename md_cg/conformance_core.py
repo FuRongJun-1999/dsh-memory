@@ -88,6 +88,28 @@ def _steps():
         except Exception as exc:
             return FAIL, {"error": "%s: %s" % (type(exc).__name__, exc)}
 
+    def s_supersede_semantics(ctx):
+        """修订取代语义（2026-10-18 方案 A）：superseded 退出检索面但与 archived 可区分。"""
+        from . import lifecycle
+        ctx["cg"].add("n_old", "旧版本内容", layer="knowledge")
+        ctx["cg"].add("n_new", "新版本内容", layer="knowledge")
+        lifecycle.set_state(ctx["cg"], "n_old", "superseded", reason="被 n_new 取代")
+        old = ctx["cg"].index["nodes"]["n_old"]
+        new = ctx["cg"].index["nodes"]["n_new"]
+        out = {
+            "old_state": lifecycle.state_of(old),
+            "old_retired": lifecycle.is_retired(old),
+            "old_archived": lifecycle.is_archived(old),
+            "new_retired": lifecycle.is_retired(new),
+            "old_readable": ctx["cg"].get("n_old") is not None,
+        }
+        ok = (out["old_state"] == "superseded"
+              and out["old_retired"] is True
+              and out["old_archived"] is False      # 与 archived 可区分，未被混同
+              and out["new_retired"] is False       # 新版不受影响
+              and out["old_readable"] is True)      # 退役不删除
+        return (PASS if ok else FAIL), out
+
     def s_reject_no_cs(ctx):
         before = ctx["queue_len"]()
         r = ctx["write"]("# 功能名：无条件空间\n无出处。\n")
@@ -229,6 +251,7 @@ def _steps():
         ("formal_not_truth", s_formal_not_truth),
         ("get_node", s_get_node),
         ("archive_not_delete", s_archive_not_delete),
+        ("supersede_semantics", s_supersede_semantics),
         ("reject_no_condition_space", s_reject_no_cs),
         ("reject_no_evidence", s_reject_no_evidence),
         ("blindspot_not_accept", s_blindspot_not_accept),

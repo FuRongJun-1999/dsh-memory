@@ -207,7 +207,9 @@ def adjacency(cg, include_hierarchy=True, skip_archived=True):
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     adj = {}
     for nid in list(nodes):
-        if skip_archived and _lc.is_archived(nodes.get(nid)):
+        # 2026-10-18：is_archived → is_retired（archived ∪ superseded）。
+        # 被取代的旧版本其出边与条件同样不入拓扑表，与检索面口径一致。
+        if skip_archived and _lc.is_retired(nodes.get(nid)):
             continue          # 退役节点：其出边与条件整体不入表（不解析 fm）
         if vis is not None and not vis(nid):
             continue          # 不可见节点：其出边与条件整体不可见（不解析 fm）
