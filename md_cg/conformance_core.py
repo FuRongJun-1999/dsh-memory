@@ -164,6 +164,43 @@ def _steps():
             "missing": None if has else "verifyAnchor（I14 回执校验）未实现",
             "t_ref": "T7"}
 
+    def s_verdict_schema(ctx):
+        """接口形状：真实裁决必须符合 Verdict schema（issue #5 第 15 条）。
+
+        与 interface_schema 的 golden 例子**共用同一份 schema**——文档、实现、
+        测试三方引用同一个定义，避免各写一份口径（本仓已被这类漂移咬过多次）。
+        """
+        from . import interface_schema as sc
+
+        bad = []
+        for content, label in [
+            (GOOD_BODY, "accept"),
+            ("# 功能名：无C\n无出处。\n", "reject_no_cs"),
+            ("# 功能名：裸\n" + CS_LINE + "\n没有出处。\n", "reject_no_ev"),
+        ]:
+            r = ctx["write"](content)
+            v = r.get("verdict") or {}
+            ok, errs = sc.validate(v, "verdict")
+            if not ok:
+                bad.append({"case": label, "errors": errs})
+        golden = sc.check_golden()
+        golden_fail = [g["name"] for g in golden if g["status"] == "fail"]
+        ok = (not bad) and (not golden_fail)
+        return (PASS if ok else FAIL), {
+            "real_verdict_schema_violations": bad,
+            "golden_failures": golden_fail,
+            "golden_target_only": [g["name"] for g in golden if g["status"] == "target_only"],
+        }
+
+    def s_gap_envelope(ctx):
+        """Envelope 尚未定型（issue #5 第 15 条后半）：目标态契约未落地。"""
+        from . import interface_schema as sc
+        has = hasattr(ctx["cg"], "retrieve_envelope") or hasattr(ctx["cg"], "envelope")
+        return (PASS if has else GAP), {
+            "missing": None if has else "Envelope 结构未落地（retrieve 仍返回检索包，非定型信封）",
+            "schema_defined": "envelope" in sc._SCHEMAS,
+            "t_ref": "issue#5-15"}
+
     def s_gap_revise(ctx):
         """四动作里的「改」整条未实现（外部 issue #5 核对后钉住）。
 
@@ -199,6 +236,8 @@ def _steps():
         ("protected_predicates", s_protected_predicates),
         ("queue_health_readable", s_queue_health),
         ("gap_anchor_verify", s_gap_anchor),
+        ("verdict_schema", s_verdict_schema),
+        ("gap_envelope", s_gap_envelope),
         ("gap_revise", s_gap_revise),
         ("gap_rollback", s_gap_rollback),
         ("gap_legacy_retrieve", s_gap_legacy),
