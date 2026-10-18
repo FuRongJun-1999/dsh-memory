@@ -3087,8 +3087,11 @@ class MdCGOS(MdCG):
         if hasattr(self, "principal"):     # MdCGSecure：审计记录按裁决者密级写
             extra["sensitivity"] = getattr(self.principal, "clearance", None)
         # 2026-10-18：layer 由 self 改 structural（见本方法 docstring 的实测依据）
+        # 2026-10-18：layer 由 self 改 structural（见本方法 docstring 的实测依据）
+        # 并打 audit_trace 标签——它是 self_surface 过滤的判据单点（方案 C）：
+        # 存量 769 条已手工补标；新记录必须自动带上，否则过滤面会随新写入重新污染。
         self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
-                 tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
+                 tags=["audit", "audit_trace", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
                  pid=rec["pid"], round=rec["round"], decision=rec["decision"],

@@ -136,6 +136,45 @@ def _steps():
         ok = (out["layer"] == "structural" and out["protected"] is False)
         return (PASS if ok else FAIL), out
 
+    def s_self_surface_filter(ctx):
+        """自我面过滤（方案 C）：审计痕迹被打标且可从自我面排除。
+
+        三条：审计节点带 audit_trace 标签／self_surface 默认排除它／
+        真实自我节点仍被包含。
+        """
+        from . import self_surface as ss
+        rec = {
+            "record_node_id": ctx["cg"]._audit_node_id("prop_conf0002", 1),
+            "record_hash": "d" * 40, "pid": "prop_conf0002", "round": 1,
+            "decision": "accept", "status": "accepted", "redteam_verdict": "absent",
+            "issues": [], "verify_hash": None, "actor": "conformance", "t": 1792300000.0,
+            "target_id": "",
+        }
+        audit_nid = ctx["cg"]._write_review_record(rec)
+        audit_ent = ctx["cg"].index["nodes"].get(audit_nid) or {}
+        # 存量情形：审计节点位于 self 层（769 条就是这样）——单造一条同形样本测过滤
+        ctx["cg"].add("n_legacy_audit", "存量审计痕迹样本", layer="self",
+                      tags=["audit", ss.AUDIT_TRACE_TAG])
+        ctx["cg"].add("n_true_self", "真实自我锚点样本", layer="self")
+        surface = ss.self_surface(ctx["cg"])
+        surface_all = ss.self_surface(ctx["cg"], include_audit_trace=True)
+        out = {
+            "new_audit_tagged": ss.is_audit_trace(audit_ent),
+            "new_audit_layer": audit_ent.get("layer"),
+            "legacy_audit_has_tag": ss.is_audit_trace(
+                ctx["cg"].index["nodes"].get("n_legacy_audit") or {}),
+            "legacy_audit_excluded": "n_legacy_audit" not in surface,
+            "legacy_audit_in_unfiltered": "n_legacy_audit" in surface_all,
+            "true_self_included": "n_true_self" in surface,
+        }
+        ok = (out["new_audit_tagged"] is True
+              and out["new_audit_layer"] == "structural"   # 源头已改，新记录不进 self
+              and out["legacy_audit_has_tag"] is True
+              and out["legacy_audit_excluded"] is True     # 存量在自我面被过滤
+              and out["legacy_audit_in_unfiltered"] is True  # 不过滤时仍可见（可审计）
+              and out["true_self_included"] is True)
+        return (PASS if ok else FAIL), out
+
     def s_reject_no_cs(ctx):
         before = ctx["queue_len"]()
         r = ctx["write"]("# 功能名：无条件空间\n无出处。\n")
@@ -428,6 +467,7 @@ def _steps():
         ("archive_not_delete", s_archive_not_delete),
         ("supersede_semantics", s_supersede_semantics),
         ("audit_layer_not_self", s_audit_layer_not_self),
+        ("self_surface_filter", s_self_surface_filter),
         ("reject_no_condition_space", s_reject_no_cs),
         ("reject_no_evidence", s_reject_no_evidence),
         ("blindspot_not_accept", s_blindspot_not_accept),
