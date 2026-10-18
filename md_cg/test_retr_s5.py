@@ -63,7 +63,21 @@ def _restore(old):
 
 
 def _scores(results):
+    """显示用分数（6dp）——**不得**作为比例判据的输入（见 _raw_scores）。"""
     return {r[0]["id"]: round(float(r[1]), 6) for r in results}
+
+
+def _raw_scores(results):
+    """判据输入：**未舍入**的分数。
+
+    issue #363 落地后，缺省 lexical 路改走 IDF 加权覆盖度，分数网格从
+    「k/|q| 的二进制友好值」变成任意浮点值。原判据
+    `abs(round6(x*0.5) - round6(x)*0.5) < 1e-9` 在一般取值下**不成立**：
+    舍入噪声 ~5e-7，比 1e-9 的容差大三个数量级（x 的 6dp 末位恰为偶数时才
+    偶然通过）。判据的真语义是「抑制后恰为抑制前 ×(1-λ)」，故在**精确值**上
+    判 1e-9——严格强于原形态（原形态的 1e-9 实际被舍入噪声吞掉）。
+    """
+    return {r[0]["id"]: float(r[1]) for r in results}
 
 
 def _neg_card(results):
@@ -99,6 +113,7 @@ def main():
                   MDCG_GATE_S1_DOMAIN=None, MDCG_GATE_S2_COND=None)
     r_off, m_off = cg.search(QUERY, k=10, judge=False, record=False)
     base = _scores(r_off)
+    raw_base = _raw_scores(r_off)     # 比例判据的输入（未舍入，见 _raw_scores）
     check("默认关：meta 不含 gates 键", "gates" not in m_off,
           str(sorted(m_off.keys())))
     check("默认关：负覆盖条目分数＝哨兵 0.0（不再冒充 1.0 候选，且不高过任何"
@@ -121,17 +136,18 @@ def main():
     _setenv(MDCG_GATE_S5_NEG="1", MDCG_NEG_LAMBDA="0.5", MDCG_NEG_SIM="0.5")
     r5, m5 = cg.search(QUERY, k=10, judge=False, record=False)
     sc5 = _scores(r5)
+    raw5 = _raw_scores(r5)            # 比例判据的输入（未舍入）
     g5 = (m5.get("gates") or {}).get("s5") or {}
     check("S5 审计：λ/threshold/抑制数",
           g5.get("lambda") == 0.5 and g5.get("threshold") == 0.5
           and g5.get("suppressed", 0) >= 2, str(g5))
     _sup = set(g5.get("suppressed_ids") or [])
     check("重叠候选被抑制（×0.5）",
-          abs(sc5.get("pos_overlap", -1) - base["pos_overlap"] * 0.5) < 1e-9
+          abs(raw5.get("pos_overlap", -1.0) - raw_base["pos_overlap"] * 0.5) < 1e-9
           and "pos_overlap" in _sup,
           "%s vs %s  sup=%s" % (sc5.get("pos_overlap"), base.get("pos_overlap"), sorted(_sup)))
     check("相邻候选被抑制（文本不重叠也生效）",
-          abs(sc5.get("pos_edge", -1) - base["pos_edge"] * 0.5) < 1e-9
+          abs(raw5.get("pos_edge", -1.0) - raw_base["pos_edge"] * 0.5) < 1e-9
           and "pos_edge" in _sup,
           "%s vs %s  sup=%s" % (sc5.get("pos_edge"), base.get("pos_edge"), sorted(_sup)))
     check("无关候选不被抑制",
@@ -170,9 +186,10 @@ def main():
     _setenv(MDCG_NEG_SIM="0.4")
     r3, m3 = cg.search(QUERY, k=10, judge=False, record=False)
     sc3 = _scores(r3)
+    raw3 = _raw_scores(r3)            # 比例判据的输入（未舍入）
     sup3 = set(((m3.get("gates") or {}).get("s5") or {}).get("suppressed_ids") or [])
     check("thr=0.4：部分重叠也被抑制",
-          abs(sc3["pos_mid"] - base["pos_mid"] * 0.5) < 1e-9
+          abs(raw3["pos_mid"] - raw_base["pos_mid"] * 0.5) < 1e-9
           and "pos_mid" in sup3,
           str(sc3) + " " + str(sorted(sup3)))
 
