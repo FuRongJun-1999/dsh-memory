@@ -540,6 +540,20 @@ def compose_domain_code(question, domain=None, unit_id=None):
     return unit["task"], best_uid, code, unit, domain
 
 
+def _load_verifier():
+    """同族校验器的**单点导入**（开发态裸模块 / wheel 发布态包内相对）。
+
+    所有需要 verifier 能力的地方都经这里取模块——沙箱与超时只有 verifier 一份
+    实现，本文件**不**建第二套（issue #491）。
+    """
+    try:
+        import verifier                                    # 裸模块（同目录 sys.path，开发态）
+        return verifier
+    except ImportError:
+        from . import verifier                             # 包内相对（wheel 发布态）
+        return verifier
+
+
 def _verify_with_verifier(code, unit, unit_id=""):
     """本地校验器六层校验（替代 verify_code 三层）——返回 (ok, checks) 兼容格式。
 
@@ -549,12 +563,9 @@ def _verify_with_verifier(code, unit, unit_id=""):
       - unit_id 传入（与 --audit 共享同一指纹空间——同一单元同一指纹同一缓存条目）
       - 注入型单元（needs_inject）L2/L3 由集成测试覆盖；'call' 标记样例跳过
     """
-    try:
-        from verifier import Verifier, VerifyRequest        # 裸模块（同目录 sys.path，开发态）
-    except ImportError:
-        from wisdom.verifier import Verifier, VerifyRequest  # 包内相对（wheel 发布态）
-    v = Verifier()
-    req = VerifyRequest(
+    V = _load_verifier()
+    v = V.Verifier()
+    req = V.VerifyRequest(
         task=unit.get("task", ""), code=code, unit_id=unit_id,
         cases=list(unit.get("cases", [])),
         expected_structure={"inject": True} if unit.get("needs_inject") else {},
@@ -682,22 +693,20 @@ def compose_code(question, unit_id=None, fn_name=None, lang=None):
 
 
 # ============ 三、自校验三层（语法 → 样例 → 边界） ============
-def _run_case(fn, case):
-    """执行单个样例：兼容 (inp, exp) 单参数 / (args_tuple, exp) 多参数 / ('call', exp)"""
-    if len(case) != 2:
-        return None, f"样例格式错误: {case}"
-    inp, exp = case
-    if inp == "call":
-        return "call", exp  # 特殊标记：域注入型单元（L2 由集成测试覆盖）
-    if isinstance(inp, tuple):
-        return fn(*inp), exp
-    return fn(inp), exp
+# 样例执行已收口到 `verifier.run_guarded`（受限命名空间 + 子进程 + 超时，issue
+# #491）；原 `_run_case` 的三种入参形态由执行器 `_EXEC_RUNNER_SRC` 的 compose
+# 模式承接，本文件不再保留第二份样例调用实现。
 
 
 def verify_code(code, unit, lang="python"):
     """自校验：L1 语法 + L2 样例 + L3 边界（白箱自己发现代码错误）
-    Python：ast 语法 + exec 样例运行；Rust/JS：结构校验 + py_ref 逻辑样例
-    v6：支持多参数样例 (args_tuple, exp)；needs_inject 单元 L2 由集成测试覆盖"""
+    Python：ast 语法 + 受控执行样例；Rust/JS：结构校验 + py_ref 逻辑样例
+    v6：支持多参数样例 (args_tuple, exp)；needs_inject 单元 L2 由集成测试覆盖
+
+    执行面（issue #491）：L2 的 `exec` **不再同进程裸跑**——一律经
+    `verifier.run_guarded`（受限内建白名单 `SAFE_NS` + 子进程 + `subprocess`
+    超时，与 #91 同一份实现）。本函数只保留 L1 静态判据与结果文案映射。
+    """
     import re as _re
     if lang != "python":
         checks = []
@@ -710,23 +719,14 @@ def verify_code(code, unit, lang="python"):
         if "{" in code and _re.search(r"\{\s*[a-z_]+\s*\}", code):
             return False, ["✗ L1 结构错误：存在未替换的模板占位符"]
         # L2 逻辑样例：py_ref（Python 等价实现）验证模板逻辑正确
-        ns = {}
-        try:
-            exec(unit.get("py_ref", ""), ns)
-        except Exception as e:
-            return False, [f"✗ L2 py_ref 错误: {e}"]
-        fns = [v for k, v in ns.items() if callable(v) and not k.startswith("__")]
-        if not fns:
-            return False, ["✗ L2 无 py_ref 函数"]
-        fn = fns[0]
-        for inp, exp in unit.get("cases", []):
-            try:
-                got = fn(inp)
-            except Exception:
-                return False, [f"✗ L2 样例崩溃: {inp}"]
-            if got != exp:
-                return False, [f"✗ L2 样例失败: {inp} → {got}（期望 {exp}）"]
-        checks.append(f"✔ 结构通过 | 样例 {len(unit.get('cases', []))} 组全过（py_ref 逻辑）")
+        py_ref = unit.get("py_ref", "")
+        cases = list(unit.get("cases", []))
+        err = _compose_exec(py_ref, cases, None, unpack=False,
+                            error_label="✗ L2 py_ref 错误",
+                            no_fn_label="✗ L2 无 py_ref 函数")
+        if err:
+            return False, [err]
+        checks.append(f"✔ 结构通过 | 样例 {len(cases)} 组全过（py_ref 逻辑）")
         return True, checks
     checks = []
     # L1 语法
@@ -734,33 +734,59 @@ def verify_code(code, unit, lang="python"):
         ast.parse(code)
     except SyntaxError as e:
         return False, [f"✗ L1 语法错误: {e}"]
-    # L2 样例运行（函数名必须是 solve——模板默认；用户指定名时用字典注入）
-    ns = {}
-    try:
-        exec(code, ns)
-    except Exception as e:
-        return False, [f"✗ L1 定义错误: {e}"]
-    fns = [v for k, v in ns.items() if callable(v) and not k.startswith("__")]
-    if not fns:
-        return False, ["✗ L1 无函数定义"]
-    fn = fns[0]
     if unit.get("needs_inject"):
-        # 注入型单元（需要 Graph/run_stmts 等白箱单元组装）：L2 由集成测试覆盖
+        # 注入型单元（需要 Graph/run_stmts 等白箱单元组装）：L2 由集成测试覆盖。
+        # 仍走受控执行器**只做定义检查**（空样例）——保住原有「模块级错误即判负」
+        # 的语义；样例本身不在本层跑。
+        err = _compose_exec(code, [], None)
+        if err:
+            return False, [err]
         checks.append(f"✔ 语法通过 | 注入型单元：L2 样例由域集成测试覆盖（{len(unit.get('cases', []))} 组）")
         return True, checks
-    cases = unit.get("cases", [])
-    for case in cases:
-        try:
-            got, exp = _run_case(fn, case)
-        except Exception as e:
-            return False, [f"✗ L2 样例崩溃: {case} → {e}"]
-        if got == "call":
-            continue  # call 特殊标记（域注入型，由集成测试覆盖）
-        if got != exp:
-            return False, [f"✗ L2 样例失败: {case} → {got}（期望 {exp}）"]
+    # L2 样例运行（受控执行器内；函数名取「命名空间首个可调用」＝原语义）
+    cases = list(unit.get("cases", []))
+    err = _compose_exec(code, cases, None)
+    if err:
+        return False, [err]
     # L3 边界（额外边界用例：None/空/重复已含在 cases）
     checks.append(f"✔ 语法通过 | 样例 {len(cases)} 组全过")
     return True, checks
+
+
+#: 组合生成面 L2 的执行时限（`None` ⇒ 用 verifier 的 `EXEC_TIMEOUT_S` 默认值）。
+#: 守卫可注入小值以免拖慢；生产面不改——时限真源在 verifier 一处。
+COMPOSE_EXEC_TIMEOUT_S = None
+
+
+def _compose_exec(code, cases, func_name, error_label="✗ L1 定义错误",
+                  no_fn_label="✗ L1 无函数定义", unpack=True):
+    """在 verifier 的受控执行器里跑组合生成单元的样例；返回失败文案或 None。
+
+    `mode="compose"` 保留本文件原有的两条语义（均在 `verifier._EXEC_RUNNER_SRC`
+    内实现）：① 函数取「命名空间里第一个可调用对象」；② 期望值**严格相等**
+    （不做 verifier 六层用的 dict 子集匹配——那是另一层判据，不得放宽本层）。
+    `unpack` 同样是原语义：Python 模板分支 tuple 入参展开为多参；py_ref 分支
+    不展开（原实现 `fn(inp)`——Rust/JS 等价实现的样例入参本就是单个参数）。
+    """
+    V = _load_verifier()
+    timeout = (COMPOSE_EXEC_TIMEOUT_S if COMPOSE_EXEC_TIMEOUT_S is not None
+               else V.EXEC_TIMEOUT_S)
+    res = V.run_guarded(code, cases, func_name, "compose", timeout, unpack)
+    kind = res.get("exec")
+    if kind == "timeout":
+        return (f"✗ L2 执行超时（超过 {res.get('timeout')}s 未返回，已强制终止；"
+                f"被校验代码须在受控时限内返回）")
+    if kind == "unencodable":
+        return f"✗ L2 样例超出受控执行器的承载边界: {res.get('exec_err')}"
+    if kind == "runner_error":
+        return f"✗ L2 受控执行器不可用: {res.get('exec_err')}"
+    if kind == "error":
+        return f"{error_label}: {res.get('exec_err')}"
+    if not res.get("found"):
+        return no_fn_label
+    for r in res.get("results") or []:
+        return "✗ L2 " + str(r.get("detail", ""))
+    return None
 
 
 # ============ 四、固化（验证通过 → 固化 → 同任务直出） ============

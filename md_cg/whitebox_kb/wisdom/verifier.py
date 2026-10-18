@@ -609,6 +609,11 @@ def main():
         dump()
         return
     fn = ns.get(p.get("func")) if p.get("func") else None
+    if fn is None and mode == "compose":
+        # 组合生成面（issue #491）：与 `code_compose.verify_code` 的既有语义一致——
+        # 取命名空间里**第一个可调用**对象（按 exec 后的插入序），不是 AST 首函数。
+        fn = next((v for k, v in ns.items()
+                   if callable(v) and not k.startswith("__")), None)
     if not callable(fn):
         dump()
         return
@@ -620,11 +625,12 @@ def main():
             out["results"].append({"kind": "fail",
                                    "detail": "样例%d 结构非法: %r" % (i, pair)})
             break
-        if mode == "samples" and inp == "call":
+        if mode in ("samples", "compose") and inp == "call":
             continue
         out["ran"] += 1
         try:
-            got = fn(inp) if not isinstance(inp, tuple) else fn(*inp)
+            got = (fn(*inp) if (isinstance(inp, tuple) and p.get("unpack", True))
+                   else fn(inp))
         except Exception as e:
             if mode == "boundary" and exp == "any":
                 continue          # 边界用例允许异常返回
@@ -641,7 +647,10 @@ def main():
             break
         if mode == "boundary" and exp == "any":
             continue
-        if not _match(got, exp):
+        # compose：与 `code_compose.verify_code` 原语义一致——严格相等。
+        # samples/boundary 的 dict 子集匹配**不得**用于组合生成面，否则判据被放宽。
+        ok_match = (got == exp) if mode == "compose" else _match(got, exp)
+        if not ok_match:
             out["results"].append({"kind": "fail",
                                    "detail": "%s%d 失败: %s → %s（期望 %s）"
                                              % (tag, i, inp, got, exp)})
@@ -692,7 +701,7 @@ def _guard_fail(res: Dict[str, Any], level: str) -> Optional[Dict[str, Any]]:
 
 
 def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
-                 mode: str, timeout: float) -> Dict[str, Any]:
+                 mode: str, timeout: float, unpack: bool = True) -> Dict[str, Any]:
     """在**受控时限**内于子进程执行 `code`（并按 mode 跑用例），返回结果 dict。
 
     `exec` ∈ {ok, error, timeout, unencodable, runner_error}：
@@ -701,13 +710,15 @@ def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
       · timeout       —— 超时被强制终止（fail-closed）；
       · unencodable   —— 用例元素无法跨进程承载（fail-closed）；
       · runner_error  —— 执行器起不来/未产出结果（fail-closed）。
+    `unpack`：tuple 入参是否展开为多参调用。verifier 六层恒为 True；组合生成面
+    （`code_compose.verify_code`）按原语义分派——Python 模板 True、py_ref False。
     超时路径：`proc.kill()` 后**必须再 wait/communicate 回收**——只 kill 不 wait 会
     留僵尸；返回值里的 `pid`/`reaped` 是该路径的**可断言残留**（守卫据此判不泄漏）。
     """
     try:
         payload = {"code": code,
                    "cases": [_enc_value(c) for c in cases],
-                   "func": func_name, "mode": mode}
+                   "func": func_name, "mode": mode, "unpack": bool(unpack)}
     except _UnencodableCase as e:
         return {"exec": "unencodable", "exec_err": str(e), "found": False,
                 "results": [], "ran": 0}
@@ -757,6 +768,17 @@ def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
     except Exception as e:                           # noqa: BLE001
         return {"exec": "runner_error", "exec_err": str(e), "found": False,
                 "results": [], "ran": 0}
+
+
+def run_guarded(code: str, cases: List[Any], func_name: Optional[str],
+                mode: str, timeout: float, unpack: bool = True) -> Dict[str, Any]:
+    """公开执行入口——**委托** `_run_guarded`（同一份沙箱/超时实现，非第二套）。
+
+    供同族生成面复用（`code_compose.verify_code` 的 L2，issue #491）：受限内建
+    白名单（`SAFE_NS`）+ 子进程 + `subprocess` 超时全部由 `_run_guarded` 提供，
+    调用方不得自行 `exec`/自建进程。`mode="compose"` 的语义见 `_EXEC_RUNNER_SRC`。
+    """
+    return _run_guarded(code, cases, func_name, mode, timeout, unpack)
 
 
 class VerifyCache:
