@@ -989,3 +989,20 @@ class ShardedLog:
                 os.remove(p)
             except OSError:
                 pass
+
+#: issue #443：审计/台账记录单条的**总字节上限**（调用方可控字段可无限长 ⇒ 1:1 写入放大）。
+#: 与 state_events._MAX_FIELD_BYTES（8192/字段）不同：这里的落点是「整条记录」，
+#: 故按序列化后的总字节判；取 65536 B（单条簿记不该接近一页文本）。
+_MAX_RECORD_BYTES = 65536
+
+
+# 生效条件：rec 可 json 序列化时按其 UTF-8 字节数判：<= _MAX_RECORD_BYTES 返回 True；
+# 超限或序列化失败返回 False（调用方据此**跳过写入**，不抛——本函数的调用点全是
+# best-effort 审计路径，抛错会被上层 except 吞掉从而变静默）。
+def bounded_record(rec) -> bool:
+    """issue #443：单条台账记录的总字节闸（返回可否写入）。"""
+    try:
+        raw = json.dumps(rec, ensure_ascii=False, default=str).encode('utf-8')
+    except Exception:                              # noqa: BLE001
+        return False
+    return len(raw) <= _MAX_RECORD_BYTES

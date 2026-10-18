@@ -30,6 +30,7 @@ import os
 import time
 
 from . import protect
+from . import fsutil
 from .fsutil import append_jsonl
 
 INSIGHT_LOG = "_insight.jsonl"
@@ -71,6 +72,11 @@ def log_path(cg):
 # 生效条件：向 log_path(cg) 追加 JSONL 的调用若抛任何异常都会被 except Exception 吞掉，无论成败最终都返回 rec。
 def _append(cg, rec):
     """留痕（best-effort）：审计不该反过来打断主流程。"""
+    # issue #443：调用方可控字段可无限长 ⇒ 单条记录先过总字节闸；超限跳过写入
+    # 并记失败（不抛——本函数是 best-effort 审计路径，抛错会被下面 except 吞掉）。
+    if not fsutil.bounded_record(rec):
+        fsutil._note_append_failure(log_path(cg), ValueError("record_too_large: issue #443"))
+        return rec
     try:
         append_jsonl(log_path(cg), rec)
     except Exception:                              # noqa: BLE001
