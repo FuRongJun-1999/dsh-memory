@@ -86,9 +86,14 @@ def retrieve(cg, query, k=10, layer=None, session=None,
             fm = (got or {}).get("frontmatter") or {}
         except Exception:                        # noqa: BLE001
             fm = {}
+        full = node.get("content") or ""
         items.append({
             "node_id": nid,
-            "content": (node.get("content") or "")[:400],
+            "content": full[:400],
+            # I17 / I16（2026-10-18）：投影不得自称权威——截断必须显式声明。
+            # 不声明的话，读者会把 400 字当成原文全文，这正是「投影冒充原文」。
+            "content_truncated": len(full) > 400,
+            "content_full_len": len(full),
             "condition_space": fm.get("condition_space"),
             "qualification": condgate.qualify(fm),
             "lifecycle_state": lifecycle.state_of(fm),
@@ -104,10 +109,18 @@ def retrieve(cg, query, k=10, layer=None, session=None,
         status = "partial"
         completeness = False
 
+    # I2（2026-10-18）：completeness=False 时**不得断言「没有」**。
+    # 零命中 + 不完整，若报 hit_count=0，调用方会读成「查了，确实没有」——
+    # 而实际是「没查全」。故此时 hit_count 必须为 null（与 I1 同一精神：
+    # 不确定的结论不能伪装成确定）。有命中时仍给数量，由 completeness 标注覆盖面。
+    hit_count = len(items)
+    if not completeness and hit_count == 0:
+        hit_count = None
+
     return {
         "items": items,
         "completeness": completeness,
-        "hit_count": len(items),                  # 仅 success/partial 时有意义
+        "hit_count": hit_count,                  # 仅 success/partial 且完整时有意义
         "snapshot_id": snapshot_id or _snapshot_id(cg),
         "operation_status": status,
         "scanned": scanned,

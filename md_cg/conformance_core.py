@@ -386,6 +386,78 @@ def _steps():
         ok = (not offenders) and (not forbidden)
         return (PASS if ok else FAIL), out
 
+    def s_inv_i2_i17(ctx):
+        """I2 不完整时不得断言「没有」／ I17 投影不得自称权威。
+
+        I2  ：completeness=False 且零命中时，hit_count 必须为 null（不能报 0）
+        I17 ：content 被截断时必须显式声明（content_truncated + content_full_len），
+              否则读者会把投影当原文——这正是「投影冒充权威」。
+        """
+        from . import retrieve as rv
+
+        class Partial(object):
+            """最小替身：检索返回空但标注不完整。"""
+            index = {"nodes": {}}
+            index_path = None
+
+            def search(self, *a, **k):
+                return [], {"completeness": False, "partial": True, "tier": "T1"}
+
+            def get(self, nid):
+                return None
+
+        env = rv.retrieve(Partial(), "任意查询", k=3)
+        out = {"partial_status": env.get("operation_status"),
+               "partial_completeness": env.get("completeness"),
+               "partial_hit_count": env.get("hit_count")}
+        out["i2_ok"] = (env.get("completeness") is False
+                        and env.get("hit_count") is None)
+
+        # I17：长正文写入 → 检索命中时 content 必被截断，且必须声明
+        long_body = GOOD_BODY + "扩展段落。" * 200
+        ctx["write"](long_body.replace("conformance 核心闭环样本", "长正文截断样本"))
+        env2 = rv.retrieve(ctx["cg"], "长正文截断样本", k=3)
+        trunc = [i for i in env2.get("items", []) if i.get("content_truncated")]
+        out["truncated_items"] = len(trunc)
+        out["sample_full_len"] = trunc[0]["content_full_len"] if trunc else None
+        out["sample_content_len"] = len(trunc[0]["content"]) if trunc else None
+        out["i17_ok"] = bool(trunc) and (out["sample_full_len"] or 0) > (out["sample_content_len"] or 0)
+        ok = out["i2_ok"] and out["i17_ok"]
+        return (PASS if ok else FAIL), out
+
+    def s_inv_i8_trace(ctx):
+        """I8：无 _evolution 记录即未发生——状态变更必须留痕。
+
+        对节点执行 superseded 迁移，断言两处痕迹都在：
+            库级 _lifecycle.jsonl 追加了一条
+            节点 frontmatter 的 state_history 记下了这次迁移
+        """
+        trace = os.path.join(ctx["root"], "_lifecycle.jsonl")
+
+        def n_lines():
+            if not os.path.isfile(trace):
+                return 0
+            with open(trace, "r", encoding="utf-8", errors="replace") as fh:
+                return sum(1 for line in fh if line.strip())
+
+        from . import lifecycle
+        ctx["cg"].add("n_trace", "待迁移样本", layer="knowledge")
+        before = n_lines()
+        lifecycle.set_state(ctx["cg"], "n_trace", "superseded", reason="I8 conformance")
+        after = n_lines()
+        fm = ((ctx["cg"].get("n_trace") or {}).get("frontmatter") or {})
+        hist = fm.get("state_history") or []
+        out = {
+            "audit_grew": after > before,
+            "audit_before_after": [before, after],
+            "state_history_len": len(hist),
+            "has_transition": any(
+                (isinstance(h, dict) and h.get("to") == "superseded")
+                or (isinstance(h, str) and "superseded" in h) for h in hist),
+        }
+        ok = out["audit_grew"] and out["state_history_len"] > 0 and out["has_transition"]
+        return (PASS if ok else FAIL), out
+
     def s_inv_envelope_i1(ctx):
         """不变量 I1：非 success 时 hit_count 必须为 null。
 
@@ -580,6 +652,8 @@ def _steps():
         ("verdict_schema", s_verdict_schema),
         ("inv_write_trace", s_inv_write_trace),
         ("inv_zero_llm", s_inv_zero_llm),
+        ("inv_i2_i17", s_inv_i2_i17),
+        ("inv_i8_trace", s_inv_i8_trace),
         ("inv_envelope_i1", s_inv_envelope_i1),
         ("gap_cs_not_indexed", s_gap_cs_not_indexed),
         ("envelope", s_envelope),
