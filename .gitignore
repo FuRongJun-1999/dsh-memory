@@ -24,6 +24,12 @@ node_modules/
 /_children.json
 /_heartbeat.jsonl
 
+# 同类的两个**目录**（2026-10-17 实测）：`/~`（tilde 未展开时按字面建出的目录，内含
+# `.mdcg/`）与 `/hippocampus/`（记忆侧运行态，内含 `inbox.index.json`）。二者都是
+# 运行时产物、不是仓库内容，同样只忽略仓根（带前导 `/`）。
+/~
+/hippocampus/
+
 # 自举循环运行态数据（持续增长的日志/队列/草稿；仅本地留存，不入库）
 /data/bootstrap/
 
