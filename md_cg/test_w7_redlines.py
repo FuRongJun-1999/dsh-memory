@@ -329,7 +329,11 @@ _TERM_CALL_PATTERNS = ("os._exit(", "os.abort(", "os.kill(os.getpid(",
 #:    （2026-10-07 实测：提交前未跟踪时 E1 绿、提交后 514→515 文件立刻转红）。扫描器不扫自己。
 #:    残留风险与兜底：E1b 的扫描面下限断言防「扫描面塌缩成假绿」；变异①经 `_SCAN_EXTRA`
 #:    注入合成自裁调用点，仍保证 E1 有判别力。
+#:  - `test_issue498_merge_trace_stale_index.py`：测试用**子进程** `os._exit(7)` 构造
+#:    「写者被硬杀、索引未落盘」的崩溃窗口（#498 的缺陷形态），是复现手段而非系统
+#:    自裁路径；父进程控制流不调用它，且该子进程代码以字符串交给 `python -c`。
 _TERM_WHITELIST = {"md_cg/test_review_cli_visibility.py",
+                   "md_cg/test_issue498_merge_trace_stale_index.py",
                    "md_cg/test_w7_redlines.py"}
 #: 变异注入点（--mutate E 往扫描面塞一个合成自裁调用点）。
 _SCAN_EXTRA: dict[str, str] = {}

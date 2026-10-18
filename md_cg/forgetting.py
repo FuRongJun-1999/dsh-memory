@@ -193,7 +193,10 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
     best = {"max": 0.0, "with": None, "jaccard": 0.0, "compared": 0}
     if not new:
         return best
-    nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # 并发写面守据（W7 G1a）：从 cg.index 取回的映射先**快照**再迭代——
+    # 直接迭代活字典在别的线程/进程写入时抛 "dictionary changed size during
+    # iteration"（#316 同族）。快照成本 O(n)，本函数本就要遍历一遍候选。
+    nodes = dict(((getattr(cg, "index", None) or {}).get("nodes") or {}))
     # 候选集先一次算出（同一索引快照，不改变原先后序）：candidate_total 是
     # 「本该比多少个」的真值，与 compared（实际计入数，空正文节点不计）分开。
     cands = [nid for nid in nodes

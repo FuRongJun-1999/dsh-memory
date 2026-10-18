@@ -148,7 +148,7 @@ _check("B1 白名单=库根上级 + 空 path：库根被剪枝并如实回报",
 # 故不能用 indexed==0 作判据；也不能只看 doc_ref.root——祖先摄取时 root 是上级）。
 _lib = os.path.normcase(os.path.realpath(ROOT))
 _from_lib = []
-for nid, e in (rec7.index.get("nodes") or {}).items():
+for nid, e in list((rec7.index.get("nodes") or {}).items()):   # 快照迭代（W7 G1a）
     if not nid.startswith("doc_"):
         continue
     node = _call(rec7, "mdcg_get", {"node_id": nid}) or {}
