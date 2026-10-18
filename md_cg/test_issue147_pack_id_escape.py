@@ -32,6 +32,7 @@ import os
 import shutil
 import sys
 import tempfile
+import time
 
 from . import evidence as ev
 from .mdcos import MdCGOS
@@ -97,6 +98,17 @@ def _sandbox():
     io.open(pol, "w", encoding="utf-8").write(
         json.dumps({"forbidden": [], "required": []}))
     os.environ["MDCG_POLICY_FILE"] = pol
+    # #453（SEC·P1）同批随动：`import_pack` 现为 fail-closed（空签名一律拒）。
+    # 本守卫的 G2「合法 pack_id 不误伤」需要一个**真签得出来**的合法包，故在沙箱里
+    # 声明子系统策略（要求对端签名）并把密钥/策略文件都指进沙箱——不碰真实 aux。
+    sigfile = os.path.join(t, "signers.json")
+    io.open(sigfile, "w", encoding="utf-8").write(json.dumps({
+        "schema": 1, "default_signer": "hmac-local",
+        "subsystems": {ev.SUBSYSTEM: {
+            "signer": "hmac-local", "sign_on": ["handshake", "evidence"],
+            "require_peer_signature": True, "on_verify_fail": "reject"}}}))
+    os.environ["MDCG_SIGNERS_FILE"] = sigfile
+    os.environ["MDCG_SIGNER_KEY_FILE"] = os.path.join(t, "signer.key")
     # fail-closed：沙箱没生效就**拒跑**，绝不在真实 aux 目录上做攻击面验证。
     inbox = os.path.realpath(ev.inbox_dir())
     if not inbox.startswith(os.path.realpath(t) + os.sep):
@@ -106,9 +118,22 @@ def _sandbox():
 
 
 def _pack(pid):
-    return {"kind": ev.KIND, "schema": ev.SCHEMA, "from_node": "attacker",
-            "pack_id": pid, "items": [{"subject": "s", "text": "t"}],
-            "sig": {"signer": "null", "signature": "", "signed": False}}
+    # #453（SEC·P1，同批随动）：`import_pack` 现为 **fail-closed：空签名一律拒收**
+    # （不看 `sig.signer`/`sig.signed` 等对端自报值）。本守卫的合法夹具原先用
+    # `{"signer":"null","signature":"","signed":False}` 冒充「合法包」——那条通道
+    # 正是 #453 要关掉的免签名通行证，故夹具必须带**真签名**，否则 G2 的
+    # 「合法 pack_id 不误伤」会被签名闸（而非 pack_id 闸）打红。
+    # 判据强度**不降**：G2 仍断言 `ok is True and archived`，并新增 `sig` 非空断言
+    # （见 _run_all），把「夹具确实签过」也钉住。
+    p = {"kind": ev.KIND, "schema": ev.SCHEMA, "from_node": "attacker",
+         "pack_id": pid, "created_at": time.time(),
+         "items": [{"subject": "s", "text": "t", "sensitivity": "internal"}]}
+    s = ev._signer.sign_for(ev.SUBSYSTEM, ev._pack_payload(p),
+                            action=ev.SIGN_ACTION)
+    p["sig"] = {"signer": s.get("signer"),
+                "signature": s.get("signature") or "",
+                "signed": bool(s.get("signed"))}
+    return p
 
 
 def _reset(root):
@@ -168,14 +193,21 @@ def _judge(sb) -> list:
     if stray:
         bad.append("stray:收件箱外出现落点：%s" % stray[:5])
     for name, pid in LEGIT:
-        why = ev._validate(_pack(pid))
+        _p = _pack(pid)
+        # 夹具自证（#453 随动）：G2 若用空签名包，「不误伤」会由签名闸而非
+        # pack_id 闸决定 ⇒ 判据失去指向。先钉「夹具确实签过」，再判 pack_id 面。
+        if not (_p.get("sig") or {}).get("signature"):
+            bad.append("legit:[%s] 夹具未签（#453 后空签名必被拒，G2 会失去指向）"
+                       % name)
+            continue
+        why = ev._validate(_p)
         if why:
             bad.append("legit:[%s] 被误拒：%s" % (name, why))
             continue
-        f = ev.write_pack(_pack(pid), swarm=None)["file"]
+        f = ev.write_pack(_p, swarm=None)["file"]
         if not os.path.realpath(f).startswith(os.path.realpath(ev.inbox_dir()) + os.sep):
             bad.append("legit:[%s] 未落在收件箱内：%s" % (name, f))
-        r = ev.import_pack(cg, _pack(pid), swarm=None)
+        r = ev.import_pack(cg, _p, swarm=None)
         if not (r.get("ok") is True and r.get("archived")):
             bad.append("legit:[%s] import 未归档：%s" % (name, r))
     # 显式 path 仍为调用方权限（CLI --out / MCP out 两处调用面）——不得被收窄
@@ -226,14 +258,18 @@ def _run_all():
         stray = _outside_inbox(aux)
         check("G1z 收件箱外零残留（磁盘证据）", not stray, stray[:4])
         for name, pid in LEGIT:
-            why = ev._validate(_pack(pid))
-            f = ev.write_pack(_pack(pid), swarm=None)["file"]
+            _p = _pack(pid)
+            signed = bool((_p.get("sig") or {}).get("signature"))
+            why = ev._validate(_p)
+            f = ev.write_pack(_p, swarm=None)["file"]
             inside = os.path.realpath(f).startswith(
                 os.path.realpath(ev.inbox_dir()) + os.sep)
-            r = ev.import_pack(cg, _pack(pid), swarm=None)
+            r = ev.import_pack(cg, _p, swarm=None)
             check("G2-%s 合法 pack_id 不误伤" % name,
-                  (not why) and inside and r.get("ok") is True and bool(r.get("archived")),
-                  "validate=%r 落inbox内=%s import_ok=%s" % (why, inside, r.get("ok")))
+                  signed and (not why) and inside and r.get("ok") is True
+                  and bool(r.get("archived")),
+                  "夹具已签=%s validate=%r 落inbox内=%s import_ok=%s"
+                  % (signed, why, inside, r.get("ok")))
         chosen = os.path.join(t, "userchosen", "export.json")
         os.makedirs(os.path.dirname(chosen), exist_ok=True)
         ev.write_pack(_pack(LEGIT[0][1]), path=chosen, swarm=None)
