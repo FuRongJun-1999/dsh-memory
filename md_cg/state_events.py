@@ -127,17 +127,16 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
     return rec
 
 
-# 生效条件：ledger_path 不存在时不产出记录；存在时逐行 json.loads（空行跳过；非对象载荷或
+# 生效条件：ledger_path 不存在时返回 []；存在时逐行 json.loads（空行跳过；非对象载荷或
 # JSON 解析失败按坏行处置——计数+有界样本+stderr 告警后跳过，不中断读）；subject/slot/kind
-# **非 None** 时按对应字段过滤（空串亦为合法过滤值）；按落盘序 yield，须消费至尾部才完成全部坏行计数。
-def iter_read(cg, subject=None, slot=None, kind=None):
-    """逐行读回；过滤、坏行告警与计数与 read 共用此单点。
-
-    调用者须消费完迭代器，才会观察到文件后部的坏行。额外内存只含一行。
-    """
+# **非 None** 时按对应字段过滤（空串亦为合法过滤值，2026-10-05 复核口径钉正）；limit 为
+# 真值时只保留最后 limit 条；返回记录列表（落盘序）。
+def read(cg, subject=None, slot=None, kind=None, limit=0) -> list:
+    """读回（可按 subject/slot/kind 过滤；limit=0 不截断）。坏行跳过并记账。"""
     p = ledger_path(cg)
+    out = []
     if not os.path.exists(p):
-        return
+        return out
     with open(p, encoding="utf-8", errors="replace") as f:
         for i, line in enumerate(f, 1):
             line = line.strip()
@@ -156,13 +155,7 @@ def iter_read(cg, subject=None, slot=None, kind=None):
                 continue
             if kind is not None and rec.get("kind") != kind:
                 continue
-            yield rec
-
-
-# 生效条件：完整消费 iter_read 后返回列表；limit 为真值时保持原有 out[-int(limit):] 切片语义，含负数；缺失账本返回 []。
-def read(cg, subject=None, slot=None, kind=None, limit=0) -> list:
-    """读回（可按 subject/slot/kind 过滤；limit=0 不截断）。坏行跳过并记账。"""
-    out = list(iter_read(cg, subject=subject, slot=slot, kind=kind))
+            out.append(rec)
     if limit:
         out = out[-int(limit):]
     return out

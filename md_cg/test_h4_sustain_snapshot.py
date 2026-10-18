@@ -546,26 +546,17 @@ def _control_sources():
 def _build_control_modules(sources: dict):
     """把回缺陷源码 exec 成独立模块（**只用于判据对照**，不落盘、不改工作区）。
 
-    exec 期间临时登记 sys.modules，使 dataclass 等注解解析与正常导入一致；构建后
-    立即还原。对照期间经 `_Swap` 换入包属性（`from . import X` 走包属性）。
+    模块名与真实模块同名但**不进 sys.modules**；对照期间经 `_Swap` 换入包属性
+    （`from . import X` 走包属性 ⇒ 换入即生效），退出即还原。
     """
     mods = {}
-    missing = object()
     for rel, src in sources.items():
         name = rel[:-3].replace("/", ".")
         path = os.path.join(_REPO, rel.replace("/", os.sep))
         mod = types.ModuleType(name)
         mod.__package__ = name.rsplit(".", 1)[0]
         mod.__file__ = path
-        previous = sys.modules.get(name, missing)
-        sys.modules[name] = mod
-        try:
-            exec(compile(src, path, "exec"), mod.__dict__)  # noqa: S102
-        finally:
-            if previous is missing:
-                sys.modules.pop(name, None)
-            else:
-                sys.modules[name] = previous
+        exec(compile(src, path, "exec"), mod.__dict__)      # noqa: S102
         mods[name] = mod
     return mods
 

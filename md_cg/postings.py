@@ -24,7 +24,6 @@ import hashlib
 import io
 import json
 import os
-import sys
 import time
 
 from .fsutil import publish
@@ -127,25 +126,9 @@ _DIGEST_MEMO = {}
 #: 记忆表条目上界（越界即整表 clear()，避免进程内无界增长）。
 _DIGEST_MEMO_MAX = 4096
 
-#: `st_ctime` 是否等价于「inode 状态变更时间」（**记忆表命中判据的前提**）。
-#:
-#: ★平台差异（本笔修正的根因）：`os.stat().st_ctime` 的**含义随平台而异**——
-#:   · POSIX（Linux/macOS）：**最近一次元数据变更时间**，内容改写必使其变化
-#:     ⇒ (mtime_ns, size, ctime_ns) 三元组可作内容身份。
-#:   · **Windows：文件创建时间**，内容改写**不**使其变化
-#:     ⇒ 三元组退化为 (mtime_ns, size)，而二者都可被还原/打平
-#:     （`cp -p` / `rsync -t` / 备份还原 / 粗粒度文件系统）⇒ **会返回过期 digest**。
-#:
-#: 实测（win32 / Python 3.12.14）：同长度就地改写 + `os.utime` 只还原 mtime 后，
-#: 三项逐位相等而两次 sha256 不同（`63c1dd95…` → `4a8d8134…`）⇒ 记忆表命中并
-#: 复用旧指纹 ⇒ `stale_reason` 不报 `content_changed`，`#131` 的内容层收口被绕开。
-#: 故非 POSIX 平台**禁用**该记忆表（退回逐次读盘的既有语义，宁可慢、不可给陈旧结论）。
-_CTIME_IS_STATUS_CHANGE = sys.platform != "win32"
-
 
 # 生效条件：st 为真值且 (st_mtime_ns, st_size, st_ctime_ns) 与记忆中的三元组逐位相等时返回记忆的 digest（不读盘）；
-# 否则调用既有 _file_digest(fp) 重算，结果非 None 时回填（越界先 clear()）并返回；st 为 None 或 digest 为 None 时直接返回重算结果；
-# **非 POSIX 平台（`_CTIME_IS_STATUS_CHANGE` 为假）一律退回无缓存路径**。
+# 否则调用既有 _file_digest(fp) 重算，结果非 None 时回填（越界先 clear()）并返回；st 为 None 或 digest 为 None 时直接返回重算结果。
 def _file_digest_memo(fp: str, st):
     """带「按 stat 身份记忆化」的内容指纹（issue #178；判据语义与 _file_digest 逐位一致）。
 
@@ -154,17 +137,19 @@ def _file_digest_memo(fp: str, st):
     ≈ 146µs/节点）。而每个节点在进本层之前的快路径里已确认 (mtime_ns, size) 与快照
     逐位相等——此时内容几乎总是没变，重复读盘纯属浪费。
 
-    为什么命中判据要加平台闸：见 `_CTIME_IS_STATUS_CHANGE` 的注释。**在 POSIX 上**
-    `st_ctime_ns` 是 inode 状态变更时间，用户态无法用 `utime` / `utimensat` /
-    `cp -p` / `rsync -t` 伪造（那些只还原 mtime）⇒ 三元组逐位相等等价于「内容自
-    上次读取以来未被改动」⇒ 复用不可能返回过期 digest。**在 Windows 上 `st_ctime`
-    是创建时间**，该等价关系**不成立**（已实测复现过期 digest），故禁用记忆表。
+    为什么这样不削弱 #131 的保证：命中条件是 `st_mtime_ns` / `st_size` /
+    **`st_ctime_ns`** 三项 stat 身份**逐位相等**。`st_ctime_ns` 是 **inode 状态
+    变更时间**，用户态**无法**用 `utime` / `utimensat` / `cp -p` / `rsync -t`
+    伪造——那些只还原 mtime。因此「三项 stat 身份逐位相等」等价于「文件内容自上次
+    读取以来未被改动」，缓存复用在此前提下**不可能**返回过期 digest。mtime 被还原、
+    size 不变的就地改写 ⇒ **ctime 必变** ⇒ 缓存未命中 ⇒ 重新读盘算 digest ⇒ 与
+    快照不符 ⇒ 仍判 `content_changed`。
 
     失败不落缓存：`_file_digest` 返回 None（OSError）时不回填，避免把一次瞬时读失败
     固化成长期结论——下次调用仍会重试读盘。
     """
-    if st is None or not _CTIME_IS_STATUS_CHANGE:
-        return _file_digest(fp)           # 无可用 stat 身份 ⇒ 退回无缓存路径
+    if st is None:
+        return _file_digest(fp)           # 无 stat 身份可记忆 ⇒ 退回无缓存路径
     hit = _DIGEST_MEMO.get(fp)
     if (hit is not None and hit[0] == st.st_mtime_ns
             and hit[1] == st.st_size and hit[2] == st.st_ctime_ns):
@@ -241,18 +226,11 @@ def stale_reason(root: str, index_nodes, meta=None) -> str:
     **ctime_ns**) 三项 stat 身份在**进程内**记忆化，命中即复用、**不读盘**；未命中
     才读盘算 digest。判据语义、返回串、快照 schema（3 元组）**逐位不变**。
 
-    为什么不削弱 #131：**在 POSIX 上** `st_ctime_ns` 是 **inode 状态变更时间**，用户态
-    **无法**用 `utime` / `utimensat` / `cp -p` / `rsync -t` 伪造——那些只还原 mtime。
-    故「三项 stat 身份逐位相等」等价于「内容自上次读取以来未被改动」，复用**不可能**
-    返回过期 digest；mtime 被还原、size 不变的就地改写 ⇒ **ctime 必变** ⇒ 未命中 ⇒
-    重算 ⇒ 与快照不符 ⇒ 仍判 `content_changed`。
-
-    ★平台闸（本笔修正）：该等价关系**只在 POSIX 成立**——**Windows 上 `st_ctime`
-    是创建时间**，内容改写不使其变化。实测（win32 / Python 3.12.14）同长度就地改写
-    + `os.utime` 只还原 mtime 后三项逐位相等而两次 sha256 不同 ⇒ 记忆表会返回过期
-    digest ⇒ 本层不报 `content_changed`（即 #131 的内容层收口被绕开）。故
-    `_CTIME_IS_STATUS_CHANGE` 为假时 `_file_digest_memo` **退回无缓存路径**，
-    本层语义回到「逐次读盘算 digest」的既有保证（只损失 #178 的性能收益）。
+    为什么不削弱 #131：`st_ctime_ns` 是 **inode 状态变更时间**，用户态**无法**用
+    `utime` / `utimensat` / `cp -p` / `rsync -t` 伪造——那些只还原 mtime。故「三项
+    stat 身份逐位相等」等价于「内容自上次读取以来未被改动」，复用**不可能**返回过期
+    digest；mtime 被还原、size 不变的就地改写 ⇒ **ctime 必变** ⇒ 未命中 ⇒ 重算 ⇒
+    与快照不符 ⇒ 仍判 `content_changed`。
     """
     if not index_nodes:
         return "no_index"

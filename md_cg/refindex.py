@@ -431,7 +431,7 @@ def _domain_of(it: dict) -> str:
 
 
 
-# 生效条件：cg.get(nid) 不可读或节点不存在时先走不过滤内部读面（索引条目 + cg._read）——节点存在且其 frontmatter[kind]['root'] 非空、与入参 root 不是同一个源根（_same_root）、旧根目录仍在盘上时返回冲突读数 dict（id/kind/existing_root/root/invisible=True，issue #426-B fail-closed），否则返回 None；可见节点路径与既有逐位一致（frontmatter[kind]['root'] 非空且异根才返回 id/kind/existing_root/root）；只读，不写盘；
+# 生效条件：cg.get(nid) 不可读或节点不存在时返回 None；节点存在且其 frontmatter[kind]['root'] 非空、且与入参 root 不是同一个源根（_same_root）时返回冲突读数 dict（id/kind/existing_root/root）；节点无该 ref 键 / ref 无 root / 同根时返回 None；只读，不写盘；
 def root_clash(cg, nid, kind, root):
     """同 id 节点是否已归属**另一个源根**（#352-E 冲突闸）。
 
@@ -456,28 +456,7 @@ def root_clash(cg, nid, kind, root):
     except Exception:                                  # noqa: BLE001
         prev = None
     if not prev:
-        # issue #426-B：cg.get 按调用者 clearance 过滤——低权令牌（record/internal）
-        # 看不见 designer 以 restricted/private 索引的既有节点，原实现据此判「无冲突」
-        # 并整条覆写（密级一起降为 internal，原主之后重索引还会被闸挡回）。冲突判定
-        # 必须基于**库内客观事实**，故改走不过滤内部读面（索引条目 + 基类 _read）；
-        # 「存在但不可读」按 fail-closed 视为冲突（不覆写），invisible 供回执归因。
-        e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
-        if e is None:
-            return None                              # 真不存在：无冲突
-        try:
-            fm, _c = cg._read(e)
-        except Exception:                            # noqa: BLE001
-            fm = None
-        if not fm:
-            return None                              # 读不出（损坏/瞬时失败）：维持既有 None 语义
-        _pr = (fm.get(kind) or {})
-        _prev_root = _pr.get("root") if isinstance(_pr, dict) else None
-        if not _prev_root or not root or _same_root(_prev_root, root):
-            return None                              # 同根/无 ref：覆写语义不变
-        if not os.path.isdir(_prev_root):
-            return None                              # 陈化豁免与可见路径同口径
-        return {"id": nid, "kind": kind, "existing_root": _prev_root,
-                "root": root, "invisible": True}
+        return None
     pr = ((prev.get("frontmatter") or {}).get(kind) or {})
     prev_root = pr.get("root") if isinstance(pr, dict) else None
     if not prev_root or not root or _same_root(prev_root, root):
@@ -543,19 +522,7 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
             )
         else:                                      # doc_ref
             level = it.get("level")
-            # issue #452（2026-10-16 实测）：`it["path"]` 是**相对被摄取根**的路径，
-            # 而私有提示可能正落在**被摄取根自身**的名字上——`cg(op=ingest,
-            # action=dir, path=<…>/private)` 时 item path 只剩 `hr_archive.md`，
-            # `private` 这一段被抹掉 ⇒ 提示永不命中 ⇒ 敏感文档以 internal 落库，
-            # 低权身份可读回其正文；同一份文档改传父目录即正确判 private 并
-            # fail-closed（同一文件、同一写者，只有 path 参数不同）。
-            # 故密级判据面改用「**摄取根 + 相对路径**」的合成路径：与
-            # `docindex.sensitivity_for` 已支持的绝对路径写法**同口径**，而该函数
-            # 只按段找提示、命中只会收紧为 private ⇒ 仍满足其 docstring 的
-            # 「只可能更严、不可能更松」。`root` 为空时合成结果即原 path，
-            # 行为与修前逐字一致（非摄取通路的调用点不受影响）。
-            _hint = os.path.join(root or "", it.get("path") or "").replace("\\", "/")
-            s, _basis = docindex.sensitivity_for(_hint, sensitivity)
+            s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
             sens[s] = sens.get(s, 0) + 1
             extra = (extra_of(it) or {}) if extra_of else {}
             cg.add(

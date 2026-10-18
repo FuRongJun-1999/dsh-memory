@@ -133,14 +133,11 @@ _USE = {rel: n for rel, n in _USE.items() if n}
 _check("B01 ★谓词只有**一处实现**（且该文件内恰 1 个 def）",
        _DEF_FILES == ["md_cg/nodefile.py"] and _CNT["md_cg/nodefile.py"][0] == 1,
        (_DEF_FILES, _CNT.get("md_cg/nodefile.py")))
-_check("B01 ★全部引用都指向它（**五处**：nodefile = fm 契约 1；mdcg = recent 写闸 +"
-       "读容错 2；mcp_server = 写面入参闸 1 + **identity observe 面闸 1**（第二入口，"
-       "2026-10-16 回归：`mdcg_identity`/`cg(op=identity)` 共用 `_identity_call`，"
-       "此前未过闸 ⇒ 非法 role 照样落盘后被隔离，回执却是 ok:true））"
-       "——新增引用必须显式登记在此",
+_check("B01 ★全部引用都指向它（**四处**：nodefile = fm 契约 1；mdcg = recent 写闸 +"
+       "读容错 2；mcp_server = **本批新增的写面入参闸** 1）——新增引用必须显式登记在此",
        _USE == {"md_cg/nodefile.py": 1, "md_cg/mdcg.py": 2,
-                "md_cg/mcp_server.py": 2}, _USE)
-_check("B02 引用总数 == 5（多一处少一处都红）", sum(_USE.values()) == 5, _USE)
+                "md_cg/mcp_server.py": 1}, _USE)
+_check("B02 引用总数 == 4（多一处少一处都红）", sum(_USE.values()) == 4, _USE)
 
 print("")
 print("== E 组：枚举完备性自证（_guard_kit 骨架①）==")

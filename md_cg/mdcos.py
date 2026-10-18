@@ -4340,8 +4340,7 @@ class MdCGOS(MdCG):
                  mode=None, snapshot_id=None, batch=None, entry_ids=None,
                  content=None, role=None, verification_basis=None,
                  importance_hint=None, node_id=None, write=False,
-                 min_jaccard=None, ids=None, pairs=None, actor=None,
-                 sensitivity=None, **extra):
+                 min_jaccard=None, ids=None, pairs=None, actor=None, **extra):
         """记忆维护（P1）：importance / longterm / prefeed / separate / stat。
 
         只读 action（stat/history/longterm 预演）与写层 action（prefeed）不受
@@ -4349,11 +4348,6 @@ class MdCGOS(MdCG):
 
         reload（P1b-2，DSH 建议 2）：显式触发 _maybe_reload_index（签名变化
         才真重载），返回 {"reloaded": bool} 供外部探活常驻进程的读面代际。
-
-        sensitivity（issue #315/#313，2026-10-15）：仅 action=prefeed 消费——
-        调用方声明的待写内容密级，转发给 `self.prefeed` 的两条落库支
-        （ACCEPT→add / MERGE→forgetting.reinforce）。缺省 None = 未声明，
-        与既有行为一致；其余 action 不读该键（照旧落 **extra）。
         """
         act = str(action or "stat").strip().lower()
         if act == "reload":
@@ -4381,18 +4375,7 @@ class MdCGOS(MdCG):
             return self.prefeed(content, layer=layer or "contextual", role=role,
                                 verification_basis=verification_basis,
                                 importance_hint=importance_hint, node_id=node_id,
-                                write=write,
-                                # issue #315/#313（审阅 B1「更深语义缺口」）：prefeed
-                                # 的 sensitivity 形参（本类 :4019）此前**只有直调
-                                # cg.prefeed(...) 才喂得进来**——生产入口是
-                                # maintain(action="prefeed")，而 maintain 没有该形参，
-                                # 调用方声明的密级落进 **extra 即被丢弃 ⇒ 裁决
-                                # MERGE 时 reinforce 收到 None，
-                                # merge_downgrades(target, None) 恒 False ⇒ 声明
-                                # private 的正文以明文聚合行并入 internal 节点。
-                                # 现补形参（缺省 None = 未声明，与既有行为一致）
-                                # 并在 prefeed 分支转发。
-                                sensitivity=sensitivity)
+                                write=write)
         if act == "separate":
             return subgraph.separate_run(
                 self, layer=layer, pairs=pairs, apply=apply, ids=ids,
@@ -4876,7 +4859,7 @@ class MdCGOS(MdCG):
 
 # 生效条件：以 autonomy_modes.decide(B_MERGE) 判定——ALLOW 返回 None（调用方照旧执行合并原语，merge 裁决本身一字不改）；FORBID 返回 verdict="FORBID"/moved_to="autonomy_forbidden" 的终态；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（目标 tgt、后像 content、复现参数 override/session 入载荷 meta）并返回 verdict="CONFIRM"/moved_to="review_queue" 的终态（**不调用任何合并原语、不落盘**）；
     def _autonomy_gate_merge(self, node_id, tgt, content, kw, primitive,
-                             reason="", gate=None, sensitivity=None):
+                             reason="", gate=None):
         """三档自治档位在 **B 合并**出口的判定单点（设计 §三：变更确认档需确认）。
 
         为什么是单点：合并的**两个落点**（`writelimit.check` 的 CONVERGE →
@@ -4887,13 +4870,6 @@ class MdCGOS(MdCG):
         变更单载荷：动作类 B · 目标 tgt · 后像 = 本次新内容 · 理由 · 复现参数
         （override/session——merge 原语的两个非默认槽，裁决 accept 时按此重放）。
         提议者/会话由 propose 的库端快照自动归属（`actor`/`session` 字段）。
-
-        issue #424：出单密级必须是**源写入的有效密级**（`sensitivity` 形参，由调用方
-        传入已解析的 `_sens_eff`＝声明值 ∨ 继承源节点密级），**不得**回落声明值
-        `kw.get("sensitivity")`——同 id 改写不重传 sensitivity 是本仓常态（None），
-        那会让 `MdCGSecure.propose` 按**合并目标** id 继承目标密级，把 private/
-        restricted 单记成 internal；accept 重放时降密级闸按同档放行，高密级正文
-        以聚合行明文并入目标节点（无令牌访客可读）。
         """
         from . import autonomy_modes as _am
         # 资格在先（纯加严）：合并落盘时 reinforce/converge_into 内部的
@@ -4928,12 +4904,9 @@ class MdCGOS(MdCG):
             primitive=primitive,
             meta={"override": bool(kw.get("override")),
                   "session": _writer_session(self, kw)})
-        # issue #424：声明值（kw.get）只是**入口**；这里必须用源写入的有效密级。
-        sens_eff = (sensitivity if sensitivity is not None
-                    else kw.get("sensitivity"))
         pr = _am.propose_mutation(self, _am.B_MERGE, tgt, payload=pay,
                                   layer=tlayer,
-                                  sensitivity=sens_eff, info=True)
+                                  sensitivity=kw.get("sensitivity"), info=True)
         # 协议 gate_gated：同上补三键（ok=True=已受理待审，与写链面口径一致）
         return {"ok": True, "id": node_id, "committed": False,
                 "verdict": "CONFIRM", "node_id": node_id, "gate": gate,
@@ -5184,10 +5157,7 @@ class MdCGOS(MdCG):
                 # 三档自治批次②：档位判定在**限流闸裁决之后、合并原语之前**。
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                primitive="converge_into",
-                                               gate=lim,
-                                               # issue #424：出单密级＝源写入有效密级，
-                                               # 不取声明值（同 id 改写常态为 None）。
-                                               sensitivity=_sens_eff)
+                                               gate=lim)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
@@ -5338,9 +5308,7 @@ class MdCGOS(MdCG):
             if tgt:
                 _ag = self._autonomy_gate_merge(node_id, tgt, content, kw,
                                                 primitive="reinforce",
-                                                gate=verdict,
-                                                # issue #424：同 CONVERGE 支。
-                                                sensitivity=_sens_eff)
+                                                gate=verdict)
                 if _ag is not None:
                     forgetting.log(self, {"t": time.time(), "node_id": node_id,
                                           "layer": layer,
@@ -6544,14 +6512,7 @@ class MdCGSecure(MdCGOS):
                 keep.append(g)
         return keep[:limit] if limit else keep
 
-# 生效条件：返回 m 的 sensitivity；缺键（升级前旧记录 / 非 Secure 直写）按最保守档 "secret" 兜底。
-    # issue #447：与 consistency_history 的「密级不可判 ⇒ fail-closed 去原文」同向——近期事件面
-    # 原按 DEFAULT_SENSITIVITY(internal) 放行，缺键旧记录的明文对 internal 读方可读、会话绑定检查
-    # 也被连带跳过；本单点把缺键兜到上限档（designer/admin 仍可读，非 admin 按 secret 判）。
-    def _recent_effective_sens(self, m):
-        return (m or {}).get("sensitivity") or "secret"
-
-# 生效条件：先以 limit=0 取全量，逐条跳过 meta.tenant 与 self.principal.tenant 不一致的、以及 principal.allows(self._recent_effective_sens(meta)) 为假的（缺 sensitivity 键按最保守档 "secret" fail-closed，issue #447），文本加密时解封失败（None）也跳过，最后 limit 为真值返回 keep[:limit]、否则返回全部 keep。
+# 生效条件：先以 limit=0 取全量，逐条跳过 meta.tenant 与 self.principal.tenant 不一致的、以及 principal.allows(meta 的 sensitivity or DEFAULT_SENSITIVITY) 为假的，文本加密时解封失败（None）也跳过，最后 limit 为真值返回 keep[:limit]、否则返回全部 keep。
     def recent_events(self, limit=20, roles=None, since=None, newest_first=True):
         """读隔离：只返回本 tenant 且当前 clearance 可见的近期事件。"""
         out = super().recent_events(limit=0, roles=roles, since=since,
@@ -6561,12 +6522,11 @@ class MdCGSecure(MdCGOS):
             m = r.get("meta") or {}
             if m.get("tenant", self.principal.tenant) != self.principal.tenant:
                 continue
-            # issue #447：缺 sensitivity 键按最保守档 fail-closed（与 consistency_history 对齐）。
-            msens = self._recent_effective_sens(m)
-            if not self.principal.allows(msens):
+            if not self.principal.allows(m.get("sensitivity") or DEFAULT_SENSITIVITY):
                 continue
             # 会话绑定档（private/secret）：近期事件同口径——仅归属会话，
             # 设计者豁免（issue #35 设计定稿，与 _readable 一致）。
+            msens = m.get("sensitivity") or DEFAULT_SENSITIVITY
             if (_rank(msens) >= _rank("private")
                     and not self.principal.can_admin
                     and m.get("session") != self.principal.session):
