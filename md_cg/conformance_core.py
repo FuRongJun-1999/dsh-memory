@@ -146,6 +146,18 @@ def _steps():
               and out["plain_protected"] is False)
         return (PASS if ok else FAIL), out
 
+    def s_queue_health(ctx):
+        """P0-6：DEFER 出口可观测——空库应给出「可用且为零」，缺数据源须如实报不可用。"""
+        from . import queue_health
+        rep = queue_health.report(ctx["root"])
+        ok = (rep.get("available") is True and rep.get("pending") == 0
+              and rep.get("over_deadline") == 0)
+        return (PASS if ok else FAIL), {
+            "available": rep.get("available"), "pending": rep.get("pending"),
+            "over_deadline": rep.get("over_deadline")}
+        # 注意：真实库的读数（958/775/183、零超期）不在此步断言——conformance 在
+        # 临时干净库上跑，只验证「指标算得出、缺源不冒充 0」，不绑定生产数据。
+
     def s_gap_anchor(ctx):
         has = hasattr(ctx["cg"], "verify_anchor") or hasattr(ctx["cg"], "verifyAnchor")
         return (PASS if has else GAP), {
@@ -174,6 +186,7 @@ def _steps():
         ("blindspot_not_accept", s_blindspot_not_accept),
         ("accept_repeatable", s_accept_repeatable),
         ("protected_predicates", s_protected_predicates),
+        ("queue_health_readable", s_queue_health),
         ("gap_anchor_verify", s_gap_anchor),
         ("gap_rollback", s_gap_rollback),
         ("gap_legacy_retrieve", s_gap_legacy),
