@@ -3052,7 +3052,17 @@ class MdCGOS(MdCG):
 
 # 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE 等写入，返回 nid；若 self 有 principal 则额外传 sensitivity=principal.clearance；
     def _write_review_record(self, rec):
-        """把一轮裁决写成 md 记忆节点（self 层）——外部来源可读、可复核。"""
+        """把一轮裁决写成 md 记忆节点（**structural 层**）——外部来源可读、可复核。
+
+        2026-10-18 改（方案 A）：此前硬编码 layer="self"，后果实测为——
+        self 层 780 条中 769 条（98.6%）是这类裁决审计记录，真正的自我锚点只剩 11 条。
+        而 self 层属层保护（layer∈{self,anchor} ⇒ is_protected 恒真），于是 769 条
+        sensitivity=secret 的裁决日志被"不可遗忘"永久占用自我层，任何按 layer=self
+        做的自我认知分析都会被淹没。
+
+        审计痕迹的语义是「结构事件」而非「扮演依据」，故改落 structural。
+        存量 769 条不迁移（带 record_hash 与加密正文、可能被引用，另行裁定）。
+        """
         nid = rec["record_node_id"]
         rh = rec["record_hash"]
         body = (
@@ -3076,7 +3086,8 @@ class MdCGOS(MdCG):
         extra = {}
         if hasattr(self, "principal"):     # MdCGSecure：审计记录按裁决者密级写
             extra["sensitivity"] = getattr(self.principal, "clearance", None)
-        self.add(nid, body, layer="self", override=True, role=self.AUDIT_ROLE,
+        # 2026-10-18：layer 由 self 改 structural（见本方法 docstring 的实测依据）
+        self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
                  tags=["audit", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",

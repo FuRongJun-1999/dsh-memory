@@ -110,6 +110,32 @@ def _steps():
               and out["old_readable"] is True)      # 退役不删除
         return (PASS if ok else FAIL), out
 
+    def s_audit_layer_not_self(ctx):
+        """审核裁决审计记录不得落 self 层（2026-10-18 方案 A）。
+
+        实测依据：改前 self 层 780 条里 769 条是这类审计记录（98.6%），而 self 属
+        层保护（is_protected 恒真）——于是 sensitivity=secret 的裁决日志被"不可遗忘"
+        永久占用自我层，任何自我认知分析都被淹没。
+
+        两条断言：落 structural；**不受层保护**（审计痕迹不该"不可遗忘"）。
+        """
+        from . import protect
+        rec = {
+            "record_node_id": ctx["cg"]._audit_node_id("prop_conf0001", 1),
+            "record_hash": "c" * 40, "pid": "prop_conf0001", "round": 1,
+            "decision": "accept", "status": "accepted", "redteam_verdict": "absent",
+            "issues": [], "verify_hash": None, "actor": "conformance", "t": 1792300000.0,
+            "target_id": "n_target",
+        }
+        nid = ctx["cg"]._write_review_record(rec)
+        node = ctx["cg"].get(nid) or {}
+        fm = node.get("frontmatter") or {}
+        is_p, _why = protect.is_protected_entry(fm)
+        out = {"audit_node": nid, "layer": fm.get("layer"),
+               "protected": is_p, "role": fm.get("role")}
+        ok = (out["layer"] == "structural" and out["protected"] is False)
+        return (PASS if ok else FAIL), out
+
     def s_reject_no_cs(ctx):
         before = ctx["queue_len"]()
         r = ctx["write"]("# 功能名：无条件空间\n无出处。\n")
@@ -401,6 +427,7 @@ def _steps():
         ("get_node", s_get_node),
         ("archive_not_delete", s_archive_not_delete),
         ("supersede_semantics", s_supersede_semantics),
+        ("audit_layer_not_self", s_audit_layer_not_self),
         ("reject_no_condition_space", s_reject_no_cs),
         ("reject_no_evidence", s_reject_no_evidence),
         ("blindspot_not_accept", s_blindspot_not_accept),
