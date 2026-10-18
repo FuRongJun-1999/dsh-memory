@@ -49,6 +49,26 @@ _BAD_ROW_SAMPLES = []   # 有界样本：(行号, 行首 80 字符, 异常类型
 _BAD_ROW_SAMPLE_CAP = 8
 
 
+#: 调用方可控字段的**逐字段字节上限**（issue #443：无长度约束 ⇒ 审计/台账面 1:1 写入放大）。
+#: 取 8192 B：单条状态事件是「一次变迁的记录」，不是正文载体；超限即视为调用方用错面。
+#: 与 writepipe.oversize_response 同口径——**拒写而不是截断**（截断后的记录看起来像完整记录，
+#: 实际丢了内容 ⇒ 比不记录更坏，与 #523 的「假绿」同族）。
+_MAX_FIELD_BYTES = 8192
+
+
+# 生效条件：name 为字段名、v 为待落盘值；v 的 UTF-8 编码长度不超过 _MAX_FIELD_BYTES 时原样返回，
+# 超限时抛 ValueError（消息含字段名、实测字节、上限），**不截断、不静默丢弃**。
+def _bounded(name, v):
+    if v is None:
+        return v
+    raw = v if isinstance(v, (bytes, bytearray)) else str(v).encode('utf-8')
+    n = len(raw)
+    if n > _MAX_FIELD_BYTES:
+        raise ValueError(
+            f'状态事件字段 {name} 超出上限：{n} B > {_MAX_FIELD_BYTES} B（issue #443；拒写不截断）')
+    return v
+
+
 def _note_bad_row(lineno: int, line: str, exc: Exception):
     global BAD_ROWS
     BAD_ROWS += 1
@@ -104,6 +124,14 @@ def append(cg, subject, slot, old=None, new=None, kind=None, seq=None,
         raise ValueError(f"未知变迁事件类型：{kind}（允许：{KINDS}）")
     if void_value(old) and void_value(new):
         raise ValueError("状态事件 old 与 new 不能同时为空（空事件无意义）")
+    # issue #443：调用方可控字段逐字段过闸（拒写）。subject/slot 已在上面 strip，仍过闸
+    # （strip 只减首尾空白，不约束长度）。old/new 是本次放大的主因（各 1MB ⇒ 单次 2MB）。
+    sub = _bounded('subject', sub)
+    sl = _bounded('slot', sl)
+    old = _bounded('old', old)
+    new = _bounded('new', new)
+    evidence = _bounded('evidence', evidence)
+    actor = _bounded('actor', actor)
     rec = {
         "t": time.time(),
         "subject": sub,
