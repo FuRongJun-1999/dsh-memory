@@ -62,8 +62,12 @@
  * 之外（库内正文、工具返回原文）一律不动。
  */
 
-import '@deepseek-ai/dsh-session'
-import '@deepseek-ai/dsh-system-prompt'
+// #222：这两行原是**值导入**（`import '@deepseek-ai/…'`，仅为副作用/类型增强），
+// 而两个包都是 optional peer——干净安装后缺包即整包 import 失败。改为纯类型导入
+// （`import type {}`）：编译期加载其 .d.ts（事件/类型增强照旧生效），运行期不解析
+// 该模块，optional peer 的「没有它也能加载」语义因此成立。
+import type {} from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
@@ -290,6 +294,39 @@ export function desensitize(text: string): string | null {
   return out
 }
 
+/** 日志面脱敏（issue #354 [P1-13]）：**无条件**过 desensitize。
+ *
+ *  缺陷：`ctx.logger.warn(... ${err.message})` 把上游异常消息原样拼进日志——上游
+ *  把请求头/令牌回显进 message 时，凭据在控制台与日志文件里明文外泄。
+ *  为什么**不**看 `opts.desensitize`：那是**写入记忆库**的开关（数据面选择），
+ *  日志是诊断面，泄漏到日志不因「用户选择不脱敏记忆」而变得可接受——日志面
+ *  一律 fail-closed。整条都是凭据（desensitize 返回 null）时给固定占位，不丢
+ *  「这里有过一条错误」的信号。
+ *
+ *  ⚠️ 形参是 `unknown`（复核意见 2）：Promise 可以以**任意值**拒绝，`.catch((err) => …)`
+ *  收到的未必是 Error——字符串/数字/undefined 时 `err.message` 是 undefined，若把它
+ *  直接交给 `desensitize`（内部 `text.replace`）会在**错误处理路径**上抛 TypeError，
+ *  而该回调已不在任何 try 内 ⇒ unhandled rejection（Node 默认终止进程）。于是
+ *  「记一条 undefined 继续跑」被修成「进程退出」——比原缺陷更坏。
+ *  故此处一律先安全转成字符串：Error 取 message，带字符串 message 的对象取 message，
+ *  其余（含 string/undefined/null）用 String(value)。
+ */
+export function redactForLog(value: unknown): string {
+  let text: string
+  if (typeof value === 'string') {
+    text = value
+  } else if (value instanceof Error) {
+    text = value.message
+  } else if (value && typeof value === 'object'
+      && typeof (value as { message?: unknown }).message === 'string') {
+    text = (value as { message: string }).message
+  } else {
+    text = String(value)
+  }
+  const r = desensitize(text)
+  return r === null ? '[已过滤:凭据]' : r
+}
+
 /** 时间线载荷 → 注入文本。
  *  `stg(op=timeline)` 返回 {count, limit, items:[{id, layer, start, end, preview}]}。
  *  （保留原始实现；自动召回改用下面的分级递减渲染） */
@@ -369,6 +406,13 @@ const WINDOW_BUDGET_TOKENS = 600
 const WINDOW_ITEM_CHARS = 120
 /** 窗口块总长上限（字符）。 */
 const WINDOW_MAX_CHARS = 800
+/** 单条窗口条目的 role 字段上限（字符，issue #354 [P1-12]）。
+ *
+ *  缺陷：`text` 有 120 字上限，`role` 却**完全不限长**——一条 3000 字的恶意
+ *  role 使首行 3284 字（首行因 `used === 0` 绕过总预算判据），随后 `used > 800`
+ *  让下一条正常历史立刻 break，整个窗口被单条记录劫持。
+ *  role 只是 `user`/`assistant` 一类的短标签，32 字足够任何合法取值。 */
+const WINDOW_ROLE_CHARS = 32
 
 /** 会话窗口载荷 → 注入文本（限幅沿 RECALL 分级渲染的风格：单条 ≤120 字、
  *  整块 ≤800 字）。
@@ -390,7 +434,10 @@ function formatSessionWindow(payload: unknown, limit: number): string {
   const max = Math.max(1, Math.floor(limit) || 10)
   let used = 0
   for (const it of items.slice(0, max)) {
-    const role = String(it['role'] ?? '').trim() || 'user'
+    // issue #354 [P1-12]：role 与 text 同受单条上限约束——只限 text 时一条超长
+    // role 就能让首行突破整块预算并把后续历史全部挤出（首行 used===0 绕过了
+    // 下方总预算判据）。role 截断后再判空，仍为空则回落 'user'。
+    const role = String(it['role'] ?? '').trim().slice(0, WINDOW_ROLE_CHARS) || 'user'
     const preview = String(it['text'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     const body = preview.length > WINDOW_ITEM_CHARS
@@ -398,7 +445,12 @@ function formatSessionWindow(payload: unknown, limit: number): string {
       : preview
     const row = `[${role}] ${body}`
     const next = used === 0 ? row.length : used + 1 + row.length
-    if (used > 0 && next > WINDOW_MAX_CHARS) break
+    // issue #354 [P1-12]：单条超预算时不再「首条整放」——超过 WINDOW_MAX_CHARS 的
+    // 行一律不放（截断 body 已在上面做完，理论上不可达，作 fail-closed 兜底）。
+    if (next > WINDOW_MAX_CHARS) {
+      if (used === 0) continue
+      break
+    }
     rows.push(row)
     used = next
   }
@@ -542,9 +594,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     if (!graph.isReady()) return
     try {
       void graph.recentAdd(role, text, meta, ['dsh', 'recent-window'])
-        .catch((err: Error) => ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${err.message}`))
+        .catch((err: Error) => ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${redactForLog(err)}`))
     } catch (err) {
-      ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${(err as Error).message}`)
+      ctx.logger.warn(`dsh-memory: 短期窗口写入失败: ${redactForLog(err)}`)
     }
   }
 
@@ -599,7 +651,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 未写入（${v || 'ok:false'} ${why}）`)
     }, (err: Error) => {
       if (role) audit.skipped('failed', role)
-      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${err.message}`)
+      ctx.logger.warn(`dsh-memory: 自动记忆 ${label} 失败: ${redactForLog(err)}`)
     })
   }
 
@@ -659,11 +711,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             // 载荷内边界标记的打断。记忆是任意用户输入/工具输出的沉淀，
             // 无边界时模型无从区分「数据」与「指令」（提示注入面）。
             // 三层顺序：边界渲染（含载荷打断）→ `{{` 转义；两者都只改注入副本。
-            assembly.contexts.push({
-              name: 'lingshu:auto-recall',
-              text: escapePromptBraces(renderUntrustedMemoryBlock(
-                `【灵枢最近记忆】\n${text.slice(0, RECALL_MAX_CHARS)}`)),
-            })
+            //
+            // issue #354 [P1-14]：注入副本还须**过脱敏**——旧实现只在写入侧
+            // （saveTurn → sanitize → remember）挂脱敏，注入侧直接把库内原文
+            // push 进系统提示词。历史遗留 / 直接写库 / 绕过写入脱敏的凭据因此
+            // 原样回显进模型上下文。脱敏与写入侧开关**解耦**：`opts.desensitize`
+            // 是「记忆库里存不存原文」的数据面选择，注入是**导出面**——库里的
+            // 原文不得因该开关而被搬到模型上下文（读侧 fail-closed）。
+            // 脱敏只作用于**载荷正文**（标题是常量、不参与判据）。
+            // ⚠️ 诚实边界（复核意见 3）：渲染文本自带层级/角色前缀（`- [contextual] `、
+            // `[user] `），故「正文整条皆凭据」时 desensitize 的残渣仍非空 ⇒ 该块**照常
+            // 注入**，内容是前缀 + `[已过滤:密钥]`。真正的保证是**凭据原文不出现在上下文**
+            // （一定被替换成占位），而不是「不注入」；`if (recallBody)` 只是兜底，
+            // 覆盖渲染文本本身即纯凭据（无前缀）的形态。
+            const recallBody = desensitize(text.slice(0, RECALL_MAX_CHARS))
+            if (recallBody) {
+              assembly.contexts.push({
+                name: 'lingshu:auto-recall',
+                text: escapePromptBraces(renderUntrustedMemoryBlock(
+                  `【灵枢最近记忆】\n${recallBody}`)),
+              })
+            }
           }
           // ── 独立第二块：「【本会话近期对话】」（contextWindow 注入面）──
           // 与上方 timeline 块**块名/取数/开关各自独立**（既有块一字未动）。
@@ -680,11 +748,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
               if (winText) {
                 // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
                 // 都只改注入副本——窗口原文在库内保真。
-                assembly.contexts.push({
-                  name: 'lingshu:session-window',
-                  text: escapePromptBraces(renderUntrustedMemoryBlock(
-                    `【本会话近期对话】\n${winText}`)),
-                })
+                // issue #354 [P1-14] 同族：窗口块也是注入面，同样过脱敏（理由与
+                // 诚实边界见上方 auto-recall 块）——渲染文本自带 `[role] ` 前缀，
+                // 故「整条皆凭据」时该块仍会注入，但凭据原文一定被替换成占位。
+                const winSafe = desensitize(winText)
+                if (winSafe) {
+                  assembly.contexts.push({
+                    name: 'lingshu:session-window',
+                    text: escapePromptBraces(renderUntrustedMemoryBlock(
+                      `【本会话近期对话】\n${winSafe}`)),
+                  })
+                }
               }
             } catch (err) {
               // issue #128（2026-10-12）：**空 catch 改为显式回报**。此前这里是
@@ -692,7 +766,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
               // session_recall 报错）在盘面与日志面**双双无痕**，与「本会话确实
               // 没有近期对话」不可分辨（自动召回块「从未注入成功」正是靠这个
               // 静默吞掉的）。失败仍不得越过会话流边界（不抛），但必须留痕。
-              ctx.logger.warn(`dsh-memory: 本会话窗口注入失败（已跳过该块）: ${(err as Error).message}`)
+              ctx.logger.warn(`dsh-memory: 本会话窗口注入失败（已跳过该块）: ${redactForLog(err)}`)
             }
           }
         }
@@ -700,7 +774,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       catch (err) {
         // issue #128：同上——召回取数/渲染失败此前被空 catch 吞成「无痕」，
         // 现改为显式回报（不抛，仍不阻塞模型请求）。
-        ctx.logger.warn(`dsh-memory: 自动召回注入失败（已跳过该块）: ${(err as Error).message}`)
+        ctx.logger.warn(`dsh-memory: 自动召回注入失败（已跳过该块）: ${redactForLog(err)}`)
       }
       return next()
     })

@@ -6,7 +6,13 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type ParameterPropertySpec, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+// #222：`@deepseek-ai/dsh-tools` 是 **optional peer**（peerDependenciesMeta），而
+// optional 的语义是「没有它也能加载本包」。此前这里是**静态值导入**，于是干净
+// 安装（npm 7+ 不装 optional peer）后 `import('@furongjun1999/dsh-memory')` 直接
+// ERR_MODULE_NOT_FOUND——整包不可加载，不是「用到才失败」。故改为**惰性导入**
+// （仅在真正注册工具时 `await import`，见 registerLingshuTools）；类型仍走
+// `import type`（编译期擦除，运行期不解析）。
+import type { ParameterPropertySpec, ParameterSchemaSpec, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { LingshuBridge, McpTool } from './bridge.ts'
 // B 治本批（2026-10-06）：写归因注入单点（运行期会话 → 写归因调用）。
 // 运行时导入写 `.js`（本仓口径：type-only 才写 `.ts`，tsconfig 未开
@@ -102,7 +108,12 @@ export function schemaToParameters(inputSchema: Record<string, unknown> | undefi
   const properties = inputSchema['properties'] as Record<string, unknown> | undefined
   if (!properties || typeof properties !== 'object') return {}
   const required = new Set(Array.isArray(inputSchema['required']) ? (inputSchema['required'] as string[]) : [])
-  const spec: Record<string, ParameterPropertySpec> = {}
+  // issue #354 [P2-15]：属性表必须是**无原型**对象。用 `{}` 时 `spec['__proto__'] = v`
+  // 走的是 Object.prototype 的原型 setter——局部 spec 的原型被换成 v，该属性在
+  // Object.keys / 展开 / JSON 序列化里静默消失（工具参数定义丢字段，且原型链上
+  // 多出一层可控对象）。`Object.create(null)` 让 `__proto__` 成为普通自有键。
+  // 类型断言：ParameterSchemaSpec 是「属性名 → 规格」的字典，无原型对象仍是合法字典。
+  const spec = Object.create(null) as Record<string, ParameterPropertySpec>
   for (const [key, raw] of Object.entries(properties)) {
     const value = toValueSpec(raw)
     if (required.has(key)) {
@@ -159,12 +170,27 @@ export function extractText(content: Array<{ type: string; text?: string; [key: 
     .join('\n')
 }
 
-/** 注册灵枢工具到 ctx.tools；返回取消注册函数。 */
+/** 注册灵枢工具到 ctx.tools；返回取消注册函数。
+ *
+ * #222：`defineTool` 在**这里**惰性导入（而不是模块顶层静态导入）——本包对
+ * `@deepseek-ai/dsh-tools` 的声明是 optional peer，静态导入会让「干净安装后
+ * import 本包」在模块求值前就失败。惰性导入后：不在 DSH 宿主内时包仍可加载，
+ * 只有真正注册工具才报错，且错误消息点名缺哪个包。
+ */
 export async function registerLingshuTools(
   ctx: Context,
   bridge: LingshuBridge,
   opts: { selection: ToolSelection; toolPrefix: string },
 ): Promise<() => void> {
+  let defineTool: typeof import('@deepseek-ai/dsh-tools').defineTool
+  try {
+    ({ defineTool } = await import('@deepseek-ai/dsh-tools'))
+  } catch (err) {
+    throw new Error(
+      '无法加载 @deepseek-ai/dsh-tools（灵枢工具注册依赖 DSH 宿主提供的该包）——'
+      + '请确认插件运行在 DSH 宿主内，或在宿主环境中安装 @deepseek-ai/dsh-tools。'
+      + `原始错误：${err instanceof Error ? err.message : String(err)}`)
+  }
   const tools = await bridge.listTools()
   const wanted = new Set(selectTools(tools.map((t) => t.name), opts.selection))
   const disposers: Array<() => void> = []

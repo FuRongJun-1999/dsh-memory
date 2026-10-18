@@ -129,6 +129,11 @@ pub struct SwarmReport {
     /// issue #354 P1-6：WAL 重放区 seq/round 连续性读数（审计面；ok=false 表示
     /// 已提交区存在丢行/乱序——旧实现对此完全静默）
     pub wal_continuity: WalContinuity,
+    /// issue #470：事件行 durable 读数（每轮事件行 sync_data 之后才写快照）。
+    /// 旧实现用 `File::flush()`（no-op）声称「事件行先 durable」，实际只有轮末
+    /// 一次 `sync_all`；本读数把「本轮事件行是否真的过了一个 durable 点」变成
+    /// 可回读判据（event_syncs 应等于实际执行的轮数）。
+    pub wal_durable: WalDurable,
     /// G-R2：生效条件空间 space_id（None = 未声明）
     pub condition_space_id: Option<String>,
     /// G-R3：verifier 逐位复算统计（已复核轮数 / 不一致数）
@@ -485,6 +490,20 @@ impl WalContinuity {
     pub fn ok(&self) -> bool {
         self.breaks == 0
     }
+}
+
+/// issue #470：事件行 durable 读数。
+///
+/// 语义：每完成一轮「事件行写入 → sync_data → 写轮末快照」`event_syncs` 加一，
+/// 并记下该轮轮号。`event_syncs == rounds` 表示本次运行的每一轮都在快照落盘前
+/// 独立把事件行压到介质；小于 rounds 即「有轮次只靠轮末 sync_all 同生共死」。
+/// 判据必须可观测：`File::flush()` 是 no-op，光看源码注释无法区分真落盘与空背书。
+#[derive(Debug, Clone, Default)]
+pub struct WalDurable {
+    /// 事件行独立 durable 的次数（每轮一次）。
+    pub event_syncs: u64,
+    /// 最近一次事件行 durable 的轮号（0 = 从未发生）。
+    pub last_sync_round: u64,
 }
 
 /// 记一条连续性破坏：总数恒加，明细有上限（超限只计数——报告不是坏 WAL 的镜像）。
@@ -1220,11 +1239,15 @@ pub fn run_swarm(
             recalc_checked,
             recalc_mismatches,
             replay.continuity,
+            // 早退路径：目标轮数已在 WAL 里，本会话无事件行写入 ⇒ 零 durable 点。
+            WalDurable::default(),
         ));
     }
 
     let mut wal =
         open_wal_for_run(wal_path, replay.completed, &replay.kept_lines, replay.had_wal_file)?;
+    // issue #470：事件行 durable 读数（每轮一次），随报告透出（可观测判据）。
+    let mut wal_durable = WalDurable::default();
 
     let mut procs: Vec<InstanceProc> = Vec::new();
     for spec in &specs_derived {
@@ -1506,8 +1529,16 @@ pub fn run_swarm(
                 }
             }
         }
-        // WAL 落盘（append-only）· B1 纪律：事件行先 durable（flush），
-        // 轮末快照后 durable（sync_all）——快照永不先于产生它的写入落盘。
+        // WAL 落盘（append-only）· B1 纪律：事件行先 durable，轮末快照后 durable
+        // ——快照永不先于产生它的写入落盘。
+        //
+        // issue #470 P1：`open_wal_for_run` 返回 `std::fs::File`（无用户态缓冲），
+        // 而 `File::flush()` 在 Rust 里是 **no-op**——`write_all` 只进 page cache，
+        // 旧实现的 `wal.flush()` 是空背书：事件行实际与快照行一起等轮末那一次
+        // `sync_all`，崩溃落在「事件行 write 后、轮末 sync 前」窗口即整轮蒸发。
+        // 修法：事件行写完后显式 `sync_data()`（只同步数据，不需要元数据），
+        // 使「事件行先 durable」成为真判据；轮末 `sync_all()` 仍负责快照行。
+        // 每次 durable 计入 `wal_durable`，报告可回读（event_syncs == 执行轮数）。
         for ev in &new_events {
             let line = format!(
                 "{{\"seq\":{},\"ts\":{},\"from\":\"{}\",\"to\":\"{}\",\"type\":\"{}\",\"round\":{},\"level\":{},\"hmac\":\"{}\",\"payload\":{}}}\n",
@@ -1524,7 +1555,6 @@ pub fn run_swarm(
             wal.write_all(line.as_bytes())
                 .map_err(|e| format!("WAL 写入失败: {e}"))?;
         }
-        wal.flush().map_err(|e| format!("WAL flush 失败: {e}"))?;
         // G-R1 反思触发器（§5.4 蜂群版）：任一条件命中 → 产出修正信号事件。
         // 维生边界：修正信号仅记录+透出（P2 观察级），不自动改路由（见函数头裁定注）。
         let mut reflect_reasons: Vec<String> = Vec::new();
@@ -1601,6 +1631,11 @@ pub fn run_swarm(
                 .map_err(|e| format!("修正信号写入失败: {e}"))?;
             all_events.push(sig);
         }
+        // issue #470：本轮**全部事件行**（路由事件 + 修正信号）在此独立 durable，
+        // 之后才写轮末快照——快照永不先于产生它的写入落盘（B1 断点恢复边界）。
+        wal.sync_data().map_err(|e| format!("WAL 事件行 sync 失败: {e}"))?;
+        wal_durable.event_syncs += 1;
+        wal_durable.last_sync_round = round;
         // 轮末快照行：复用事件行格式与签名约定（Python verify 按类型跳过计数仍验签）。
         // payload = {"trusts":{...},"states":{...}}——恢复时重建信任水位与终态。
         let trusts_parts: Vec<String> = {
@@ -1684,6 +1719,7 @@ pub fn run_swarm(
         recalc_checked,
         recalc_mismatches,
         replay.continuity,
+        wal_durable,
     ))
 }
 
@@ -1703,6 +1739,7 @@ fn aggregate_report(
     recalc_checked: u64,
     recalc_mismatches: u64,
     wal_continuity: WalContinuity,
+    wal_durable: WalDurable,
 ) -> SwarmReport {    // G3a 健康评分：从轮次终态序列统计（在线窗口口径）
     // G3c：gossip 覆盖率接入 integrity（对账基准 = 最大实收数）
     let weights = HealthWeights::default();
@@ -1804,6 +1841,7 @@ fn aggregate_report(
         watermarks,
         global_seq,
         wal_continuity,
+        wal_durable,
         recalc_checked,
         recalc_mismatches,
     }
@@ -1911,7 +1949,11 @@ pub fn report_json(rep: &SwarmReport) -> String {
         ));
     }
     out.push_str("]}");
-    // G4a 生效拓扑与各实例角色
+    // issue #470：事件行 durable 读数（每轮事件行 sync_data 后才写快照）。
+    out.push_str(&format!(
+        ",\"wal_durable\":{{\"event_syncs\":{},\"last_sync_round\":{}}}",
+        rep.wal_durable.event_syncs, rep.wal_durable.last_sync_round
+    ));
     out.push_str(&format!(
         ",\"topology\":\"{}\"",
         serde_json_like::escape(&rep.topology)

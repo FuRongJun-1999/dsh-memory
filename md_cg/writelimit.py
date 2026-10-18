@@ -26,6 +26,8 @@ mem_* 节点；主动遗忘闸门（forgetting.assess）MERGE 命中率仅 1%—
 状态持久化 <root>/_writelimit.json（进程重启不失效）；台账是**明文 JSON 的外部输入**，
 顶层非 dict / 时间戳非数值 / 未来时间戳三类脏值一律按「该记账不存在」收敛
 （issue #354 [P1-9]/[P1-10]/[P1-11]）——不崩、也不把限流窗口永久锁死；
+台账的「读 → 改 → 写」全程持同一把跨进程锁（issue #354 [P2-17]）——原子替换只防
+撕裂、不防丢失更新，锁外读快照会让并发写者互相覆盖限流记账；
 env MDCG_WRITELIMIT=0 整体关闭；importance_hint≥0.7（保护优先语义）
 跳过所有限流。
 """
@@ -154,11 +156,34 @@ def _load(cg) -> dict:
     return {"sigs": {}, "rate": {}}
 
 
+# 生效条件：调用方传入 cg 与 st 且**已持有** _state_path(cg) 的跨进程锁时，以 atomic_write 原子覆写台账（不再加锁，避免自我阻塞）。
+def _save_locked(cg, st: dict) -> None:
+    """临界区内落盘（issue #354 [P2-17]）：调用方已持锁，此处不再取锁。
+
+    `FileLock` 在 Windows 上锁同一字节范围、POSIX 换 fd 亦互斥 ⇒ 同进程第二次
+    获取会自我阻塞到超时；故「读改写」事务必须把落盘拆成无锁版本。
+    """
+    atomic_write(_state_path(cg), json.dumps(st, ensure_ascii=False, sort_keys=True))
+
+
 # 生效条件：调用方传入 cg 与 st，无任何早退守卫，一经调用即以 json.dumps(st, ensure_ascii=False, sort_keys=True) 在 _state_path(cg) 的 FileLock 内原子写入。
 def _save(cg, st: dict) -> None:
     p = _state_path(cg)
     with FileLock(p):
-        atomic_write(p, json.dumps(st, ensure_ascii=False, sort_keys=True))
+        _save_locked(cg, st)
+
+
+# 生效条件：作为 `with` 使用；以 strict=True 的 FileLock 独占 _state_path(cg)，获锁超时抛 TimeoutError（不无锁放行）。
+def _transaction(cg):
+    """台账「读 → 改 → 写」的跨进程临界区（issue #354 [P2-17]）。
+
+    缺陷：旧实现 `st = _load(cg)` 在锁**外**、`_save` 在锁**内**——两个写者各自
+    读到同一份陈旧快照，后写者整份覆写先写者，限流计数静默丢失（实测 8 并发进程
+    只剩 3~7 条记账），频率上限被穿透。原子替换只防撕裂、不防丢失更新。
+    修法：读改写全程持同一把 OS 级锁（与 #322/#348 同口径 strict=True——锁竞争
+    超时显式失败，绝不退化为无锁并发）。
+    """
+    return FileLock(_state_path(cg), strict=True)
 
 
 # 生效条件：调用方传入 st、key、now，st 须含 "rate" 键（st["rate"].get(key) 缺该 key 或值不是序列时按空列表处理），对窗口列表按 _window_stamps 做类型收敛 + 双向界定后追加 now，并只回写末尾 RATE_MAX*4 项。
@@ -227,60 +252,65 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
                 return None                     # 保护优先语义：跳过限流
         except (TypeError, ValueError):
             pass
-    now = float(now if now is not None else time.time())
-    st = _load(cg)
     key = f"{layer}:{role or 'user'}"
-    # 1) 同源频率限制
-    win = _window_stamps(st["rate"].get(key), now, RATE_WINDOW)
-    if len(win) >= RATE_MAX:
-        win.append(now)
-        st["rate"][key] = win[-RATE_MAX * 4:]
-        _save(cg, st)
-        return {"verdict": "DEFER", "limiter": "rate", "reason":
-                f"ratelimit:{key}:>{RATE_MAX}in{int(RATE_WINDOW)}s"}
-    # 2) 同构聚合（加密级跳过签名——见 _is_encrypted_level，issue #313）
-    sig = template_signature(content)
-    if sig and not _is_encrypted_level(sensitivity):
-        rec = st["sigs"].get(sig)
-        if not isinstance(rec, dict):
-            # 记账被外部损坏（dict 内混入标量/序列）：按「无记录」重占位，不把
-            # 崩溃带给调用方——与 _load 的顶层类型闸同一判据面（#354 P1-9 同族）。
-            rec = None
-        if rec and _window_stamp(rec.get("t"), now, CONVERGE_WINDOW) \
-                is not None and rec.get("nid"):
-            tgt = cg.get(rec["nid"])
-            if tgt:
-                if (tgt.get("content") or "").strip() \
-                        == (content or "").strip():
-                    # 与既有节点正文完全一致：零新信息 → 交回旧闸门语义
-                    # DROP（不落库、不追加聚合行、不强化既有）——对齐
-                    # forgetting 闸门「确定性内部冗余 → DROP 先于 MERGE」
-                    # 纪律；同模板但内容不同才走聚合（那才是流水治理）
+    # issue #354 [P2-17]：读改写全程在同一跨进程临界区内（见 _transaction 注释）。
+    # ⚠️ `now` 也必须在临界区**内**取（显式传入的 now 照用）：锁外取会让「先算 now、
+    # 再排队等锁」的进程把等待期间别人写入的时间戳看成「未来戳」而被 _window_stamp
+    # 剔除（P1-10 的双向界定 ⇒ 并发下丢记账，实测 8 进程偶发只剩 6~7 条）。
+    with _transaction(cg):
+        now = float(now) if now is not None else time.time()
+        st = _load(cg)
+        # 1) 同源频率限制
+        win = _window_stamps(st["rate"].get(key), now, RATE_WINDOW)
+        if len(win) >= RATE_MAX:
+            win.append(now)
+            st["rate"][key] = win[-RATE_MAX * 4:]
+            _save_locked(cg, st)
+            return {"verdict": "DEFER", "limiter": "rate", "reason":
+                    f"ratelimit:{key}:>{RATE_MAX}in{int(RATE_WINDOW)}s"}
+        # 2) 同构聚合（加密级跳过签名——见 _is_encrypted_level，issue #313）
+        sig = template_signature(content)
+        if sig and not _is_encrypted_level(sensitivity):
+            rec = st["sigs"].get(sig)
+            if not isinstance(rec, dict):
+                # 记账被外部损坏（dict 内混入标量/序列）：按「无记录」重占位，不把
+                # 崩溃带给调用方——与 _load 的顶层类型闸同一判据面（#354 P1-9 同族）。
+                rec = None
+            if rec and _window_stamp(rec.get("t"), now, CONVERGE_WINDOW) \
+                    is not None and rec.get("nid"):
+                tgt = cg.get(rec["nid"])
+                if tgt:
+                    if (tgt.get("content") or "").strip() \
+                            == (content or "").strip():
+                        # 与既有节点正文完全一致：零新信息 → 交回旧闸门语义
+                        # DROP（不落库、不追加聚合行、不强化既有）——对齐
+                        # forgetting 闸门「确定性内部冗余 → DROP 先于 MERGE」
+                        # 纪律；同模板但内容不同才走聚合（那才是流水治理）
+                        _push_rate(st, key, now)
+                        _save_locked(cg, st)
+                        return {"verdict": "DROP", "limiter": "exact_dup",
+                                "target": rec["nid"],
+                                "reason": f"exact_dup_of:{rec['nid']}"}
+                    rec["n"] = int(rec.get("n") or 1) + 1
+                    rec["last"] = now
+                    st["sigs"][sig] = rec
                     _push_rate(st, key, now)
-                    _save(cg, st)
-                    return {"verdict": "DROP", "limiter": "exact_dup",
-                            "target": rec["nid"],
-                            "reason": f"exact_dup_of:{rec['nid']}"}
-                rec["n"] = int(rec.get("n") or 1) + 1
-                rec["last"] = now
-                st["sigs"][sig] = rec
-                _push_rate(st, key, now)
-                _save(cg, st)
-                return {"verdict": "CONVERGE", "limiter": "converge",
-                        "target": rec["nid"], "sig": sig[:40], "n": rec["n"],
-                        # issue #148：把两侧密级带出闸门，供审计与上层判据复用
-                        # （真正的拒绝判据仍只在 security.merge_downgrades 单点）。
-                        "target_sensitivity":
-                            (tgt.get("frontmatter") or {}).get("sensitivity"),
-                        "incoming_sensitivity": sensitivity,
-                        "reason": f"converge:{sig[:40]}#{rec['n']}"}
-        st["sigs"][sig] = {"nid": node_id, "t": now, "n":
-                           int((rec or {}).get("n") or 1),
-                           "sk": sig[:60],
-                           "sens": sensitivity}      # issue #148：声明密级随签名记账
-    _push_rate(st, key, now)
-    _save(cg, st)
-    return None
+                    _save_locked(cg, st)
+                    return {"verdict": "CONVERGE", "limiter": "converge",
+                            "target": rec["nid"], "sig": sig[:40], "n": rec["n"],
+                            # issue #148：把两侧密级带出闸门，供审计与上层判据复用
+                            # （真正的拒绝判据仍只在 security.merge_downgrades 单点）。
+                            "target_sensitivity":
+                                (tgt.get("frontmatter") or {}).get("sensitivity"),
+                            "incoming_sensitivity": sensitivity,
+                            "reason": f"converge:{sig[:40]}#{rec['n']}"}
+            st["sigs"][sig] = {"nid": node_id, "t": now, "n":
+                               int((rec or {}).get("n") or 1),
+                               "sk": sig[:60],
+                               "sens": sensitivity}      # issue #148：声明密级随签名记账
+        _push_rate(st, key, now)
+        _save_locked(cg, st)
+        return None
 
 
 # 生效条件：形参 content 的 template_signature 非空，且 st["sigs"].get(sig) 为 None 或该记录 nid 为假值时，写入 {"nid": node_id, ...} 并保存；否则不写并返回 None；
@@ -290,16 +320,20 @@ def record_accepted(cg, node_id, content, now=None, sensitivity=None) -> None:
     # issue #313：加密级不落签名（与 check 同一判据单点）
     if not sig or _is_encrypted_level(sensitivity):
         return
-    now = float(now if now is not None else time.time())
-    st = _load(cg)
-    rec = st["sigs"].get(sig)
-    if not isinstance(rec, dict):        # #354 P1-9 同族：坏型按「无记录」处理
-        rec = None
-    if rec is None or not rec.get("nid"):
-        st["sigs"][sig] = {"nid": node_id, "t": now, "n":
-                           int((rec or {}).get("n") or 1), "sk": sig[:60],
-                           "sens": sensitivity}      # issue #148：声明密级随签名记账
-        _save(cg, st)
+    # issue #354 [P2-17] 同族：本函数也是「读 → 判 → 写」，同样必须在临界区内完成，
+    # 否则并发 ACCEPT 会互相覆盖签名记账（与 check 同一判据面）；now 亦在锁内取
+    # （理由同 check：锁外取的 now 会落在别人已写入的时间戳之前）。
+    with _transaction(cg):
+        now = float(now) if now is not None else time.time()
+        st = _load(cg)
+        rec = st["sigs"].get(sig)
+        if not isinstance(rec, dict):        # #354 P1-9 同族：坏型按「无记录」处理
+            rec = None
+        if rec is None or not rec.get("nid"):
+            st["sigs"][sig] = {"nid": node_id, "t": now, "n":
+                               int((rec or {}).get("n") or 1), "sk": sig[:60],
+                               "sens": sensitivity}  # issue #148：声明密级随签名记账
+            _save_locked(cg, st)
 
 
 # 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后按 forgetting.aggregate_line（单点）把新正文里目标还没有的行追加为聚合行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并把 session/actor 归属并列记进 fm（forgetting.note_source）；返回 {"ok": True, "merge_count": 新值, "content_sink": 去向, "source": 归属}。
