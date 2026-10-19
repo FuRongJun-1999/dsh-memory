@@ -93,7 +93,7 @@ export const inject = ['tools']
 
 /** 插件配置。 */
 export interface Config {
-  /** 工具命名空间前缀（默认 lingshu → lingshu_remember）。 */
+  /** 内部标识（provider/日志用；**不再用于工具名前缀**，工具名与 MCP 服务同名）。 */
   serverName: string
   /** Python 可执行文件（或 md_cg-mcp console script）。
    *  缺省 = 平台感知（issue #19）：Windows `python` / Linux·macOS `python3`，
@@ -426,7 +426,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       try {
         const dispose = await registerLingshuTools(ctx, bridge, {
           selection: config.tools,
-          toolPrefix: `${config.serverName}_`,
+          // 工具名口径（2026-10-19 设计者裁定 A）：**不加任何前缀**——全端与 MCP 服务同名为
+      // `cg` / `stg` / `mdcg_*`。此前按 `${config.serverName}_` 拼成 `lingshu_cg`，造成「同一个
+      // MCP 服务、不同端看到不同工具名」的初次识别错误。serverName 仍用于内部 provider/日志标识。
+      toolPrefix: '',
         })
         disposers.push(dispose)
         toolsRegistered = true
