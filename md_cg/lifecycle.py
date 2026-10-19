@@ -367,10 +367,11 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     from . import chain as _chain
     _chain.invalidate_cache(cg)
     try:
+        # issue #547：`_audit.jsonl` 的写点一律 durable（与 mdcos._audit 一致）。
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), {
             "t": at, "action": "set_state", "node_id": node_id,
             "from": src, "to": dst, "reason": reason, "actor": actor,
-            "override": bool(override)})
+            "override": bool(override)}, durable=True)
     except Exception:                    # 审计失败不阻断状态推进
         pass
     return {**base, "ok": True, "changed": True, "reason": why, "at": at}

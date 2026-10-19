@@ -255,7 +255,10 @@ def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     rec = {"t": time.time(), "action": action, "node_id": node_id,
            "reason": reason, "actor": _actor_of(cg, actor), "snapshot": snapshot}
     try:
-        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
+        # issue #547：`_audit.jsonl` 的**主写点**（mdcos._audit）已用 durable=True
+        # （#549 实测多写者下丢 29–39% 行）；本模块写同一个文件却走缺省路 ⇒ 同一账本
+        # 内两种耐用性，丢行时「发生过」与「没发生过」不可区分。此处对齐 durable。
+        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec, durable=True)
     except Exception:
         pass
     return rec

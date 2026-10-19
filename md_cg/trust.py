@@ -717,7 +717,8 @@ def dependents_index(cg, refresh: bool = False) -> dict:
 def _record(cg, rec: dict) -> None:
     """台账追加（best-effort：失败静默，**绝不阻断写路径**）。"""
     try:
-        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
+        # issue #547：与 mdcos._audit 写同一个 `_audit.jsonl`，耐用性必须一致（见该处注释）。
+        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec, durable=True)
     except Exception:                                  # noqa: BLE001
         pass
 

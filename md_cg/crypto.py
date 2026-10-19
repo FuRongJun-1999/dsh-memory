@@ -723,7 +723,7 @@ def audit(root, rec):
         # 写失败 False）——本处必须读返回值，否则审计写失败会**静默**（N126 口径：容忍 ≠
         # 静默）。实证：`md_cg.test_crypto_rotate` ⑭ 会转红（计数不增、无 stderr 告警）。
         # except 分支保留，兜 append_jsonl 之外的 OSError（如 path 组装/编码面）。
-        if append_jsonl(os.path.join(root, AUDIT_FILE), rec) is False:
+        if append_jsonl(os.path.join(root, AUDIT_FILE), rec, durable=True) is False:
             _note_audit_write_failure(
                 root, OSError("append_jsonl 返回 False（写失败，best-effort 已容忍）"))
     except OSError as e:
