@@ -318,6 +318,20 @@ export function desensitize(text: string): string | null {
   return out
 }
 
+/** 与 `desensitize` 同规则，但**允许整条皆凭据**：返回占位串而非 null。
+ *
+ * issue #563 ①：注入面的两条 render（timeline / 窗口）需要「原文一定被替换，且这一条
+ * 不丢」——整条皆凭据时用 `[已过滤:<类别>]` 占位保留类别与「这里有过一条」的信号，
+ * 与 #354 P1-14 的诚实边界一致（保证的是原文不出现，不是不注入）。
+ */
+function redactKeepPlaceholders(text: string): string {
+  let out = text
+  for (const { re, label } of SENSITIVE_PATTERNS) {
+    out = out.replace(re, `[已过滤:${label}]`)
+  }
+  return out
+}
+
 /** 日志面脱敏（issue #354 [P1-13]）：**无条件**过 desensitize。
  *
  *  缺陷：`ctx.logger.warn(... ${err.message})` 把上游异常消息原样拼进日志——上游
@@ -391,7 +405,8 @@ const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
  *  会让整块被最旧的一条挤掉。逐档递减后整块实测约 1133 字符（≈472 tok），
  *  9 条全部保留。（注意：整块仍远小于一条知识节点 500~800 tok，故本块定位是
  *  「存在性索引/提醒」，不承载知识本身——要知识请显式 mdcg_recall 并给足预算。） */
-function formatTimelineDecayed(payload: unknown): string {
+// issue #563：导出仅为可测（注入面脱敏顺序的回归用例需要直接喂 payload）。
+export function formatTimelineDecayed(payload: unknown): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { items?: unknown }).items))
     ? (payload as { items: Array<Record<string, unknown>> }).items
@@ -408,7 +423,13 @@ function formatTimelineDecayed(payload: unknown): string {
       RECALL_MIN_CHARS,
       Math.round(RECALL_BASE_CHARS * Math.pow(RECALL_DECAY_RATIO, tier)),
     )
-    out.push(`- [${layer}] ` + (preview.length > budget ? preview.slice(0, budget) + '…' : preview))
+    // issue #563 ①：**先脱敏、后截断**。截断会把证件/手机号切成残片，残片不再命中
+    // 规则（身份证 17+1 位、手机 11 位），于是原样进入注入块。
+    // 整条皆凭据（desensitize 返回 null）时**不丢该条**：用固定占位保留「这里有过一条」
+    // 的信号——注入面照常成立（与 #354 P1-14 的诚实边界一致：保证的是「原文不出现」，
+    // 不是「不注入」）。
+    const safe = redactKeepPlaceholders(preview)
+    out.push(`- [${layer}] ` + (safe.length > budget ? safe.slice(0, budget) + '…' : safe))
     rank += 1
     if (out.join('\n').length >= RECALL_MAX_CHARS) break
   }
@@ -449,7 +470,8 @@ const WINDOW_ROLE_CHARS = 32
  *  （逐条整放/整弃；最后才 slice 是错的——那会把最新一条切掉半截）。
  *
  *  空载荷 / 无 recent 段 / 全空条目 → 返回空串（调用方据此**不 push** 第二块）。 */
-function formatSessionWindow(payload: unknown, limit: number): string {
+// issue #563：同上，导出仅为可测。
+export function formatSessionWindow(payload: unknown, limit: number): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { recent?: unknown }).recent))
     ? (payload as { recent: Array<Record<string, unknown>> }).recent
@@ -464,9 +486,11 @@ function formatSessionWindow(payload: unknown, limit: number): string {
     const role = String(it['role'] ?? '').trim().slice(0, WINDOW_ROLE_CHARS) || 'user'
     const preview = String(it['text'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
-    const body = preview.length > WINDOW_ITEM_CHARS
-      ? preview.slice(0, WINDOW_ITEM_CHARS) + '…'
-      : preview
+    // issue #563 ①：同上——窗口块每行也**先脱敏、后截断**，否则截断残片绕过注入侧脱敏。
+    const safe = redactKeepPlaceholders(preview)
+    const body = safe.length > WINDOW_ITEM_CHARS
+      ? safe.slice(0, WINDOW_ITEM_CHARS) + '…'
+      : safe
     const row = `[${role}] ${body}`
     const next = used === 0 ? row.length : used + 1 + row.length
     // issue #354 [P1-12]：单条超预算时不再「首条整放」——超过 WINDOW_MAX_CHARS 的
