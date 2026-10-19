@@ -1,6 +1,6 @@
 {
   "name": "@furongjun1999/dsh-memory",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "description": "灵枢（Lingshu·líng shū）DeepSeek Harness 插件：完整大脑——长期记忆/知识飞轮/自我认知/递归反思接入 DSH，对话自动沉淀进 md_cg 认知图（md 文档）",
   "type": "module",
   "main": "lib/index.js",
@@ -32,7 +32,8 @@
     "docs/规范/AI编程通用规范_灵枢适配.md",
     "docs/规范/AI编程通用规范_自检清单.md",
     "docs/discipline",
-    "docs/工作纪律_认知图条目_v1.1.json"
+    "docs/工作纪律_认知图条目_v1.1.json",
+    "scripts/workspace_index.py"
   ],
   "keywords": [
     "deepseek",

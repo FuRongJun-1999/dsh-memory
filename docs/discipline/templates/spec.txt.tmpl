@@ -7,7 +7,7 @@
 【本仓适配（仅 5 行，其余细节按需查仓库）】
 1. **任务总线 = 蜂巢**：执行性任务经 `hive_spawn` / `hive submit --spec` 派发；不可用须声明「蜂巢不可用，兜底降级」。
 2. **只读直跑 = L1**：产物落点不改仓库/外部状态时直跑，留一行「L1 直跑：<命令> — 风险/频次/可逆」。
-3. **工作区目录 = WORKSPACE_INDEX.md**：由 `scripts/workspace_index.py --write` 生成、`--check` 守漂移。
+3. **工作区目录 = WORKSPACE_INDEX.md**：仓库内有 `scripts/workspace_index.py` 时用它生成/校验；没有该脚本时按规范第 M12 条自行维护目录。
 4. **记忆 = cg / stg**（工具名与 MCP 服务同名，无前缀）；归档按 CCG 六要素成文。
 5. **门禁与发版**：discipline / cogmap / workspace-index / publish-artifact / python-tests；tag 只钉全绿提交。
 
