@@ -373,12 +373,24 @@ def _is_pack_manifest_shape(val) -> bool:
 
 def _is_named_pack_object(val) -> bool:
     """npm 12（issue #70）的**包名键控对象**：整个对象无顶层 files 键，
-    而每个 value 都是非空的「含 files 列表的对象」数组。"""
+    而每个 value 都是非空的「含 files 列表的对象」数组。
+
+    2026-10-19 外部实测补（npm 12.0.2 / node 22.22.2）：实测产出的 value 是
+    **单个对象**而非数组 —— `{"<包名>": {"id":...,"files":[...]}}`。旧实现只认
+    「value 是 list 且每项含 files」，于是真清单被判 `_is_named_pack_object`=False
+    ⇒ `extract_pack_manifest` 判无候选 ⇒ 恒以环境错误 exit=2
+    （实证：`npm pack --dry-run --json` 顶层为 dict，value 类型为 dict）。
+    故 value 同时接受 **对象**（实测形态）与 **对象数组**（旧形态）两种写法。
+    """
     if not isinstance(val, dict) or not val:
         return False
     if isinstance(val.get("files"), list):
         return False
     for v in val.values():
+        if isinstance(v, dict):
+            if not isinstance(v.get("files"), list):
+                return False
+            continue
         if not isinstance(v, list) or not v:
             return False
         for it in v:
@@ -396,7 +408,13 @@ def _normalize_pack_manifest(val):
     非该形态（含老版数组、老版单对象）原样返回。
     """
     if _is_named_pack_object(val):
-        return [it for v in val.values() for it in v]
+        out = []
+        for v in val.values():
+            if isinstance(v, dict):
+                out.append(v)
+            else:
+                out.extend(v)
+        return out
     return val
 
 

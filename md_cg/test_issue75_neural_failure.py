@@ -324,8 +324,20 @@ def a10():
 
 
 def a11():
-    """源码形态（读**盘上文件**，非 getsource）：机制在位、裸 pass 已除、except 数未变。"""
+    """源码形态（读**盘上文件**，非 getsource）：机制在位、裸 pass 已除、except 数未变。
+
+    行尾归一（2026-10-19 外部实测）：本断言按 `chr(10)` 匹配**跨行**源码形态，而
+    `newline=""` 保留盘上原样；但本仓 `.gitattributes` 只钉了 `*.sh` / `*.yml` /
+    `*.yaml` 为 LF，**未钉 `.py`**，`core.autocrlf=true`（本机与多数 Windows 环境
+    默认）的检出会让 `.py` 变 CRLF ⇒ 本断言在 Windows 默认配置下恒红，而同一提交
+    在 Linux CI（LF）恒绿。实证（同一工作树，只替换该文件行尾、其余不变）：
+    CRLF ⇒ 13 过 / 1 败（失败项恰为 A11）；LF ⇒ 14 过 / 0 败。
+
+    故先归一再匹配：判据「源码形态是否符合预期」与检出用哪种行尾无关，归一不
+    降低判别力（把机制删掉仍然红）。
+    """
     src = io.open(_TARGET, encoding="utf-8", newline="").read()
+    src = src.replace(chr(13) + chr(10), chr(10))
     checks = {
         "module logger": src.count("logger = logging.getLogger(__name__)") == 1,
         "_record_failure def": src.count("def _record_failure(self, stage, exc):") == 1,
