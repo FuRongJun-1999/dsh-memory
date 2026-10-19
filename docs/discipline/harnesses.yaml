@@ -13,7 +13,7 @@
 # memory:   该端 Agent 访问灵枢记忆的通路；仅声明事实，不参与渲染与校验。三种形态：
 #           ① MCP 客户端配置 —— 写客户端配置里的 server 名（如 mcp/mdcg）；
 #           ② 宿主内建桥   —— 插件直接 spawn 同一个 md_cg.mcp_server 为子进程，
-#                            再注册为宿主工具（DSH 侧 = lingshu_cg / lingshu_stg）。
+#                            再注册为宿主工具（DSH 侧 = cg / stg）。
 #           ③ 蜂巢并发通路 —— hive = 另一个 MCP server（python -m hive.hive_mcp.mcp_server，
 #                            四工具 hive_spawn / hive_poll / hive_kill / hive_doctor），
 #                            提供多智能体并发 + 任务上下文管理（context_files 注入、预算交回、
@@ -73,7 +73,7 @@ targets:
     variant: spec
     format: text
     marker: lingshu:discipline
-    memory: plugin/lingshu_cg+lingshu_stg (插件内建桥，spawn md_cg.mcp_server；tools=core)
+    memory: plugin/cg+stg (插件内建桥，spawn md_cg.mcp_server；tools=core)
     # hive：本端未经 MCP 面接入——插件是内建桥形态（TS 侧 spawn + 工具注册），接蜂巢须在
     # src/lib/ 新增 hive 客户端与四工具暴露，非「写一条配置」可解。当前兜底=CLI
     # （hive.exe submit --spec <spec.json>）。详见 hive/README.md「各 harness 注册」。
@@ -84,7 +84,7 @@ targets:
     # 端差异与落地边界 → 注入 compact 模板的 %%PREAMBLE%%（模板保持通用，差异留在矩阵）
     preamble: |-
       【本端（DSH）与其它端的差异】
-      - 记忆通路：插件内建 lingshu_cg / lingshu_stg 两个基元（tools = core），即正文纪律中的 cg / stg——同一服务，勿因名字不同而猜测；其余能力经 cg(op=…) / stg(op=…) 分发，op 为必填参数（漏传会被参数签名推导兜底并标记 op_derived）。
+      - 记忆通路：插件内建 cg / stg 两个基元（与 MCP 服务同名，无前缀）（tools = core），即正文纪律中的 cg / stg——同一服务，勿因名字不同而猜测；其余能力经 cg(op=…) / stg(op=…) 分发，op 为必填参数（漏传会被参数签名推导兜底并标记 op_derived）。
       - 注入时机：本段在系统提示 order=0（DEPLOYMENT_PERSONA_PREFIX），每轮都在；codebuddy / zcode 端是会话起始一次性注入全文。
       - 自动记忆：本端有 session hook，默认自动转录用户消息（assistant / tool 默认关）。
         故第 16 条在本端只补核心结论（内容／原因／位置／验证结论），不复述对话流水——否则与自动转录重复、稀释检索。
