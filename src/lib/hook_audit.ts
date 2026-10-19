@@ -72,7 +72,22 @@ export interface HookAuditState {
 }
 
 /** 缺省审计文件：与桥探针 / apply 探针同目录同惯例（README.md:110）。 */
-export const DEFAULT_HOOK_AUDIT_PATH = join(homedir(), '.dsh', 'logs', 'dsh-memory-hook-audit.json')
+/**
+ * 审计根：优先 `DSH_HOME`（隔离/多 home 安装必须显式给），否则 `~/.dsh`。
+ * issue #554 §7：此前恒用 homedir，隔离 home 下审计写到生产 home，与 brain 分离。
+ * 兼容 `~` 与 `~/x` 形态；其余按字面路径处理（不做 shell 展开）。
+ */
+function defaultHookAuditPath(): string {
+  const raw = (process.env.DSH_HOME ?? '').trim()
+  let root: string
+  if (!raw) root = join(homedir(), '.dsh')
+  else if (raw === '~') root = homedir()
+  else if (raw.startsWith('~/') || raw.startsWith('~\\')) root = join(homedir(), raw.slice(2))
+  else root = raw
+  return join(root, 'logs', 'dsh-memory-hook-audit.json')
+}
+
+export const DEFAULT_HOOK_AUDIT_PATH = defaultHookAuditPath()
 
 /** last 条数上限（有界性单点——没有它 audit 文件会随会话无限增长）。 */
 const MAX_LAST = 20

@@ -112,6 +112,7 @@ dsh plugin --profile web add .
 - 完整配置项（30+ 项）· 自动记忆机制 · DSH 看门狗 → [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
 - **非 DSH 宿主**（CodeBuddy / ZCode / Codex CLI / Claude Code）：走[多 harness 接入](#多-harness-接入按端分目录)，各端有独立三步接入说明
 - **装后验证**：重启 DSH 后对 Agent 说「列出你的记忆工具」应看到 `cg` / `stg`（`tools: 'all'` 时还有 `mdcg_*`）；大脑直连验证：`python -m md_cg.mcp_server`（Windows）/ `python3 -m md_cg.mcp_server`（Linux·macOS）（stdio JSON-RPC）收到 initialize 应答即通；**若工具始终不注册、日志刷「灵枢调用超时」**，先看桥探针 `~/.dsh/logs/lingshu-bridge-debug.log` 里的 `spawn … ENOENT`——那是第一因（解释器名与平台不匹配），「调用超时」只是次生现象。更多细节见 [README 详细版](docs/mdcg/README详细版_v0.4.10.md)
+- **自动注入的作用域**（issue #554 §2/§4）：自动注入只覆盖**本会话近期时间线**（`stg(op=timeline, session=<当前会话>)`）；**跨会话不会自动召回**，需显式 `cg(op=route)` / `cg(op=read)`。隔离或多 `DSH_HOME` 安装须显式设 `MDCG_DSH_SESSIONS_ROOT=<该 home>/sessions`，否则节点 session 会降级为 `anonymous`、自动注入查不到数据。
 - **自动记忆排障**（issue #56）：三处过滤分支（子代理会话 / 中继消息 / `source.kind !== 'user'`）与写入/跳过路径各留一道**盘面**痕迹——有界落盘审计 `~/.dsh/logs/dsh-memory-hook-audit.json`（与上面的桥探针同目录同惯例）：哪些消息被设计滤除、`source.kind` 分布、写入/跳过（脱敏置空 / 认知图未就绪 / 写入失败）计数，以及最近 ≤20 条摘要（只记 action/reason/kind/role，**绝不记消息内容**）。「对话里明明说了、记忆里却没有」时先看它：被设计滤除记 `filtered`，写入失败/漏记记 `skipped`
 
 ### ♻️ 升级后须重启长驻 MCP 进程（代校验）
