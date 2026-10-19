@@ -56,6 +56,21 @@
 
 **第 9 轮负结果**：外部臂的检索归档 `runs/*/retrieval/*.json` 的 `material` 是 **ChronicleDM 渲染后的记忆文本**（含版本链与状态），不是原始快照 id 列表 ⇒ 无法用它做「检索层 gold@k 的同口径对照」，④ 的检索层对照同样需要 reader。
 
+## 三·补三 采纳判定备忘（第 11 轮，一页版）
+
+| 项 | 终态 | 一条决定性证据 |
+|---|---|---|
+| ① 条件空间 | **不并面** | 外部 109 个 py 里 layer/session/sensitivity/clearance/tenant/principal/DEFER/BLINDSPOT/condition_space 全 0，仅 `valid_from`(12)；本仓 `mdcos.py` 为 247/395/242/‑/‑/‑/43/11/27 |
+| ② 离线复算 | **达标** | `verify_offline.py` → `verified: true`（625 计分 / 419 测试 / network 0 / model 0）；`summarize_controls.py` → `passed: true` |
+| ③ 闸兼容 | **达标** | `test_issue111_gate_order`（`2fc7cc3e`）+ `test_issue111_scoring_contract`（`ba904e08`） |
+| ④ 反向腿 | **零成本部分成立** | 离线 bm25 vs 外部臂（n=625）：history 0.8475→0.9266、chain 0.8036→0.9286（+7.9/+12.5pp），滞后 0.2766→0.0 |
+
+**④ 两条收口路径（成本不同，需设计者选）：**
+- **A｜结项留限制**：以「零成本部分成立」记入本文件，默认算法不切换。成本=0。
+- **B｜带 reader 的同口径对照**：用外部包 `results/extractions/` 既有产物做基线侧 reader（不新增模型调用，但口径为「带模型」）。成本=一次口径认同 + 一轮对照。
+
+**当前判定：已采纳（标准登记），未落地（默认未切换）。** ①②③ 达标、④ 受 reader 成本约束；后续任何「切默认」动作必须先过本表四项。
+
 ## 四、复测口径（设计者将复测）
 
 ```bash
