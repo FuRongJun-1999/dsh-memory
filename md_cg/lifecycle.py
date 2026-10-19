@@ -367,7 +367,8 @@ def set_state(cg, node_id: str, dst: str, reason: str = None,
     from . import chain as _chain
     _chain.invalidate_cache(cg)
     try:
-        # issue #547：`_audit.jsonl` 的写点一律 durable（与 mdcos._audit 一致）。
+        # issue #547：`_lifecycle.jsonl` 是审计台账（状态迁移留痕），按 #549 的口径
+        # 走 durable=True（原为缺省 + `except: pass`，丢行静默）。
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), {
             "t": at, "action": "set_state", "node_id": node_id,
             "from": src, "to": dst, "reason": reason, "actor": actor,

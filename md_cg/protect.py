@@ -255,9 +255,10 @@ def _audit(cg, action, node_id, reason, actor=None, snapshot=None):
     rec = {"t": time.time(), "action": action, "node_id": node_id,
            "reason": reason, "actor": _actor_of(cg, actor), "snapshot": snapshot}
     try:
-        # issue #547：`_audit.jsonl` 的**主写点**（mdcos._audit）已用 durable=True
-        # （#549 实测多写者下丢 29–39% 行）；本模块写同一个文件却走缺省路 ⇒ 同一账本
-        # 内两种耐用性，丢行时「发生过」与「没发生过」不可区分。此处对齐 durable。
+        # issue #547：本模块的审计台账（`_protected_audit.jsonl`）此前走 append_jsonl
+        # 缺省路（可静默丢行）。#549 已把同一类账本（`_audit.jsonl`）切到 durable=True，
+        # 判据是「审计属不能丢面」而不是「必须与别的模块同一个文件」——各模块各有台账，
+        # 但标准一致：丢一行审计会让「发生过」与「没发生过」不可区分（T0 ③）。
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec, durable=True)
     except Exception:
         pass

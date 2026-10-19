@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 功能名：#547 审计账本写点的耐用性一致性（同一 `_audit.jsonl` 不得一半 durable、一半缺省）
+# 功能名：#547 审计账本写点的耐用性（凡写某个模块的 AUDIT_FILE，必须 durable=True）
 # 生效条件：python -X utf8 -m md_cg.test_issue547_audit_durable；被测面＝md_cg/ 下非测试 .py 的 AST
 # 子功能：A 组＝凡向 AUDIT_FILE 追加的 append_jsonl 调用必须带 durable=True · K 组＝扫描面非空转 ·
 #         E 组＝主写点（mdcos._audit）仍在位（判据锚）
@@ -10,10 +10,12 @@
 """issue #547 守卫：审计账本写点的耐用性必须一致。
 
 背景（#549 实测）：`append_jsonl` 缺省是「丢一条无所谓的簿记」，6 进程 × 20 条实测
-静默丢 **29–39%** 行。`_audit.jsonl` 的主写点（`mdcos._audit`）已改 `durable=True`
-（FileLock 临界区内追加），但 `protect` / `trust` / `lifecycle` / `crypto` 也写**同一个
-文件**、却仍走缺省路 ⇒ 同一账本两种耐用性：丢行时「发生过」与「没发生过」不可区分
-（T0 ③ 静默错误）。本守卫把「凡写 `_audit.jsonl` 必 durable」钉成结构判据。
+静默丢 **29–39%** 行。`mdcos` 的 `_audit.jsonl` 已改 `durable=True`（锁临界区内追加），
+但 `protect`（`_protected_audit.jsonl`）/ `trust`（`_trust.jsonl`）/ `lifecycle`
+（`_lifecycle.jsonl`）/ `crypto`（`_crypto.jsonl`）**各有自己的审计台账**、却仍走缺省路。
+按 #549 的判据（审计属「不能丢」面），每个审计台账都该 durable；丢一行会让
+「发生过」与「没发生过」不可区分（T0 ③ 静默错误）。本守卫把「凡写某个模块的
+AUDIT_FILE 必须 durable」钉成结构判据（各文件独立，不要求共用同一文件）。
 """
 from __future__ import annotations
 
@@ -75,7 +77,7 @@ def main():
 
     print("== A 组：写 `_audit.jsonl` 的 append_jsonl 必须 durable ==")
     ok(len(hits) >= 4, "K01 扫描面非空转（命中的审计写点 %d 处）" % len(hits), hits)
-    ok(not bad, "A01 审计写点全部带 durable=True（同一账本一种耐用性）", bad)
+    ok(not bad, "A01 审计写点全部带 durable=True（各模块台账独立、标准一致）", bad)
 
     print("== E 组：主写点锚 ==")
     msrc = io.open(os.path.join(_REPO, "md_cg", "mdcos.py"), encoding="utf-8").read()
