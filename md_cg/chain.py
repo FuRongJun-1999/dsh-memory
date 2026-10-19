@@ -221,14 +221,15 @@ def adjacency(cg, include_hierarchy=True, skip_archived=True):
         for e in (fm.get("edges") or []):
             tgt = edge_target(e)
             if tgt:
-                if skip_archived and _lc.is_archived(nodes.get(tgt)):
+                # #562：边目标侧与源侧（:215）同口径——按退役面剔除。
+                if skip_archived and _lc.is_retired(nodes.get(tgt)):
                     continue  # 拓扑边界：指向退役目标的边径直截断
                 if vis is not None and not vis(tgt):
                     continue  # 拓扑边界：指向不可见目标的边对调用方不存在
                 out.append((tgt, e if isinstance(e, dict) else {"target": tgt}))
         if include_hierarchy:
             for ch in _sg.declared(fm)["nodes"]:
-                if skip_archived and _lc.is_archived(nodes.get(ch)):
+                if skip_archived and _lc.is_retired(nodes.get(ch)):
                     continue
                 if vis is not None and not vis(ch):
                     continue

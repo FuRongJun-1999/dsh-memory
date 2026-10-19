@@ -690,7 +690,8 @@ def _retired_by_id(cg, nid) -> bool:
     `lifecycle.is_archived`——判据仍只此一份，不另立第二套口径。
     """
     e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
-    return lifecycle.is_archived(e)
+    # #562：本函数叫 `_retired_by_id`，判据却只认 archived——superseded 漏过。
+    return lifecycle.is_retired(e)
 
 
 #: 会话续接包台账段（goals / tasks）的取数窗：取全量再过滤退役再截断
@@ -1144,7 +1145,7 @@ class MdCGOS(MdCG):
                         session=kw.get("session"))
             return nid
 
-# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_archived(e) 为真的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
+# 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_retired(e) 为真（archived ∪ superseded，#562）的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
@@ -1191,8 +1192,10 @@ class MdCGOS(MdCG):
             if e.get("layer") in NEG_ROUTE_LAYERS:
                 continue  # 负记忆走覆盖标记；目标只做定向，都不进正排
                           # （真源 mdcg.NEG_ROUTE_LAYERS，本处直接导入，不留第二份字面量）
-            if lifecycle.is_archived(e):
-                continue  # lifecycle.py:42 标称兑现：archived 不参与默认检索。
+            # #562：候选汇聚点按**退役面**剔除（archived ∪ superseded）——superseded
+            # 已进 is_retired，但仍只认 archived 会让被取代的旧版本与新版本并列返回。
+            if lifecycle.is_retired(e):
+                continue  # lifecycle.py:42 标称兑现：退役不参与默认检索。
                           # 本处是 **cg 检索面单点**——`MdCGSecure._candidates`
                           # 经 super() 在此之上叠加读可见性，故全部**检索类**
                           # cg 读 op（search / search_rrf / recall / route…）经此
@@ -4195,13 +4198,14 @@ class MdCGOS(MdCG):
         return {"ok": True, "id": nid, "session": session, "layer": layer,
                 "basis": basis, "tokens": est_tokens(content)}
 
-# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；恒剔除 lifecycle.is_archived(e) 为真的条目（退役不参与默认注入，判据单点在 lifecycle.py）；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，且该索引条目经可见性单点 _readable 判为可见，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
+# 生效条件：当 session 传入且为真时仅保留 tags 含 f"session:{session}" 的项；恒剔除 lifecycle.is_retired(e) 为真（archived ∪ superseded，#562）的条目（退役不参与默认注入，判据单点在 lifecycle.py）；保留 tags 含 SESSION_TAG 或任一以 "session:" 开头的索引节点，且该索引条目经可见性单点 _readable 判为可见，_read 的 content 为 None 则跳过；按 created_at 降序后返回前 max(1, int(limit or 5)) 条，limit 为假值（含 0/None）按 5 处理；
     def _session_notes(self, session=None, limit=5):
         """按时间倒序取会话要点（索引过滤 + 可见性闸 + 惰性回读摘要）。只读，不写盘。"""
         out = []
         for nid, e in list((self.index.get("nodes") or {}).items()):
-            if lifecycle.is_archived(e):
-                continue               # 退役剔除（判据单点 lifecycle.is_archived，
+            # #562：注入面同样按退役面（archived ∪ superseded）剔除。
+            if lifecycle.is_retired(e):
+                continue               # 退役剔除（判据单点 lifecycle.is_retired，
                                        # 与 cg 检索面 `_candidates`、stg 面
                                        # `_scan_one` 同一份）：会话续接包是「把节点
                                        # **内容摘要**回给调用方」的注入面，archived
@@ -4349,7 +4353,7 @@ class MdCGOS(MdCG):
             for nid, e in list((self.index.get("nodes") or {}).items()):
                 if e.get("layer") != "unresolved":
                     continue
-                if lifecycle.is_archived(e):
+                if lifecycle.is_retired(e):   # #562：unresolved 段同口径
                     continue           # 退役剔除（同 ① 会话要点：本条是续接包里
                                        # 「未解问题正文片段回给调用方」的第二处注入
                                        # 子面，判据仍是 lifecycle.is_archived 单点；

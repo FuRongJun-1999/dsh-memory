@@ -138,7 +138,7 @@ def _node(cg, node_id):
             "content": n.get("content") or ""}
 
 
-# 生效条件：nid/e 为一条快照条目、layer 为层过滤值时——layer 为真值且 e.get("layer") != layer 即返回 None；lifecycle.is_archived(e) 为真即返回 None（退役不参与默认检索，判据单点在 lifecycle.py）；cg 带可调用的 _readable（MdCGSecure）且判不可见即返回 None；e 含 "temporal" 或 "spatial" 键时以快照字段构造 frontmatter，否则调用 cg._read(e) 且在 fm 为 None 时返回 None；返回 {"id","frontmatter","layer","path"}。
+# 生效条件：nid/e 为一条快照条目、layer 为层过滤值时——layer 为真值且 e.get("layer") != layer 即返回 None；lifecycle.is_retired(e) 为真（archived ∪ superseded，#562）即返回 None（退役不参与默认检索，判据单点在 lifecycle.py）；cg 带可调用的 _readable（MdCGSecure）且判不可见即返回 None；e 含 "temporal" 或 "spatial" 键时以快照字段构造 frontmatter，否则调用 cg._read(e) 且在 fm 为 None 时返回 None；返回 {"id","frontmatter","layer","path"}。
 def _scan_one(cg, nid, e, layer=None):
     """单条目 → 候选条目（`_scan` 的逐条实现**单点**：全量遍历与索引子集共用）。
 
@@ -148,7 +148,8 @@ def _scan_one(cg, nid, e, layer=None):
     """
     if layer and e.get("layer") != layer:
         return None
-    if lifecycle.is_archived(e):
+    # #562：timeline/anchors/consistency 的候选面按退役面（archived ∪ superseded）剔除。
+    if lifecycle.is_retired(e):
         return None  # lifecycle.py:42 标称兑现：archived 不参与默认检索。
                      # 本处是 **stg 扫描面单点**（`_scan`(:172) 的全量遍历与
                      # 索引子集两条分支都经本函数逐条实现）——timeline /
