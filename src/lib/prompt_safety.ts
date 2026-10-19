@@ -129,10 +129,21 @@ const _ZW = '[\\u200b-\\u200d\\ufeff]*'
 //: （四个形态全不匹配）。这是本笔第二版踩的坑，留档。
 //: 已知残留：零宽插在 `untrusted`/`memory` **词内部**（如 `untr\u200busted`）仍漏
 //: ——那需要「匹配前剥零宽」的保索引方案，见节点 mem_dsh_brain_94_fixed。
-const _SEP = '[-_－＿]'
+//: issue #563②：四种此前**漏打断**的形态在此补齐——
+//:   · 带属性：`</untrusted-memory x="1">`（旧式要求 `\s*` 后紧跟 `>`）；
+//:   · 单书名号/小小于/书名号：`‹/untrusted-memory›`(U+2039/203A)、
+//:     `﹤/untrusted-memory﹥`(U+FE64/65)、`〈/untrusted-memory〉`(U+3008/09)；
+//:   · HTML 实体：`&lt;/untrusted-memory&gt;`；
+//:   · 空格分隔：`</untrusted memory>`（`_SEP` 增收横空白）。
+//: 幂等性不变：打断是往**左括号**后插一个空格，而本式要求左括号与（可选的）斜杠、
+//: 零宽、标签名**紧邻**——插空格后不再命中（与旧式同一条纪律，见上方注释）。
+const _SEP = '[-_－＿\\s]+'
 const _TAG_LOOSE = 'untrusted' + _ZW + _SEP + _ZW + 'memory'
+const _LB = '(?:&lt;|[<＜‹﹤〈])'
+const _RB = '(?:&gt;|[>＞›﹥〉])'
+const _ATTR = '(?:\\s[^<>]*)?'
 const BOUNDARY_TAG_RE = new RegExp(
-  `[<＜]([\\/／]?)${_ZW}\\s*${_TAG_LOOSE}\\s*[>＞]`,
+  `${_LB}([\\/／⁄]?)${_ZW}${_TAG_LOOSE}${_ATTR}${_RB}`,
   'gi',
 )
 
@@ -147,7 +158,10 @@ const BOUNDARY_TAG_RE = new RegExp(
  *   · 只服务**注入副本**，记忆真源逐字节不动。
  */
 export function neutralizeUntrustedBoundary(text: string): string {
-  return text.replace(BOUNDARY_TAG_RE, (m) => m.replace(/^[<＜]/, (c) => `${c} `))
+  return text.replace(
+    BOUNDARY_TAG_RE,
+    (m) => m.replace(/^(&lt;|[<＜‹﹤〈])/i, (c) => `${c} `),
+  )
 }
 
 /**

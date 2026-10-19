@@ -18,6 +18,7 @@ import type { LingshuBridge, McpTool } from './bridge.ts'
 // 运行时导入写 `.js`（本仓口径：type-only 才写 `.ts`，tsconfig 未开
 // allowImportingTsExtensions —— 值导入写 `.ts` 会 TS5097 编译失败）。
 import { attributeSession } from './lib/session_state.js'
+import { neutralizeUntrustedBoundary } from './lib/prompt_safety.js'
 
 /** 默认暴露的核心工具集合：**记忆面已基元化**，只注册 `cg` / `stg` 两个认知基元。
  *
@@ -163,6 +164,14 @@ function toValueSpec(raw: unknown): ValueSchemaSpec {
 }
 
 /** 从灵枢 content 数组中提取文本（MCP text block 拼接）。 */
+/** 工具面返回文本的插件级兜底上限（issue #563②）。
+ *
+ * 服务端 `cg(op=read)` 等已有 `offset`/`truncated` 分页（`_clip_text`），本上限**不**替代
+ * 它、也不重新定义预算：只兜「一次把整库搬进上下文」的极端形态。取 64KiB——远大于
+ * 单页预算（服务端 preview 200 字 / read 分页 KB 级），正常调用不会触发。
+ */
+export const TOOL_RENDER_MAX_CHARS = 65536
+
 export function extractText(content: Array<{ type: string; text?: string; [key: string]: unknown }>): string {
   return content
     .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
@@ -206,7 +215,20 @@ export async function registerLingshuTools(
         output: {
           schema: { type: 'json' } as never,
           render(_args, value) {
-            return [{ type: 'text', text: extractText((value as McpCallResultLike).content ?? []) }]
+            // issue #563②：工具面与自动注入面同源（都可能含他者写入的记忆原文），
+            // 但此前**完全不打断边界标记、也无插件级上限**——同一条记忆在注入面被
+            // 打断，在 `cg(op=read)` 的返回里却原样带出，模型可据此提前闭合边界块。
+            // 两件事在此单点做：①打断（与注入面同一实现 `neutralizeUntrustedBoundary`）；
+            // ②兜底上限（服务端已有 offset 分页，插件层只兜一个远大于单页的硬上限，
+            // 防止一次把整库搬进上下文；截断必须显式标注，不静默）。
+            const raw = extractText((value as McpCallResultLike).content ?? [])
+            const safe = neutralizeUntrustedBoundary(raw)
+            const text = safe.length > TOOL_RENDER_MAX_CHARS
+              ? safe.slice(0, TOOL_RENDER_MAX_CHARS)
+                + `
+…[已截断：工具返回超过插件上限 ${TOOL_RENDER_MAX_CHARS} 字符]`
+              : safe
+            return [{ type: 'text', text }]
           },
         },
         timeoutMs: 120_000,
