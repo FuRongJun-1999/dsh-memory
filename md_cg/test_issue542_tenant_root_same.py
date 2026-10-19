@@ -50,6 +50,17 @@ def ok(cond, label, detail=None):
         print("  [FAIL] %s%s" % (label, ("  <- " + repr(detail)) if detail is not None else ""))
 
 
+def _fs_case_insensitive(path: str) -> bool:
+    """探测该路径所在文件系统是否大小写不敏感（#98 的大小写绕过只在其上成立）。"""
+    probe = os.path.join(path, "_cis_probe_dir")
+    try:
+        os.makedirs(probe, exist_ok=True)
+        return os.path.exists(probe.swapcase())
+    except OSError:
+        return False
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
 def _mk_junction(link: str, target: str) -> bool:
     """建目录 junction（Windows）；非 Windows 退化为 symlink。返回是否成功。"""
     if os.name == "nt":
@@ -109,11 +120,14 @@ def main() -> int:
     # ---- 判据 C：大小写变形同判 ----
     print("== C 大小写变形亦不得绕过 ==")
     upper = rootB.upper()
-    if upper != rootB:
+    # v0.9.1：大小写变形**只在大小写不敏感的文件系统上**等价于同一物理位置；
+    # 在 POSIX（大小写敏感）上，大写后是一条全新路径，此时「必须拒绝」不是本闸的判据
+    # ——E1 已钉住「无关的新根应放行」。故按文件系统实际语义分档，不按平台名猜。
+    if upper != rootB and _fs_case_insensitive(rootB):
         root3, err3 = _resolve_root({"MDCG_ROOT": upper, "MDCG_TENANT_REGISTRY": reg})
         ok(root3 is None and err3, "C1 未声明 tenant + MDCG_ROOT=B 全大写 ⇒ 拒绝启动", (root3, err3))
     else:
-        print("  [SKIP] C1 本平台大小写不敏感或路径无字母，无法构造变形")
+        print("  [SKIP] C1 大小写敏感文件系统：大写后是另一条路径，本变形不可构造（#98 的大小写绕过只在大小写不敏感的 FS 上成立）")
 
     # ---- 判据 D（可用性面）：已声明 tenant + junction 指向自己登记根 ⇒ 必须放行 ----
     print("== D 可用性面：junction 指向自己的登记根不得被误拒 ==")

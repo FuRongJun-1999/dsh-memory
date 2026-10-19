@@ -80,12 +80,18 @@ os.utime(_fp, ns=(_st1.st_atime_ns, _st1.st_mtime_ns))   # 只还原 mtime
 _st2 = os.stat(_fp)
 _h2 = _sha16(_fp)
 
-check('② 前提：改写后三项 stat 身份逐位相等', (
-    _st1.st_mtime_ns == _st2.st_mtime_ns
-    and _st1.st_size == _st2.st_size
-    and _st1.st_ctime_ns == _st2.st_ctime_ns),
-    f'mtime {_st1.st_mtime_ns==_st2.st_mtime_ns} size {_st1.st_size==_st2.st_size} '
-    f'ctime {_st1.st_ctime_ns==_st2.st_ctime_ns}')
+# v0.9.1：ctime 的语义随平台不同，前提断言必须分档钉死，否则 POSIX 上恒红。
+if sys.platform == 'win32':
+    check('② 前提（win32）：改写后三项 stat 身份逐位相等（ctime=创建时间，不随内容变）', (
+        _st1.st_mtime_ns == _st2.st_mtime_ns
+        and _st1.st_size == _st2.st_size
+        and _st1.st_ctime_ns == _st2.st_ctime_ns),
+        f'mtime {_st1.st_mtime_ns==_st2.st_mtime_ns} size {_st1.st_size==_st2.st_size} '
+        f'ctime {_st1.st_ctime_ns==_st2.st_ctime_ns}')
+else:
+    check('② 前提（POSIX）：改写后 ctime 必变（身份三元组不再相等 ⇒ 本就该重算）',
+          _st1.st_ctime_ns != _st2.st_ctime_ns,
+          f'ctime {_st1.st_ctime_ns} → {_st2.st_ctime_ns}')
 check('② 前提：内容确实变了', _h1 != _h2, f'{_h1} → {_h2}')
 
 _got = P._file_digest_memo(_fp, _st2)
