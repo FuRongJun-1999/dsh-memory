@@ -919,7 +919,7 @@ KERNEL_TOOLS = [
             aeis_root=_p("string", "maintain vision_evidence：视觉证据归档根（只读逐部件"
                                   "证据源；缺省本仓 data/vision；参数名为遗留名）"),
             sample_n=_p("integer", "maintain refine：抽检条数（默认 20，裁定单条件 A）"),
-            prefix=_p("string", "maintain refine：抽检 id 前缀（默认 node_）"),
+            prefix=_p("string", "maintain refine：抽检 id 前缀（默认空 = 不过滤，全库抽样）"),
             verdicts=_p("array", "maintain refine apply：人工核对裁决 "
                                  "[{concept_id, faithful, added_info, note}]；"
                                  "缺省只落抽检留痕（不改节点）"),

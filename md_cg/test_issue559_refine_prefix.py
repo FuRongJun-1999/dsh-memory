@@ -49,8 +49,8 @@ try:
     pool, meta = R.sample_ids(cg, n=2)
     check("① 默认参数（不传 prefix）池非空",
           len(pool) > 0, "pool=%d meta=%s" % (len(pool), {k: meta.get(k) for k in ("prefix", "prefix_fallback")}))
-    check("① 默认前缀已与默认 id 前缀一致",
-          R.PREFIX_DEFAULT == "mem_", "PREFIX_DEFAULT=%r" % R.PREFIX_DEFAULT)
+    check("① 默认空前缀 = 不过滤（不绑死任何一代前缀）",
+          R.PREFIX_DEFAULT == "", "PREFIX_DEFAULT=%r" % R.PREFIX_DEFAULT)
 
     pool2, meta2 = R.sample_ids(cg, n=2, prefix="node_")
     check("② 显式不匹配前缀不偷偷回落（池空且 fallback=False）",

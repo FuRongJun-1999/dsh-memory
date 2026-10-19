@@ -39,9 +39,10 @@ from .mdcos import MdCGOS
 REFINE_LOG = "_refine.jsonl"
 
 #: 抽检对象 id 前缀（P37 派生记忆）
-# issue #559：默认前缀必须与默认铸 id 的前缀一致（mdcg.py 铸 mem_*）——
-# 此前是 "node_"，默认参数下抽样池恒为 0 且不报错（静默空池）。
-PREFIX_DEFAULT = "mem_"
+# issue #559：默认**不过滤**（空前缀 = 全库抽样）。
+# 此前是 "node_"，而本仓默认铸出的 id 是 mem_* ⇒ 默认参数下抽样池恒为 0 且不报错（静默空池）；
+# 不把默认绑死在任何一代前缀上，对混有 node_/mem_ 两代 id 的历史库同样安全。
+PREFIX_DEFAULT = ""
 #: 裁定单条件 A 规定的抽检条数
 SAMPLE_N = 20
 #: 抽样种子：同 seed ⇒ 同样本（可复算、可复核）
@@ -565,7 +566,7 @@ def _main(argv=None) -> int:
     ap.add_argument("root", help="认知图库根")
     ap.add_argument("--n", type=int, default=SAMPLE_N, help="抽检条数（默认 20）")
     ap.add_argument("--seed", default=SAMPLE_SEED, help="抽样种子（同 seed 同样本）")
-    ap.add_argument("--prefix", default=PREFIX_DEFAULT, help="id 前缀（默认 node_）")
+    ap.add_argument("--prefix", default=PREFIX_DEFAULT, help="id 前缀（默认空 = 不过滤，全库抽样；给出则只抽以该前缀开头的 id）")
     ap.add_argument("--min-jaccard", type=float, default=None)
     ap.add_argument("--min-cluster", type=int, default=None)
     ap.add_argument("--preview", action="store_true", help="只出预演（不出工单正文）")
