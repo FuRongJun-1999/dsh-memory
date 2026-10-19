@@ -34,7 +34,7 @@
  *   · `written` 记的是「**成功发起**」的写入（fire-and-forget 的发起时刻），
  *     发起后失败另记 `skipped.failed`——与 hooks.ts 的 memorize 两段式对应。
  */
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { expandHome } from './datapath.js'
 import { dirname, join } from 'node:path'
@@ -222,13 +222,39 @@ export class HookAuditRecorder {
 
   /** 读改写 + 原子落盘；整段 try/catch——审计失败静默降级（绝不冒泡进记忆路径）。 */
   #mutate(fn: (s: HookAuditState) => void): void {
+    // #563④：审计文件被同用户的多个 DSH 进程共用；此前 #state 只在首次载入、写回整份 rename 覆盖
+    // ⇒ 并发时后写者用内存态盖掉他人计数（实测 400→201 / 400→311）。现改为锁内 重读→改→写。
+    if (!this.#acquireLock()) return
     try {
-      const s = this.#state ?? (this.#state = this.#load())
+      const s = this.#load()
       fn(s)
       if (s.last.length > MAX_LAST) s.last = s.last.slice(-MAX_LAST)
       s.updated_at = nowIso()
       this.#save(s)
+      this.#state = s
     } catch { /* 审计失败静默降级：记忆路径必须照常 */ }
+    finally { this.#releaseLock() }
+  }
+
+  /** 跨进程排他锁：独占创建 `${path}.lock`；陈旧锁（>5s）清掉；超时返回 false（静默降级）。 */
+  #acquireLock(timeoutMs = 800): boolean {
+    const lock = `${this.path}.lock`
+    const t0 = Date.now()
+    for (;;) {
+      try {
+        closeSync(openSync(lock, 'wx'))
+        return true
+      } catch {
+        try { if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock) } catch { /* 已释放 */ }
+        if (Date.now() - t0 > timeoutMs) return false
+        const until = Date.now() + 5
+        while (Date.now() < until) { /* 自旋 5ms */ }
+      }
+    }
+  }
+
+  #releaseLock(): void {
+    try { unlinkSync(`${this.path}.lock`) } catch { /* 已清理 */ }
   }
 
   /** 盘面 → 状态；不存在/不可读/坏 JSON/形态不符 → 空态重建（不抛）。 */
