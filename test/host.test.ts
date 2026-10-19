@@ -121,10 +121,10 @@ test('插件激活：cg/stg 工具注册进 ctx.tools（core = cg/stg 两基元�
   const host = await mountHost(dir)
   try {
     const ready = await waitForTool(host, 'cg')
-    assert.ok(ready, '等待补注册后应有 lingshu_cg（竞态补注册 2s 轮询）')
+    assert.ok(ready, '等待补注册后应有 cg（竞态补注册 2s 轮询）')
     const schemas = host.root.tools.schemas()
     const names = schemas.map((s) => s.name)
-    assert.ok(names.includes('stg'), '应注册 lingshu_stg')
+    assert.ok(names.includes('stg'), '应注册 stg')
     assert.deepEqual(
       names.filter((n) => ["cg", "stg"].includes(n)).sort(),
       ['cg', 'stg'],

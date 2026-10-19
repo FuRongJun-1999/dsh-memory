@@ -396,7 +396,7 @@ const RECALL_DECAY_RATIO = 0.9
 const RECALL_MIN_CHARS = 24
 /** 整块上限（与调用点 slice 对齐）。 */
 const RECALL_MAX_CHARS = 1400
-/** 永久层不自动注入（按需用 mdcg_recall / lingshu_stg 取）。 */
+/** 永久层不自动注入（按需用 mdcg_recall / stg 取）。 */
 const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
 
 /** 分级递减渲染：按距当前的次序逐档收窄，早期条目信息量更大。

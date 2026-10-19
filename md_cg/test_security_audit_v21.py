@@ -7,7 +7,7 @@ V21-3 _NODE_ID_RE 中文/逗号（5 官方红同源——直断言 + 防线不�
 V21-4 run_channel_b 主体归位（冒烟：队列空场景返回 dict 非 None + 沙箱模块级）
 V21-5 P2-3 就地剥离自愈（门控残留两次查询后消失）
 V21-6 P2-4 doc_key[0] 可哈希（reach 分支不再 TypeError）
-V21-7 lingshu_cg 返回体递归脱敏（_redact_deep 行为 + 接线静态断言）
+V21-7 cg 返回体递归脱敏（_redact_deep 行为 + 接线静态断言）
 V21-8 敏感名族匹配（报告 8 类实测样本全拒 + 正常文件不误伤）
 """
 import ast
@@ -191,7 +191,7 @@ def v21_6_p24_hashable():
 
 
 def v21_7_redact_deep():
-    print("== V21-7 lingshu_cg 返回体递归脱敏 ==")
+    print("== V21-7 cg 返回体递归脱敏 ==")
     sys.path.insert(0, "hive")
     import importlib.util
     spec = importlib.util.spec_from_file_location("hv", "hive/exec.py")
@@ -207,7 +207,7 @@ def v21_7_redact_deep():
     check("结构保持", out["ok"] is True and out["results"][1]["path"]
           == "knowledge/x.md")
     src = open("hive/exec.py", encoding="utf-8").read()
-    check("tool_lingshu_cg 返回体已接线", "_redact_deep(out)" in src)
+    check("tool_cg 返回体已接线", "_redact_deep(out)" in src)
 
 
 def v21_8_sensitive_family():

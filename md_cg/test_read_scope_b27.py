@@ -7,7 +7,7 @@
   （跳过个人敏感信息不入明文）；
 - 子代理（worker）：read_file 收敛到工作区（job_dir）+ 定制工作目录
   （spec.workdir / spec.read_roots）——其他会话与越界内容拒读（fail-closed，
-  无根即无文件读权限）；lingshu_cg 读面默认密级 internal——**错误处置标记
+  无根即无文件读权限）；cg 读面默认密级 internal——**错误处置标记
   （private，错误相关/待排查内容限制平级扩散，非个人隐私）与 secret 拒读**。
   错误处置链路（设计者/上级节点/验证单元）必读 private 不受此限——verify
   面当前 clearance_cap=internal 的缺口已登记（安全审计实锚文档）。
@@ -106,7 +106,7 @@ def main():
     plain = "普通技术文档：quick sort 复杂度 O(n log n)，蜂群调度正常。"
     check("B27-3x 普通文本不误伤", hx._redact_pii(plain) == plain)
 
-    print("== lingshu_cg 密级分级（worker=internal 拒读 private/secret）==")
+    print("== cg 密级分级（worker=internal 拒读 private/secret）==")
     from md_cg.mdcos import MdCGSecure
     from md_cg.security import Principal
     root = tempfile.mkdtemp(prefix="b27_cg_")

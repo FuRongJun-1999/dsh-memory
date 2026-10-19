@@ -68,7 +68,7 @@ def _job(tmp, name, with_progress=True, ok=True, entries=3, bad_line=False):
     if with_progress:
         ex.progress(d, kind="start", task="靶任务")
         for i in range(entries):
-            ex.progress(d, kind="tool", round=i + 1, tool="lingshu_cg",
+            ex.progress(d, kind="tool", round=i + 1, tool="cg",
                         brief=f"第 {i + 1} 轮")
         if bad_line:
             with open(os.path.join(d, ex.PROGRESS_FILE), "a",
@@ -140,7 +140,7 @@ check("C4 无 handoff 条目时 handoff=None", r1.get("handoff") is None)
 j4 = _job(tmp, "job_d", entries=2)
 # 用 exec 真实交回路径产出 handoff（不是手工造条目）——守卫「执行器产物 ↔ wm 读取面」互认
 _hd = ex._handoff({"model": "m"}, j4,
-                  [{"round": 1, "tool": "lingshu_cg", "ok": True, "brief": "第 1 轮"}],
+                  [{"round": 1, "tool": "cg", "ok": True, "brief": "第 1 轮"}],
                   {"total_tokens": 123}, 3, 210000, 200000)
 check("C5a _handoff 产物带 need_continue/completed（交接信号）",
       _hd.get("need_continue") is True and _hd.get("completed") is False)

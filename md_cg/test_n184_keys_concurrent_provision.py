@@ -10,7 +10,7 @@ A 按 t0 陈旧快照写回——B 的信封无痕抹除：旧密文永久不可
 告警无备份无审计。N139（load_error 拒重签）只堵「损坏回落→静默重签」
 形态，并发写回形态无闸。触发面无需攻击者：hive/exec.py:845 每次工具
 调用新建 MdCGSecure → _init_crypto → provision_dek（mdcos.py:3694-3696），
-worker 首次 lingshu_cg 与设计者会话首条 private 写并发即中招。
+worker 首次 cg 与设计者会话首条 private 写并发即中招。
 
 红守卫（哑 KEK=os.urandom(32) + 系统临时目录，零真实状态；对齐桩只在
 写点对齐调度、读与签发全走真实代码路径，等价 OS 调度竞态窗口）：
