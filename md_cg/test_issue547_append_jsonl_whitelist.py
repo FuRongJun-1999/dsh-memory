@@ -14,6 +14,9 @@
 #   · 白名单 _LOSSY_OK = 现状 30 模块（承认既有），故现在不红；
 #   · 新增的调用点必须先把这个模块加进白名单，加的那一刻就得回答「这处能不能丢」；
 #   · 审定完一处就从白名单移除（迁 append_jsonl_ledger 或加 durable=True）。
+#     2026-10-19：`crypto`/`lifecycle`/`protect`/`trust` 四个**审计台账**写点已改
+#     `durable=True`（#547 审定结果），按下面「durable/strict 不计入缺省路」的判据
+#     直接从白名单移除——白名单 30 → 26。
 #
 # 这样白名单的长度本身就是进度条：从 30 走向 0，每一步都是「一处落点被确认不能丢并迁走」。
 #
@@ -22,9 +25,9 @@ _LOSSY_OK = frozenset({
     "backfill", "consolidate", "mdcos", "mdcg", "subgraph",
     "sustain", "crosscheck", "forgetting", "freshness", "govern",
     "predict", "provenance", "vision_evidence", "weights", "autonomy",
-    "crypto", "evidence", "fsutil", "goal_gen", "lifecycle",
-    "metacognition", "protect", "reconcile", "refine", "rotate",
-    "scrub", "sleep", "trust", "twophase", "writepipe",
+    "evidence", "fsutil", "goal_gen",
+    "metacognition", "reconcile", "refine", "rotate",
+    "scrub", "sleep", "twophase", "writepipe",
 })
 
 import ast
@@ -49,7 +52,16 @@ def ok(cond, title, detail=None):
         print("  FAIL %s  <- %r" % (title, detail))
 
 
+def _flags(node):
+    """调用是否带 durable=True / strict=True——两者都让「写失败」不再静默退化。"""
+    for kw in node.keywords:
+        if kw.arg in ("durable", "strict") and isinstance(kw.value, ast.Constant)                 and kw.value.value is True:
+            return True
+    return False
+
+
 def _scan():
+    """返回 [(模块, 调用总数, **缺省路**调用数)]——缺省路＝既没 durable 也没 strict。"""
     hits = []
     total = 0
     for name in sorted(os.listdir(MD_PKG)):
@@ -66,11 +78,14 @@ def _scan():
         except SyntaxError:
             continue
         n = 0
+        lossy = 0
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "append_jsonl":
                 n += 1
+                if not _flags(node):
+                    lossy += 1
         if n:
-            hits.append((name[:-3], n))
+            hits.append((name[:-3], n, lossy))
             total += n
     return hits, total
 
@@ -81,11 +96,14 @@ ok(total >= 60, "S1 扫描到 >= 60 个调用点（实测 %d）" % total, total)
 ok(len(hits) >= 20, "S2 扫描到 >= 20 个模块（实测 %d）" % len(hits), len(hits))
 
 print("== A 组：白名单外的调用点必须红 ==")
-violations = [(m, n) for m, n in hits if m not in _LOSSY_OK]
-ok(not violations, "A1 无白名单外的 append_jsonl 调用点", violations)
+# 判据按**缺省路**计：带 `durable=True`/`strict=True` 的调用已有「失败不静默」保障
+# （前者锁内追加、后者先记账再抛），不算「未审定的可能丢」。（2026-10-19 #547 审定）
+violations = [(m, n, lossy) for m, n, lossy in hits
+              if lossy and m not in _LOSSY_OK]
+ok(not violations, "A1 无白名单外的**缺省路** append_jsonl 调用点", violations)
 
 print("== K 组：白名单内不误报 ==")
-in_ok = [(m, n) for m, n in hits if m in _LOSSY_OK]
+in_ok = [(m, n) for m, n, _l in hits if m in _LOSSY_OK]
 ok(bool(in_ok), "K1 白名单内仍有已知调用点（%d 模块 / %d 处）" % (len(in_ok), sum(n for _, n in in_ok)), in_ok[:4])
 
 print("")
