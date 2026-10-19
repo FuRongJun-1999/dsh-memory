@@ -70,7 +70,7 @@ def _stored_content(content, payload):
 
 
 def _protected_content(cg, nid, content, sensitivity):
-    if sensitivity not in crypto.ENCRYPTED_LEVELS:
+    if not crypto.is_encrypted_level(sensitivity):
         return content
     # Seal before add() derives plaintext routing metadata from CCG lines.
     sealed = cg._seal_content(nid, content, sensitivity)
@@ -339,7 +339,7 @@ def recall(cg, task, *, query="", limit=5, include_history=False):
                 search_text = " ".join([value["task"], value["solution"], value["conditions"],
                                         value["boundary"], *value["search_keys"]])
                 qualification_rec = item["rec"]
-                if fm.get("sensitivity") in crypto.ENCRYPTED_LEVELS:
+                if crypto.is_encrypted_level(fm.get("sensitivity")):
                     # Reconstruct the native boundary field only after an authorized
                     # decrypt; private phrases must not enter plaintext FM/index.
                     boundary = [re.sub(r"[.．…\s，,；;、]+$", "", part).strip()

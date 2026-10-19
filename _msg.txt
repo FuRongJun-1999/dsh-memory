@@ -1,0 +1,20 @@
+fix(task_memory): 加密档判定收单点（S1 守卫），修 v0.9.2 的 CI 红
+
+## 现场
+v0.9.2 的 python-tests 只剩 1 项红：md_cg.test_sensitivity_predicate_single_point 的 S1
+「模块内不得直接 in ENCRYPTED_LEVELS」点名 task_memory.py:73 / :342。
+
+## 改法
+- task_memory.py:73  `if sensitivity not in crypto.ENCRYPTED_LEVELS:`
+  -> `if not crypto.is_encrypted_level(sensitivity):`
+- task_memory.py:342 `if fm.get("sensitivity") in crypto.ENCRYPTED_LEVELS:`
+  -> `if crypto.is_encrypted_level(fm.get("sensitivity")):`
+语义等价（非 str/空串在 is_encrypted_level 恒 False，与 in 成员判定一致）。
+
+## 验证
+py_compile + import 均通过；S1 守卫 14/0；md_cg.test_task_memory 全通过。
+
+## 诚实记录（守卫弱点）
+本轮先用正则批量替换时把两行改成了语法错误（if 被塞进括号内），而 S1 文本扫描**仍然全绿**
+——说明 S1 是纯文本判据，可被「改写绕过」。已改回正确形态并加 py_compile/import 两道检查；
+S1 是否需要补一层 AST 判据，另立 issue 讨论。
