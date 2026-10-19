@@ -70,7 +70,7 @@ targets:
     path: '~/.dsh/profiles/web/cordis.patch.yml'
     entry_id: system-prompt
     key: personaPrefix
-    variant: compact
+    variant: spec
     format: text
     marker: lingshu:discipline
     memory: plugin/lingshu_cg+lingshu_stg (插件内建桥，spawn md_cg.mcp_server；tools=core)

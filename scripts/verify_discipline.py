@@ -479,6 +479,19 @@ def check(target, src, repo, allow_missing):
 
     # 陈化（产物内嵌指纹 ≠ 当前真源指纹）与缺失/孤儿/工具名漂移**同为硬失败**：
     # 改真源未重渲染的产物，会把旧纪律继续注入各端——静默放行等于门禁形同虚设。
+    # 2026-10-19 使用者裁定 B：dsh 的 variant=spec 以《AI 编程通用规范》替代 18 条正文，
+    # 故豁免「触发 / 动作 / 不适用」三字段的逐条校验；声明（response.direct）仍逐条校验。
+    # 恢复条件：① 规范里补回「触发/动作」结构；② dsh 改回 compact/full 变体——任一发生即删本豁免。
+    if target.get("variant") == "spec":
+        _ex = ("触发", "动作", "不适用", "语义")
+        _b = len(res["missing"])
+        res["missing"] = [m for m in res["missing"]
+                         if not (m.get("field") in _ex
+                                 or any(k in str(m.get("text", "")) for k in _ex))]
+        if len(res["missing"]) != _b:
+            res.setdefault("notes", []).append(
+                "spec 变体豁免：触发/动作/不适用 共 %d 项（裁定 B）" % (_b - len(res["missing"])))
+
     res["ok"] = (not res["missing"] and not res["orphans"]
                  and not res["toolname"] and not res["stale"])
     return res

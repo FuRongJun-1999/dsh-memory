@@ -368,10 +368,28 @@ _TEMPLATES = {
     # 原文）+ 指向，**不含条款全文**（本件对所有工作目录生效，全文成本高；见矩阵注释）。
     # 2026-10-05 使用者裁决①：本件由手写指针升级为渲染产物，防漂移改由「渲染 + 全文一致校验」承担。
     "zcode-user": "zcode-user.md.tmpl",
+    # DSH 端（2026-10-19 使用者裁定方案甲）：注入 AI 编程通用规范全文 + 本仓适配 5 行，取代 18 条正文。
+    "spec": "spec.txt.tmpl",
 }
 
 
 # 生效条件：target.get("variant","compact") 的值被 _TEMPLATES 收录（键存在但值为 None 等未收录值同样未命中而 raise SystemExit）时，读取 repo/docs/discipline/templates 下该模板并做 %%…%% 替换（now 为假值则回落 datetime.now() 格式化时间，target 的 preamble 为真值时 rstrip() 后接两换行、为假值时空串），替换后 text 不含 "{{" 才返回 text.rstrip()+"\n"，含 "{{" 则 raise SystemExit 而不返回；
+# 生效条件：repo 下存在 docs/规范/AI编程通用规范.md 时返回其全文（已 rstrip）；缺文件时返回一行显式告警文本，不抛异常（渲染不因规范缺失而中断）。
+def load_spec_text(repo):
+    p = os.path.join(repo, "docs", "规范", "AI编程通用规范.md")
+    if not os.path.isfile(p):
+        return "（未找到规范真源 docs/规范/AI编程通用规范.md——请先补齐再渲染）"
+    with io.open(p, encoding="utf-8") as f:
+        raw = f.read()
+    # 空白归一：去行尾空白、全角空格转半角、非列表行去行首空白——保证渲染可复现（门禁逐字节比对）。
+    out = []
+    for line in raw.splitlines():
+        s = line.replace("\u3000", " ").rstrip()
+        if s and not s.lstrip().startswith(("-", "*", "|", ">", "#")) and s != s.lstrip():
+            s = s.lstrip()
+        out.append(s)
+    return "\n".join(out).rstrip()
+
 def render(target, src, repo, now=None):
     variant = target.get("variant", "compact")
     tname = _TEMPLATES.get(variant)
@@ -392,6 +410,7 @@ def render(target, src, repo, now=None):
         "%%ROUTING_TABLE%%": render_routing_compact(nodes),
         "%%ROUTING_TABLE_FULL%%": render_routing_full(nodes),
         "%%DECLARATION_TABLE%%": render_declaration_table(nodes),
+        "%%SPEC_FULL%%": load_spec_text(repo),
     }
     for k, v in subs.items():
         text = text.replace(k, v)
