@@ -34,7 +34,7 @@ _bad = []
 FAKE = "sk-live-FAKE0123456789abcdef0123"
 DIRTY_SK = "TOKEN = '%s'\ndef get():\n    return TOKEN\n" % FAKE
 DIRTY_AKIA = "AWS = 'AKIAABCDEFGHIJKLMNOP'\n"
-DIRTY_PEM = ("K = '''-----BEGIN RSA PRIVATE KEY-----\n"
+DIRTY_PEM = ("K = '''-----BEGIN RSA" + " PRIVATE KEY-----\n"
              "MIIEowIBAAKCAQEA1234567890abcdef\n"
              "-----END RSA PRIVATE KEY-----'''\n")
 CLEAN = "def add(a, b):\n    return a + b\n"
