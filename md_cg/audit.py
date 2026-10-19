@@ -451,12 +451,24 @@ def _verify_code(payload, ctx):
         return _verdict(REJECT, "code", f"语法错误 L{exc.lineno}: {exc.msg}")
     n_def = sum(isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 for x in ast.walk(tree))
+    # 禁表面（2026-10-19 外部实测）：此前本验证器只做 AST，**从不调用 _rule_check**
+    # ⇒ forbidden（凭据形态）对 content_kind=code 形同不存在，`sk-`/`AKIA`/`ghp_`/
+    # 私钥块等以 ACCEPT 明文落盘，且无令牌 guest 经 cg(op=read) 可读回。
+    # 而 `_rule_check` 的契约（见其 docstring）与 data/policy.json 的 `_note` 都写明
+    # 「forbidden 对所有 content_kind 恒生效」——本调用是让实现对齐该契约。
+    # 位置在 AST 之后：语法都不成立的正文不必再跑禁表；Reject 后由 _gate_audit 的
+    # 既有 REJECT 分支统一脱敏，不在此处重复打码。
+    _st, _ev, _dt = _rule_check(src, ctx.get("rules") or load_rulebook(), "code")
+    if _st == REJECT:
+        return _verdict(REJECT, "code", f"纪律不合规：{_ev}", _dt)
     # P2-18（批次 30，外部审查报告）：test_cmd 只允许服务端 env 配置——
     # payload 是模型可控输入面，一旦接到工具参数顶层即为 RCE 注入点。
     cmd = os.environ.get("MDCG_CODE_TEST_CMD")
     if not cmd:
+        _tail = "" if _st == ACCEPT else f"（禁表：{_ev}）"
         return _verdict(ACCEPT, "code",
-                        f"AST 解析通过（{n_def} 个定义）；未配置 test_cmd，仅静态验证")
+                        f"AST 解析通过（{n_def} 个定义）；未配置 test_cmd，仅静态验证"
+                        + _tail)
     try:
         argv = shlex.split(cmd)
     except ValueError as exc:
@@ -479,7 +491,8 @@ def _verify_code(payload, ctx):
         # ——超时**不吞**（issue #63）。
         return _verdict(DEFER, "code", f"测试无法执行：{type(exc).__name__}: {exc}")
     if p.returncode == 0:
-        return _verdict(ACCEPT, "code", f"实测通过：{cmd}")
+        _tail = "" if _st == ACCEPT else f"（禁表：{_ev}）"
+        return _verdict(ACCEPT, "code", f"实测通过：{cmd}" + _tail)
     tail = ((p.stdout or "")[-300:] + (p.stderr or "")[-300:]).strip()
     return _verdict(REJECT, "code", f"实测失败 rc={p.returncode}：{tail}")
 
