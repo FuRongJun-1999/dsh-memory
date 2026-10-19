@@ -97,7 +97,14 @@ R1_FILE_RULES = [
 R1_FILE_REGEXES = [(re.compile(pat), reason) for pat, reason in R1_FILE_RULES]
 
 R1_CONTENT_RULES = [
-    ("TOKEN_SK", re.compile(r"sk-[A-Za-z0-9_\-]{20,}")),
+    # ★ 本笔修（R1-b① 左边界）：原为 `sk-[A-Za-z0-9_\-]{20,}`，**无左边界** ⇒ 任何以
+    #   `sk-` 结尾的普通标识后面跟 ≥20 位字母数字即被判 FAIL —— 实测 `risk-` + 25 个 `a`
+    #   即误报（发版门禁把无关代码判红；而门禁红是"操作者要去修"的信号，误报成本实打实）。
+    #   **同仓 PII 族是正确写法**：`hive/exec.py` 的 PII-SK 用了双侧 lookaround
+    #   `(?<![0-9A-Za-z])sk-[A-Za-z0-9_-]{16,}(?![0-9A-Za-z])`（详见 md_cg/test_issue419_pii_redaction.py
+    #   的跨站点矩阵）⇒ 同一形态在两个站点口径分叉。本笔把 R1 的**左边界**对齐该写法。
+    #   右边界与 `{16,}/{20,}` 的差异**本笔不动**（另立议题，避免夹带）。
+    ("TOKEN_SK", re.compile(r"(?<![0-9A-Za-z])sk-[A-Za-z0-9_\-]{20,}")),
     ("TOKEN_GH", re.compile(r"gh[pousr]_[A-Za-z0-9]{20,}")),
     ("TOKEN_NPM", re.compile(r"npm_[A-Za-z0-9]{36}")),
     ("TOKEN_MDCG", re.compile(r"mdcg1\.[A-Za-z0-9._\-]{20,}")),
@@ -373,27 +380,16 @@ def _is_pack_manifest_shape(val) -> bool:
 
 def _is_named_pack_object(val) -> bool:
     """npm 12（issue #70）的**包名键控对象**：整个对象无顶层 files 键，
-    而每个 value 都是非空的「含 files 列表的对象」数组。
-
-    2026-10-19 外部实测补（npm 12.0.2 / node 22.22.2）：实测产出的 value 是
-    **单个对象**而非数组 —— `{"<包名>": {"id":...,"files":[...]}}`。旧实现只认
-    「value 是 list 且每项含 files」，于是真清单被判 `_is_named_pack_object`=False
-    ⇒ `extract_pack_manifest` 判无候选 ⇒ 恒以环境错误 exit=2
-    （实证：`npm pack --dry-run --json` 顶层为 dict，value 类型为 dict）。
-    故 value 同时接受 **对象**（实测形态）与 **对象数组**（旧形态）两种写法。
-    """
+    而每个 value 都是非空的「含 files 列表的对象」数组。"""
     if not isinstance(val, dict) or not val:
         return False
     if isinstance(val.get("files"), list):
         return False
     for v in val.values():
-        if isinstance(v, dict):
-            if not isinstance(v.get("files"), list):
-                return False
-            continue
-        if not isinstance(v, list) or not v:
+        items = [v] if isinstance(v, dict) else v      # npm 12.0.2 实测：value 是对象
+        if not isinstance(items, list) or not items:
             return False
-        for it in v:
+        for it in items:
             if not (isinstance(it, dict) and isinstance(it.get("files"), list)):
                 return False
     return True
@@ -411,9 +407,9 @@ def _normalize_pack_manifest(val):
         out = []
         for v in val.values():
             if isinstance(v, dict):
-                out.append(v)
+                out.append(v)          # npm 12.0.2 实测：value 是单个对象（2026-10-19）
             else:
-                out.extend(v)
+                out.extend(v)          # 旧形态：value 是对象数组
         return out
     return val
 
