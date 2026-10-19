@@ -192,7 +192,16 @@ def read_stamp(name: str, d: str = None):
         return None
     if not isinstance(rec, dict):
         return None
-    rec["age"] = max(0.0, time.time() - float(rec.get("ts") or 0))
+    # 契约（本函数文档串「不存在 / 损坏 → None」）：`ts` 非数值也算损坏。
+    # 修前 `float(rec.get("ts") or 0)` 只挡了假值（None/0/""），`ts="abc"` 这类
+    # **合法 JSON 里的非法值**会抛 ValueError 穿出本函数；而 peers() 在循环里
+    # 直接调本函数、无 try —— 一个坏戳会让**整个 peers() 失败**，同目录下所有
+    # 健康节点的状态一并丢失（实测：4 戳含 1 坏 → peers() 抛错；删坏戳 → 恢复 3 条）。
+    try:
+        ts = float(rec.get("ts") or 0)
+    except (TypeError, ValueError):
+        return None
+    rec["age"] = max(0.0, time.time() - ts)
     return rec
 
 
