@@ -39,7 +39,9 @@ from .mdcos import MdCGOS
 REFINE_LOG = "_refine.jsonl"
 
 #: 抽检对象 id 前缀（P37 派生记忆）
-PREFIX_DEFAULT = "node_"
+# issue #559：默认前缀必须与默认铸 id 的前缀一致（mdcg.py 铸 mem_*）——
+# 此前是 "node_"，默认参数下抽样池恒为 0 且不报错（静默空池）。
+PREFIX_DEFAULT = "mem_"
 #: 裁定单条件 A 规定的抽检条数
 SAMPLE_N = 20
 #: 抽样种子：同 seed ⇒ 同样本（可复算、可复核）
@@ -156,12 +158,18 @@ def sample_ids(cg, n=None, seed=None, prefix=None) -> tuple:
     """
     n = SAMPLE_N if n is None else int(n)
     seed = seed or SAMPLE_SEED
+    explicit = bool(prefix)
     prefix = prefix or PREFIX_DEFAULT
     pool, protected = _pool(cg, prefix)
+    fallback = False
+    if not pool and not explicit:
+        # 调用方没显式给前缀、而默认前缀又抽不到东西：wgid 全量回落并显式标注（#559：不静默给空池）
+        pool, protected = _pool(cg, "")
+        fallback = True
     fam = {}
     for nid in pool:
         fam.setdefault(_family(cg, nid), []).append(nid)
-    meta = {"prefix": prefix, "seed": seed, "requested": int(n),
+    meta = {"prefix": prefix, "seed": seed, "requested": int(n), "prefix_fallback": fallback,
             "pool": len(pool), "skipped_protected": protected,
             "families": len(fam), "sampled": 0, "strata": {}}
     if not pool or n <= 0:
