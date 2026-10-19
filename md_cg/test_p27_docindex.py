@@ -225,7 +225,15 @@ def main():
     with open(os.path.join(fx, "notes.txt"), "w", encoding="utf-8") as f:
         f.write("不是文档")
 
-    corpus.reset_root(ROOT)
+    # 本用例的夹具路径**每轮不同**（`mkdtemp`），而节点 id 由 `path#heading_path`
+    # 派生（落库时路径被归一为相对根）⇒ 两轮 id 相同、`doc_ref` 却指向上一轮的
+    # 临时目录（已删）。不清库时第二轮起 `indexed==0`（同 id 已存在）且 `op=ref`
+    # 因回读路径落在旧临时目录外被根白名单拒绝——**本守卫不可重跑**，而 CI 首跑
+    # 是绿的（空库），红只在本地复跑时出现、被当成「已知基线红」长期忽略。
+    # 故显式 `clean=True`：本用例的等号断言（indexed==4）要求「重跑 ≡ 首跑」，
+    # 而 reset_root 默认「不删目录」的前提是「同 id 原子覆盖」，本用例不满足该
+    # 前提（夹具路径每轮变）。范围仅限本守卫的私有库 `_md_cg_p27`，不是大目录。
+    corpus.reset_root(ROOT, clean=True)
     cg = MdCGOS(ROOT)
     guide_path = os.path.join(fx, "guide.md")
 
