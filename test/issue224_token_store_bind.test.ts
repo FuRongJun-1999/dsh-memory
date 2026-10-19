@@ -261,7 +261,9 @@ function evaluate(ov: Overrides = {}): string[] {
   {
     const home = mkdtempSync(join(tmpdir(), 'iss224_rebind_'))
     resolveIn(store, home, { tenant: 'default' })
-    const second = resolveIn(store, home, { tenant: 'work' })
+    // #543 签发授权闸：凭据库非空时自铸管理级令牌须显式放行；本用例断言**换绑管线**，
+    // 拦截行为由 test_issue543_issue_authorization.py 单独覆盖（裁定 A，2026-10-19）。
+    const second = resolveIn(store, home, { tenant: 'work' }, { MDCG_ALLOW_ROOT_ISSUE: '1' })
     const rec = records(home)
     push('rebind_reissued', second.source === 'issued' && rec.tenants.includes('work'))
     push('rebind_server_ok', serverRc(home, second.token, 'work') === 0)
