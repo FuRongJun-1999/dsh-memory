@@ -539,11 +539,17 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
               // 含子串「同意」，颠倒顺序会把不同意误判为同意（P1 修复，勿回退）。
               // #563③：先查「带否定的同意」（无法同意/不能同意/难以同意/不太同意…）——
               // 这些串里含子串「同意」，只看『不同意』会把否定压成肯定（实测可致 pass）。
-              const NEG_PHRASES = ['无法同意', '不能同意', '难以同意', '不太同意', '不同意', '不赞同', '不通过', '反对', '拒绝']
-              const conclusion = NEG_PHRASES.some((k) => text.includes(k))
+              // #563③补：白名单枚举不全——「不予同意」「没法同意」均不在原表，且都含子串「同意」
+              // ⇒ 否定被压成肯定（实测可致 pass）。改为「否定前缀 + 同意类动词」的组合判据，
+              // 覆盖 不/没/未/无法/难以/未能/别/勿/甭 与 同意/认同/赞同/赞成 的笛卡尔积。
+              const NEG_AGREE_RE = /(?:不|没|未|无法|难以|未能|别|勿|甭)\s*(?:太|予|能|会|想|可|曾|有|要|够|法)?\s*(?:同意|认同|赞同|赞成)/
+              const NEG_PHRASES = ['不同意', '不赞同', '不通过', '反对', '拒绝']
+              // 肯定判据同步扩到 认同/赞同/赞成——原先只认「同意」子串，「赞同」会被落到 else 判成不同意。
+              const POS_AGREE_RE = /同意|认同|赞同|赞成/
+              const conclusion = (NEG_AGREE_RE.test(text) || NEG_PHRASES.some((k) => text.includes(k)))
                 ? '不同意'
                 : text.includes('质疑') ? '质疑'
-                : text.includes('同意') ? '同意' : '不同意'
+                : POS_AGREE_RE.test(text) ? '同意' : '不同意'
               return { conclusion, reason: text.slice(0, 120) }
             },
           },
