@@ -1107,9 +1107,14 @@ def _under(path: str, root: str) -> bool:
 # issue #95（2026-10-09 DSH 端）：原表漏了**本仓自己落盘的凭据目录** ——
 # 用户主目录下的 .mdcg/ 里是 Node 插件自动签发的 designer **明文令牌**，
 # 而 context_files 走黑名单、黑名单天生会漏「自家刚写下的东西」。
+# issue #557 R4 残余：`legacy_credentials`（gcloud 旧版凭据目录，内含 adc.json）
+# 不在旧名单里；`.dsh` 是宿主自己的配置目录（config.json 里有网关令牌），
+# 但同目录还有会话/日志（agent 常读），故只把 `.dsh/config.json` 这一件按
+# 「名 + 父段」判敏感（见 `_sensitive_read` 尾部的定向规则），不整目录封。
 _SENSITIVE_DIR_SEGMENTS = (".ssh", ".aws", ".gcloud", ".azure", ".kube",
                            ".gnupg", ".docker", ".netrc",
-                           ".mdcg", "keyrings")
+                           ".mdcg", "keyrings",
+                           "legacy_credentials")   # gcloud 旧版凭据目录（#557 R4）
 _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          ".netrc", ".htpasswd", ".npmrc", ".pypirc",
                          "credentials", "credentials.json",
@@ -1125,7 +1130,18 @@ _SENSITIVE_FILE_NAMES = ("id_rsa", "id_ed25519", "id_ecdsa", "id_dsa",
                          "hosts.yml",          # gh CLI 的 token 所在（~/.config/gh/）
                          "secrets.json", "secrets.yaml", "secrets.yml",  # k8s/compose
                          ".terraformrc",       # terraform 凭据
-                         "known_hosts.bak")    # 备份形态（排除常读的 known_hosts 本体）
+                         "known_hosts.bak",    # 备份形态（排除常读的 known_hosts 本体）
+                         # issue #557 R4 残余（2026-10-19 复跑：8/10 仍外发）：
+                         # 报告列的 8 个文件里只有 .ssh/id_rsa 与 .git-credentials
+                         # 被拦，其余按「业界标准凭据位置」补齐——
+                         #   ~/.config/rclone/rclone.conf（云盘令牌）
+                         #   ~/.vault-token（Vault 令牌本身）
+                         #   ~/.s3cfg / ~/.boto（S3 访问键）
+                         #   ~/.kaggle/kaggle.json（Kaggle API 令牌）
+                         #   Chrome 的 Login Data（浏览器保存的站点口令库）
+                         #   gcloud 的 legacy_credentials（目录段已补）
+                         "rclone.conf", ".vault-token", ".s3cfg", ".boto",
+                         "kaggle.json", "login data")
 
 
 # 生效条件：real 为 realpath 规范化后的绝对路径；归一斜杠小写后，任一父目录段属 _SENSITIVE_DIR_SEGMENTS、文件名精确命中 _SENSITIVE_FILE_NAMES（含 config.local.json——N141，批次 49）、或命中 V21-8 族匹配（id_rsa/id_ed25519/id_ecdsa/id_dsa/service-account 前缀族、名字含 credential/creds、.env 后缀族——堵「改名/加后缀即免检」缺口，V21 报告 8 类实测样本全覆盖；.token 后缀族——N141 补部署令牌文件 orch.token/designer.token）、或以 credentials/access_tokens 前缀命中、或文件名以 .env 开头/以 .env/.pem/.key/.p12/.pfx/.kdbx/.token 结尾时返回原因说明串，否则返回 None。
@@ -1166,6 +1182,10 @@ def _sensitive_read(real: str) -> str | None:
             (".env", ".pem", ".key", ".p12", ".pfx", ".kdbx", ".token",
              ".jks", ".keystore", ".ovpn", ".kdb", ".tfstate")):
         return f"密钥/环境凭据文件（{name}）"
+    # issue #557 R4 残余：宿主自身的网关配置（`~/.dsh/config.json`）——同目录其余
+    # 文件（会话/日志）是 agent 常读面，故只钉这一件，不整目录封。
+    if name == "config.json" and ".dsh" in segments:
+        return f"宿主配置（{name}：含网关令牌）"
     return None
 
 

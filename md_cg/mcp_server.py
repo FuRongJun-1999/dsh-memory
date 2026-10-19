@@ -2679,6 +2679,14 @@ def _cg_dispatch(cg, a):
     if op == "goal":
         act = (a.get("action") or "list").strip().lower()
         if act == "add":
+            # issue #557 R2 残余（2026-10-19 复跑）：`op=goal` 是本类入口里**唯一**
+            # 仍不判写入硬上限的一条——1.26 MB 的 goal 会被受理并落出 2.5 MB 文件
+            # （goal 正文 + 台账两份）。判据与响应体仍走同一构造点 `_oversize_r2`
+            # （`oversize_response` 会量「除 content 外其余字段」的总字节，故 `goal`
+            # 这条分支天然被覆盖），不新增常量、不复制判据。
+            _ovg = _oversize_r2("", a)
+            if _ovg is not None:
+                return _ovg
             # issue #426-H（2026-10-17 U05b，随 #439 同批修）：此前**没有**转发
             # `sensitivity`——调用方显式传、服务端收下、然后静默丢掉 ⇒ 声明 private
             # 的目标以 internal 明文落盘、访客可读（「显式声明静默失效」形态，与

@@ -158,8 +158,11 @@ def _run():
     cg2, root2 = _mk(_SpyCG, "g2")
     out2 = _write_and_audit(pipe, cg2)
     rid2 = out2.get("id")
-    _check("G2a 透传探针：add_rejected 收到 None（未声明原样下传）",
-           cg2.seen == [None], repr(cg2.seen))
+    # 2026-10-19（#557 R5）：未声明不再原样下传 None——出口会先向**被改写节点**
+    # 求一次 `_write_sensitivity`。新节点没有旧密级 ⇒ 求得的仍是缺省档 internal，
+    # 故 G2b/G2c 的**行为**断言不变；变的只是探针该看到的实参（None → 'internal'）。
+    _check("G2a 透传探针：未声明时收到继承值 'internal'（新节点无旧档 ⇒ 缺省）",
+           cg2.seen == ["internal"], repr(cg2.seen))
     if rid2 and rid2 in cg2.index["nodes"]:
         _raw2, fm2, _c2 = _raw(cg2, rid2)
         _check("G2b 未声明仍落 internal", fm2.get("sensitivity") == "internal",
@@ -168,6 +171,20 @@ def _run():
                _MARK in _raw2, _raw2[:60])
     else:
         _check("G2b 未声明仍落 internal", False, "未落盘 id=%r" % rid2)
+
+    print("\n[G2d] 未声明 + 改写**既有 private 节点** ⇒ 存根继承 private（#557 R5）")
+    cg2d, _root2d = _mk(_SpyCG, "g2d")
+    cg2d.add("X", _MARK, layer="knowledge", sensitivity="private")
+    cg2d.seen = []
+    out2d = pipe.execute(cg2d, {"content_kind": "text", "layer": "knowledge",
+                                "content": _MARK, "node_id": "X"})
+    _check("G2d add_rejected 收到继承值 'private'（不再回落 internal）",
+           cg2d.seen == ["private"], repr(cg2d.seen))
+    _rid2d = out2d.get("id")
+    _check("G2d 负记忆存根落盘档 == private",
+           bool(_rid2d) and (cg2d.index["nodes"].get(_rid2d) or {}).get("sensitivity")
+           == "private",
+           (_rid2d, (cg2d.index["nodes"].get(_rid2d) or {}).get("sensitivity")))
 
     print("\n[G3] 声明 public → 按 public 落盘（与 ACCEPT 出口同口径）")
     cg3, _root3 = _mk(_SpyCG, "g3")

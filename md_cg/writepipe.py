@@ -582,11 +582,25 @@ def _gate_audit(ctx):
         # 访客经 stg(op=timeline) / cg(op=read, node_id) / mdcg_get 三处可读；
         # 回执还写着「本条未入库」，写入方不会察觉。
         # 未声明（None）时行为不变：仍按 internal（#87 已裁的缺省）。
+        # issue #557 R5（#294 T4 残余，2026-10-19 复跑）：未声明密级时**继承被改写
+        # 节点**的密级，与 #297/#439 同口径。此前 None 原样下传，而
+        # `add_rejected` 是对**新铸的 `rej_*` id** 调 `_write_sensitivity`——该 id
+        # 下没有旧节点 ⇒ 回落 internal ⇒ 一份 private 正文的 200 字头以明文落进
+        # `rejected/`，无令牌访客 `mdcg_get` 可读（报告实测 T4）。判不了（无该钩子/
+        # 读闸拒绝）时保持旧行为（None ⇒ internal），不把「继承失败」升级成拒绝。
+        _sens_r5 = a.get("sensitivity")
+        if _sens_r5 is None:
+            _ws = getattr(cg, "_write_sensitivity", None)
+            if callable(_ws):
+                try:
+                    _sens_r5 = _ws(ctx.get("nid"), None)
+                except Exception:            # noqa: BLE001 —— 继承不了按未声明
+                    _sens_r5 = None
         rid = cg.add_rejected(audit.redact_forbidden(a.get("content") or "")[:200],
                               verdict["evidence"],
                               verification_basis=verdict.get("basis") or "test",
                               tags=tags,
-                              sensitivity=a.get("sensitivity"))
+                              sensitivity=_sens_r5)
         return {"ok": False, "id": rid, "committed": False,
                 "moved_to": "rejected", "verdict": verdict,
                 "hint": _reject_hint(verdict)}

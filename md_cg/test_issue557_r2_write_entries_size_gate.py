@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # 功能名：写内容入口的硬上限闸覆盖（issue #557 R2 / #82.3 追评）
-# 生效条件：python -u -X utf8 -m md_cg.test_issue557_r2_write_entries_size_gate；被测面＝mcp_server._dispatch 的 rejected/unresolved/propose 三入口
-# 子功能：A 组＝三入口在超大入参下必须返回拒收体（gate 字段点名硬上限）；K 组＝正常大小不得被拒（不得误伤）
+# 生效条件：python -u -X utf8 -m md_cg.test_issue557_r2_write_entries_size_gate；被测面＝mcp_server._dispatch 的 rejected/unresolved/propose 三入口 + cg(op=goal)
+# 子功能：A 组＝四入口（rejected/unresolved/propose + cg(op=goal)）在超大入参下必须返回拒收体（gate 字段点名硬上限）；K 组＝正常大小不得被拒（不得误伤）
 # 执行：直接调 _dispatch(cg, '<entry>', {...}) 判返回体；超大用 writepipe.MAX_WRITE_BYTES + 8
 # 验证方式：全部 PASS 即通过（退出码 0）
 # 不适用条件：不判只读入口（recall/search/get…）；不判 whitebox/service_info/remember（已由 #212 覆盖）
@@ -55,6 +55,9 @@ for entry, payload in (
         ('mdcg_rejected', {'hypothesis': BIG, 'reason': 'r'}),
         ('mdcg_unresolved', {'question': BIG}),
         ('mdcg_propose', {'node_id': 'n_big', 'content': BIG}),
+        # 2026-10-19 复跑 #557 R2：`op=goal` 是**唯一**仍不判上限的入口（1.26 MB goal
+        # ⇒ 2.5 MB 文件落盘）。补闸后并入本腿，防回退。
+        ('cg', {'op': 'goal', 'action': 'add', 'goal': BIG}),
 ):
     out = mcp_server._dispatch(cg, entry, dict(payload))
     # 判据用**闸标记**而不是「有没有 id/pid 键」——拒收体同样带 id（与写面同构造点），
@@ -70,6 +73,8 @@ _u = mcp_server._dispatch(cg, 'mdcg_unresolved', {'question': 'q'})
 ok(bool((_u or {}).get('id')), 'K mdcg_unresolved 正常大小通过', _u)
 _p = mdcg = mcp_server._dispatch(cg, 'mdcg_propose', {'node_id': 'n_ok', 'content': 'c'})
 ok(bool((_p or {}).get('pid')), 'K mdcg_propose 正常大小通过', _p)
+_g = mcp_server._dispatch(cg, 'cg', {'op': 'goal', 'action': 'add', 'goal': 'g'})
+ok(bool((_g or {}).get('id')), 'K cg(op=goal) 正常大小通过', _g)
 
 print('')
 print('=' * 56)
