@@ -386,9 +386,10 @@ def _is_named_pack_object(val) -> bool:
     if isinstance(val.get("files"), list):
         return False
     for v in val.values():
-        if not isinstance(v, list) or not v:
+        items = [v] if isinstance(v, dict) else v      # npm 12.0.2 实测：value 是对象
+        if not isinstance(items, list) or not items:
             return False
-        for it in v:
+        for it in items:
             if not (isinstance(it, dict) and isinstance(it.get("files"), list)):
                 return False
     return True
@@ -403,7 +404,13 @@ def _normalize_pack_manifest(val):
     非该形态（含老版数组、老版单对象）原样返回。
     """
     if _is_named_pack_object(val):
-        return [it for v in val.values() for it in v]
+        out = []
+        for v in val.values():
+            if isinstance(v, dict):
+                out.append(v)          # npm 12.0.2 实测：value 是单个对象（2026-10-19）
+            else:
+                out.extend(v)          # 旧形态：value 是对象数组
+        return out
     return val
 
 
