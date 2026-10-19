@@ -12,15 +12,14 @@
 | 主工具（语义时空图） | **`stg`** | 同上 |
 | 细粒度工具 | **`mdcg_*`**（`mdcg_remember` / `mdcg_recall` / `mdcg_search` / `mdcg_get` / `mdcg_reflect` / `mdcg_verify` / `mdcg_propose` / `mdcg_rejected` / `mdcg_unresolved` …） | 同上（实读命中） |
 
-## 二、宿主前缀映射（不是别名，是宿主加的展示前缀）
+## 二、禁止任何工具名前缀（2026-10-19 设计者裁定 A）
 
-| 宿主 | 展示名 | 与标准名的关系 |
-|---|---|---|
-| DSH | `lingshu_cg` / `lingshu_stg` / `lingshu_mdcg_*` | 宿主按插件名加前缀：**展示名 = `lingshu_` + 标准名** |
-| CodeBuddy / ZCode / Codex / Claude | `cg` / `stg` / `mdcg_*` | 直接用标准名 |
+**所有宿主都用同一个 MCP 服务，因此工具名必须逐字相同；不存在也不允许「别名／前缀映射」。**
 
-**判据**：去掉 `lingshu_` 前缀后必须等于标准名；任何端不得自造第三套名字（如 `mdcg_remember` 写成 `memory_remember`、`cg` 写成 `memory`）。
-
+- 反例（已被移除）：DSH 插件此前用 `toolPrefix: `${config.serverName}_`` 把 `cg` 注册成 `lingshu_cg`，
+  造成「同一个 MCP 服务、不同端看到不同工具名」的初次识别错误；该前缀已于 `src/index.ts` 去掉（提交 `f7afd2a1`）。
+- `serverName`（默认 `lingshu`）仍用于内部 provider / 日志标识，**不得**再参与工具名。
+- 任何端若需要「命名空间」以避免与宿主自有工具冲突，只能改**宿主自有工具**的命名，不得改 md_cg 工具名。
 ## 三、现存的偏差点（本轮实读，待逐点修）
 
 | 文件 | 现状 | 应改为 |

@@ -20,7 +20,7 @@
 - id: lingshu-memory
   name: '@furongjun1999/dsh-memory'
   config:
-    # 工具命名空间：Agent 看到的工具名是 lingshu_cg / lingshu_stg（记忆面已基元化）
+    # 工具命名空间：Agent 看到的工具名是 cg / stg（记忆面已基元化）
     serverName: 'lingshu'
 
     # ⚠️ 遗留项：SQLite 库文件路径（经环境变量 AEIS_DB 传给子进程）。

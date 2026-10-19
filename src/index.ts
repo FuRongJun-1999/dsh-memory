@@ -7,7 +7,7 @@
  *   `src/lib/mdcg_client.ts`（每个方法 = 一条 MCP cg / stg 调用）
  * - 工具桥接：Agent 可调用工具，经**唯一的大脑桥**（同一 md_cg 子进程）从
  *   **md_cg.mcp_server** 拉取（`MDCG_MCP_SURFACE=full`：`cg` / `stg` 基元 +
- *   `mdcg_*` 细粒度全家，再由 `config.tools` 选择表筛），注册为 `lingshu_<name>`
+ *   `mdcg_*` 细粒度全家，再由 `config.tools` 选择表筛），注册为 `<name>`
  * - 自动记忆：DSH 对话经**认知图**自动沉淀（主动遗忘闸门去重 + 重要性 + 脱敏）
  * - 使命分离：理论仓（CTP）只留方法论文档，工程代码全部在主仓 md_cg
  *
@@ -427,7 +427,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
         const dispose = await registerLingshuTools(ctx, bridge, {
           selection: config.tools,
           // 工具名口径（2026-10-19 设计者裁定 A）：**不加任何前缀**——全端与 MCP 服务同名为
-      // `cg` / `stg` / `mdcg_*`。此前按 `${config.serverName}_` 拼成 `lingshu_cg`，造成「同一个
+      // `cg` / `stg` / `mdcg_*`。此前按 `${config.serverName}_` 拼成 `cg`，造成「同一个
       // MCP 服务、不同端看到不同工具名」的初次识别错误。serverName 仍用于内部 provider/日志标识。
       toolPrefix: '',
         })
