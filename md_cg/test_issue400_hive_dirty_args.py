@@ -436,12 +436,12 @@ def main():
     if "--mutate" in sys.argv and _bad == 0:
         _bad += _revert_proof()
     return 1 if (FAILS or _bad) else 0
-    return 1 if (FAILS or _bad) else 0
 
 
 if __name__ == "__main__":
-    sys.exit(main())
-shutil.rmtree(_TMP, ignore_errors=True)
+    _rc = main()
+    shutil.rmtree(_TMP, ignore_errors=True)  # 清理必须在 exit 之前，否则永不执行
+    sys.exit(_rc)
 print("")
 if FAILS:
     print("issue #400 结果：%d 失败" % len(FAILS))

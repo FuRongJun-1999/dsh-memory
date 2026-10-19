@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""写面密级继承守卫（issue #297）。
+r"""写面密级继承守卫（issue #297）。
 
 【守什么】
 #297 报：同 id 改写既有 private 节点时不重传 sensitivity，节点被**重建为

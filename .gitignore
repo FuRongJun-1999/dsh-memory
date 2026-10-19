@@ -165,3 +165,12 @@ nul
 # 覆盖面自 `.zcode/` 顶收起：其下 `workflow-drafts/` 与 `workflow-runs/` 各自的
 # 内嵌 .gitignore（`*`）继续生效（更靠近路径者优先级更高，本规则只是补顶层）。
 /.zcode/
+
+# 运行时产物（测试/本地跑出的审计与索引缓存）——不得进包、不得进仓
+md_cg/_*.jsonl
+md_cg/_*.lock
+md_cg/_access.log
+md_cg/_index.json
+md_cg/_node_locks/
+md_cg/_keys.json
+scripts/*.bak-*
