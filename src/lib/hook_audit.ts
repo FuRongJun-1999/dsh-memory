@@ -36,6 +36,7 @@
  */
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { expandHome } from './datapath.js'
 import { dirname, join } from 'node:path'
 
 /** 三处过滤分支的成因（与 hooks.ts 一一对应：子代理会话 / 中继消息 / kind 非 user）。 */
@@ -79,11 +80,8 @@ export interface HookAuditState {
  */
 function defaultHookAuditPath(): string {
   const raw = (process.env.DSH_HOME ?? '').trim()
-  let root: string
-  if (!raw) root = join(homedir(), '.dsh')
-  else if (raw === '~') root = homedir()
-  else if (raw.startsWith('~/') || raw.startsWith('~\\')) root = join(homedir(), raw.slice(2))
-  else root = raw
+  // 唯一实现：路径展开复用 datapath.expandHome（禁止第二处判据，见 test/datapath-expandhome）。
+  const root = raw ? expandHome(raw) : join(homedir(), '.dsh')
   return join(root, 'logs', 'dsh-memory-hook-audit.json')
 }
 

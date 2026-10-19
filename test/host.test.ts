@@ -116,18 +116,18 @@ async function waitForTool(host: unknown, name: string, timeoutMs = 8000): Promi
   return false
 }
 
-test('插件激活：lingshu_* 工具注册进 ctx.tools（core = cg/stg 两基元）', async () => {
+test('插件激活：cg/stg 工具注册进 ctx.tools（core = cg/stg 两基元）', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-host-'))
   const host = await mountHost(dir)
   try {
-    const ready = await waitForTool(host, 'lingshu_cg')
+    const ready = await waitForTool(host, 'cg')
     assert.ok(ready, '等待补注册后应有 lingshu_cg（竞态补注册 2s 轮询）')
     const schemas = host.root.tools.schemas()
     const names = schemas.map((s) => s.name)
-    assert.ok(names.includes('lingshu_stg'), '应注册 lingshu_stg')
+    assert.ok(names.includes('stg'), '应注册 lingshu_stg')
     assert.deepEqual(
-      names.filter((n) => n.startsWith('lingshu_')).sort(),
-      ['lingshu_cg', 'lingshu_stg'],
+      names.filter((n) => ["cg", "stg"].includes(n)).sort(),
+      ['cg', 'stg'],
       `core 集合应只有 cg/stg 两基元（实际 ${names.length} 个）`,
     )
   } finally {
@@ -140,7 +140,7 @@ test('插件卸载：工具注销且进程退出', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'lingshu-host-'))
   const host = await mountHost(dir)
   try {
-    const ready = await waitForTool(host, 'lingshu_cg')
+    const ready = await waitForTool(host, 'cg')
     assert.ok(ready, '等待补注册后激活应有工具')
     host.disposePlugin()
     await new Promise((resolve) => setTimeout(resolve, 300))
