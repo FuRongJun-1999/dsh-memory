@@ -101,7 +101,10 @@ def main():
            "①4 个 action 已在 MAINTAIN_ACTIONS 注册")
 
         print("\n【2】plan 只读（不写盘 / 前缀内 20 条）")
-        rep = _p(cg, action="refine")
+        # 2026-10-19（#559 方案2）：`refine` 的**默认前缀已改为空（不过滤）**——本用例
+        # 验的是「前缀内 30 条 / 前缀外不纳入」，故必须显式给前缀；不给就变成全量池
+        # （实测 31 条），那是另一条契约，不是本用例的判据。
+        rep = _p(cg, action="refine", prefix="node_")
         ok(rep.get("dry_run") is True and rep.get("readonly") is True,
            "②dry_run/readonly 标记")
         ok(rep.get("pool") == 30, f"②抽检池 30（实测 {rep.get('pool')}）")
@@ -150,7 +153,7 @@ def main():
         ok(pv2["sample_adequacy"] == "insufficient", "⑥判 insufficient")
 
         print("\n【7】确定性（同 seed 同样本）")
-        rep2 = _p(cg, action="refine")
+        rep2 = _p(cg, action="refine", prefix="node_")
         ok(rep["sample_sha"] == rep2["sample_sha"], "⑦同样本指纹")
         ok([c["concept_id"] for c in pv["candidates"]]
            == [c["concept_id"] for c in rep2["preview"]["candidates"]],
