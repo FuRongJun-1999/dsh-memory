@@ -2615,7 +2615,20 @@ def _cg_dispatch(cg, a):
                                     "mdcg._NODE_ID_RE：1–128 字符的字母数字 _ . @ - "
                                     "中文 逗号，且不含 '..'）：这不是「节点不存在」，"
                                     "重试前请先校正 id；带原因取值用 get"}
-            return _node_view(cg.get(_nid), offset=int(a.get("offset") or 0))
+            _nv = _node_view(cg.get(_nid), offset=int(a.get("offset") or 0))
+            # issue #561 第①项（#553 可见性）：主库有旧值、队列里仍挂着针对**这个
+            # 节点**的待裁决提案时，读面必须同时给出这个事实——否则读者只看到旧值
+            # （DEFER 不冒充接受，但「有新值待复核」不可见）。无待复核提案时**不落键**
+            # （反恒真腿：字段存在即含义，不靠 true/false 区分）。
+            _pp = getattr(cg, "pending_proposals", None)
+            if isinstance(_nv, dict) and callable(_pp):
+                try:
+                    _pids = _pp(_nid)
+                except Exception:             # noqa: BLE001 —— 标注面失败不改读面结论
+                    _pids = []
+                if _pids:
+                    _nv = dict(_nv, pending_review=True, pending_proposals=_pids)
+            return _nv
         q = a.get("query") or a.get("intent") or ""
         # issue #303 O4：k 越界的信号单点（保留夹紧/切片行为，只在返回体加 warning）
         _kwarn = _k_warning(_int_arg(a, "k", 20))

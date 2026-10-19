@@ -2880,6 +2880,34 @@ class MdCGOS(MdCG):
         return self._inbox_idx
 
 # 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
+# 生效条件：node_id 为非空字符串时，遍历 inbox 全记录（`_inbox_records` 缓存）取
+# `rec["id"] == node_id` 且其 pid **尚未出现**在裁决台账（`_pid_status` 缓存）里的记录，
+# 按文件序返回最多 limit 个 pid；node_id 为空/无匹配返回空列表。只读、零写、不抛。
+    def pending_proposals(self, node_id, limit: int = 5) -> list:
+        """该节点在审核队列里**待裁决**的提案 id（读面标注用，issue #561 第①项）。
+
+        语义边界：DEFER/CONFIRM 不冒充接受（智能论 3.4 四态），但**读者必须能看见
+        「这个节点有新值待复核」**——否则只读到旧值，把「待复核」误当成「最新」。
+        本函数只回答「有没有、是哪几条」，不改裁决、不改排序、不落盘。
+        """
+        out = []
+        if not isinstance(node_id, str) or not node_id:
+            return out
+        try:
+            decided = self._pid_status()
+        except Exception:                     # noqa: BLE001 —— 读不到就按无裁决记录
+            decided = {}
+        for rec in self._inbox_records():
+            if str(rec.get("id") or "") != node_id:
+                continue
+            pid = rec.get("pid")
+            if not pid or pid in decided:
+                continue
+            out.append(pid)
+            if len(out) >= int(limit or 5):
+                break
+        return out
+
     def _inbox_records(self):
         """inbox 全记录（文件序）增量缓存——review 治理面单次调用共用一次解析。
 
