@@ -26,7 +26,7 @@
  * node:path）——与全仓「CLI 不加第三方依赖」纪律一致。
  */
 
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { createInterface } from 'node:readline/promises'
 import type { Readable, Writable } from 'node:stream'
@@ -301,7 +301,19 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   const snippet = buildSnippet(endSpec, rootAbs, pythonName)
   const snippetJson = `${JSON.stringify(snippet, null, 2)}\n`
   const snippetPath = join(cwd, SNIPPET_FILENAME)
-  writeFileSync(snippetPath, snippetJson, 'utf8')
+  // 覆盖前先判断：用户可能已在本目录手写过同名文件（甚至已把真实 MDCG_TOKEN 填进去）。
+  // 无条件 writeFileSync 会把它们连同令牌一起冲掉，而 init 的文案只承诺「重跑输出一致」。
+  // 已有且内容不同时：不覆盖，改写旁路文件名，并在输出里说明——宁可多一个文件，不可丢数据。
+  let writtenPath = snippetPath
+  if (existsSync(snippetPath)) {
+    let prev = ''
+    try { prev = readFileSync(snippetPath, 'utf8') } catch { /* 读不出当作不同，走旁路 */ }
+    if (prev !== snippetJson) {
+      const alt = join(cwd, SNIPPET_FILENAME.replace(/\.json$/, `-new-${Date.now()}.json`))
+      writtenPath = alt
+    }
+  }
+  writeFileSync(writtenPath, snippetJson, 'utf8')
 
   say()
   say(`灵枢（Lingshu）一键配置 · 端=${endSpec.label}`)
@@ -314,7 +326,7 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   for (const line of nextSteps(endSpec, pythonName)) say(line)
   for (const line of tokenCommand(pythonName, endSpec.tokenActor, '')) say(line)
   say()
-  say(`片段已写入：${snippetPath}（mcpServers 键直接复制即可）`)
+  say(`片段已写入：${writtenPath}（mcpServers 键直接复制即可）`)
   say('提示：PYTHONPATH 当前指向本命令所在包——若是 npx 临时包，建议换成 git clone 的常驻仓库绝对路径（免疫 npx 缓存清理）。')
   say('init 只生成配置：未创建目录、未启动服务、未写库；重跑输出一致。')
 
@@ -323,7 +335,7 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
     endLabel: endSpec.label,
     root: rootAbs,
     python: pythonName,
-    snippetPath,
+    snippetPath: writtenPath,
     snippet,
     output: collected,
     snippetFile: snippetJson,
