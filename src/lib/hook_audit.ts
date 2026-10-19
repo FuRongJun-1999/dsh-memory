@@ -173,6 +173,8 @@ export class HookAuditRecorder {
   readonly path: string
   /** 进程内状态缓存（首次记录时从盘面载入，此后只增量改内存 + 全量重写）。 */
   #state: HookAuditState | null = null
+  /** 本进程持有的锁 token；null 表示当前未持锁。 */
+  #lockToken: string | null = null
 
   constructor(path?: string) {
     this.path = typeof path === 'string' && path.trim() ? path.trim() : DEFAULT_HOOK_AUDIT_PATH
@@ -239,10 +241,20 @@ export class HookAuditRecorder {
   /** 跨进程排他锁：独占创建 `${path}.lock`；陈旧锁（>5s）清掉；超时返回 false（静默降级）。 */
   #acquireLock(timeoutMs = 800): boolean {
     const lock = `${this.path}.lock`
+    const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
     const t0 = Date.now()
     for (;;) {
       try {
         closeSync(openSync(lock, 'wx'))
+        // #563④补（ABA）：把归属 token 写进锁文件，释放时据此判断锁是否仍是自己的。
+        // 不加 token 时：A 的锁被 B 判陈旧清掉 → B 建新锁 → A 在 finally 无条件 unlink，
+        // 把 B 的锁删掉，互斥窗口重新打开（回到本函数要修的丢计数问题）。
+        try { writeFileSync(lock, token) } catch {
+          // 写不进归属 token ⇒ 不持有无法验证归属的锁，立即归还（否则 releaseLock 比对失败会漏删）
+          try { unlinkSync(lock) } catch { /* 已被他人清理 */ }
+          return false
+        }
+        this.#lockToken = token
         return true
       } catch {
         try { if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock) } catch { /* 已释放 */ }
@@ -254,7 +266,15 @@ export class HookAuditRecorder {
   }
 
   #releaseLock(): void {
-    try { unlinkSync(`${this.path}.lock`) } catch { /* 已清理 */ }
+    // #563④补（ABA）：只删自己的锁。锁可能已被他人判陈旧清掉并重建——
+    // 无条件 unlink 会删掉别人的锁，互斥窗口重新打开。
+    const token = this.#lockToken
+    this.#lockToken = null
+    if (!token) return
+    try {
+      if (readFileSync(`${this.path}.lock`, 'utf8') !== token) return
+      unlinkSync(`${this.path}.lock`)
+    } catch { /* 已清理 */ }
   }
 
   /** 盘面 → 状态；不存在/不可读/坏 JSON/形态不符 → 空态重建（不抛）。 */
