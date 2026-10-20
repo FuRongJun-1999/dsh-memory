@@ -45,7 +45,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SERVER = ROOT / "md_cg" / "mcp_server.py"
 WHITEBOX = ROOT / "md_cg" / "whitebox.py"
-README = ROOT / "README.md"
+README = ROOT / "docs" / "mdcg" / "cogmap_ops.md"   # COGMAP 段迁出首屏 README（原为仓根 README.md）
+# 生效条件：段内链接由 render_section 按**仓根**生成；目标文档换到子目录后必须按该目录重基，
+# 否则 md_cg/*、scripts/*、docs/* 会被按文档目录解析成 docs/mdcg/md_cg/x.py → 必断。
+COGMAP_DIR = README.parent.relative_to(ROOT).as_posix()          # "docs/mdcg"（校验基准）
+COGMAP_REBASE = "../" * (COGMAP_DIR.count("/") + 1)              # "../../"（回退到仓根的前缀）
 MAPDOC = ROOT / "docs" / "mdcg" / "功能调用映射表_v0.1.md"
 # 映射表所在目录（仓根相对）。段内**相对文件链接必须按该目录解析**，
 # 否则 GitHub/浏览器按文档目录解析成 `docs/mdcg/md_cg/x.py` → 必断。
@@ -56,6 +60,20 @@ BRANCH = "main"
 
 BEGIN = "<!-- COGMAP:BEGIN (scripts/cogmap_sync.py 自动生成 · 真源 md_cg/mcp_server.py · 勿手改段内) -->"
 END = "<!-- COGMAP:END -->"
+
+
+# 生效条件：把段内仓根相对链接改写成按 prefix 目录解析的形态；http(s)/mailto/页内锚/绝对/../ 原样保留；
+def _rebase_links(text: str, prefix: str) -> str:
+    if not prefix:
+        return text
+
+    def _sub(m):
+        link = m.group(1)
+        if link.startswith(("http://", "https://", "mailto:", "#", "/", "../")):
+            return m.group(0)
+        return "](" + prefix + "/" + link + ")"
+
+    return re.sub(r"\]\(([^)]+)\)", _sub, text)
 
 
 # 生效条件：传入任意 seg（含空串）即原样嵌入，返回 "<!-- FUNCMAP:BEGIN id={seg} (scripts/cogmap_sync.py 自动生成 · 勿手改段内) -->"，无分支与校验；
@@ -501,9 +519,9 @@ def check(e: dict) -> list[str]:
                 "——存在非规范写法的分支被静默漏报（如单引号/别名形态），请统一写法或扩展提取正则"
             )
 
-    readme_secs = [(BEGIN, END, render_section(e))]
+    readme_secs = [(BEGIN, END, _rebase_links(render_section(e), COGMAP_REBASE))]
     map_secs = [(_funcmap_begin(seg), FUNCMAP_END, body) for seg, body in render_mapdoc(e)]
-    docs = (("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs))
+    docs = (("COGMAP", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs))
     for dname, dpath, secs in docs:
         if not dpath.exists():
             errors.append(f"{dname} 不存在：{dpath}")
@@ -629,9 +647,9 @@ def _save(path: Path, text: str, nl: str) -> None:
 # 生效条件：返回两项——("README", 模块常量 README, [(BEGIN, END, render_section(e))]) 与 ("功能调用映射表", 模块常量 MAPDOC, render_mapdoc(e) 各 seg 的三元组)；e 缺所需键时由渲染函数索引抛 KeyError；
 def _targets(e: dict) -> list[tuple[str, Path, list[tuple[str, str, str]]]]:
     """全部投影目标：[(文档名, 路径, [(begin, end, 渲染内容)])]。"""
-    readme_secs = [(BEGIN, END, render_section(e))]
+    readme_secs = [(BEGIN, END, _rebase_links(render_section(e), COGMAP_REBASE))]
     map_secs = [(_funcmap_begin(seg), FUNCMAP_END, body) for seg, body in render_mapdoc(e)]
-    return [("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs)]
+    return [("COGMAP", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs)]
 
 
 # 生效条件：对 _targets(extract()) 的每个文档逐段执行 _splice，任一段未匹配到 begin..end 即打印缺段提示、ok=False 并跳过该文档写回；全部匹配才 _save 写回并打印段数，最后返回 0，存在缺段时返回 1；
