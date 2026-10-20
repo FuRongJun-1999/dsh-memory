@@ -105,6 +105,7 @@ targets:
     slot: codebuddy-session
     path: codebuddy/CODEBUDDY.md
     variant: full
+    uses_spec: true
     format: markdown
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
@@ -123,6 +124,7 @@ targets:
     slot: codebuddy-rules
     path: .codebuddy/rules/lingshu-discipline/RULE.mdc
     variant: rules-mdc
+    uses_spec: true
     format: markdown
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/restart/doctor)
     note: >-
@@ -135,6 +137,7 @@ targets:
     slot: zcode-session
     path: zcode/AGENTS.md
     variant: full
+    uses_spec: true
     format: markdown
     preserve: true
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
@@ -160,6 +163,7 @@ targets:
     enabled: true
     render: true
     variant: zcode-user
+    uses_spec: true
     pointer: true
     # 指针须指向的纪律本体（相对仓库根）——判据侧按此值查「指向面」，故路径只有这一处声明
     pointer_body: zcode/AGENTS.md
@@ -182,6 +186,7 @@ targets:
     slot: codex-session
     path: codex/AGENTS.md
     variant: full
+    uses_spec: true
     format: markdown
     preserve: true
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
@@ -196,6 +201,7 @@ targets:
     slot: claude-session
     path: claude/CLAUDE.md
     variant: full
+    uses_spec: true
     format: markdown
     preserve: true
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
@@ -218,6 +224,7 @@ targets:
     slot: plugin-skill
     path: claude/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
+    uses_spec: true
     format: markdown
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
@@ -240,6 +247,7 @@ targets:
     slot: plugin-skill
     path: codex/lingshu-memory/skills/linglu-discipline/SKILL.md
     variant: skill
+    uses_spec: true
     format: markdown
     memory: mcp/mdcg (cg,stg) · mcp/hive (蜂巢并发：spawn/poll/kill/doctor)
     note: >-
