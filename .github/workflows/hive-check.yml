@@ -17,6 +17,9 @@ on:
       - hive/**
       - .github/workflows/hive-check.yml
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   entry-guard:
     runs-on: ubuntu-latest
