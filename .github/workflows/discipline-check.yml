@@ -45,8 +45,11 @@ on:
       - 'scripts/test_discipline_cg_root_failclosed.py'
       - '.github/workflows/discipline-check.yml'
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  check:
+  discipline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
