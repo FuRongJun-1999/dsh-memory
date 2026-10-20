@@ -304,16 +304,21 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   // 覆盖前先判断：用户可能已在本目录手写过同名文件（甚至已把真实 MDCG_TOKEN 填进去）。
   // 无条件 writeFileSync 会把它们连同令牌一起冲掉，而 init 的文案只承诺「重跑输出一致」。
   // 已有且内容不同时：不覆盖，改写旁路文件名，并在输出里说明——宁可多一个文件，不可丢数据。
+  // 旁路名**固定不含时间戳**：反复跑 init 只覆盖同一个 -new.json，不随时间线性堆积；
+  // 内容与 -new.json 相同时也跳过写入，做到真正幂等（issue #1193）。
   let writtenPath = snippetPath
   if (existsSync(snippetPath)) {
     let prev = ''
     try { prev = readFileSync(snippetPath, 'utf8') } catch { /* 读不出当作不同，走旁路 */ }
     if (prev !== snippetJson) {
-      const alt = join(cwd, SNIPPET_FILENAME.replace(/\.json$/, `-new-${Date.now()}.json`))
+      const alt = join(cwd, SNIPPET_FILENAME.replace(/\.json$/, '-new.json'))
       writtenPath = alt
     }
   }
-  writeFileSync(writtenPath, snippetJson, 'utf8')
+  // 幂等：目标文件已是这份内容就不再落盘（避免重复写同一字节串，也保住 mtime）
+  let needWrite = true
+  try { needWrite = readFileSync(writtenPath, 'utf8') !== snippetJson } catch { /* 不存在则写 */ }
+  if (needWrite) writeFileSync(writtenPath, snippetJson, 'utf8')
 
   say()
   say(`灵枢（Lingshu）一键配置 · 端=${endSpec.label}`)

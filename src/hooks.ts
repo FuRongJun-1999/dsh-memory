@@ -297,10 +297,12 @@ function condSpace(role: string): Record<string, unknown> {
   // （约 2286 年）。用毫秒（Date.now() 原值约 1.76e12）会超过该上限，时间槽被判非法丢弃，
   // 于是只余三槽 ⇒ condition_space_text(require_full=True) 返回空串 ⇒ 归纳的 common_pos
   // 恒空、knowledge 层恒空 —— 即"补了 condition_space 与不补等价"（issue #538 实测）。
-  const hour = Math.floor(Date.now() / 3600000)
+  // issue #590：单位必须是**秒**（nodefile.FULL_TIME_WINDOW_MAX 为秒级上限）。
+  // 此前除以 3600000 得到「小时索引」，stg(op=timeline) 把它当秒 ⇒ 显示 1970 年、排序落到末尾。
+  const seconds = Math.floor(Date.now() / 1000)
   return {
     observation_position: COND_ROLE_POS[role] ?? ("dsh-hook/" + role),
-    time_window: [hour, hour] as [number, number],
+    time_window: [seconds, seconds] as [number, number],
     observation_tool: 'dsh-memory-hook',
     existence_constraint: role + "-message-minlen1",
   }
