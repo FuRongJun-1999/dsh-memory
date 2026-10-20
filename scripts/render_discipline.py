@@ -390,6 +390,18 @@ def load_spec_text(repo):
         out.append(s)
     return "\n".join(out).rstrip()
 
+# 生效条件：nodes 可迭代；输出「本仓 18 条纪律」的**附录表**（编号 / 触发 / 声明）。
+# 用途：方案甲——正文用《AI 编程通用规范》，18 条降为本仓适配附录（保留可审计的声明出口）。
+def render_routing_appendix(nodes):
+    rows = ["### 附录：本仓 18 条纪律（触发 + 声明出口）", "", "| # | 触发 | 声明（命中即原样输出） |", "|---|---|---|"]
+    for i, n in enumerate(nodes, 1):
+        cond = (n.get("conditions") or {}).get("apply")
+        rs = n.get("response") or {}
+        trig = _list_or(cond, "始终适用")
+        rows.append("| %d | %s | %s |" % (i, _cell(trig), _cell(rs.get("direct", ""))))
+    return chr(10).join(rows)
+
+
 def render(target, src, repo, now=None):
     variant = target.get("variant", "compact")
     tname = _TEMPLATES.get(variant)
@@ -411,6 +423,7 @@ def render(target, src, repo, now=None):
         "%%ROUTING_TABLE_FULL%%": render_routing_full(nodes),
         "%%DECLARATION_TABLE%%": render_declaration_table(nodes),
         "%%SPEC_FULL%%": load_spec_text(repo),
+        "%%ROUTING_APPENDIX%%": render_routing_appendix(nodes),
     }
     for k, v in subs.items():
         text = text.replace(k, v)

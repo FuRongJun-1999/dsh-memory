@@ -482,7 +482,7 @@ def check(target, src, repo, allow_missing):
     # 2026-10-19 使用者裁定 B：dsh 的 variant=spec 以《AI 编程通用规范》替代 18 条正文，
     # 故豁免「触发 / 动作 / 不适用」三字段的逐条校验；声明（response.direct）仍逐条校验。
     # 恢复条件：① 规范里补回「触发/动作」结构；② dsh 改回 compact/full 变体——任一发生即删本豁免。
-    if target.get("variant") == "spec":
+    if target.get("variant") == "spec" or target.get("uses_spec"):
         _ex = ("触发", "动作", "不适用", "语义")
         _b = len(res["missing"])
         res["missing"] = [m for m in res["missing"]
