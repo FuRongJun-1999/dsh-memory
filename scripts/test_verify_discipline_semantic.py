@@ -102,6 +102,10 @@ def _battery(impl, repo):
         mdir = os.path.join(repo, "docs", "discipline")
         if os.path.isdir(mdir):
             shutil.copytree(mdir, os.path.join(tmp, "docs", "discipline"))
+            # 方案甲起：正文含《AI 编程通用规范》，夹具须一并复制（否则缺省告警导致假红）。
+            _spec = os.path.join(repo, "docs", "规范")
+            if os.path.isdir(_spec):
+                shutil.copytree(_spec, os.path.join(tmp, "docs", "规范"))
         prod = os.path.join(tmp, os.path.relpath(real_path, repo))
         os.makedirs(os.path.dirname(prod), exist_ok=True)
         real_text = io.open(real_path, encoding="utf-8").read()
