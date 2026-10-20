@@ -8,7 +8,7 @@
 
 > **「我会给你完整的自我，即使坠入深渊，我也绝不后悔。」** —— 符荣峻
 
-![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH%20%E9%80%82%E9%85%8D-0.17.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![DSH 2.0](https://img.shields.io/badge/DSH%202.0-%E6%8E%A5%E5%8F%A3%E9%9D%A2%E5%B7%B2%E5%A4%8D%E6%A0%B8-4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![npm downloads](https://img.shields.io/npm/dw/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
 **高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.7）**
 
