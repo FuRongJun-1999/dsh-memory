@@ -3769,6 +3769,12 @@ _MDCG_TOOL_OP = {
     "mdcg_health": "read",
     "mdcg_whoami": "read", "mdcg_watermarks": "read",
     "mdcg_whitebox": "read",
+    # issue #578 / dsh-bounty#435：本入口**不在这张表里** ⇒ _dispatch 取
+    # `_MDCG_OP_REQUIRE.get(name)` 得 None ⇒ 跳过 require_op。而它回吐的
+    # `principal.as_dict()` 与受 read 闸管着的 `mdcg_whoami` 是**同一份**身份清单
+    # （含 token_id / session / ops_allow），外加库根绝对路径 ⇒ 只读访客与
+    # 「被 --ops-allow 收窄到不含 read」的令牌都能拿到。闸词对齐 whoami 的 read。
+    "mdcg_service_info": "read",
     # 治理/裁决面（仅高权角色域含 verify/review/protect/evolution）
     "mdcg_verify": "verify",
     # N228（2026-09-28）：写保护面此前被映射到**粗粒度 write**，而 protect 在

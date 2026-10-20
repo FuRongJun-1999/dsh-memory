@@ -13,7 +13,7 @@
  *
  * 用法（cordis.yml）：
  * ```yaml
- * - id: lingshu-memory
+ * - id: furongjun1999-dsh-memory
  *   name: '@furongjun1999/dsh-memory'
  *   config:
  *     mdcg:                              # 记忆真源：认知图（md 文档）

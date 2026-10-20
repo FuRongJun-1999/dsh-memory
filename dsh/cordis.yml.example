@@ -17,7 +17,7 @@
 #   旧版数据迁移：包内 data/ 仍有内容时，插件首启会**复制**（不删除）到用户级根；
 #   也可手动执行 python md_cg/datapath.py --migrate-legacy
 
-- id: lingshu-memory
+- id: furongjun1999-dsh-memory
   name: '@furongjun1999/dsh-memory'
   config:
     # 工具命名空间：Agent 看到的工具名是 cg / stg（记忆面已基元化）
@@ -130,7 +130,7 @@
       clearance: 'private'       # MDCG_CLEARANCE：可读写密级上限
 
 # 多实例示例：第二个灵枢（不同记忆库/身份/命名空间）
-# - id: lingshu-memory-2
+# - id: furongjun1999-dsh-memory-2
 #   name: '@furongjun1999/dsh-memory'
 #   config:
 #     serverName: 'lingshu2'
