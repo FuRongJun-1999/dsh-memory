@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
       - name: 认知图文档与源码真源一致性（README COGMAP + 映射表 FUNCMAP：工具/op/链接/锚点/FUNC_DESC/分支数自检）
