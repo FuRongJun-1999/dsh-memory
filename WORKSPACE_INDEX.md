@@ -5,7 +5,7 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `45e7df03` · 追踪 **2962** 件 · 生成于 2026-10-20 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `00c0cb02` · 追踪 **2963** 件 · 生成于 2026-10-20 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
@@ -28,7 +28,7 @@
 | `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 79 | `mock_mcp.py` · `hive_exec_test.py` |
 | `tests/` | 悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证） | 19 | `test_chain_best_first.py` |
 | `data/` | 公开评测数据与裁决留痕 | 18 | `memory-bench-1000.jsonl` · `policy.json` |
-| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 439 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
+| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 440 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
 | `.github/` | CI 门禁（纪律/认知图/蜂巢/conformance/安装/发布件/python 测试） | 9 | `workflows` |
 | `.codebuddy/` | CodeBuddy 宿主规则注入面（RULE.mdc 渲染落点，纪律第 18 条压缩锚点所在，随仓库分发） | 1 | `rules` |
 | `.claude-plugin/` | Claude 插件市场清单（/plugin marketplace add 入口） | 1 | `marketplace.json` |
