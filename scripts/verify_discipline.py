@@ -483,7 +483,7 @@ def check(target, src, repo, allow_missing):
     # 故豁免「触发 / 动作 / 不适用」三字段的逐条校验；声明（response.direct）仍逐条校验。
     # 恢复条件：① 规范里补回「触发/动作」结构；② dsh 改回 compact/full 变体——任一发生即删本豁免。
     if target.get("variant") == "spec" or target.get("uses_spec"):
-        _ex = ("触发", "动作", "不适用", "语义")
+        _ex = ("不适用",)  # 方案甲：附录表已含 语义/触发/动作/声明，仅「不适用」不在表内（它属正文细节）
         _b = len(res["missing"])
         res["missing"] = [m for m in res["missing"]
                          if not (m.get("field") in _ex
