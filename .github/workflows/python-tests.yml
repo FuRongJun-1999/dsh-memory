@@ -34,7 +34,7 @@ jobs:
           # git log -S and git show <introduction>^; a shallow checkout cannot
           # execute their negative controls and must not be treated as ready.
           fetch-depth: 0
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - uses: actions/setup-node@v4
