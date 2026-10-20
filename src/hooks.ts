@@ -114,7 +114,7 @@ export interface MemoryHooksOptions {
 }
 
 /** 从 ContentBlock[] 提取纯文本。 */
-function extractText(blocks: ContentBlock[]): string {
+function extractText(blocks: readonly ContentBlock[]): string {
   const parts: string[] = []
   for (const block of blocks) {
     if (block && typeof block === 'object' && block.type === 'text' && typeof block.text === 'string') {
