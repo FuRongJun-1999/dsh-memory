@@ -28,7 +28,7 @@ jobs:
       # issue #245/#258 等的 S10 组守卫取「修复前源」需要历史提交（git show <old>:<path>），
       # 而 checkout 默认 fetch-depth: 1 是浅克隆 ⇒ 那些断言在 CI 上取不到旧版本而红，
       # 本地（完整克隆）却全绿。此处拉全历史，让「本地绿」与「CI 绿」同义。
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           # Several existing guards locate the original buggy source through
           # git log -S and git show <introduction>^; a shallow checkout cannot
