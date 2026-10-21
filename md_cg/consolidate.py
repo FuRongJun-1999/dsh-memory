@@ -972,6 +972,7 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
            "dry_run": not apply, "nodes_scanned": len(entries), "targeted": 0,
            "skipped_locked": 0, "skipped_incomplete": 0, "skipped_not_hot": 0,
            "written": 0, "promoted": [], "samples": [],
+           "prose": [], "prose_written": 0,
            "min_merge": min_merge, "min_importance": min_importance,
            "require_conditions": bool(require_conditions)}
     batch = time.strftime("%Y%m%d-%H%M%S")
@@ -1012,6 +1013,19 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
         fm["promotion_basis"] = {"hits": hits, "importance": round(imp, 4),
                                  "conditions_complete": complete, "batch": batch,
                                  "actor": actor}
+        # 巩固正文（t91a-20261011/t2）：升层此前**一字不写**（只迁层）⇒ 人打开
+        # 节点看不出「这轮把它从哪层提到哪层、凭什么」。本处补一段确定性合成的
+        # 可读条目文本，带 sources 溯源与 prose_key 幂等键（同一节点重复升层不重复追加）。
+        _prose = build_consolidation_prose(
+            cg, "promote", [nid],
+            extra="%s→%s；hits=%d importance=%.2f"
+                  % (source_layer, target_layer, hits, imp))
+        fm, content, _added = _attach_prose(cg, nid, fm, content, _prose)
+        if _added:
+            rep["prose"].append({"id": nid, "key": _prose["key"],
+                                 "sources": _prose["sources"],
+                                 "chars": len(_prose["text"])})
+            rep["prose_written"] += 1
         moved = _relocate_layer(cg, nid, e, fm, content, target_layer)
         evolution.record(
             cg, node_id=nid,
@@ -1280,6 +1294,108 @@ CONSOLIDATED_INTO_FIELD = nodefile.CONSOLIDATED_INTO_FIELD
 # 归纳候选排除：受保护节点，以及洞察/场景/前馈/概念等派生物（避免自我进食）
 INDUCE_SKIP_TAGS = ("insight", "scene", "reconstructed", "gap_hint", "concept")
 
+# ---- 巩固正文（t91a-20261011/t2）-----------------------------------------
+#
+# 现状（改动前）：induce 产出的概念节点正文**只有 CCG 声明行**（`# 功能名：…`
+# 等六要素），promote 则只迁层、一字不写——两条巩固路径都属「结构性记账」：
+# 可读的自然语言条目文本为零，人打开节点看不到「这轮把谁并成了什么」。
+#
+# 本处补齐**正文**，且必须满足三条硬约束：
+#   ① 零网络 / 零外部模型：本环境无外呼授权，正文只能由**本地确定性合成**
+#      ——把本轮被合并/升层节点的标题与条件拼成条目文本，逐字可复算；
+#   ② 溯源：正文条目必须带 `sources`（来源节点 id 列表）指向合法来源节点；
+#   ③ 幂等：去重键 `prose_key` 由**来源 id 集合**派生（不是时间戳）——同一输入
+#      跑两轮，第二轮看见键已存在即不重复追加（对齐仓库既有「同成员 ⇒ 同 id」
+#      口径，见 `_concept_id`）。
+PROSE_MARK = "# 巩固正文："                # 正文段落在节点 md 里的行首标记
+CONSOLIDATION_PROSE_FIELD = "consolidation_prose"   # 留痕字段（条目列表）
+PROSE_MAX_SOURCES = 8                      # 单条正文最多列举的来源节点数
+PROSE_MAX_CHARS = 1200                     # 单条正文长度上限（防失控膨胀）
+
+
+# 生效条件：给定 sources（可为 None/空），返回 "prose_" 拼接排序去重后来源 id 串的 SHA1 前 12 位；空输入返回 "prose_empty"。
+def _prose_key(sources) -> str:
+    """正文条目去重键：**由来源 id 集合派生**（同来源 ⇒ 同键 ⇒ 不重复追加）。
+
+    刻意不用时间戳：时间戳每轮都变，会造出「同一份合并每轮新增一条」的假条目
+    ——那正是判据③要挡住的做法。空来源集退化为常量键（调用方另有非空校验）。
+    """
+    ids = sorted({str(s) for s in (sources or ()) if str(s).strip()})
+    if not ids:
+        return "prose_empty"
+    h = hashlib.sha1("|".join(ids).encode("utf-8")).hexdigest()
+    return "prose_" + h[:12]
+
+
+# 生效条件：给定 node_ids 与 cg，逐个用 _ccg_field 取「功能名」行（缺失则回落到节点 id），返回 (标题, 正文摘要) 二元组列表；读不到内容的节点跳过。
+def _source_digests(cg, node_ids, limit=PROSE_MAX_SOURCES):
+    """读取来源节点的 (标题, 摘要)——**确定性取材**，只读盘上真值，零 LLM。"""
+    out = []
+    for nid in list(node_ids or ())[:int(limit)]:
+        node = None
+        try:
+            node = cg.get(nid)
+        except Exception:                            # noqa: BLE001 —— 取材失败不该炸整轮巩固
+            node = None
+        if not node:
+            continue
+        content = node.get("content") or ""
+        title = _ccg_field(content, "功能名") or str(nid)
+        body = body_text(content).strip().replace("\n", " ")
+        out.append((str(nid), title.strip(), body[:120]))
+    return out
+
+
+# 生效条件：给定 action、sources、cg、extra，返回含 text/sources/key/action 的正文条目字典；text 由本地确定性拼接生成，不调用任何外部模型。
+def build_consolidation_prose(cg, action, sources, extra=None) -> dict:
+    """**本地确定性合成**巩固正文条目（零网络 / 零 LLM）。
+
+    正文 = 一句话说明「这轮做了什么」+ 逐条列出被合并/升层节点的标题与摘要。
+    同一 (action, sources, 节点内容) ⇒ 逐字相同的正文 ⇒ 可复算、可断言。
+    """
+    ids = [str(s) for s in (sources or ()) if str(s).strip()]
+    digests = _source_digests(cg, ids)
+    verb = {"induce": "归纳", "promote": "升层"}.get(str(action), str(action))
+    if digests:
+        lead = ("本轮巩固把 %d 个节点%s为一个条目：%s。"
+                % (len(digests), verb, "、".join(d[0] for d in digests)))
+    else:
+        lead = "本轮巩固%s，但未读到任何来源节点的正文。" % verb
+    lines = [lead]
+    for nid, title, summary in digests:
+        if summary:
+            lines.append("· %s：%s——%s" % (nid, title, summary))
+        else:
+            lines.append("· %s：%s" % (nid, title))
+    if extra:
+        lines.append("· 依据：%s" % str(extra)[:200])
+    text = "\n".join(lines)[:PROSE_MAX_CHARS]
+    return {"action": str(action), "sources": ids, "key": _prose_key(ids),
+            "text": text}
+
+
+# 生效条件：给定 cg、nid、fm、content、prose，若该 key 已在 fm[CONSOLIDATION_PROSE_FIELD] 中则原样返回 (fm, content, False)；否则把条目追加进该字段并追加正文行到 content，返回 (fm, content, True)。
+def _attach_prose(cg, nid, fm, content, prose):
+    """把正文条目挂到节点上：frontmatter 留痕 + 正文段落。**幂等**。
+
+    去重口径 = `prose["key"]`（来源 id 集合派生）是否已在该节点的
+    `consolidation_prose` 列表里——已存在即不改动，返回 added=False。
+    第二轮巩固因此不产生重复条目（判据③）。
+    """
+    entries = fm.get(CONSOLIDATION_PROSE_FIELD)
+    if not isinstance(entries, list):
+        entries = []
+    keys = {str(e.get("key")) for e in entries if isinstance(e, dict)}
+    if prose.get("key") in keys:
+        return fm, content, False
+    entries.append(prose)
+    fm[CONSOLIDATION_PROSE_FIELD] = entries
+    # 正文段落：带 PROSE_MARK 前缀的多行块（首行带标记，续行以 "·" 开头/缩进，
+    # 便于 `body_text` 之外的人读；CCG 声明行正则不会误吞它）。
+    block = PROSE_MARK + prose["text"].replace("\n", "\n  ")
+    content = (content or "").rstrip("\n") + "\n\n" + block + "\n"
+    return fm, content, True
+
 
 # 生效条件：给定 members，返回 CONCEPT_PREFIX 拼接排序后成员串的 SHA1 前 10 位。
 def _concept_id(members):
@@ -1438,6 +1554,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
            "require_conditions": bool(require_conditions),
            "skipped_small": 0, "skipped_no_condition": 0, "skipped_existing": 0,
            "clusters": 0, "written": 0, "concepts": [], "samples": [],
+           "prose": [], "prose_written": 0,
            "log": MAINTAIN_LOG}
 
     # ---- 贪心聚类（只读） ----
@@ -1485,11 +1602,20 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
             continue
         content = _concept_payload(p["members"], p["common_conditions"],
                                    p["non_applicable"])
+        # 巩固正文（t91a-20261011/t2）：在 CCG 声明行之外补一段**可读的自然语言
+        # 条目文本**，把本轮被合并节点的标题/摘要拼进去，并带 sources 溯源。
+        # 本地确定性合成，零网络 / 零 LLM。
+        _prose = build_consolidation_prose(
+            cg, "induce", p["members"],
+            extra="共同条件：" + ("；".join(p["common_conditions"]) or "无"))
+        content = (content.rstrip("\n") + "\n\n"
+                   + PROSE_MARK + _prose["text"].replace("\n", "\n  ") + "\n")
         _consolidated_at = time.time()   # 概念形成时刻 = 巩固时刻（单一取值，禁两处取时）
         cg.add(cid, content, layer=target_layer, tags=list(CONCEPT_TAGS),
                importance=CONCEPT_IMPORTANCE, verification_basis="other",
                induced_from=list(p["members"]), induced_at=_consolidated_at,
                consolidated_at=_consolidated_at,
+               consolidation_prose=[_prose],
                induction={"method": "bigram_jaccard", "min_jaccard": float(min_jaccard),
                           "common_conditions": p["common_conditions"], "batch": batch,
                           "actor": actor, "evidence": "inferred"},
@@ -1498,8 +1624,13 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
             "t": time.time(), "action": "induce", "batch": batch, "concept": cid,
             "members": list(p["members"]), "common_conditions": p["common_conditions"],
-            "source_layer": source_layer, "target_layer": target_layer, "actor": actor})
+            "source_layer": source_layer, "target_layer": target_layer, "actor": actor,
+            "prose_key": _prose["key"], "prose_sources": _prose["sources"]})
         rep["concepts"].append(cid)
+        rep.setdefault("prose", []).append({"id": cid, "key": _prose["key"],
+                                            "sources": _prose["sources"],
+                                            "chars": len(_prose["text"])})
+        rep["prose_written"] += 1
         rep["written"] += 1
     if rep["written"]:
         cg.rebuild_index()

@@ -123,11 +123,6 @@ def _as_cg(x):
     return MdCGOS(x) if isinstance(x, str) else x
 
 
-# 生效条件：无必需形参，调用即返回 time.strftime("%Y%m%d-%H%M%S") 的当前批次串。
-def _now_batch() -> str:
-    return time.strftime("%Y%m%d-%H%M%S")
-
-
 # 生效条件：base 为字符串批号，先读 _log_path(cg) 的 jsonl 收集 batch 字段中以 base 开头的已有值，base 未被占用则原样返回 base，已占用则返回首个未占用的 f"{base}.{i}"（i 从 2 递增）。
 def _unique_batch(cg, base: str) -> str:
     """同秒重复调用时批号去重（后缀 .2/.3…），保证按批次回滚不打偏。"""

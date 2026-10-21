@@ -911,14 +911,6 @@ class VM:
         return self.stack[-1] if self.stack else None
 
 
-def eval_expr_vm(src, env=None):
-    """字节码 VM 求值入口（P5：对照 eval_expr/eval_node）"""
-    env = env or Env()
-    ast = Parser(tokenize(src)).parse()
-    code = compile_expr(ast)
-    return VM(env).run(code)
-
-
 if __name__ == "__main__":
     print("=== Mini-Python P2：变量环境 + 控制流（对照 CPython）===\n")
     prog = """
