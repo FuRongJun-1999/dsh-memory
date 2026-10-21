@@ -50,7 +50,7 @@ def _mk(root):
 
 def main():
     print("== H1 默认零变更 ==")
-    os.environ.pop("MDCG_HOTCACHE", None)
+    os.environ["MDCG_HOTCACHE"] = "0"
     cg1 = _mk(tempfile.mkdtemp(prefix="mdcg_i28a_"))
     check("H1 无 env → 不挂载（get=None；能红『无条件挂载』误修）",
           hotcache.get(cg1) is None)
@@ -107,7 +107,7 @@ def main():
               and hotcache.get(cg3).get_node("n5") is not None,
               f"size={len(hc3._nodes)}")
     finally:
-        os.environ.pop("MDCG_HOTCACHE", None)
+        os.environ["MDCG_HOTCACHE"] = "0"
         os.environ.pop("MDCG_HOTCACHE_MAX_NODES", None)
 
     print()

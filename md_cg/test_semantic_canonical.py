@@ -68,7 +68,7 @@ def t_units():
 
 
 def t_write(tmp):
-    os.environ.pop("MDCG_SEMANTIC", None)
+    os.environ["MDCG_SEMANTIC"] = "0"
     cg = mdcos.MdCGOS(tmp, autoflush=500)
     try:
         cg.add("g1", GOLD_TEXT, layer="knowledge", semantic="鱼 油",
@@ -92,7 +92,7 @@ def t_score_off_guard(tmp):
     """默认关闭零回归：直调 _score 比词法层原始分（绕开 RRF 名次拆序——
     search_rrf 并列时按名次取 1/(K+rank)，同分节点的名次分差是融合层
     固有行为，不是 semantic 侧差异）。"""
-    os.environ.pop("MDCG_SEMANTIC", None)
+    os.environ["MDCG_SEMANTIC"] = "0"
     root = os.path.join(tmp, "off")
     cg = mdcos.MdCGOS(root, autoflush=500)
     try:
@@ -107,16 +107,18 @@ def t_score_off_guard(tmp):
         stat = {"scanned": 0}
         docs = cg._read_many(list(cg.index["nodes"].values()), stat)
         qb = bigrams(normalize_en("鱼油"))
+        os.environ.pop("MDCG_SEMANTIC", None)   # 未设 = 默认开（2026-10-21 裁定）
         by_id = {s[0]["id"]: s[1] for s in cg._score(docs, "鱼油", qb)}
-        ok(by_id.get("a_sem") == by_id.get("a_plain"),
-           "默认关闭时 semantic 改变了词法分（零回归破坏）: %r"
+        # 2026-10-21 使用者裁定：语义路默认开 ⇒ 首段应为「语义生效」
+        ok(by_id.get("a_sem", 0) > by_id.get("a_plain", 0),
+           "默认开启时语义面生效（a_sem 应高于纯词法 a_plain）: %r"
            % by_id)
         # 开启后：semantic 摘要命中（鱼 油 同现）→ a_sem 被语义路抬高
         os.environ["MDCG_SEMANTIC"] = "1"
         by_id2 = {s[0]["id"]: s[1] for s in cg._score(docs, "鱼油", qb)}
         ok(by_id2["a_sem"] > by_id2["a_plain"],
            "开启后语义路未抬高 a_sem: %r" % by_id2)
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
     finally:
         cg.close()
 
@@ -158,19 +160,19 @@ def t_e2e(tmp):
         ok(res and res[0][0]["id"] == "gold_p",
            "归一 query 未命中 gold_p: %r" % [r[0]["id"] for r in res[:2]])
         # 关闭后同 query：gold_p 词法分 0（「猪」不在正文），不应凭语义进 top1
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"   # 默认已开，反向腿须显式关
         res, _meta = cg.search_rrf("猪 油", k=5, paths=("lexical",),
                                    judge=False, record=False)
         top1 = res[0][0]["id"] if res else None
         ok(top1 != "gold_p", "关闭语义路 gold_p 仍 top1（词法零分被违反？）")
         # 关：词法零交集 → gold 不应凭语义进前排（结构性无解基线）
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
         res, _meta = cg.search_rrf(L3_Q, k=5, paths=("lexical",),
                                    judge=False, record=False)
         top1 = res[0][0]["id"] if res else None
         ok(top1 != "gold", "关闭语义路 gold 仍 top1（词法零交集被违反？）")
     finally:
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
         cg.close()
 
     # 无摘要库上开关无副作用（fm.semantic 缺失走原词法路径）
@@ -183,7 +185,7 @@ def t_e2e(tmp):
         top1 = res[0][0]["id"] if res else None
         ok(top1 != "gold", "无 semantic 摘要时语义路不应凭空生效")
     finally:
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
         cg.close()
 
 
@@ -218,7 +220,7 @@ def t_en_unified(tmp):
         ok(res and res[0][0]["id"] == "gold",
            "英文原题未命中统一真源 gold: %r" % [r[0]["id"] for r in res[:2]])
         # 关闭语义路：英文原题对中文正文词法零交集（且归一关），gold 不应凭空出现
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
         res, _m = cg.search_rrf("Did you eat horse meat today?", k=5,
                                 paths=("lexical",), judge=False, record=False)
         top1 = res[0][0]["id"] if res else None
@@ -233,13 +235,13 @@ def t_en_unified(tmp):
            % [r[0]["id"] for r in res_u[:2]])
         os.environ.pop("MDCG_UNIFY_QUERY", None)
     finally:
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
         os.environ.pop("MDCG_UNIFY_QUERY", None)
         cg.close()
 
 
 def main():
-    os.environ.pop("MDCG_SEMANTIC", None)
+    os.environ["MDCG_SEMANTIC"] = "0"
     t_units()
     tmp = tempfile.mkdtemp(prefix="lsh_sem_")
     try:
@@ -249,7 +251,7 @@ def main():
         t_en_unified(tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
-        os.environ.pop("MDCG_SEMANTIC", None)
+        os.environ["MDCG_SEMANTIC"] = "0"
     print("[test_semantic_canonical] %d 断言全绿" % N)
 
 

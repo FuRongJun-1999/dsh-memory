@@ -66,11 +66,11 @@ def main():
     print("== K1/K2 清单真源与键值 ==")
     check("K1 _KEYED_EXTRA 登记 env_switch",
           "env_switch" in hotcache._KEYED_EXTRA, str(hotcache._KEYED_EXTRA))
-    os.environ.pop("MDCG_SEMANTIC", None)
+    os.environ["MDCG_SEMANTIC"] = "0"
     before = hotcache.env_switch_key()
     os.environ["MDCG_SEMANTIC"] = "1"
     after = hotcache.env_switch_key()
-    os.environ.pop("MDCG_SEMANTIC", None)
+    os.environ["MDCG_SEMANTIC"] = "0"
     check("K2 env_switch_key() 随开关变化（未设=None 也进键）",
           before != after and any(v is None for _k, v in before),
           f"{before} vs {after}")
@@ -102,7 +102,7 @@ def main():
                   and m_sem.get("cached") is not True,
                   f"{ids_sem} cached={m_sem.get('cached')}")
 
-            os.environ.pop("MDCG_SEMANTIC", None)
+            os.environ["MDCG_SEMANTIC"] = "0"
             ids_off, _r2, m_off = _query(cg)
             check("K4 切开关后不命中旧口径缓存（旧实现 cached=True）",
                   m_off.get("cached") is not True,
@@ -116,10 +116,10 @@ def main():
                   m3.get("cached") is True, json.dumps(m3, default=str)[:160])
         finally:
             cg.close()
-            os.environ.pop("MDCG_SEMANTIC", None)
+            os.environ["MDCG_SEMANTIC"] = "0"
 
         # 旁路对照：不挂热缓存重算 semantic=0 的结果必须与 K5 一致
-        os.environ.pop("MDCG_HOTCACHE", None)
+        os.environ["MDCG_HOTCACHE"] = "0"
         cg2 = _mk(rootn)
         try:
             ids_plain, _r4, _m4 = _query(cg2)
@@ -188,7 +188,7 @@ def main():
             os.environ.pop("MDCG_CN_GRAMS", None)
 
         # 旁路对照：无缓存重算 grams=0 的结果必须与 K9c 一致
-        os.environ.pop("MDCG_HOTCACHE", None)
+        os.environ["MDCG_HOTCACHE"] = "0"
         os.environ["MDCG_CN_GRAMS"] = "0"
         cg4 = _mk(rootg2)
         try:

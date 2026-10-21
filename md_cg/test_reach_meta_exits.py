@@ -25,6 +25,10 @@ class StubIdx:
     def postings(self, toks):
         return {"x"}
 
+    # 图扩散默认已开（2026-10-21 裁定）：桩必须实现 diffuse
+    def diffuse(self, seeds, hops=1, limit=0):
+        return set(seeds)
+
 
 class ReadStubCG:
     """按 plan 依次返回 cg._read 结果，plan 耗尽后抛错（模拟重建中途失败）。"""
@@ -80,6 +84,10 @@ def main():
         # ④ 语义分支确实生效：sem 为真容器时，无词面命中的语义节点也必须入池
         class SemIdx(StubIdx):
             sem = ["p/sem"]
+
+            # 图扩散默认已开（2026-10-21 裁定）：桩必须实现 diffuse，否则真码调用即 AttributeError
+            def diffuse(self, seeds, hops=1, limit=0):
+                return set(seeds)
 
         reach._index_with_meta = lambda cg, force=False: (SemIdx(), {})
         got4, m4 = reach.narrow(object(), [{"path": "p/sem"}], ["甲乙"], {"甲", "乙"}, q="甲乙")
