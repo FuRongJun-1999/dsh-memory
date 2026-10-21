@@ -4197,6 +4197,31 @@ def _dispatch(cg, name, args):
 
     if name == "mdcg_search":
         from . import refindex
+        # ---- query 级热缓存（默认面接线，2026-10-21）----
+        # 热缓存的读写在 search_rrf 内，而默认检索面走 cg.search（本分支）——
+        # 故此处补一层工具级缓存：键按 hotcache 既有口径 + 全部入参 + 环境开关 + 索引代际。
+        # 命中直接返回上一次的**整个工具返回体**（形状与未命中一致）；
+        # 显式 node_id / op 的调用一律绕过（那是"读某条"，不是"查一次"）。
+        from . import hotcache as _hc
+        _hcobj = None if ("node_id" in a or a.get("op")) else _hc.get(cg)
+        _ckw = None
+        if _hcobj is not None:
+            try:
+                _extra = {k: v for k, v in a.items() if k not in ("query", "bm25")}
+                _extra["env_switch"] = _hc.env_switch_key()
+                if hasattr(cg, "_index_generation"):
+                    _extra["index_gen"] = cg._index_generation()
+                _ckw = dict(k=_int_arg(a, "k", 20), layer=a.get("layer"),
+                            session=a.get("session"), validity=a.get("validity"),
+                            extra=_extra or None)
+                _hit = _hcobj.get_query(a.get("query", ""), **_ckw)
+            except Exception:
+                _hit = None
+            if _hit is not None:
+                _seq = _hit[0] if isinstance(_hit, tuple) else _hit
+                if isinstance(_seq, list) and _seq:
+                    return _seq[0]
+                return _seq
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=_int_arg(a, "k", 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
@@ -4209,10 +4234,16 @@ def _dispatch(cg, name, args):
         if _cf:
             meta = dict(meta or {})
             meta.update(_cf)
-        return {"meta": meta,
+        _out = {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
                              "reason": q.get("reason"), **refindex.ref_fields(n)}
                             for n, s, q in res]}
+        if _hcobj is not None and _ckw is not None:
+            try:
+                _hcobj.put_query(a.get("query", ""), [_out], {}, **_ckw)
+            except Exception:
+                pass
+        return _out
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")
