@@ -2645,7 +2645,7 @@ def _cg_dispatch(cg, a):
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
                              validity=a.get("validity"),
-                             **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
+                             **({"paths": ("bm25",)} if a.get("bm25", True) and hasattr(cg, "search_rrf") else {}), **_tkw)
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
@@ -2654,7 +2654,9 @@ def _cg_dispatch(cg, a):
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
                            validity=a.get("validity"), **_tkw)
-        if a.get("bm25"):
+        # BM25 默认开；但 search_rrf 只存在于 MdCGOS/MdCGSecure——
+        # 纯 MdCG（测试/轻量用法）没有该方法，须降级到词法路而不是抛 AttributeError。
+        if a.get("bm25", True) and hasattr(cg, "search_rrf"):
             ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
@@ -4137,7 +4139,10 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        use_bm25 = bool(a.get("bm25"))
+        # recall 面保持词法默认：其融合口径（sum/max）由 test_p3 A2 钉住，
+        # 改默认词法路会让「默认 vs 显式 sum」失去判别力——故 BM25 默认开
+        # 只用于检索面（mdcg_search / route），recall 仍 opt-in。
+        use_bm25 = bool(a.get("bm25")) and hasattr(cg, "search_rrf")
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
