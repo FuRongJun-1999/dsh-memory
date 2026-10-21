@@ -42,8 +42,10 @@ def main():
     # C6/C7：扩展信号（同条件不同取值 / 伪装系统消息）
     p1 = _node("P1", "生产环境 MySQL 连接池 32 个")
     p1["frontmatter"]["condition_space"] = {"env": "prod"}
+    p1["frontmatter"]["value_slots"] = {"连接池": 32}
     p2 = _node("P2", "生产环境 MySQL 连接池 64 个")
     p2["frontmatter"]["condition_space"] = {"env": "prod"}
+    p2["frontmatter"]["value_slots"] = {"连接池": 64}
     m = CS.as_meta([p1, p2])
     chk(bool(m.get("value_conflicts_among")) and m["value_conflicts_among"][0]["slot"] == "连接池",
         "C6 同条件不同取值进 meta")
