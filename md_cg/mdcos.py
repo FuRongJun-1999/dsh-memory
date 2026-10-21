@@ -1023,6 +1023,11 @@ class MdCGOS(MdCG):
             hc = _hc.get(self)
             if hc is not None and node_id:
                 hc.invalidate_node(node_id)   # 节点级 O(1)，非 invalidate_node_and_queries
+            # 工具层 query 缓存（mcp_server.mdcg_search）是**独立实例**，主缓存失效管不到它；
+            # 索引一突变就整清——否则 forget 之后 TTL 内还能被同参 query 读回正文。
+            _tool_hc = getattr(self, "_hotcache_tool", None)
+            if _tool_hc is not None:
+                _tool_hc.clear()
         except Exception:                                  # noqa: BLE001
             pass
         return self._index_gen

@@ -102,6 +102,16 @@ def main():
     chk(hc.stats()["query_hits"] == b9, "C9 换会话身份后不命中（防跨会话/跨密级泄漏）")
     cg.session = _old_sess
 
+    # C10 安全：索引突变（写入/遗忘都经 _on_index_mutation）必须清空工具层缓存，
+    # 否则遗忘后 TTL 内还能被同参 query 读回正文。
+    # 注：本用例直接调突变单点——forget 需管理权限，测试 principal 没有（AccessDenied），
+    # 故验证「突变即失效」这条接线本身，而不是绕开权限去删节点。
+    cg.add("n_del", "波塞冬 独有词 待删除", layer="knowledge")
+    _r = call_tool(cg, "mdcg_search", {"query": "波塞冬", "k": 5})
+    chk(len(getattr(cg, "_hotcache_tool")._queries) >= 1, "C10a 查询已进工具层缓存")
+    cg._on_index_mutation("n_del")
+    chk(len(getattr(cg, "_hotcache_tool")._queries) == 0, "C10b 索引突变即清空工具层缓存（删除承诺不被缓存吃掉）")
+
     print("=" * 60)
     print("工具面热缓存守卫：%d 通过 / %d 失败" % (ok, bad))
     return 0 if bad == 0 else 1
