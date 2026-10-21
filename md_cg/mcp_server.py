@@ -4216,6 +4216,15 @@ def _dispatch(cg, name, args):
                 _extra["env_switch"] = _hc.env_switch_key()
                 if hasattr(cg, "_index_generation"):
                     _extra["index_gen"] = cg._index_generation()
+                # 安全自检（2026-10-21）：检索结果按 **调用者身份** 过滤
+                # （MdCGSecure._candidates → _readable 按 session/密级判可见），
+                # 故缓存键必须含**有效身份**，否则高密级/他会话的结果会被低密级命中。
+                # 口径：principal(tenant/actor/clearance) + 有效 session（cg.session 覆盖入参）。
+                _pr = getattr(cg, "principal", None)
+                _eff_sess = getattr(cg, "session", None) or a.get("session")
+                _extra["identity"] = (
+                    getattr(_pr, "tenant", None), getattr(_pr, "actor", None),
+                    getattr(_pr, "clearance", None), _eff_sess)
                 _ckw = dict(k=_int_arg(a, "k", 20), layer=a.get("layer"),
                             session=a.get("session"), validity=a.get("validity"),
                             extra=_extra or None)

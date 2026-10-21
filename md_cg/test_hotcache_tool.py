@@ -92,6 +92,16 @@ def main():
     call_tool(cg, "mdcg_search", {"query": "灵枢 记忆库 alpha", "k": 5, "validity": True})
     chk(hc.stats()["query_hits"] == b8, "C8 validity=True 不缓存")
 
+    # C9 安全：切换调用者身份（cg.session）后不得命中前者缓存——
+    # 检索结果按 session/密级过滤，缓存键必须含有效身份，否则跨会话/跨密级泄漏。
+    call_tool(cg, "mdcg_search", {"query": "灵枢 记忆库 alpha", "k": 5})
+    b9 = hc.stats()["query_hits"]
+    _old_sess = getattr(cg, "session", None)
+    cg.session = "another-session"
+    call_tool(cg, "mdcg_search", {"query": "灵枢 记忆库 alpha", "k": 5})
+    chk(hc.stats()["query_hits"] == b9, "C9 换会话身份后不命中（防跨会话/跨密级泄漏）")
+    cg.session = _old_sess
+
     print("=" * 60)
     print("工具面热缓存守卫：%d 通过 / %d 失败" % (ok, bad))
     return 0 if bad == 0 else 1
