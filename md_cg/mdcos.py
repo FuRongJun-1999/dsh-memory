@@ -4995,6 +4995,20 @@ class MdCGOS(MdCG):
 
 
 # 生效条件：以 root 构造并把 **kw 透传父类，principal 为假值（None）时回落新建 Principal()、否则用传入的 principal，其 actor 作为 actor 传给父类，master_key 原样交给 _init_crypto；
+def _bump_batch(batch, op, node_id):
+    """把一次批量读里的单节点失败计入共享计数器（G1，2026-10-21）。
+
+    一次检索要水合几千个节点：逐节点写 `read_locked` / `read_denied` 会让
+    `_crypto.jsonl` 每次搜索涨几千行（在役库实测 5 910 行 / 1.35 MB / 次，
+    `_crypto_archive` 因涨到 513 MB、占数据目录 83%）。批量上下文只累加，
+    由批量边界写一条带 `count` 与首末节点的记录——可追溯性不降，行数 O(n)→O(1)。
+    """
+    slot = batch.setdefault(op, {"count": 0, "first_node": None})
+    slot["count"] += 1
+    if slot["first_node"] is None:
+        slot["first_node"] = node_id
+
+
 class MdCGSecure(MdCGOS):
     """带权限的记忆 OS：租户 + 密级（clearance）× 节点敏感度（sensitivity）。
 
@@ -5024,6 +5038,18 @@ class MdCGSecure(MdCGOS):
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
+    @staticmethod
+    def _tenant_sharing():
+        """同租户 DEK 共享开关（G1）：`MDCG_TENANT_DEK_SHARING` 默认**关**，`1` 开。
+
+        默认关是**冲突表决议**：`test_b1_foreign_read` 把「同租户跨 actor 读不到」
+        钉成设计者 2026-10-10 的裁定（当时在役库 3,011,214 条 `open_failed` 全是
+        跨身份读，被判定为「设计内隔离」而非缺陷）。要动这条地基地需要用户点头，
+        所以这里只提供**可择**能力（默认行为逐位不变），把取舍交回清单。
+        """
+        v = (os.environ.get("MDCG_TENANT_DEK_SHARING") or "0").strip().lower()
+        return v in ("1", "true", "yes", "on")
+
     def _init_crypto(self, master_key=None):
         """解析 KEK（显式 → 环境变量 → 仓库外主密钥文件），签发本身份 DEK。
 
@@ -5039,7 +5065,9 @@ class MdCGSecure(MdCGOS):
                 self.kek = self.dek = None
                 return
             self.kek = kek
-            self.dek = crypto.provision_dek(
+            prov = (crypto.provision_tenant_dek
+                    if self._tenant_sharing() else crypto.provision_dek)
+            self.dek = prov(
                 self.root, kek, self.principal.tenant, self.principal.actor,
                 clearance=self.principal.clearance)
             self._crypto_error = None
@@ -5122,8 +5150,16 @@ class MdCGSecure(MdCGOS):
         return sealed
 
 # 生效条件：content 为 None 或非加密时原样返回 content；加密时先用**本次读取所得的 frontmatter**（sensitivity/session）复核读可见性，不可见即写 read_denied 审计并返回 None；可见但 self.dek 为假值时写 read_locked 审计并返回 None；随后**无条件**调 crypto.open_node（唯一的完整性校验处）——成功即返回明文（指纹fp 是什么都不影响解密）；仅当抛 CryptoError 时才用**密文自带**的非敏感指纹 enc_id_fp 给这次失败分类：指纹有值且 ≠ 本方指纹 ⇒ 按采样写 read_foreign 审计（预期隔离）；否则写 open_failed 审计（真异常，含旧格式无指纹）。
-    def _open_content(self, node_id, fm, content):
-        """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。"""
+    def _open_content(self, node_id, fm, content, batch=None):
+        """密文解封；无密钥 / 身份不符 / **读不可见** → None（不可读），失败留审计。
+
+        G1（2026-10-21 病灶 G）：`batch` 是**同一次批量读**的共享计数器。检索一次要水合
+        几千个节点，若每个节点都写一条 `read_locked`，一次搜索就能往 `_crypto.jsonl`
+        追加几千行（在役库实测 5 910 行 / 1.35 MB 每次搜索）——审计本来是为了可追溯，
+        变成写放大后反而把真正的异常埋掉。传了 `batch` 就只累加计数，由调用方在批量
+        边界写**一条**带 `count` / `first_node` / `last_node` 的记录，信息不丢、行数从
+        O(n) 降到 O(1)。不传 `batch` 的调用方（get / reach / recent 等单读面）行为逐位不变。
+        """
         if content is None or not crypto.is_encrypted(content):
             return content
         # N213（2026-09-28）：绑定档（private/secret）正文只有加密后才可能落盘，
@@ -5139,12 +5175,18 @@ class MdCGSecure(MdCGOS):
         except Exception:                     # noqa: BLE001 —— 判据载体异常按不可读
             _vis = False
         if not _vis:
+            if batch is not None:
+                _bump_batch(batch, "read_denied", node_id)
+                return None
             crypto.audit(self.root, {"op": "read_denied", "node_id": node_id,
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,
                                      "reason": "读隔离：密文不可见"})
             return None
         if not self.dek:
+            if batch is not None:
+                _bump_batch(batch, "read_locked", node_id)
+                return None
             crypto.audit(self.root, {"op": "read_locked", "node_id": node_id,
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,
@@ -5170,6 +5212,29 @@ class MdCGSecure(MdCGOS):
             return crypto.open_node(content, self.dek, node_id,
                                     self.principal.tenant, self.principal.actor)
         except crypto.CryptoError as e:
+            # G1：同租户共享 DEK 下，正文可能属同租户**他 actor**（AAD 绑旧 actor）。
+            # 先按同租户其它 actor 的 AAD 再试一次；成功即记 read_cross_actor（可追溯
+            # 谁写的），失败才走原有分类。
+            if self._tenant_sharing():
+                others = [a for a in crypto.tenant_actors(
+                    self.root, self.principal.tenant)
+                    if a != self.principal.actor]
+                if others:
+                    try:
+                        _txt, _who = crypto.open_node_any(
+                            content, self.dek, node_id,
+                            self.principal.tenant, others)
+                        if batch is not None:
+                            _bump_batch(batch, "read_cross_actor", node_id)
+                            return _txt
+                        crypto.audit(self.root, {
+                            "op": "read_cross_actor", "node_id": node_id,
+                            "tenant": self.principal.tenant,
+                            "actor": self.principal.actor, "writer_actor": _who,
+                            "reason": "同租户共享 DEK：跨 actor 解封成功"})
+                        return _txt
+                    except crypto.CryptoError:
+                        pass           # 仍解不开 → 落到原有 fingerprint 分类
             declared = crypto.enc_id_fp(content)
             mine = crypto.identity_fingerprint(self.principal.tenant,
                                                self.principal.actor)

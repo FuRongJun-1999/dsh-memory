@@ -3781,8 +3781,12 @@ class MdCG:
         return content
 
 # 生效条件：默认实现无条件返回传入的 content（不返回 None），node_id 与 fm 不参与；
-    def _open_content(self, node_id: str, fm: dict, content: str):
-        """读取后的正文解封钩子。返回 None 表示不可读（无密钥 / 身份不符）。"""
+    def _open_content(self, node_id: str, fm: dict, content: str, batch=None):
+        """读取后的正文解封钩子。返回 None 表示不可读（无密钥 / 身份不符）。
+
+        `batch`（G1，2026-10-21）：同一次批量读的审计计数器；基类不解密，签名
+        与加密实现保持一致即可（`_read_many` 恒以 `batch=` 关键字调用）。
+        """
         return content
 
 # 生效条件：无条件以 fm.get("sensitivity") 调 _seal_content 封装、再以 _check_sensitivity_landing 校验密级一致性（声明≠落盘恒判；「加密级却明文」仅在本实例覆写了密封钩子时判——不一致即抛 ValueError，写盘不发生）、通过后执行 atomic_write(path, nodefile.dumps(fm, sealed), durable=durable) 并返回 sealed，durable 与 declared_sensitivity 原样透传、无校验。
@@ -4786,16 +4790,40 @@ class MdCG:
 # 生效条件：entries 逐条经 _read 得 content 为 None 的跳过、_open_content 返回 None 的跳过，其余以 (e, fm, c) 进入 docs，并把 len(docs) 累加进 stat["scanned"] 后返回 docs；
     def _read_many(self, entries, stat):
         docs = []
+        # G1（2026-10-21 病灶 G）：批量读的失败记账走**一个**计数器，批量边界只写一条。
+        # 原实现在 `_open_content` 里逐节点 `crypto.audit(read_locked)`，在役库一次搜索
+        # 追加 5 910 行 / 1.35 MB（`_crypto_archive` 因此涨到 513 MB，占数据目录 83%）。
+        # 计数与首末节点仍然保留，可追溯性不降，行数从 O(节点数) 降到 O(1)。
+        batch = {}
         for e in entries:
             fm, c = self._read(e)
             if c is None:
                 continue
-            c = self._open_content(fm.get("id"), fm, c)
+            c = self._open_content(fm.get("id"), fm, c, batch=batch)
             if c is None:
                 continue                    # 无密钥 / 身份不符 → 不参与检索
             docs.append((e, fm, c))
+        for op, slot in batch.items():
+            self._audit_read_batch(op, slot, len(entries))
         stat["scanned"] += len(docs)
         return docs
+
+    def _audit_read_batch(self, op, slot, candidates):
+        """把一次批量读里同一类失败压成一条审计记录（G1，2026-10-21）。"""
+        from . import crypto          # 局部导入：mdcg 顶层不引 crypto（避免环）
+        if op == "read_denied":
+            reason = "读隔离：密文不可见"
+        elif op == "read_cross_actor":
+            reason = "同租户共享 DEK：跨 actor 解封成功"
+        else:
+            reason = self._crypto_error or "no_dek"
+        crypto.audit(self.root, {"op": op + "_batch",
+                                 "count": slot["count"],
+                                 "candidates": candidates,
+                                 "first_node": slot.get("first_node"),
+                                 "tenant": self.principal.tenant,
+                                 "actor": self.principal.actor,
+                                 "reason": reason})
 
     @staticmethod
 # 生效条件：terms 为空时返回 False；否则任一 t 在 body 的小写串中出现（body 取自 positive_body 钩子——透传绑定方法时走 readcache 缓存版，未传时回落 nodefile.positive_body(content) 直调，两者同值），或该 t 的小写形式出现在 fm 的 tags（tags 取自 fm.get("tags") or []，缺键或假值按空列表拼接）小写串中，或 index_keys 为真值（六要素后两行的索引键命中，见 index_key_hits）即返回 True。

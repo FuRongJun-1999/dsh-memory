@@ -421,6 +421,98 @@ def envelopes(root):
     return out
 
 
+# ---- 同租户共享数据密钥（G1，2026-10-21） --------------------------------
+#
+# 背景：`_dek_aad(tenant, actor)` 把 AAD 绑到 **写者身份** 上，而每个 actor 拿到的是
+# **自己** 的 DEK。于是「同一个库」里 A 写的 private/secret 正文，B 即使同租户、
+# 密级更高、`can_admin=True` 也一律解不开（实测生产库 5 935/10 013 节点外部不可读）。
+# 库的语义边界是**租户**（一个库＝一个主体的记忆），actor 只是写入归属；把 AAD 绑到
+# actor 上等于把「一个库两个大脑」写进了密码层。这里补一条**可选**的租户内共享：
+#   ① 信封仍按 (tenant, actor) 各存一份（不改变 `_keys.json` 结构与指纹校验）；
+#   ② 同一租户只维护**一个** DEK，新 actor 复制既有信封里的 DEK、用自己的 AAD 重包裹；
+#   ③ 解封时先按自己 AAD 试，失败再按同租户其它 actor 的 AAD 试（`open_node_any`）。
+# 默认**关闭**（`MDCG_TENANT_DEK_SHARING=1` 才开）——「同租户跨 actor 读不到」是
+# 设计者 2026-10-10 的裁定（`test_b1_foreign_read` 钉住），属用户地基，动它要点头。
+# 存量密文由旧的按 actor DEK 封存，共享开启**不会**让它们变可读 —— 那需要
+# `mdcg reencrypt` 迁移，已列入部署清单。
+
+def tenant_actors(root, tenant):
+    """同租户已签发信封的 actor 列表，按签发时间升序（旧 → 新）。"""
+    rows = []
+    for k, v in (_load_keys(root).get("envelopes") or {}).items():
+        t, _, a = k.partition("|")
+        if t == tenant:
+            rows.append((v.get("created_at") or 0, a))
+    return [a for _, a in sorted(rows)]
+
+
+def provision_tenant_dek(root, kek, tenant, actor, clearance="private"):
+    """同租户共享 DEK 的签发：已有同租户信封则复制其 DEK，否则新建。
+
+    与 `provision_dek` 的差别只有一处：新身份的 DEK 不是随机生成的，而是从同租户
+    任一既有信封里解出后**用新身份 AAD 重包裹**（同一把密钥、两份信封）。
+    损坏标记 / 写锁 / 并发合并三条 fail-closed 防线与 `provision_dek` 完全一致。
+    """
+    if not kek:
+        raise LockedError("无主密钥（KEK）：拒绝签发数据密钥")
+    try:
+        with FileLock(keys_path(root), timeout=10.0, strict=True):
+            data = _load_keys(root)
+            if data.get("load_error"):
+                raise LockedError(
+                    f"密钥库损坏/不可读（{data['load_error']}）：{keys_path(root)}")
+            data.setdefault("envelopes", {})
+            k = _envelope_key(tenant, actor)
+            if k in data["envelopes"]:
+                return unwrap_dek(root, kek, tenant, actor, clearance)
+            dek, src = None, None
+            for other in tenant_actors(root, tenant):
+                try:
+                    dek = unwrap_dek(root, kek, tenant, other, clearance)
+                    src = other
+                    break
+                except LockedError:
+                    continue           # 该信封解不开（旧 KEK / 损坏）：换下一个
+            if dek is None:
+                dek = secrets.token_bytes(KEY_LEN)
+                src = None
+            nonce = secrets.token_bytes(NONCE_LEN)
+            ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
+            data["envelopes"][k] = {
+                "id_fp": identity_fingerprint(tenant, actor),
+                "clearance": clearance,
+                "nonce": _b64e(nonce), "ct": _b64e(ct + tag),
+                "created_at": time.time(),
+                "shared_from": src,     # 审计：这把 DEK 复制自哪个 actor 的信封
+            }
+            data["v"] = ENVELOPE_VERSION
+            data["alg"] = ALG
+            _save_keys(root, data)
+            return dek
+    except TimeoutError as e:
+        raise LockedError(
+            f"密钥库写锁（{keys_path(root)}.lock）竞争超时：并发 provision "
+            f"未在限时内获得互斥——fail-closed 拒绝签发。") from e
+
+
+def open_node_any(content, dek, node_id, tenant, actors):
+    """按 `actors` 顺序逐个 AAD 试解，返回 `(明文, 命中的 actor)`。
+
+    只在「同租户共享 DEK」已开启时使用：AAD 里的 actor 仍参与认证（错 actor 的
+    AAD 一定 MAC 失败），所以这不是绕过校验，而是**同一租户内允许他 actor 归属的
+    正文被本 actor 解封**。全部失败抛最后一个 CryptoError（调用方据此分类审计）。
+    """
+    if not is_encrypted(content):
+        return content, None
+    last = None
+    for a in actors:
+        try:
+            return open_node(content, dek, node_id, tenant, a), a
+        except CryptoError as e:            # noqa: PERF203 —— 候选很少
+            last = e
+    raise last or CryptoError("无可试解的 actor 候选")
+
+
 # ---- 节点正文封装 --------------------------------------------------------
 
 # 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则返回 content.lstrip().startswith(ENC_PREFIX)。
