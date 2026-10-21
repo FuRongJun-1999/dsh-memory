@@ -156,6 +156,9 @@ class ExactTextCache(unittest.TestCase):
     def test_lowercase_warm_reuse_and_single_write_invalidation(self):
         cg = self.make_store({"a": "Alpha OLD", "b": "Alpha OTHER"})
         cg.search_rrf("alpha", paths=("lexical",), judge=False, record=False)
+        # BM25 并入默认检索后，首次 search 会为 bm25 索引投影一次正文（之后走缓存）。
+        # 故先**预热一次** search，再断言「热态下不再重复投影」——意图不变（热复用零投影）。
+        cg.search("alpha", judge=False, record=False)
         before = dict(cg._like_lower_cache)
         with patch.object(cg, "_positive_body", wraps=cg._positive_body) as project:
             cg.search("alpha", judge=False, record=False)

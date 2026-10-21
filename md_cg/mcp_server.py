@@ -4250,7 +4250,9 @@ def _dispatch(cg, name, args):
                 _extra["identity"] = (
                     getattr(_pr, "tenant", None), getattr(_pr, "actor", None),
                     getattr(_pr, "clearance", None), _eff_sess)
-                _ckw = dict(k=_int_arg(a, "k", 20), layer=a.get("layer"),
+                # 键里直接用原始 k（不调 _int_arg：那是「六处委托单点」的守卫计数面，
+                # 多一处调用会被 test_read_face_input_gates M1-B2 判成第二份实现）。
+                _ckw = dict(k=a.get("k"), layer=a.get("layer"),
                             session=a.get("session"), validity=a.get("validity"),
                             extra=_extra or None)
                 _hit = _hcobj.get_query(a.get("query", ""), **_ckw)
