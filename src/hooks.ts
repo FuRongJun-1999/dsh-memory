@@ -578,13 +578,14 @@ function isRelayedMessage(source: unknown): boolean {
 }
 
 /** 安装自动记忆钩子（effect 作用域内，随插件卸载自动移除）。
+ * 返回幂等收尾函数，由调用方随插件关闭/更新调用，输出一次审计摘要（#606）。
  *
  *  mdcg 为 null（config.mdcg.enabled=false）时自动记忆整体停用：记忆真源是
  *  认知图，没有它就没有可写的去处——**不会退回 AEIS**（AEIS 已不存记忆）。 */
-export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: MemoryHooksOptions): void {
+export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: MemoryHooksOptions): () => void {
   if (!mdcg) {
     ctx.logger.warn('dsh-memory: 认知图未启用（config.mdcg.enabled=false），自动记忆已停用')
-    return
+    return () => {}
   }
   const graph = mdcg
 
@@ -944,6 +945,16 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       }
     }
   })
+
+  let reported = false
+  return () => {
+    if (reported) return
+    reported = true
+    try {
+      const summary = audit.summary()
+      if (summary) ctx.logger.info(summary)
+    } catch { /* 诊断输出失败不得阻断插件收尾 */ }
+  }
 }
 
 
