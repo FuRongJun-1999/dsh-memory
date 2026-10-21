@@ -85,7 +85,7 @@
     "@deepseek-ai/schemastery": "^3.0.0",
     "@types/node": "^26.6.5",
     "tsx": "^4.19.0",
-    "typescript": "^5.5.0"
+    "typescript": "^7.0.2"
   },
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.json",
