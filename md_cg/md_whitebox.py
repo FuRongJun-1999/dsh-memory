@@ -4,9 +4,16 @@
 要回答的问题
 ------------
 `md_cg/migrate_wisdom_graph.py` 已把白箱认知图（`wisdom-book-cloud.db`：
-nodes 4355 / edges 2948）无损导出为 md 认知图（`_md_cg_wisdom_graph/`），
-并以确定性三层校验证明「md 侧与原库逐节点等价」。本模块把结论推进到
-**端到端**：这份 md 语料直接当知识库时，白箱的检索与回答能力能否原样复现。
+nodes 4355 / edges 2948 —— **那是迁移源的读数，不是当前语料的读数**）无损
+导出为 md 认知图（`_md_cg_wisdom_graph/`），并以确定性三层校验证明「md 侧
+与原库逐节点等价」。本模块把结论推进到**端到端**：这份 md 语料直接当知识库
+时，白箱的检索与回答能力能否原样复现。
+
+**当前语料的真实读数**（2026-10-21，生产副本 `/tmp/bench-root`，10 013 节点）：
+`subgraph` 字段 0 个、`edges` 字段 0 个 ⇒ 还原后 `edges=0`。这是**语料事实**
+（迁移只带 `hierarchical` 之外的边没有写入 md），不是提取失败——`build_db_from_md`
+的返回值里 `edge_fields` 恒给出这两个计数，`_restore` 也在 `edges=0` 时打印判据
+（病灶 J2：声称的规模必须能由当前语料复现，不能拿迁移源的数字当现在的能力）。
 
 为什么需要「还原」这一步
 ------------------------
@@ -43,6 +50,12 @@ confidence / modality / access_count / last_access / created_at / entity_id`
 逐字段对应；正文即 `content`；层级边落在**父节点**的 `subgraph.nodes`
 （对应源库 `hierarchical`，source=父），非层级边落在 `edges`
 （键名 `relation_type`）。故还原不丢字段、不丢边。
+
+**例外：密文节点显式跳过**（2026-10-21 病灶 J1）。派生层用基类 `MdCG`（不解密），
+`sealed` 节点的正文是 `<!-- mdcg-enc:v1:… -->` 密文；把它当正文入库会让检索命中
+base64、让白箱把密文当答案。现在 `_restore` 用 `crypto.is_encrypted` 判出来后
+**跳过并计数**（`sealed_skipped`），生产读音：10 013 节点里跳过 5 935、入库 4 078。
+「不丢」针对的是字段与边，不是**无权限的正文**——后者必须在读数里可见。
 
 用法
 ----
@@ -107,13 +120,66 @@ def _f(v, default=0.0):
 
 # 生效条件：对 root（缺省 DEFAULT_ROOT）取 os.path.abspath 的 utf-8 字节 sha1 前 12 位为 key，返回系统临时目录下 f"md_cg_native_{key}.db"；
 def default_db_path(root=DEFAULT_ROOT):
-    """还原库默认位置：系统临时目录。
+    """还原库默认位置：系统临时目录下的私有子目录。
 
     还原库是**派生物**（md 是唯一真源），故默认落在临时目录，可随时丢弃重建；
     路径按 `root` 哈希区分，避免不同语料互相覆盖。
+
+    **私有目录**（2026-10-21 病灶 J3）：旧实现直接平铺在 `tempfile.gettempdir()`，
+    实测 `mode 0644` —— 同机任何用户可读整库正文（含 private/secret 节点的
+    **密文**，以及未加密节点的明文）。现改为 `md_cg_native/` 子目录 `0o700`，
+    库文件建成后 `chmod 0o600`（见 `_secure_db`）。
     """
     key = hashlib.sha1(os.path.abspath(root).encode("utf-8")).hexdigest()[:12]
-    return os.path.join(tempfile.gettempdir(), f"md_cg_native_{key}.db")
+    d = os.path.join(tempfile.gettempdir(), "md_cg_native")
+    try:
+        os.makedirs(d, mode=0o700, exist_ok=True)
+        os.chmod(d, 0o700)
+    except OSError:
+        pass  # 只读 / 受限 tempdir：退化为旧位置，不因权限失败而丢功能
+    return os.path.join(d, f"md_cg_native_{key}.db")
+
+
+def _secure_db(db_path):
+    """把还原库收到 0600（尽力而为，失败不抛）。
+
+    **目录只在它是我们自己的私有目录时才改权限**：调用方可能显式给
+    `db_path=`（例如 `D:\\data\\x.db`），把那个目录 chmod 成 0700 是越权副作用
+    （服务器上 `/tmp` 会 chmod 失败被吞掉，但换成用户自有的共享目录就会真改掉
+    别人的权限）。判据：目录名必须是我们建的 `md_cg_native`。
+    """
+    try:
+        if os.path.exists(db_path):
+            os.chmod(db_path, 0o600)
+    except OSError:
+        pass
+    d = os.path.dirname(db_path)
+    if os.path.basename(d) == "md_cg_native":
+        try:
+            os.chmod(d, 0o700)
+        except OSError:
+            pass
+
+
+def _db_status(db_path):
+    """还原库的三态：`ok` / `missing` / `corrupt`（**缺失与损坏必须分开报**）。
+
+    旧 `_counts` 把两者都压成 `(0, 0)`（病灶 J3）：于是「库还没建」与
+    「库坏了」在调用方眼里完全一样，坏了会被当成不存在而静默重建，
+    真正的损坏没有任何人看得见。
+    """
+    if not db_path or not os.path.exists(db_path):
+        return "missing", ""
+    try:
+        con = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        try:
+            n = con.execute("SELECT COUNT(*) FROM nodes").fetchone()[0]
+            con.execute("SELECT COUNT(*) FROM edges").fetchone()[0]
+        finally:
+            con.close()
+        return ("ok" if int(n) > 0 else "corrupt"), f"nodes={n}"
+    except Exception as exc:  # noqa: BLE001 —— 任何读失败都算损坏并带上原因
+        return "corrupt", f"{type(exc).__name__}: {exc}"
 
 
 # 生效条件：root 为目录且其下（递归）至少有一个 .md 文件时返回 None，目录缺失返回不存在说明，目录存在但无 .md 返回空壳说明；
@@ -164,16 +230,31 @@ def _edge_row(src, tgt, rel, conf, ver):
 
 
 # 生效条件：传入 cg 与 con 时按 (LAYERS 序, 路径字典序) 排序 cg.index["nodes"] 逐条建行，cg.get(nid) 为假值则跳过该节点，子图/边来自节点的 frontmatter，最终 executemany 写入两表并 commit，返回 (nodes 行数, edges 行数)；
-def _restore(cg, con, verbose=False):
+def _restore(cg, con, verbose=False, stats=None):
     """md 语料 → 检索库（nodes / edges 两表）。返回 (n_nodes, n_edges)。
 
     插入序规范 = **(LAYERS 序, 相对路径字典序)**（与白箱访问层
     `whitebox_kb/wisdom/md_access.py::_load_rows` 同规范）：索引运行时序
     （json 基础序 + 增量日志回放）含历史迁移序噪声且不可复现，
     派生库行序必须由 md 实时状态确定性决定。
+
+    **密文不得当正文入库**（2026-10-21 病灶 J1）：`cg.get()` 走的是基类
+    `MdCG`，**不解密**；旧实现把 `sealed` 节点的密文原样写进 `nodes.content`
+    （实测 5 935/10 013 = 59.3%）。派生层没有解密权限时，正确做法是
+    **显式跳过并计数**（`stats["sealed_skipped"]`），不是把密文冒充正文——
+    后者会让全文检索命中一串 base64、让 `MdWhitebox` 把密文当答案吐给用户。
+
+    边来源同样要计数（`stats["edge_fields"]`）：语料里 `subgraph`/`edges`
+    字段全缺时 `edges=0` 是**语料事实**而非提取 bug，必须能一眼分开。
     """
     from .mdcg import LAYERS as _md_layers
+    from .crypto import is_encrypted
     _ord = {name: i for i, name in enumerate(_md_layers)}
+    if stats is None:
+        stats = {}
+    stats.setdefault("sealed_skipped", 0)
+    stats.setdefault("empty_content", 0)
+    stats.setdefault("edge_fields", {"subgraph": 0, "edges": 0})
 
 # 生效条件：nid 的 cg.index["nodes"] 条目（无条目或值为假则视为空 dict）中 path 为真时取其为 p，否则用 layer 或 "zz" 拼 f"{nid}.md"、反斜杠替换为 "/"，返回 (LAYERS 序表的 .get(p 首段, 99), p)；
     def _order_key(nid):
@@ -189,9 +270,19 @@ def _restore(cg, con, verbose=False):
         if not d:
             continue
         fm = d.get("frontmatter") or {}
+        content = d.get("content") or ""
+        if is_encrypted(content):
+            stats["sealed_skipped"] += 1
+            continue  # 派生层无解密权限：跳过并计数，绝不把密文当正文
+        if not content.strip():
+            stats["empty_content"] += 1
+        if fm.get("subgraph"):
+            stats["edge_fields"]["subgraph"] += 1
+        if fm.get("edges"):
+            stats["edge_fields"]["edges"] += 1
         n_rows.append((
             str(nid),
-            d.get("content") or "",
+            content,
             fm.get("modality") or "text",
             _js(fm.get("spatial")),
             _f(fm.get("temporal"), None),
@@ -233,6 +324,8 @@ def _restore(cg, con, verbose=False):
         " last_verified, source_evidence)"
         " VALUES (?,?,?,?,?,?,?,?,?,?,?)", e_rows)
     con.commit()
+    stats["n_nodes"] = len(n_rows)
+    stats["n_edges"] = len(e_rows)
     return len(n_rows), len(e_rows)
 
 
@@ -257,14 +350,17 @@ def build_db_from_md(root=DEFAULT_ROOT, db_path=None, force=False, verbose=True)
     from aeis_core import SpacetimeMemoryEngine
 
     db_path = os.path.abspath(db_path or default_db_path(root))
-    if not force and os.path.exists(db_path):
+    status, detail = _db_status(db_path)
+    if not force and status == "ok":
         n, e = _counts(db_path)
-        if n > 0:
-            if verbose:
-                print(f"[md_whitebox] 复用还原库：{db_path}"
-                      f"（nodes={n} edges={e}）", flush=True)
-            return {"db": db_path, "nodes": n, "edges": e, "reused": True,
-                    "root": root}
+        if verbose:
+            print(f"[md_whitebox] 复用还原库：{db_path}"
+                  f"（nodes={n} edges={e}）", flush=True)
+        return {"db": db_path, "nodes": n, "edges": e, "reused": True,
+                "root": root, "db_status": status}
+    stale_reason = "" if status == "missing" else f"（旧库{status}：{detail}，重建）"
+    if status == "corrupt" and verbose:
+        print(f"[md_whitebox] 旧还原库损坏，丢弃重建：{db_path} {detail}", flush=True)
 
     os.makedirs(os.path.dirname(db_path) or ".", exist_ok=True)
     if os.path.exists(db_path):
@@ -272,17 +368,31 @@ def build_db_from_md(root=DEFAULT_ROOT, db_path=None, force=False, verbose=True)
 
     cg = MdCGOS(root)
     eng = SpacetimeMemoryEngine(db_path=db_path, identity="md原生白箱")
+    stats = {}
     try:
-        n_nodes, n_edges = _restore(cg, eng.store.conn, verbose=verbose)
+        n_nodes, n_edges = _restore(cg, eng.store.conn, verbose=verbose,
+                                    stats=stats)
     finally:
         cg.close()
         eng.close()
+    _secure_db(db_path)
 
+    sealed = int(stats.get("sealed_skipped", 0))
+    fields = stats.get("edge_fields") or {}
     if verbose:
         print(f"[md_whitebox] 还原完成：{db_path}"
-              f"（nodes={n_nodes} edges={n_edges}）", flush=True)
+              f"（nodes={n_nodes} edges={n_edges}）{stale_reason}", flush=True)
+        if sealed:
+            print(f"[md_whitebox] 跳过密文节点 {sealed} 个（派生层无解密权限，"
+                  f"密文不入库）", flush=True)
+        if n_edges == 0:
+            print(f"[md_whitebox] edges=0：语料中 subgraph 字段 {fields.get('subgraph', 0)} 个、"
+                  f"edges 字段 {fields.get('edges', 0)} 个 —— "
+                  f"{'语料本身没有边，不是提取失败' if not fields.get('edges') and not fields.get('subgraph') else '边字段存在但无可解析条目'}",
+                  flush=True)
     return {"db": db_path, "nodes": n_nodes, "edges": n_edges, "reused": False,
-            "root": root}
+            "root": root, "db_status": "rebuilt", "sealed_skipped": sealed,
+            "edge_fields": fields, "empty_content": int(stats.get("empty_content", 0))}
 
 
 # --------------------------------------------------------------------------
