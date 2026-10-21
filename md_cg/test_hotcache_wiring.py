@@ -53,6 +53,19 @@ def main():
     before = hc.stats()["query_hits"]
     cg.search("灵枢 记忆库", k=3, record=False)
     chk(hc.stats()["query_hits"] == before, "H3 换 k 不串味（未命中）")
+    # H4 环境开关翻动必须失效（键含 env_switch）——否则同一 query 会拿到旧口径结果
+    os.environ["MDCG_SEMANTIC"] = "0"
+    r4 = cg.search("灵枢 记忆库", k=5, record=False)
+    before4 = hc.stats()["query_hits"]
+    os.environ["MDCG_SEMANTIC"] = "1"
+    cg.search("灵枢 记忆库", k=5, record=False)
+    chk(hc.stats()["query_hits"] == before4, "H4 环境开关翻动后不命中（键含 env_switch）")
+    os.environ.pop("MDCG_SEMANTIC", None)
+
+    # H5 命中时 meta 带 cached=True（与模块头声明的观测面一致）
+    cg.search("灵枢 记忆库", k=5, record=False)
+    _r, meta_hit = cg.search("灵枢 记忆库", k=5, record=False)
+    chk(bool((meta_hit or {}).get("cached")), "H5 命中时 meta.cached=True")
 
     print("=" * 60)
     print("热缓存接线守卫：%d 通过 / %d 失败" % (ok, bad))

@@ -1520,9 +1520,17 @@ class MdCGOS(MdCG):
         hc = _hc.get(self)
         if hc is None:
             return self._search_impl(query, *args, **kwargs)
+        # 键必须覆盖「会影响结果的环境开关」与「索引代际」——否则同一 query 在
+        # 开关翻动/写入之后会命中旧口径结果（静默错答）。hotcache 自己的
+        # _KEYED_EXTRA 就含 env_switch / index_gen，这里按同一口径补上。
         extra = {k: v for k, v in kwargs.items() if k != "record"}
         if args:
             extra["_args"] = list(args)
+        try:
+            extra["env_switch"] = _hc.env_switch_key()
+        except Exception:
+            pass
+        extra["index_gen"] = self._index_generation()
         kw = dict(k=kwargs.get("k", 20), layer=kwargs.get("layer"),
                   session=kwargs.get("session"), branch=kwargs.get("branch"),
                   validity=kwargs.get("validity"), extra=extra or None)
@@ -1531,6 +1539,12 @@ class MdCGOS(MdCG):
         except Exception:
             hit = None
         if hit is not None:
+            try:
+                meta_hit = hit[1] if isinstance(hit, tuple) and len(hit) > 1 else None
+                if isinstance(meta_hit, dict):
+                    meta_hit["cached"] = True     # 与模块头声明的观测面一致
+            except Exception:
+                pass
             return hit
         out = self._search_impl(query, *args, **kwargs)
         try:
