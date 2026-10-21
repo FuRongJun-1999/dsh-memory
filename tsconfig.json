@@ -7,6 +7,8 @@
     "outDir": "lib",
     "rootDir": "src",
     "strict": true,
+    // TypeScript 7 不再自动纳入 @types/node（实测：PR #588 分支 139 条 TS2591/TS2503 错误），显式声明即可。
+    "types": ["node"],
     "declaration": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
