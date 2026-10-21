@@ -1327,6 +1327,41 @@ def _prose_key(sources) -> str:
     return "prose_" + h[:12]
 
 
+# 生效条件：给定任意文本，若其中存在**行首**带 PROSE_MARK 的行，返回 True。
+def _prose_split(text):
+    """按行首标记把文本切成 (原始正文, 派生块)；无标记则 (原文, "")。
+
+    2026-10-21 批 19：旧 `_is_prose_text` 用「空/纯数字/纯标点」推断，既与
+    `_prose_key` 的口径重复，又会把「正文里恰好提到这个标记」误判成派生块。
+    现在唯一判据是 `PROSE_MARK` 出现在行首（允许前导缩进）——标记由 `_attach_prose`
+    写入，写读同一个常量。判定与切分共用本函数，避免两处各写一遍循环。
+    """
+    raw = str(text or "")
+    lines = raw.splitlines()
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith(PROSE_MARK):
+            return "\n".join(lines[:i]), "\n".join(lines[i:])
+    return raw, ""
+
+
+def is_consolidation_prose(text) -> bool:
+    """判定一段文本里是否含巩固正文块（唯一判据：行首 `PROSE_MARK`）。"""
+    return bool(_prose_split(text)[1])
+
+
+# 生效条件：给定节点全文，返回**切掉**行首 PROSE_MARK 起至文本末尾的那一段之后的文本；无标记则原样返回。
+def _strip_prose(text) -> str:
+    """切掉派生的巩固正文块（标记起、到文末），只留原始正文。
+
+    巩固正文总是**追加在文末**（`_attach_prose`），所以从第一条标记行截断即可。
+    用途：`_source_digests` 取材时不得把别的节点的派生物当原始材料再喂一遍，
+    否则派生正文会一层层自我复制（同型病灶 J：派生物把上游内容当已知）。
+    """
+    if not is_consolidation_prose(text):
+        return str(text or "")
+    return _prose_split(text)[0]
+
+
 # 生效条件：给定 node_ids 与 cg，逐个用 _ccg_field 取「功能名」行（缺失则回落到节点 id），返回 (标题, 正文摘要) 二元组列表；读不到内容的节点跳过。
 def _source_digests(cg, node_ids, limit=PROSE_MAX_SOURCES):
     """读取来源节点的 (标题, 摘要)——**确定性取材**，只读盘上真值，零 LLM。"""
@@ -1339,7 +1374,7 @@ def _source_digests(cg, node_ids, limit=PROSE_MAX_SOURCES):
             node = None
         if not node:
             continue
-        content = node.get("content") or ""
+        content = _strip_prose(node.get("content") or "")
         title = _ccg_field(content, "功能名") or str(nid)
         body = body_text(content).strip().replace("\n", " ")
         out.append((str(nid), title.strip(), body[:120]))
