@@ -460,7 +460,7 @@ def catalog() -> dict:
             "cap_ratio_sum": round(sum(WEIGHTS[p]["cap_ratio"] for p in POOL_ORDER), 12),
             "index_prefixes": list(INDEX_PREFIXES),
             "neg_layers": list(NEG_LAYERS),
-            "default": "off（pools=None → 原 GLOBAL_CAP 平截，不改默认参数）",
+            "default": "on（未设即启用内置表；MDCG_POOLING=0 或 pools=False 退回 GLOBAL_CAP 平截）",
             "discipline": {"no_hidden_budget": "cap_ratio 之和必须 == 1.0",
                            "explicit_weights": "降权系数只来自显式表，可 A/B 复算",
                            "opt_in": "默认关闭，启用需显式传表",
@@ -477,7 +477,9 @@ def catalog() -> dict:
 # 生效条件：pools 非 None 且非 False 时原样返回 pools；pools 为 None 或 False 时读 os.environ.get(ENV_SWITCH)，缺失/空串经 or "" 归空串并 strip().lower()，属于 ("1","on","true","yes","y") 则返回 True，否则返回 None。
 def from_env(pools=None):
     """载体侧开关：`pools` 显式给出时优先；否则读 `MDCG_POOLING`（默认关）。"""
-    if pools is not None and pools is not False:
+    if pools is False:
+        return None          # 显式关（反向腿）：默认已开，必须能被显式关掉
+    if pools is not None:
         return pools
     v = (os.environ.get(ENV_SWITCH) or "").strip().lower()
     if v in ("0", "off", "false", "no", "n"):
