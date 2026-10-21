@@ -57,7 +57,52 @@ def conflicts_among(nodes, limit: int = MAX_PAIRS) -> list:
     return pairs
 
 
+from . import value_conflict as _vc
+from . import untrusted as _ut
+
+
+def value_pairs_among(nodes, limit: int = MAX_PAIRS) -> list:
+    """同 condition_space 下同名键不同值 —— 复用 value_conflict.compare。"""
+    items = []
+    for n in nodes or []:
+        if isinstance(n, dict):
+            items.append((str(n.get("id") or ""), n.get("frontmatter") or {}, _norm(n.get("content"))))
+    out = []
+    for i in range(len(items)):
+        for j in range(i + 1, len(items)):
+            a_id, a_fm, a_body = items[i]
+            b_id, b_fm, b_body = items[j]
+            hit = _vc.compare(a_fm, a_body, b_fm, b_body)
+            if hit:
+                hit["a"], hit["b"] = a_id, b_id
+                out.append(hit)
+            if len(out) >= limit:
+                return out
+    return out
+
+
+def untrusted_among(nodes) -> list:
+    """检索结果里命中「伪装系统消息/指令式」的节点（只报案，不改内容）。"""
+    out = []
+    for n in nodes or []:
+        if not isinstance(n, dict):
+            continue
+        r = _ut.classify(n.get("content"))
+        if r.get("untrusted"):
+            out.append({"id": str(n.get("id") or ""), "markers": r.get("markers")})
+    return out
+
+
 def as_meta(nodes, limit: int = MAX_PAIRS) -> dict:
-    """把矛盾对包成可直接并进 meta 的字典（空则不产生键）。"""
+    """把三类信号包成可直接并进 meta 的字典（空则不产生键）。"""
+    meta = {}
     pairs = conflicts_among(nodes, limit=limit)
-    return {"conflicts_among": pairs} if pairs else {}
+    if pairs:
+        meta["conflicts_among"] = pairs
+    vp = value_pairs_among(nodes, limit=limit)
+    if vp:
+        meta["value_conflicts_among"] = vp
+    ut = untrusted_among(nodes)
+    if ut:
+        meta["untrusted_among"] = ut
+    return meta
