@@ -850,9 +850,9 @@ KERNEL_TOOLS = [
             heal_interval=_p("number", "sustain start：巡检间隔秒（默认 300）"),
             auto_heal=_p("boolean", "sustain start：巡检异常时自动修复（默认是）"),
             scrub_interval=_p("number", "sustain start：自净间隔秒（默认 3600）"),
-            auto_scrub=_p("boolean", "sustain start：自净执行去污染（默认否，只巡检）"),
+            auto_scrub=_p("boolean", "sustain start：自净执行去污染（默认是；auto_scrub=false 可退回只巡检）"),
             evolve_interval=_p("number", "sustain start：演化巡检间隔秒（默认 7200）"),
-            auto_evolve=_p("boolean", "sustain start：演化巡检自动落盘确定性动作"
+            auto_evolve=_p("boolean", "sustain start：演化巡检自动落盘确定性动作（默认是）"
                                       "（仅重要性重算；固化需 LLM 仍交人工。默认否）"),
             allow_evolve=_p("boolean", "sustain heal：放行演化类修复"
                                       "（确定性动作才执行；默认否）"),
@@ -2645,7 +2645,7 @@ def _cg_dispatch(cg, a):
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
                              validity=a.get("validity"),
-                             **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
+                             **({"paths": ("bm25",)} if a.get("bm25", True) else {}), **_tkw)
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
@@ -2654,7 +2654,7 @@ def _cg_dispatch(cg, a):
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
                            validity=a.get("validity"), **_tkw)
-        if a.get("bm25"):
+        if a.get("bm25", True):
             ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
@@ -4137,7 +4137,7 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        use_bm25 = bool(a.get("bm25"))
+        use_bm25 = bool(a.get("bm25", True))  # 默认开（BM25+）；传 bm25=false 可退回词法路
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
