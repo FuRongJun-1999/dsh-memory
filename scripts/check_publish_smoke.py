@@ -304,7 +304,21 @@ def parse_args(argv):
     return parser.parse_args(argv)
 
 
+def _force_utf8_stdio():
+    """Windows 控制台默认 GBK：本脚本会打印 ⇒/→ 等字符，必须强制 UTF-8。
+
+    与仓库纪律「命令执行统一走 python + PYTHONUTF8=1」同向：脚本自身兜底，
+    不要求调用方记得设环境变量（npm run gate 就是没设的那种）。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
 def main(argv=None):
+    _force_utf8_stdio()
     args = parse_args(argv)
     root = os.path.abspath(args.root or _REPO)
     report = Report()
