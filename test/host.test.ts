@@ -21,6 +21,7 @@ import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import * as plugin from '../src/index.js'
 // issue #19：解释器按平台取（Windows python / 其它 python3）。
 import { defaultPython } from '../src/lib/python_path.js'
+import { HookAuditRecorder } from '../src/lib/hook_audit.js'
 
 /** 本仓根目录：md_cg 随仓库自带，靠 PYTHONPATH 解析（无需 pip 安装）。 */
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -58,6 +59,7 @@ async function mountHost(dataDir: string) {
         MDCG_ACTOR: 'dsh-host-test',
         MDCG_TENANT: 'default',
         MDCG_CLEARANCE: 'private',
+        MDCG_AUX_ROOT: join(dataDir, 'mdcg-aux'), // 凭据/身份辅助面也隔离到临时目录。
       },
       cwd: REPO_ROOT,
       mdcg: {
@@ -148,6 +150,28 @@ test('插件卸载：工具注销且进程退出', async () => {
       !host.root.tools.schemas().some((s) => s.name.startsWith('lingshu_')),
       '卸载后 lingshu_* 工具应注销',
     )
+  } finally {
+    host.disposeAll()
+    safeCleanup(dir)
+  }
+})
+
+test('S8 真实插件：apply 接入收尾函数，卸载只输出一次累计审计摘要', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'lingshu-host-audit-'))
+  const host = await mountHost(dir)
+  try {
+    const audit = new HookAuditRecorder(join(dir, 'hook-audit.json'))
+    audit.written('user')
+    audit.filtered('kind')
+    audit.skipped('sanitized', 'user')
+    const summaries = () => host.root.logger.buffer
+      .filter((m) => String(m.args[0]).startsWith('dsh-memory: 自动记忆审计（累计）'))
+      .map((m) => m.args[0])
+    assert.deepEqual(summaries(), [], '运行时不主动输出摘要')
+    await host.disposePlugin()
+    assert.deepEqual(summaries(), ['dsh-memory: 自动记忆审计（累计）written=1 filtered=1 skipped=1'])
+    await host.disposePlugin()
+    assert.equal(summaries().length, 1)
   } finally {
     host.disposeAll()
     safeCleanup(dir)
