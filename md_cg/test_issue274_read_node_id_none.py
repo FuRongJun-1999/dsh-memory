@@ -121,16 +121,39 @@ def n4():
     ok(not _is_type_error(o), "N4b 不传 node_id 不报类型错")
 
 
+#: 结果形状相同、但**按调用次数变化**的 meta 键（2026-10-21 起 BM25 默认开、
+#: 默认检索走 RRF 融合，热缓存与构建计数会被观测到）。比较 N5 时排除它们：
+#: 这些字段记录的是"本次调用做了多少工作"，不是"检索到了什么"。
+_VOLATILE_META = ("cached", "bm25", "reach_build_docs", "reach_build_reads",
+                  "scanned", "candidates", "pre_cap", "cut_order")
+
+
+def _stable(obj):
+    """把响应里"随调用次数变化"的 meta 键剥掉，只留结果与稳定口径。"""
+    if not isinstance(obj, dict):
+        return obj
+    out = {}
+    for k, v in obj.items():
+        if k == "meta" and isinstance(v, dict):
+            out[k] = {kk: vv for kk, vv in v.items() if kk not in _VOLATILE_META}
+        else:
+            out[k] = v
+    return out
+
+
 def n5():
-    print("== N5 node_id=None 与「不传」逐字节相同（钉成契约）==")
+    print("== N5 node_id=None 与「不传」同处置（结果逐条相同；排除易变 meta）==")
     cg = _cg("n5")
     a1 = _call(cg, {"op": "read", "node_id": None, "query": "alpha"})
     a2 = _call(cg, {"op": "read", "query": "alpha"})
-    ok(json.dumps(a1, ensure_ascii=False, sort_keys=True)
-       == json.dumps(a2, ensure_ascii=False, sort_keys=True),
-       "N5 node_id=None 与不传 node_id 逐字节相同（报告读数，已钉为契约）",
-       (json.dumps(a1, ensure_ascii=False)[:100],
-        json.dumps(a2, ensure_ascii=False)[:100]))
+    # 意图不变：两种「未传」必须落同一条处置（都走检索、返回同一批结果）。
+    # 原断言要求整包逐字节相同；BM25 默认开 + 热缓存生效后，meta 会带
+    # cached / bm25 构建计数等"按调用次数变化"的字段，故按稳定面比较。
+    ok(json.dumps(_stable(a1), ensure_ascii=False, sort_keys=True)
+       == json.dumps(_stable(a2), ensure_ascii=False, sort_keys=True),
+       "N5 node_id=None 与不传 node_id 结果一致（稳定面逐字节相同）",
+       (json.dumps(_stable(a1), ensure_ascii=False)[:100],
+        json.dumps(_stable(a2), ensure_ascii=False)[:100]))
 
 
 def n6():

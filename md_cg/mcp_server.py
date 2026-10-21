@@ -2645,7 +2645,7 @@ def _cg_dispatch(cg, a):
                              recent_limit=int(a.get("limit") or 10),
                              session=a.get("session"),
                              validity=a.get("validity"),
-                             **({"paths": ("bm25",)} if a.get("bm25") else {}), **_tkw)
+                             **({"paths": ("bm25",)} if a.get("bm25", True) and hasattr(cg, "search_rrf") else {}), **_tkw)
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
@@ -2654,7 +2654,7 @@ def _cg_dispatch(cg, a):
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
                            validity=a.get("validity"), **_tkw)
-        if a.get("bm25"):
+        if a.get("bm25", True) and hasattr(cg, "search_rrf"):
             ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
@@ -4137,7 +4137,10 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        use_bm25 = bool(a.get("bm25"))
+        # recall 面保持词法默认：其「缺省六路」与 sum/max 融合口径都是**已登记契约**
+        # （test_time_core_lint G8b/G8c、test_p3 A2）。BM25 默认开只落在检索面
+        # （mdcg_search / cg(op=read) 回退），recall 仍 opt-in。
+        use_bm25 = bool(a.get("bm25")) and hasattr(cg, "search_rrf")
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
@@ -4177,7 +4180,10 @@ def _dispatch(cg, name, args):
         # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM
-        return cg.recall(a.get("query", ""),
+        # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
+        # recall 是**进上下文**的通路，故此处把带 untrusted 标记的条目剔出 pack，
+        # 并在 meta 记数。检索面（mdcg_search）仍可查见它们——查得到但不进提示词。
+        _pack = cg.recall(a.get("query", ""),
                          # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
                          budget_tokens=int(a["budget_tokens"])
                          if a.get("budget_tokens") is not None else 1200,
@@ -4194,9 +4200,76 @@ def _dispatch(cg, name, args):
                          query_expand=_make_query_expand(a.get("expand")),
                          session=a.get("session"),
                          validity=a.get("validity"))
+        # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
+        # recall 是进上下文的通路，故把带 untrusted 标记的条目剔出 pack 并记数；
+        # 检索面（mdcg_search）仍可查见——查得到，但不进提示词。
+        try:
+            _items = _pack.get("pack") if isinstance(_pack, dict) else None
+            if isinstance(_items, list):
+                _kept, _drop = [], 0
+                for _it in _items:
+                    _fm = {}
+                    if isinstance(_it, dict):
+                        _node = _it.get("node") if isinstance(_it.get("node"), dict) else _it
+                        _fm = _node.get("frontmatter") or {}
+                    if _fm.get("untrusted"):
+                        _drop += 1
+                        continue
+                    _kept.append(_it)
+                if _drop:
+                    _pack["pack"] = _kept
+                    _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
+        except Exception:
+            pass
+        return _pack
 
     if name == "mdcg_search":
         from . import refindex
+        # ---- query 级热缓存（默认面接线，2026-10-21）----
+        # 热缓存的读写在 search_rrf 内，而默认检索面走 cg.search（本分支）——
+        # 故此处补一层工具级缓存：键按 hotcache 既有口径 + 全部入参 + 环境开关 + 索引代际。
+        # 命中直接返回上一次的**整个工具返回体**（形状与未命中一致）；
+        # 显式 node_id / op 的调用一律绕过（那是"读某条"，不是"查一次"）。
+        from . import hotcache as _hc
+        # 工具层用**独立实例**：与 search_rrf 共用同一 _queries 字典会让两种值形状
+        # 共处一个键空间——一旦键相等就是「静默错答/解包炸裂」（蜂巢反思单元 P0）。
+        if not hasattr(cg, "_hotcache_tool"):
+            cg._hotcache_tool = _hc.HotCache()
+        # validity=True 的查询需要时钟窗，工具层不带窗口语义 ⇒ 一律不缓存（P1）。
+        _hcobj = None if ("node_id" in a or a.get("op") or a.get("validity")) else cg._hotcache_tool
+        _ckw = None
+        if _hcobj is not None:
+            try:
+                _extra = {k: v for k, v in a.items() if k not in ("query", "bm25")}
+                _extra["env_switch"] = _hc.env_switch_key()
+                if hasattr(cg, "_index_generation"):
+                    _extra["index_gen"] = cg._index_generation()
+                # 安全自检（2026-10-21）：检索结果按 **调用者身份** 过滤
+                # （MdCGSecure._candidates → _readable 按 session/密级判可见），
+                # 故缓存键必须含**有效身份**，否则高密级/他会话的结果会被低密级命中。
+                # 口径：principal(tenant/actor/clearance) + 有效 session（cg.session 覆盖入参）。
+                _pr = getattr(cg, "principal", None)
+                _eff_sess = getattr(cg, "session", None) or a.get("session")
+                _extra["identity"] = (
+                    getattr(_pr, "tenant", None), getattr(_pr, "actor", None),
+                    getattr(_pr, "clearance", None), _eff_sess)
+                # 键里直接用原始 k（不调 _int_arg：那是「六处委托单点」的守卫计数面，
+                # 多一处调用会被 test_read_face_input_gates M1-B2 判成第二份实现）。
+                _ckw = dict(k=a.get("k"), layer=a.get("layer"),
+                            session=a.get("session"), validity=a.get("validity"),
+                            extra=_extra or None)
+                _hit = _hcobj.get_query(a.get("query", ""), **_ckw)
+            except Exception:
+                _hit = None
+            if _hit is not None:
+                import copy as _copy
+                _rows, _tag = (_hit if isinstance(_hit, tuple) and len(_hit) == 2 else (None, {}))
+                if (isinstance(_tag, dict) and _tag.get("surface") == "mdcg_search"
+                        and _tag.get("v") == 1 and isinstance(_rows, list) and len(_rows) == 1
+                        and isinstance(_rows[0], dict)):
+                    # 深拷贝：hotcache 的 _copy_row 只浅一层，_out["results"] 列表会共享
+                    return _copy.deepcopy(_rows[0])
+                _hit = None          # 形状/版本不符 ⇒ 当未命中，不猜
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=_int_arg(a, "k", 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
@@ -4209,10 +4282,23 @@ def _dispatch(cg, name, args):
         if _cf:
             meta = dict(meta or {})
             meta.update(_cf)
-        return {"meta": meta,
+        _out = {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
-                             "reason": q.get("reason"), **refindex.ref_fields(n)}
+                             "reason": q.get("reason"),
+                             # 未信任标记透出到结果行：上层据此把它当数据、不当指令
+                             "untrusted": bool((n.get("frontmatter") or {}).get("untrusted")),
+                             **refindex.ref_fields(n)}
                             for n, s, q in res]}
+        if _hcobj is not None and _ckw is not None:
+            try:
+                # 写入时深拷贝：否则**未命中那一次**返回给调用方的对象与缓存同一份，
+                # 调用方原地改（append/改 score）就污染了缓存（蜂巢验证单元指出 _copy_row 只浅一层）。
+                import copy as _copy2
+                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_out)],
+                                 {"surface": "mdcg_search", "v": 1}, **_ckw)
+            except Exception:
+                pass
+        return _out
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")

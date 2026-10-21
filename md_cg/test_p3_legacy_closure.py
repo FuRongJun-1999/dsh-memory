@@ -163,8 +163,11 @@ def ga_fusion():
         print(f"     max    ={mx}")
         check("A2 默认口径 == max（逐条相同）", d == mx, f"{d} vs {mx}")
         check("A2 默认口径 ≠ sum（逐条不同：分数或名次）", d != s, f"{d} vs {s}")
-        check("A2 top-1 名次在 sum/max 下不同（口径差可观测）",
-              bool(d) and bool(s) and d[0][0] != s[0][0],
+        # 口径差的可观测形式（2026-10-21 重述）：**分数或名次**任一不同即算观测到差异。
+        # 原断言只比 id——BM25 默认开之后 sum/max 的 id 顺序可能相同、但分数按 2 倍差异，
+        # 只比 id 会把"口径确实不同"误判成"没差异"。
+        check("A2 top-1 读数在 sum/max 下不同（分数或名次，口径差可观测）",
+              bool(d) and bool(s) and d[0] != s[0],
               f"{d[:1]} vs {s[:1]}")
     finally:
         cg.close()
