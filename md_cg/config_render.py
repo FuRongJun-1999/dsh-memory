@@ -39,12 +39,22 @@ ENUMS = {
     _ENV_SLEEP_MERGE: tuple(_sl.SLEEP_MERGE_MODES),
     "IMGSKILL_BACKEND": ("auto", "magick", "pillow"),
     "MDCG_SCORE_MODE": ("legacy", "jaccard"),
+    "MDCG_EN_ATOMS": ("norm", "raw"),
 }
 
 #: 源码只认 "1" 为真值的 env 开关（人工核验：读点是 `os.environ.get(X) == "1"`，
 #: 因此 "true"/"yes"/"on" 在运行时不生效；校验器必须按同口径拒收，避免「报合法但实际关」。
 TRUE_LITERALS = {
     "MDCG_RETRIEVAL_PIPELINE": ["1"],
+    "MDCG_SEMANTIC": ["1"],
+    "MDCG_UNIFY_QUERY": ["1"],
+    "MDCG_REACH": ["1"],
+    "MDCG_REACH_DIFFUSE": ["1"],
+    "MDCG_HOTCACHE": ["1"],
+    "MDCG_QMD_SYS": ["1"],
+    "MDCG_PROPOSAL_EMOTION": ["1"],
+    "MDCG_POOLING": ["1"],
+    "MDCG_READ_CACHE": ["1"],
 }
 
 #: 明显带值域约束的数值参数（**人工核验**，取自源码夹取/断言；未列者不约束）。
@@ -183,6 +193,11 @@ def _rule_for(e):
     elif e.get("semantic") in ("on", "off", "fail-open"):
         r["type"] = "bool"
         r["bool_like"] = True
+    # env_flag 的源码口径恒为 `os.environ.get(X) == "1"`（只认 "1" 为真）：
+    # 若只给 bool_like 宽词表，校验器会认 "true" 而运行时实际是关（issue #138 同型）。
+    if r.get("type") == "bool" and (e.get("anchor") or {}).get("how") == "env_flag":
+        r["true_literals"] = ["1"]
+
     if name in TRUE_LITERALS:
         r["type"] = "bool"
         r["bool_like"] = True
@@ -197,6 +212,8 @@ def _rule_for(e):
     if name in ENUMS:
         r["type"] = "str"
         r["enum"] = list(ENUMS[name])
+        r.pop("bool_like", None)      # 枚举键不该再接受 "1"/"true" 当合法值
+        r.pop("true_literals", None)
     # ③ 已知数值值域 → 数值类型 + 上下限
     if name in RANGES:
         lo, hi, t = RANGES[name]
