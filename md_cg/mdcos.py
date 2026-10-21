@@ -2884,7 +2884,8 @@ class MdCGOS(MdCG):
 
 # 生效条件：stat inbox_log 失败（OSError）时把 _inbox_recs 置空列表、两扫描键置 -1 并返回它；size 与 mtime_ns 均与缓存键一致时直接返回 _inbox_recs（零解析）；缓存键为 -1（首装）或当前 size 小于已扫描偏移时以 read_jsonl_tail(path, 0) 全量重建，否则以 read_jsonl_tail(offset) 结果 extend 增量并入；水位存 read_jsonl_tail 返回的已提交完整行偏移（end 为 None 时回落 stat size），mtime_ns 存读前 stat 值，返回 _inbox_recs（内部缓存，调用方只读不得变更）。
 # 生效条件：node_id 为非空字符串时，遍历 inbox 全记录（`_inbox_records` 缓存）取
-# `rec["id"] == node_id` 且其 pid **尚未出现**在裁决台账（`_pid_status` 缓存）里的记录，
+# `rec["id"] == node_id` 且其 pid **尚未被终态裁决关闭**的记录（`_pid_status` 缓存；
+# needs_reapproval 仍待再审批，与 _closed_pids/review_list 使用同一终态闭集），
 # 按文件序返回最多 limit 个 pid；node_id 为空/无匹配返回空列表。只读、零写、不抛。
     def pending_proposals(self, node_id, limit: int = 5) -> list:
         """该节点在审核队列里**待裁决**的提案 id（读面标注用，issue #561 第①项）。
@@ -2904,7 +2905,8 @@ class MdCGOS(MdCG):
             if str(rec.get("id") or "") != node_id:
                 continue
             pid = rec.get("pid")
-            if not pid or pid in decided:
+            if (not pid or (decided.get(pid) or {}).get("status")
+                    in TERMINAL_DECISION_STATUS):
                 continue
             out.append(pid)
             if len(out) >= int(limit or 5):
