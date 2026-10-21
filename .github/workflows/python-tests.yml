@@ -15,7 +15,10 @@ name: python-tests
 # SKIP（如实标记跳过理由，不是假绿）。
 on:
   workflow_dispatch:
+  # 只在 main 上响应 push：PR 分支若同时触发 push + pull_request，同一提交会跑两遍
+  # （实测每 PR 双份 run-tests，队列被占满 —— 12 个 PR 排队数小时）。PR 侧只留 pull_request。
   push:
+    branches: [main]
   pull_request:
 
 concurrency:
