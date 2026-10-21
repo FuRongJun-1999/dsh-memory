@@ -594,13 +594,23 @@ def _norm_word_mem(w: str) -> str:
 
 # 生效条件：给定 text（假值按 "" 处理），先清除非中文/空格/字母数字字符，再对长度 ≥2 的英文词小写、若在 EN_STOPWORDS 中剔除否则 strip_tense_en 去时态复数，压缩空白后返回；中文保持不变。
 def normalize_en(text: str) -> str:
-    """英文归一化：小写 + 去停用词 + 去时态复数。中文部分不动。
+    """英文归一化：NFKC 全角收口 + 小写 + 去停用词 + 去时态复数。中文部分不动。
 
     设计者裁定：
       - 大小写统一转小写匹配
       - 停用词（the 等）不能拆成 bigram 参与匹配（整词剔除）
       - 时态/复数归零（walked→walk, pets→pet）
+
+    issue #623：清理正则的字符类 `[^\u4e00-\u9fff a-zA-Z0-9]` 不含全角拉丁/
+    数字（U+FF01–FF5E），全角字母数字一律被当标点抹成空格 ⇒
+    `expand_query_terms('ｄｅｐｌｏｙ')` 产**空词项**（#150 空词过滤后为 []），
+    qb 为空，任何 tier 都无候选——检索面对全角/半角同形文本双向不可互命中。
+    NFKC **前置**走本仓自述的唯一单点 `routing.nfkc_text`（全角→半角收口，
+    不另写实现）：纯中文（CJK 常用区无兼容分解）与半角 ASCII 输入逐字原样，
+    行为零变化；全角字母/数字才被折到清理正则可见的半角形态。
     """
+    # NFKC 全角收口（唯一单点；#623）：先折后清，清理正则才不会把全角字母数字当标点
+    text = routing.nfkc_text(text)
     # 清标点（保留中文字符和空格和数字）
     cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', text or "")
 # 生效条件：m.group(0) 小写后交模块级 _norm_word_mem 查词级 memo（纯函数精确键控：命中返回缓存值，未命中按 EN_STOPWORDS 剔除/strip_tense_en 同口径计算并回填）——命中值≡逐词现算值，返回串接进归一结果；
@@ -4271,8 +4281,11 @@ class MdCG:
         内容不变则派生物不变——readcache 启用时覆写为缓存版（随读缓存
         一并常驻，Rust `load_docs` 预计算 stripped/db_len 同款理论）；
         基类默认即算即弃，行为与改动前逐位一致。
+
+        #623：content 先过 routing.fold_variants 再 normalize_en——与查询侧
+        入口折叠同口径，全角正文/全角查询在词法分两侧同形。
         """
-        return bigrams(normalize_en(c))
+        return bigrams(normalize_en(routing.fold_variants(c)))
 
 # 生效条件：恒返回 nodefile.positive_body(content)——剥除 `# 不适用条件` 声明段后的正文（剥除算法单点 _strip_ccg_segments，行内带值只剥该行、裸标题连同其后首个非空非标题的值行一并剥除）；内容不变则派生物不变，readcache 启用时覆写为缓存版（随读缓存一并常驻）。
     def _positive_body(self, entry, content):
@@ -4293,8 +4306,13 @@ class MdCG:
         return nodefile.positive_body(content)
 
     def _like_body_lower(self, entry, content):
-        """Lowercase positive body; readcache reuses this pure projection."""
-        return self._positive_body(entry, content).lower()
+        """Folded positive body; readcache reuses this pure projection.
+
+        #623：折叠走 routing.fold_variants 单点（NFKC → casefold），不再只
+        lowercase——全角正文的 LIKE 召回面与查询侧入口折叠同口径。钩子名保
+        留旧称（调用方/缓存面零改动），语义随检索面口径一起收口。
+        """
+        return routing.fold_variants(self._positive_body(entry, content))
 
     def _doc_exact_text(self, entry, content):
         """Whitespace-free full content for the existing exact-hit tie break.
@@ -5096,7 +5114,8 @@ class MdCG:
         else:
             body = (positive_body(entry, content) if positive_body is not None
                     else nodefile.positive_body(content))
-            body_l = body.lower()
+            # #623：旧调用方路径与钩子路径同口径（fold_variants，不止 lowercase）
+            body_l = routing.fold_variants(body)
         tags_l = tags.lower()
         # issue #150：空词项恒真（`"" in s` → True）⇒ 必须滤掉；否则 LIKE 预筛恒真、
         # 全库入池。Rust `retrieval.rs::like` 同款（跨侧守卫钉住一致性）。

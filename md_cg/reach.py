@@ -48,6 +48,7 @@ import time
 
 from .fsutil import FileLock, atomic_write
 from . import nodefile
+from .routing import fold_variants
 
 
 # 生效条件：调用发生在 md_cg.mdcg 完成导入之后（本模块被 mdcg 顶层 import 时**不得**在模块级取用
@@ -63,14 +64,24 @@ def _doc_tokens(content, tags):
     bg, ne = _lex()
     body = nodefile.positive_body(content).lower()
     tag_s = " ".join(str(t) for t in (tags or [])).lower()
+    # issue #623：折叠口径三面同源（routing.fold_variants 单点）——查询侧在
+    # search 入口折叠、LIKE 面在 _like_body_lower 折叠、打分面在 _doc_norm_bigrams
+    # 折叠。此处收一份**折叠后**的文档 token，全角正文与半角查询（或反向）的
+    # bigram 才能在前筛处相遇；仍是纯超集方向（原四路 token 一字不动）。
+    body_f = fold_variants(body)
+    tag_f = fold_variants(tag_s)
+    cont_f = fold_variants(content or "")
     # 文档侧 token = 正体小写 ∪ 标签小写 ∪ normalize_en(正文) ∪ normalize_en(正文).lower()
     # 末项是**超集保险**：查询侧与 LIKE 都走小写口径，故索引侧再收一份全小写（r13 复核：
     # 若 LIKE 命中落在正体之外且含大写/全角，仅 ne() 可能不产生对应小写 bigram）
-    return bg(body) | bg(tag_s) | bg(ne(content)) | bg(ne(content).lower())
+    return (bg(body) | bg(tag_s) | bg(ne(content)) | bg(ne(content).lower())
+            | bg(body_f) | bg(tag_f) | bg(ne(cont_f)) | bg(ne(cont_f).lower()))
 
 INDEX_NAME = "_reach_index.json"
 #: 倒排落盘用 JSON 列表（曾用逗号/单元分隔符拼接：含该字符的路径会被拆碎，r1/r11 复核取证）
-SCHEMA_VERSION = 1
+#: #623：文档 token 集新增折叠（fold_variants）四路——旧盘上索引缺这四路
+#: bigram，前筛会漏收敛全角同形候选。版本 +1 强制重建，落盘文件照旧失效。
+SCHEMA_VERSION = 2
 #: 扩散触发阈值：收敛集小于该值时才做图扩散（避免大集合上无谓放大）
 DIFFUSE_BELOW = 400
 #: 未索引/新写入节点的并入上限：超过即整段回退不收敛（不静默截断——截断会破坏超集/A2）
