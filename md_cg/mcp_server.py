@@ -4137,7 +4137,10 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        use_bm25 = bool(a.get("bm25", True)) and hasattr(cg, "search_rrf")
+        # recall 面保持词法默认：其「缺省六路」与 sum/max 融合口径都是**已登记契约**
+        # （test_time_core_lint G8b/G8c、test_p3 A2）。BM25 默认开只落在检索面
+        # （mdcg_search / cg(op=read) 回退），recall 仍 opt-in。
+        use_bm25 = bool(a.get("bm25")) and hasattr(cg, "search_rrf")
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
