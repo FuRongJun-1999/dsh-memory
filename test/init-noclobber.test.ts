@@ -65,7 +65,9 @@ test('① 已存在且内容不同：不覆盖，改写旁路文件', async () =
 
     // ② 命名形态
     const base = r.snippetPath.slice(r.snippetPath.lastIndexOf('\\') + 1).split('/').pop() ?? ''
-    assert.match(base, /^lingshu-mcp-snippet-new-\d+\.json$/,
+    // 判据重述（2026-10-21）：3225e5c5 起旁路名固定为 -new.json（幂等、不随时间堆积，
+    // 见 src/init.ts 的 issue #1193 注释），故断言固定名而非时间戳名。
+    assert.match(base, /^lingshu-mcp-snippet-new\.json$/,
       `② 旁路文件名应为 lingshu-mcp-snippet-new-<ts>.json，实际 ${base}`)
 
     // ③ 旁路内容 = 本次片段
