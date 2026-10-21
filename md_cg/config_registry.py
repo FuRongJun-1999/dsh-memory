@@ -143,7 +143,7 @@ _TABLE_ROWS = (
     ("sleep", "merge", "auto", "enum", "合并策略 auto/ask/never；越界回落 auto"),
     ("sleep", "gitdir", "", "unset", "空 → state_root()/sleep/lib.git"),
     ("sleep", "shadow", "", "unset", "空 → state_root()/sleep/shadow"),
-    ("sleep", "scrub_apply", "0", "off",
+    ("sleep", "scrub_apply", "1", "on",
      "第④步去污染**实改**闸（缺省关：只盘点不落盘）"),
     ("sustain", "auto_heal", True, "on", "自愈档"),
     ("sustain", "auto_scrub", True, "on", "自净档"),

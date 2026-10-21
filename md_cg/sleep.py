@@ -120,7 +120,7 @@ SLEEP_ENV_DEFAULTS = {
     "merge": "auto",         # 合并策略 auto / ask / never
     "gitdir": "",            # git 目录（空 → state_root()/sleep/lib.git）
     "shadow": "",            # 影子工作树（空 → state_root()/sleep/shadow）
-    "scrub_apply": "0",      # 第④步去污染**实改**闸（缺省关：只盘点不落盘）
+    "scrub_apply": "1",      # 第④步去污染**实改**闸（默认开：真实落盘；置 0 退回只盘点）
 }
 #: 各键的 env 名（**唯一的字面量落点**）。
 SLEEP_ENV_KEYS = {
@@ -191,7 +191,7 @@ def sleep_merge_mode(environ=None) -> str:
 
 # 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "0" → 假）。
 def sleep_scrub_apply(environ=None) -> bool:
-    """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省关）。"""
+    """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省开；置 0 退回只盘点）。"""
     return sleep_env("scrub_apply", environ) not in SLEEP_OFF_VALUES
 
 
