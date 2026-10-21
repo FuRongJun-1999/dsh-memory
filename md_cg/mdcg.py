@@ -3039,6 +3039,17 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # 写入面信任标记（使用者裁定 2026-10-21：「未验证、未信任的信息本来就不应该执行」）：
+        # 文本里出现伪装系统消息/指令式短语 ⇒ 落 untrusted 标记 + 命中词，供检索面与
+        # 上层（注入前）据此把它当**数据**而不是指令；不改正文（数据无损）。
+        try:
+            from . import untrusted as _un
+            _u = _un.classify(content)
+            if _u.get("untrusted"):
+                fm["untrusted"] = True
+                fm["untrusted_markers"] = list(_u.get("markers") or [])
+        except Exception:
+            pass
         # 相对时间锚定（MDCG_TIME_ANCHOR=1，缺省关 ⇒ 零调用、fm 逐位不变）：无显式 temporal
         # 时把正文里的时间表达以 created_at 为参照归一成派生字段 temporal_anchor；解析不了不写。
         if _timeanchor.enabled():

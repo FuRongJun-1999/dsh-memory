@@ -4177,7 +4177,10 @@ def _dispatch(cg, name, args):
         # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM
-        return cg.recall(a.get("query", ""),
+        # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
+        # recall 是**进上下文**的通路，故此处把带 untrusted 标记的条目剔出 pack，
+        # 并在 meta 记数。检索面（mdcg_search）仍可查见它们——查得到但不进提示词。
+        _pack = cg.recall(a.get("query", ""),
                          # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
                          budget_tokens=int(a["budget_tokens"])
                          if a.get("budget_tokens") is not None else 1200,
@@ -4194,6 +4197,28 @@ def _dispatch(cg, name, args):
                          query_expand=_make_query_expand(a.get("expand")),
                          session=a.get("session"),
                          validity=a.get("validity"))
+        # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
+        # recall 是进上下文的通路，故把带 untrusted 标记的条目剔出 pack 并记数；
+        # 检索面（mdcg_search）仍可查见——查得到，但不进提示词。
+        try:
+            _items = _pack.get("pack") if isinstance(_pack, dict) else None
+            if isinstance(_items, list):
+                _kept, _drop = [], 0
+                for _it in _items:
+                    _fm = {}
+                    if isinstance(_it, dict):
+                        _node = _it.get("node") if isinstance(_it.get("node"), dict) else _it
+                        _fm = _node.get("frontmatter") or {}
+                    if _fm.get("untrusted"):
+                        _drop += 1
+                        continue
+                    _kept.append(_it)
+                if _drop:
+                    _pack["pack"] = _kept
+                    _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
+        except Exception:
+            pass
+        return _pack
 
     if name == "mdcg_search":
         from . import refindex
@@ -4254,7 +4279,10 @@ def _dispatch(cg, name, args):
             meta.update(_cf)
         _out = {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
-                             "reason": q.get("reason"), **refindex.ref_fields(n)}
+                             "reason": q.get("reason"),
+                             # 未信任标记透出到结果行：上层据此把它当数据、不当指令
+                             "untrusted": bool((n.get("frontmatter") or {}).get("untrusted")),
+                             **refindex.ref_fields(n)}
                             for n, s, q in res]}
         if _hcobj is not None and _ckw is not None:
             try:
