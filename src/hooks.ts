@@ -727,6 +727,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   // 因此本实现把「要不要补」交还给宿主：压缩归档后宿主会把 retained 置空并重新投影快照
   // （RuntimeContextProjection 的 retained === null 分支），本块自然跟着回来——
   // 不需要插件自己数步数做自愈。
+  /** 进程内轮次计数（session → 已 assemble 轮数）。见 shouldRemindTurn。 */
+  const turnSeq = new Map<string, number>()
   if (opts.autoRecall) {
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
@@ -749,6 +751,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 真机单实例下两者逐位等价（差异窗口不可达）。
           const sid = sessionIdOf(hostCtx?.agent?.session)
             || (observedSession ? currentSession() : '')
+          // 逢十轮提醒（纪律第 16 条）：assemble 每轮触发一次 ⇒ 以此计轮。
+          // 状态只在本进程内（重启归零）：宁可多提醒一次，不留假状态。
+          const turnKey = sid || '__no_sid__'
+          const turnNo = (turnSeq.get(turnKey) ?? 0) + 1
+          turnSeq.set(turnKey, turnNo)
+          if (shouldRemindTurn(turnNo)) {
+            assembly.contexts.push({
+              name: 'lingshu:turn-reminder',
+              text: escapePromptBraces(formatTurnReminder(turnNo)),
+            })
+          }
           const text = formatTimelineDecayed(
             await graph.timeline(recallLimit, sid ? { session: sid } : {}))
           if (text) {
@@ -931,4 +944,25 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       }
     }
   })
+}
+
+
+/** 逢十轮提醒阈值（工作纪律第 16 条「长会话节奏」）。
+ *
+ *  动机：真源第 16 条要求「每完成 10 轮交互做一次间歇归档（写入 + 读回确认），
+ *  不等收尾」。zcode 端由 `scripts/zcode_window_hook.py` 注入提醒；**DSH 端此前
+ *  完全没有实现**——纪律在产物里、机制不在，代理只能靠自觉（实测：整场长会话
+ *  一次归档都没做）。本函数是该缺口的判定单点。 */
+export function shouldRemindTurn(n: number): boolean {
+  return Number.isFinite(n) && n >= 10 && n % 10 === 0
+}
+
+/** 提醒文本（不含注入边界转义——转义在 push 站点做，与其它块同规）。 */
+export function formatTurnReminder(n: number): string {
+  return [
+    "【灵枢·逢十轮提醒】本会话已完成 " + String(n) + " 轮交互。",
+    "按工作纪律第 16 条做一次**间歇归档**：CCG 六要素（功能名/生效条件/子功能/执行/验证方式/不适用条件）",
+    "写入记忆（cg op=write，content_kind 用 text），**写入后发起一次读回查询确认可检索**，",
+    "并在回复里给出节点 id 作为证据；没有 id 即视为未归档。",
+  ].join(" ")
 }
