@@ -1972,7 +1972,37 @@ class MdCG:
             # 「.md 计数相等」，两套判据对同一个问题（「这份快照可信吗」）各答
             # 各的，且 compact 还会把当前指纹盖到陈旧快照上把指纹判据一起抹掉。
             if not self._snapshot_trusted(idx):
-                idx = None
+                # 2026-10-21 治本（写/读超时根因）：目录 mtime 指纹会在任意合作写入后
+                # 失效（新文件落进目录即改 mtime），失效后原实现一律回退全库扫描——
+                # 真实库 31,688 节点实测 13.4 秒/次冷启动，这才是 MCP 读写超时来源
+                # （写入逻辑本身只要 47~53ms）。
+                # 指纹只回答「目录树是否动过」，不判内容；合作写入都走分片日志。
+                # 故先重放日志，再用 _covers_disk（walk 目录、只比路径集合，0.08 秒）
+                # 验证「索引路径集合 == 盘面 .md 集合」：成立则采纳；不成立（改名/换目录/
+                # 外部删加）仍回退全库扫描，正确性不降级。
+                _probe = {"schema": SCHEMA, "nodes": dict(idx.get("nodes") or {}), "buckets": {}}
+                try:
+                    self._apply_log(_probe["nodes"])
+                    # 只认「**纯新增**」这一种变化：合作写入（add）在日志里留下**新 path**，
+                    # 而改名/对调/换目录是**盘面行为**、日志里没有对应新 path——它们会把
+                    # 目录 mtime 改掉却让路径集合保持不变（_covers_disk 必假阳）。
+                    # 判据：发生变化的目录，必须全都在「日志新增 path 的所在目录」里。
+                    _log_dirs = set()
+                    for _rec in ShardedLog.read_all(self.index_log_dir):
+                        _e = _rec.get("e") if isinstance(_rec, dict) else None
+                        _path = _e.get("path") if isinstance(_e, dict) else None
+                        if _path:
+                            _log_dirs.add(os.path.dirname(str(_path).replace("\\", "/")))
+                    _cur_fp = self._dir_fingerprint()
+                    _old_fp = idx.get("_fingerprint") or {}
+                    _changed = {d for d, m in _cur_fp.items() if _old_fp.get(d) != m}
+                    _changed |= {d for d in _old_fp if d not in _cur_fp}
+                    if self._covers_disk(_probe["nodes"]) and _changed <= _log_dirs:
+                        idx = _probe
+                    else:
+                        idx = None
+                except Exception:
+                    idx = None
         if idx is None:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
         self._apply_log(idx["nodes"])
@@ -2149,6 +2179,23 @@ class MdCG:
         `self._dirty_replay_superseded` 留下条数读数。见证拿不到的条目照旧重放
         ——「本实例未落盘写入不因重载从检索侧消失」这条不变量一并保留。
         """
+        # 2026-10-21：这是**应急闸**，默认关闭（默认 0）。
+        # 背景：本方法每次读面入口都会探测签名，而他进程每次 flush 都改变签名 ⇒
+        # 长期写方在跑的库里，读侧几乎每次查询都判「代际变化」并整库重载
+        # （真实库 31k 节点实测 7.0 秒/次）。真正的修法是让重载变便宜
+        # （_load_index 的快照+日志+目录判据），时间窗只是兜底手段。
+        # 注意：窗口放在签名探测**之前**，窗内连探测都不做——它会同时挡住
+        # 「重载」，故默认必须为 0，否则跨进程写入可见性被延迟（N195/N212 等守卫会红）。
+        try:
+            _min_iv = float(os.environ.get("MDCG_RELOAD_MIN_INTERVAL", "0"))
+        except ValueError:
+            _min_iv = 0.0
+        if _min_iv > 0:
+            _last = getattr(self, "_sig_probe_ts", 0.0)
+            _now = time.time()
+            if _now - _last < _min_iv:
+                return False
+            self._sig_probe_ts = _now
         sig = self._index_signature()
         if sig == self._index_sig:
             return False
