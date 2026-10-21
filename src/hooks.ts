@@ -148,6 +148,7 @@ function extractText(blocks: readonly ContentBlock[]): string {
 // 引入会让值类跨句吞并（`．` 是 `.` 的全角形态、属值类，故收录）。
 
 /** 全角数字（U+FF10-U+FF19）。 */
+let diagnosticFailuresSilently = 0
 const FW_DIGITS = '０-９'
 /** 全角大写字母（U+FF21-U+FF3A）。 */
 const FW_UPPER = 'Ａ-Ｚ'
@@ -729,6 +730,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   // （RuntimeContextProjection 的 retained === null 分支），本块自然跟着回来——
   // 不需要插件自己数步数做自愈。
   /** 进程内轮次计数（session → 已 assemble 轮数）。见 shouldRemindTurn。 */
+  /** 进程内「本十轮段提醒文本」（session → 文本）：段内每轮重推同一文本，避免快照增删。 */
+  const remindText = new Map<string, string>()
   const turnSeq = new Map<string, number>()
   if (opts.autoRecall) {
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
@@ -757,11 +760,15 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           const turnKey = sid || '__no_sid__'
           const turnNo = (turnSeq.get(turnKey) ?? 0) + 1
           turnSeq.set(turnKey, turnNo)
+          // 粘性提醒（2026-10-21）：只在触发轮 push、下一轮就消失会让宿主多追两份快照
+          // （10→11 增删各一次）。故把「本轮所属十轮段的提醒文本」按会话记住，
+          // 段内每轮**原样重推**（文本不变 ⇒ 渲染快照不追加），跨段才换一次文本。
           if (shouldRemindTurn(turnNo)) {
-            assembly.contexts.push({
-              name: 'lingshu:turn-reminder',
-              text: escapePromptBraces(formatTurnReminder(turnNo)),
-            })
+            remindText.set(turnKey, escapePromptBraces(formatTurnReminder(turnNo)))
+          }
+          const sticky = remindText.get(turnKey)
+          if (sticky) {
+            assembly.contexts.push({ name: 'lingshu:turn-reminder', text: sticky })
           }
           const text = formatTimelineDecayed(
             await graph.timeline(recallLimit, sid ? { session: sid } : {}))
@@ -953,7 +960,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     try {
       const summary = audit.summary()
       if (summary) ctx.logger.info(summary)
-    } catch { /* 诊断输出失败不得阻断插件收尾 */ }
+    } catch { diagnosticFailuresSilently += 1 /* 诊断输出失败不得阻断插件收尾 */ }
   }
 }
 
