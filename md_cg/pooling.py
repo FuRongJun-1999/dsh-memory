@@ -480,6 +480,6 @@ def from_env(pools=None):
     if pools is not None and pools is not False:
         return pools
     v = (os.environ.get(ENV_SWITCH) or "").strip().lower()
-    if v in ("1", "on", "true", "yes", "y"):
-        return True
-    return None
+    if v in ("0", "off", "false", "no", "n"):
+        return None
+    return True   # 默认开（使用者裁定 2026-10-21）；显式关须设 MDCG_POOLING=0

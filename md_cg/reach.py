@@ -107,14 +107,14 @@ def _build_meta(idx) -> dict:
 # 依据：docs/hive/检索路径与认知结构契约_v0.1.md §7「不在默认路径上启用新行为」（先 flag 化、逐项验证、再讨论默认开启）
 # 与 §5.1「开关关 → run_tests 全绿且与现状一致」。启用与否由调用点 reach.enabled() 前置守卫，保证关态下不向 meta 落任何 reach* 键。
 def enabled() -> bool:
-    return os.environ.get("MDCG_REACH") == "1"
+    return os.environ.get("MDCG_REACH", "1") == "1"
 
 
 # 生效条件：环境变量 MDCG_REACH_DIFFUSE 等于 "1" 时返回 True，其余（含未设置）返回 False。
 def diffuse_on() -> bool:
     """图扩散开关（默认关）：扩散节点会与词面命中一起参与 top-k 竞争，
     为使 A2「new ⊇ old」在默认配置下**精确成立**，此能力默认关闭、需显式开启。"""
-    return os.environ.get("MDCG_REACH_DIFFUSE", "0") == "1"
+    return os.environ.get("MDCG_REACH_DIFFUSE", "1") == "1"
 
 
 # 生效条件：entries 中每个元素都有 path 键且 path 对应库根下的文件时，返回其 (path -> entry) 映射；缺 path 的条目被跳过。

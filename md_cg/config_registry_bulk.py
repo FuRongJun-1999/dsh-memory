@@ -13,20 +13,6 @@
     env_name, semantic, anchor_how, anchor_file, anchor_symbol,
     status, evidence, since, notes
 
-**字段语义（如实，issue #138 · C6 ——实测于 2026-10-12，56 条 env 面条目）**：
-
-  · `tunable` 在**环境面**恒由 `face ∈ (TUNE, CALIB)` 决定（实测 48/48 一致）——
-    它表达的是「**可进调参序列**」，**不是**「该 env 的值真是一个可调数值」；
-    同批 env 面 `value_type` 实测 **str 55 / float 1**。真正进调参序列的是
-    `face ∈ (TUNE, CALIB)` 这一条（见 `cp.tune_sequence`）。
-  · `domain` 在环境面**逐条等于 `semantic`**（实测 56/56）⇒ **原先不携带额外值域信息**；
-    文档表按 `semantic or domain` 取值，故二者相等时读者看不到「值域」这一维。
-    2026-10-12（issue #138）起，**需要机器可读值域的行**改在 `domain` 写标记：
-    `bool:1` = 源码判 `== "1"`（严格布尔）；`enum:a|b` = 枚举（覆盖 semantic 推出的布尔）。
-  · `semantic` 会**驱动校验器形态**：取值 `on`/`off`/`fail-open` ⇒ 渲染为
-    `{'type':'bool','bool_like':True}`；若 `domain` 带 `bool:`/`enum:` 标记则以标记为准
-    （见 `config_render._rule_for`）。
-
 """
 from __future__ import annotations
 
@@ -278,15 +264,15 @@ CONST_ROWS = [
 ]
 
 ENV_ROWS = [
-    ('MDCG_RETRIEVAL_PIPELINE', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_RETRIEVAL_PIPELINE', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（!= "1" 即旧行为）', 'unknown', ''),
+    ('MDCG_RETRIEVAL_PIPELINE', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_RETRIEVAL_PIPELINE', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（!= "1" 即旧行为）', 'unknown', ''),
     ('MDCG_GATE_S1_DOMAIN', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S1_DOMAIN', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S2_COND', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S2_COND', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
-    ('MDCG_GATE_S3_SPREAD', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S3_SPREAD', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1" 才开）', 'unknown', ''),
-    ('MDCG_GATE_S4_LAYER', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S4_LAYER', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
-    ('MDCG_GATE_S5_NEG', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S5_NEG', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
-    ('MDCG_GATE_S6_CROSSCHECK', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S6_CROSSCHECK', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
-    ('MDCG_GATE_S7_POSTINGS', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S7_POSTINGS', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
-    ('MDCG_GATE_S1B_BUCKET', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S1B_BUCKET', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_GATE_S3_SPREAD', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S3_SPREAD', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1" 才开）', 'unknown', ''),
+    ('MDCG_GATE_S4_LAYER', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S4_LAYER', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_GATE_S5_NEG', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S5_NEG', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_GATE_S6_CROSSCHECK', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S6_CROSSCHECK', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_GATE_S7_POSTINGS', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S7_POSTINGS', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_GATE_S1B_BUCKET', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_GATE_S1B_BUCKET', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
     ('MDCG_BUCKET_MIN_SIM', 'CALIB', 'calib', 'env', True, "'0.34'", 'str', 'value', 'MDCG_BUCKET_MIN_SIM', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_BUCKET_TOPK', 'CALIB', 'calib', 'env', True, "'3'", 'str', 'value', 'MDCG_BUCKET_TOPK', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_SPREAD_GAIN', 'CALIB', 'calib', 'env', True, "'0.2'", 'str', 'value', 'MDCG_SPREAD_GAIN', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
@@ -295,87 +281,51 @@ ENV_ROWS = [
     ('MDCG_NEG_LAMBDA', 'CALIB', 'calib', 'env', True, "'0.5'", 'str', 'value', 'MDCG_NEG_LAMBDA', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_SPREAD_HOPS', 'TUNE', 'tune', 'env', True, "'2'", 'str', 'value', 'MDCG_SPREAD_HOPS', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_LAYER_BOOST', 'TUNE', 'tune', 'env', True, "''", 'str', 'unset', 'MDCG_LAYER_BOOST', 'unset', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
-    ('MDCG_HOTCACHE', 'TUNE', 'tune', 'env', True, 'None', 'str', 'bool:1', 'MDCG_HOTCACHE', 'off', 'env_flag', 'md_cg/mdcos.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1"）', 'unknown', ''),
+    ('MDCG_HOTCACHE', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'off', 'MDCG_HOTCACHE', 'off', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_HOTCACHE_MAX_NODES', 'CALIB', 'calib', 'env', True, 'None', 'str', 'value', 'MDCG_HOTCACHE_MAX_NODES', 'value', 'env_helper_default', 'md_cg/hotcache.py', 'MAX_NODES', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 模块常量 MAX_NODES=256', 'unknown', ''),
     ('MDCG_HOTCACHE_MAX_QUERIES', 'TUNE', 'tune', 'env', True, 'None', 'str', 'value', 'MDCG_HOTCACHE_MAX_QUERIES', 'value', 'env_helper_default', 'md_cg/hotcache.py', 'MAX_QUERIES', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 模块常量 MAX_QUERIES=64', 'unknown', ''),
-    ('MDCG_READ_CACHE', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'bool:1', 'MDCG_READ_CACHE', 'on', 'env_literal', 'md_cg/readcache.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_READ_CACHE', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'on', 'MDCG_READ_CACHE', 'on', 'env_literal', 'md_cg/readcache.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_MCP_SURFACE', 'ENV', 'env', 'env', False, "'kernel'", 'str', 'enum', 'MDCG_MCP_SURFACE', 'enum', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', "★ 跨侧同名分叉：本仓 md_cg/mcp_server.py::SURFACE 缺省 'kernel'；TS 侧 src/lib/mdcg_client.ts 缺省 'full'（写入通道 mdcg_remember 属细粒度工具，故插件侧必须 full）。两侧各有理由，属**待裁定/待文档并列**。；由生成器自 AST 复核（第一批未见标定读数）", 'unknown', ''),
     ('MDCG_CLEARANCE', 'ENV', 'env', 'env', False, "'internal'", 'str', 'enum', 'MDCG_CLEARANCE', 'enum', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', "★ 跨侧同名分叉：本仓 md_cg/mcp_server.py::_build_principal 缺省 'internal'；TS 侧 src/index.ts config.mdcg.clearance 缺省 'private'。令牌优先时 MDCG_CLEARANCE 完全被令牌覆盖（代码已有 stderr 告警），但两侧缺省仍不一致。；由生成器自 AST 复核（第一批未见标定读数）", 'unknown', ''),
     ('MDCG_ACTOR', 'ENV', 'env', 'env', False, '["\'mcp-client\'", "\'swarm-cli\'"]', 'str', 'conflict', 'MDCG_ACTOR', 'conflict', 'env_literal', 'md_cg/evidence.py;md_cg/mcp_server.py', '', 'uncalibrated', '★ 生产面缺省分叉：["\'mcp-client\'", "\'swarm-cli\'"]', 'unknown', '★ 生产面缺省分叉：["\'mcp-client\'", "\'swarm-cli\'"]'),
     ('MDCG_TENANT', 'ENV', 'env', 'env', False, "'default'", 'str', 'enum', 'MDCG_TENANT', 'enum', 'env_literal', 'md_cg/evidence.py;md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_TOOL_FACE', 'TUNE', 'tune', 'env', True, 'None', 'str', 'off', 'MDCG_TOOL_FACE', 'off', 'env_flag', 'md_cg/tool_face.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 非 full（=="full" 才全开）', 'unknown', ''),
-    ('MDCG_EXPORT_ROOT', 'ENV', 'env', 'env', False, 'None', 'str', 'fail-open', 'MDCG_EXPORT_ROOT', 'fail-open', 'env_helper_arg', 'md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 放开（check_path_root 未配置即放行）', 'unknown', ''),
-    ('MDCG_INGEST_ROOT', 'ENV', 'env', 'env', False, 'None', 'str', 'fail-open', 'MDCG_INGEST_ROOT', 'fail-open', 'env_helper_arg', 'md_cg/logref.py;md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 放开（check_path_root 未配置即放行）', 'unknown', ''),
+    ('MDCG_EXPORT_ROOT', 'ENV', 'env', 'env', False, 'None', 'str', 'fail-open', 'MDCG_EXPORT_ROOT', 'fail-open', 'env_helper_arg', 'md_cg/export.py;md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 放开（check_path_root 未配置即放行）', 'unknown', ''),
+    ('MDCG_INGEST_ROOT', 'ENV', 'env', 'env', False, 'None', 'str', 'fail-open', 'MDCG_INGEST_ROOT', 'fail-open', 'env_flag', 'md_cg/logref.py;md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 放开（check_path_root 未配置即放行）', 'unknown', ''),
     ('AEIS_DB', 'ENV', 'env', 'env', False, '"os.path.join(\'data\', \'lingshu.db\')"', 'str', 'conflict', 'AEIS_DB', 'conflict', 'env_literal', 'md_cg/whitebox_kb/wisdom/danmaku_bridge.py;md_cg/whitebox_kb/wisdom/merge_subgraph.py;md_cg/whitebox_kb/wisdom/pattern_separation.py;md_cg/whitebox_kb/wisdom/scene_reconstruction.py', '', 'uncalibrated', '★ 跨仓同名分叉：本仓（脑内副本 md_cg/whitebox_kb/wisdom/*）缺省 = os.path.join(\'data\',\'lingshu.db\')（相对路径**落盘**库）；私域仓 <私域仓>/aeis/{server.py,mcp/server.py} 缺省 ":memory:"（内存库）。同名同义假设不成立——落盘 vs 不落盘。；由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('AEIS_WORKSPACE', 'ENV', 'env', 'env', False, "''", 'str', 'value', 'AEIS_WORKSPACE', 'value', 'env_literal', 'md_cg/whitebox_kb/aeis_core/core.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
-    ('MDCG_SEMANTIC', 'TUNE', 'tune', 'env', True, 'None', 'str', 'bool:1', 'MDCG_SEMANTIC', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1"）', 'unknown', ''),
-    ('MDCG_EN_ATOMS', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'enum:norm|raw', 'MDCG_EN_ATOMS', 'off', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_SEMANTIC', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'off', 'MDCG_SEMANTIC', 'off', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_EN_ATOMS', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'off', 'MDCG_EN_ATOMS', 'off', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_CN_GRAMS', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'MDCG_CN_GRAMS', 'on', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 开（!="0"）', 'unknown', ''),
     ('MDCG_CHAIN_TYPES', 'TUNE', 'tune', 'env', True, 'None', 'str', 'unset', 'MDCG_CHAIN_TYPES', 'unset', 'env_flag', 'md_cg/chain.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = CHAIN_TYPES_DEFAULT (causal, sequential, applies_to)', 'unknown', ''),
     ('MDCG_S7_FRESHNESS', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'MDCG_S7_FRESHNESS', 'on', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 走新鲜度（仅字面量 "skip" 跳过）', 'unknown', ''),
-    ('MDCG_UNIFY_QUERY', 'CALIB', 'calib', 'env', True, "'0'", 'str', 'bool:1', 'MDCG_UNIFY_QUERY', 'off', 'env_literal', 'md_cg/semantic/unify.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_UNIFY_QUERY', 'CALIB', 'calib', 'env', True, "'0'", 'str', 'off', 'MDCG_UNIFY_QUERY', 'off', 'env_literal', 'md_cg/semantic/unify.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_SCORE_MODE', 'CALIB', 'calib', 'env', True, "'legacy'", 'str', 'enum', 'MDCG_SCORE_MODE', 'enum', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_TEMPORAL_GAMMA', 'CALIB', 'calib', 'env', True, 'None', 'str', 'unset', 'MDCG_TEMPORAL_GAMMA', 'unset', 'env_flag', 'md_cg/mdcos.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = ln2/30天（由 links.DECAY_DAYS 派生）', 'unknown', ''),
     ('MDCG_WRITELIMIT', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'on', 'MDCG_WRITELIMIT', 'on', 'env_literal', 'md_cg/writelimit.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_RECONCILE', 'TUNE', 'tune', 'env', True, "''", 'str', 'on', 'MDCG_RECONCILE', 'on', 'env_literal', 'md_cg/reconcile.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
-    ('MDCG_REACH', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_REACH', 'off', 'env_flag', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1"）', 'unknown', ''),
-    ('MDCG_REACH_DIFFUSE', 'CALIB', 'calib', 'env', True, "'0'", 'str', 'bool:1', 'MDCG_REACH_DIFFUSE', 'off', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_REACH', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'off', 'MDCG_REACH', 'off', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_REACH_DIFFUSE', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'off', 'MDCG_REACH_DIFFUSE', 'off', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_REACH_TTL', 'TUNE', 'tune', 'env', True, '600.0', 'float', 'value', 'MDCG_REACH_TTL', 'value', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_POOLING', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_POOLING', 'off', 'env_flag', 'md_cg/pooling.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（仅 1/on/true/yes/y 开）', 'unknown', ''),
-    ('MDCG_QMD_SYS', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_QMD_SYS', 'off', 'env_flag', 'md_cg/qmd_llm.py', '', 'calibrating', 'QMD 统一系统提示词开关（extract/query/answer 三类调用带 SYSTEM；judge 恒不带）；未设 = 关（=="1"）；hive 主轮 92 题端到端读数见 PR 说明', 'unknown', ''),
-    ('MDCG_PROPOSAL_EMOTION', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_PROPOSAL_EMOTION', 'off', 'env_flag', 'md_cg/autonomy.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
+    ('MDCG_PROPOSAL_EMOTION', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'off', 'MDCG_PROPOSAL_EMOTION', 'off', 'env_literal', 'md_cg/autonomy.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_EXPLORE_BUDGET_MAX', 'TUNE', 'tune', 'env', True, 'None', 'str', 'unset', 'MDCG_EXPLORE_BUDGET_MAX', 'unset', 'env_flag', 'md_cg/autonomy.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_EXPLORE_BUDGET_WINDOW', 'TUNE', 'tune', 'env', True, 'None', 'str', 'value', 'MDCG_EXPLORE_BUDGET_WINDOW', 'value', 'env_helper_default', 'md_cg/autonomy.py', 'BUDGET_WINDOW_DEFAULT', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_REPLAY_NEG_MAX_COVERAGE', 'ENV', 'env', 'env', False, 'None', 'str', 'unset', 'MDCG_REPLAY_NEG_MAX_COVERAGE', 'unset', 'env_flag', 'md_cg/consolidate.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_D_META', 'TUNE', 'tune', 'env', True, "''", 'str', 'on', 'MDCG_D_META', 'on', 'env_literal', 'md_cg/d_meta.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_STATUS_HEAD', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'MDCG_STATUS_HEAD', 'on', 'env_flag', 'md_cg/statushdr.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = **开**（0/false/no/off 关）', 'unknown', ''),
     ('MDCG_FRESHNESS', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'MDCG_FRESHNESS', 'on', 'env_flag', 'md_cg/freshness.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = **开**（0/false/no/off 关）', 'unknown', ''),
     ('MDCG_SUSTAIN', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'on', 'MDCG_SUSTAIN', 'on', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_HEARTBEAT_LEDGER', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'on', 'MDCG_HEARTBEAT_LEDGER', 'on', 'env_literal', 'md_cg/sustain.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
-    ('MDCG_SUSTAIN_BEAT_THREAD', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'on', 'MDCG_SUSTAIN_BEAT_THREAD', 'on', 'env_literal', 'md_cg/sustain.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('PREDICTION_META_DIM', 'CALIB', 'calib', 'env', True, "'0'", 'str', 'value', 'PREDICTION_META_DIM', 'value', 'env_literal', 'md_cg/predict.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('PREDICTION_META_PROXY', 'CALIB', 'calib', 'env', True, "'unmodeled_growth'", 'str', 'enum', 'PREDICTION_META_PROXY', 'enum', 'env_literal', 'md_cg/predict.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('IMGSKILL_BACKEND', 'TUNE', 'tune', 'env', True, "'auto'", 'str', 'enum', 'IMGSKILL_BACKEND', 'enum', 'env_literal', 'md_cg/imgskill.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('IMGSKILL_PILLOW', 'TUNE', 'tune', 'env', True, 'None', 'str', 'on', 'IMGSKILL_PILLOW', 'on', 'env_flag', 'md_cg/imgskill.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 允许（=="0" 显式禁用 Pillow 后端）', 'unknown', ''),
-    ('MDCG_PLAIN_CACHE_MAX', 'TUNE', 'tune', 'env', True, '256', 'str', 'value', 'MDCG_PLAIN_CACHE_MAX', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = 256（解密明文缓存条目上限，超出按插入序淘汰最旧）', 'unknown', ''),
-    ('MDCG_WRITE_ATTEMPT_ROTATE_BYTES', 'TUNE', 'tune', 'env', True, 'None', 'str', 'value', 'MDCG_WRITE_ATTEMPT_ROTATE_BYTES', 'value', 'env_helper_default', 'md_cg/writepipe.py', 'ATTEMPT_ROTATE_DEFAULT', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = 64<<20 （尝试账本活动文件轮转阈值，<=0 表示不轮转；坏值回落缺省、不丢账）', 'unknown', ''),
-    ('MDCG_WRITE_ATTEMPT_LEDGER', 'TUNE', 'tune', 'env', True, 'None', 'str',
-     'on', 'MDCG_WRITE_ATTEMPT_LEDGER', 'on', 'env_helper_default',
-     'md_cg/writepipe.py', 'ATTEMPT_LEDGER_DEFAULT', 'uncalibrated',
-     '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = True（尝试账本总开关，缺省开——留痕面与 _audit/_write_2pc 同口径；显式 0/false/no/off 停用，停用不改写入语义）',
-     'unknown', ''),
 ]
 
 # 环境面**分类登记**（只登记「属于环境面」与值域类型；**不登记缺省值**）
 # 字段：(name, kind, repo, domain, notes)
 ENV_CATEGORY_ROWS = [
-# 2026-10-12 补登记（issue #120）：生产面读取但此前不在登记面内的 22 项。
-# 本表只登记分类与值域类型，**不登记缺省值**（缺省以代码实读为准；
-# 进 ENV_ROWS〔带缺省 + G2 锚点逐位复核〕属后续批次）。
-    ('HIVE_EXE', 'env', 'dsh-memory-main', '可执行体路径', '蜂巢执行器（md_cg/mreview/pipeline.py:87）'),
-    ('HIVE_MODEL', 'env', 'dsh-memory-main', '模型名', '蜂巢复核模型（md_cg/mreview/pipeline.py:181）'),
-    ('MDCG_AEIS_ROOT', 'env', 'dsh-memory-main', '目录路径', '视觉证据·AEIS 根回落（md_cg/vision_evidence.py:182）'),
-    ('MDCG_BM25_BLOCK_MAX', 'env', 'dsh-memory-main', '整数', 'BM25 分块上限（md_cg/bm25.py:295,317）'),
-    ('MDCG_BM25_BUILD_WORKERS', 'env', 'dsh-memory-main', '整数', 'BM25 构建并发（md_cg/bm25.py:94）'),
-    ('MDCG_BM25_POOL_CACHE', 'env', 'dsh-memory-main', '开关', 'BM25 池缓存（md_cg/bm25.py:68）'),
-    ('MDCG_E2E_JUDGE_ROOT', 'env', 'dsh-memory-main', '目录路径', '端到端判分数据根（md_cg/bench_e2e_judge.py:68）'),
-    ('MDCG_EVOLVE_INTERVAL', 'env', 'dsh-memory-main', '秒（float）', '常驻循环·进化档间隔（md_cg/mcp_server.py:4027）'),
-    ('MDCG_LINK_FILE', 'env', 'dsh-memory-main', '文件路径', '链接表落点（md_cg/provenance.py:62）'),
-    ('MDCG_LLM_MAX_TOKENS', 'env', 'dsh-memory-main', '整数', 'LLM 调用上限（md_cg/consolidate.py:251,286,1542）'),
-    ('MDCG_NODE_ID', 'env', 'dsh-memory-main', '字符串', '证据写入的节点 id 覆盖（md_cg/evidence.py:94,470）'),
-    ('MDCG_READ_FOREIGN_SAMPLE', 'env', 'dsh-memory-main', '采样率（非法回落 0）', '跨租户读取采样（md_cg/mdcos.py:639）'),
-    ('MDCG_RRF_CANDIDATES', 'env', 'dsh-memory-main', '整数', 'RRF 候选上限（md_cg/rrf_candidates.py:18）'),
-    ('MDCG_RANK_CREDIBILITY', 'env', 'dsh-memory-main', '开关', '名次可信度性质判据（md_cg/mdcos.py:2027）'),
-    ('MDCG_TIME_ANCHOR', 'env', 'dsh-memory-main', '开关', '相对时间锚定总开关（md_cg/timeanchor.py::enabled）'),
-    ('MDCG_TIME_ANCHOR_TZ', 'env', 'dsh-memory-main', '小时（float，非法/越界回落 0）', '相对时间锚定参照日时区（md_cg/timeanchor.py::tz_hours）'),
-    ('MDCG_SCRUB_INTERVAL', 'env', 'dsh-memory-main', '秒（float）', '常驻循环·清理档间隔（md_cg/mcp_server.py:4024）'),
-    ('MDCG_SIGNER', 'env', 'dsh-memory-main', '字符串', '签名者标识（md_cg/signer.py:206,488）'),
-    ('MDCG_STG_INDEX', 'env', 'dsh-memory-main', '开关', 'STG 索引（md_cg/stg.py:349）'),
-    ('MDCG_STG_QUALIFY', 'env', 'dsh-memory-main', '开关', 'STG 资格判定（md_cg/stg.py:473）'),
-    ('MDCG_STG_STATE', 'env', 'dsh-memory-main', '开关', 'STG 状态链（md_cg/stg.py:751）'),
-    ('MDCG_SUSTAIN_BEAT', 'env', 'dsh-memory-main', '秒（float）', '常驻循环·心跳间隔（md_cg/mcp_server.py:4015）'),
-    ('MDCG_SUSTAIN_HEAL', 'env', 'dsh-memory-main', '秒（float）', '常驻循环·自愈档间隔（md_cg/mcp_server.py:4017）'),
-    ('MDCG_TIDY_INTERVAL', 'env', 'dsh-memory-main', '秒（float）', '常驻循环·整理档间隔（md_cg/mcp_server.py:4030）'),
-    ('MDCG_VISION_ROOT', 'env', 'dsh-memory-main', '目录路径', '视觉证据根本体（md_cg/vision_evidence.py:181）'),
     ('AEIS_BGE_PATH', 'env', 'dsh-memory-main', '目录路径', '私域仓未检出同名读取点'),
     ('AEIS_DB', 'env', 'dsh-memory-main', 'DB 路径或 ":memory:"', '★与私域仓默认值分叉，见 AEIS 对照节'),
     ('AEIS_DESIGNER_KEY', 'env', 'dsh-memory-main', '密钥（敏感）', '三副本同名同义；值为敏感，不回显'),
@@ -391,7 +341,6 @@ ENV_CATEGORY_ROWS = [
     ('LINGSHU_PYTHON / LINGSHU_REPO', 'env', 'dsh-memory-main', '解释器路径 / 目录', ''),
     ('MAGICK_HOME / ImageMagick_HOME', 'env', 'dsh-memory-main', '目录路径', '经 *_ENV 常量间接读取，朴素字面量扫描抓不到'),
     ('MDCG_ACTOR', 'env', 'dsh-memory-main', '字符串', '★ 两处默认值不同（同一 env 名，默认分叉）'),
-    ('MDCG_ALLOW_ROOT_ISSUE', 'env', 'dsh-memory-main', '开关（1/true/yes/on 放行管理级令牌自铸）', '★ #543 签发授权闸的运维逃生口；缺省未设=关（tokens.py:471）'),
     ('MDCG_ARCHIVE_ROOT', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_AUX_ROOT', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_BRAIN_PYTHONPATH', 'env', 'dsh-memory-main', '路径列表', '★ 文档承诺 vs 代码读取错位（只在另一副本被读）'),
@@ -415,7 +364,6 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_LINKS_FILE', 'env', 'dsh-memory-main', '文件路径', '文档写了但生产不读'),
     ('MDCG_LINKS_FILE / MDCG_SIGNERS_FILE 之外的测试面 env', 'env', 'dsh-memory-main', '—', '生产读取点极少、测试面占绝大多数'),
     ('MDCG_LLM_KEY / MDCG_LLM_BASE / MDCG_LLM_MODEL', 'env', 'dsh-memory-main', '密钥 / URL / 模型名', ''),
-    ('MDCG_QMD_LLM_BASE / MDCG_QMD_LLM_MODEL / MDCG_QMD_LLM_KEY', 'env', 'dsh-memory-main', 'URL / 模型名 / 密钥（敏感）', 'QMD 的 LLM 接入（md_cg/qmd_llm.py）；三者缺一即 LLMUnavailable，不回落 MDCG_LLM_KEY / DEEPSEEK_API_KEY'),
     ('MDCG_MASTER_KEY', 'env', 'dsh-memory-main', '密钥（敏感，hex）', '敏感值不回显'),
     ('MDCG_MCP_SURFACE', 'env', 'dsh-memory-main', '枚举 {kernel, full}', 'kernel 只暴露 cg/stg 两基元'),
     ('MDCG_POLICY_FILE', 'env', 'dsh-memory-main', '文件路径', ''),
@@ -423,6 +371,7 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_REACH_INDEX', 'env', 'dsh-memory-main', '文件路径', ''),
     ('MDCG_REDTEAM_REQUIRED', 'env', 'dsh-memory-main', 'bool 语义字符串（非空即需红队）', ''),
     ('MDCG_REFLECT_KEY / MDCG_REFLECT_MODEL / MDCG_REFLECT_BASE', 'env', 'dsh-memory-main', '密钥 / 模型名 / URL', ''),
+    ('MDCG_REPLAY_NEG_MAX_COVERAGE', 'env', 'dsh-memory-main', 'float（正数；非法/非正回落默认）', 'issue #278：consolidate neg_separated 的词面覆盖率阈值（默认 0.5）'),
     ('MDCG_ROOT', 'env', 'dsh-memory-main', '目录路径', '双副本同名同义'),
     ('MDCG_SESSION', 'env', 'dsh-memory-main', '字符串', 'TS 面已改为「请求声明归因」优先（见 src/tools.ts 注）'),
     ('MDCG_SIGNERS_FILE / MDCG_SIGNER_KEY_FILE / MDCG_SIGNER_MODULE', 'env', 'dsh-memory-main', '文件路径 / 文件路径 / 模块名', ''),
@@ -468,7 +417,6 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_LEGACY_ENV_AUTH / MDCG_CAN_ADMIN / MDCG_LEGACY_ENV_ADMIN', 'env', 'lingshu', 'bool 语义', ''),
     ('MDCG_ROOT', 'env', 'lingshu', '路径', ''),
     ('PYTHONUTF8 / PYTHONIOENCODING', 'env', 'lingshu', '字符串', ''),
-    ('MDCG_REPLAY_NEG_MAX_COVERAGE', 'env', 'dsh-memory-main', 'float（正数；非法/非正回落默认）', 'issue #278：consolidate neg_separated 的词面覆盖率阈值（默认 0.5）'),
 ]
 # fmt: on
 
@@ -476,7 +424,7 @@ META = {
     "generated_from": "param_inventory.json",
     "const_count": 236,
     "const_dropped": 12,
-    "env_count": 56,
+    "env_count": 57,
     "env_skipped": 1,
-    "env_category_count": 90,
+    "env_category_count": 91,
 }
