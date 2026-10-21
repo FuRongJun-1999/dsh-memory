@@ -23,7 +23,9 @@
     ① 环境变量 `MDCG_MASTER_KEY`（64 位 hex 或 base64）
     ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，0600）
 · KEK 不落仓库；DEK 被 KEK 包裹后存租户根目录，单独拿走 `_keys.json` 无法解密。
-· **身份一致性识别**：DEK 信封绑定 `(tenant, actor, clearance)`，且节点密文把
+· **身份一致性识别**：DEK 信封绑定 `(tenant, actor)`；`clearance` 只是信封里的元数据，
+  **不参与** `identity_fingerprint()`、不进 `_dek_aad()`、`unwrap_dek()` 的条件里也不用它
+  （`crypto.py:334`/`:379`；2026-10-21 纠正了本行的旧说法）。节点密文把
   `(node_id, tenant, actor)` 作为 AEAD 的 AAD。因此
     ① 换了身份（actor / tenant 不符）→ 解不开；
     ② 把密文拷贝到另一个节点 → 校验失败。

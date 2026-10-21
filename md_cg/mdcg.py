@@ -1092,7 +1092,12 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
     elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
         gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
     # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
-    # 为何：真实库 91.1% 节点有非 orphan 桶、期望扫描仅 2.1%（细口径），但 T0/T1 桶路
+    # 为何：设计意图是「细口径桶把全扫收敛成扫 2%」。**实测（2026-10-20，活体 10 013 节点）
+    # 与之相反**：`routing.bucket_health()` 返回 buckets=1、max_bucket_share=1.0、
+    # expected_scan=1.0（9 320 个已分桶节点同桶，400 条抽样里 0 条带 domain: 标签）。
+    # 原因：注入 domain 需要 MDCG_RETRIEVAL_PIPELINE=1（见 mdcg.py:2765），而两进程都没设。
+    # 因此 S1b 在当前数据形态下结构性空转（_sizes 构建跳过 ORPHAN，见 :1117）——
+    # 下面的设计意图保留，但不要把它当现状读。
     # 只在调用方传 context 时可用；普通 search(q) 无 context 就只能全扫。S1b 让 query 侧
     # 自己推断候选桶（只用索引，不读文件），把这份收敛拿回来。
     # 召回安全：orphan/无桶节点恒留兜底；命中不足 min_results 即回退（不改 entries）。
@@ -1505,6 +1510,228 @@ def _check_sensitivity_landing(node_id, fm_sensitivity, declared, sealed,
             "抛 LockedError，绝不以明文落盘（B2）。本次**未写盘**。"
             % (eff, node_id))
     return None
+
+
+def _judgment_gate():
+    """E-T18a t1 写入侧前置判定面的惰性装载（真源 `judgment_rules.py`）。
+
+    装载失败返回 None——判定面基建故障必须**fail-open**放行（与
+    judgment_rules.should_write 对坏形状的口径一致）：一个词表 typo / import
+    错误绝不允许静默堵死整条写入路径。开关读 `MDCG_JUDGMENT`（真源
+    `judgment_rules.ENV_FLAG`，默认**关闭**；显式 `MDCG_JUDGMENT=1|true|on|yes|enable`
+    开启）。判定只按**正文内容**（role 一律 None）——role 是 fm/index 元数据，
+    command/tool-output 事件照常写入，噪声判定靠内容词表与结构信号。
+    """
+    try:
+        from . import judgment_rules as _j
+    except Exception:
+        return None
+    if not _j.is_enabled():
+        return None
+    return _j
+
+
+# ---------------------------------------------------------------------------
+# E-T64a t1 同日同决策去重合并（写路径）
+# ---------------------------------------------------------------------------
+# 去重口径（accept 契约）：仅当两条**同一天**写入的文本满足「同一决策、后一条
+# 只比前一条多后半句」时判重：即前一条是后一条的前缀（去首尾空白后），或按句
+# 切分后前一条的句子序列是后一条句子序列的前缀。判中时不新建节点，把后一条的
+# 后半句并入已存在节点（fm 记 merged_from / merge_count），并返回既有节点 id
+# 作为合并信号。开关随 MDCG_JUDGMENT（默认关）：未设或显式 0 时本模块全部
+# 逻辑不触发，write 路径逐字节不变（零回归契约）。
+DEDUP_MERGE_COUNT_FIELD = "merge_count"
+DEDUP_MERGED_FROM_FIELD = "merged_from"
+#: 同日口径：**UTC 日期**（同一 UTC 日期才判重；跨天不判，隔天同句仍两条）。
+#: 实现自定（UTC 或本地），此处选 UTC，测试显式断言 dedup_day_key 语义。
+_DEDUP_SENTENCE_RE = re.compile(r"[。！？!?；;\n\r]+")
+
+
+# 生效条件：text 为假值时返回 []；否则按句读/换行切分，逐段 strip 后丢弃空段，
+# 返回非空片段列表（保持原序）。与 judgment_rules._sentences 同口径（独立实现，
+# 不依赖判定面——判定面由兄弟任务持有，本任务只读不写 judgment_rules）。
+def dedup_sentences(text) -> list:
+    """按句切分（句读+换行为边界）：去重合并的『句子序列前缀』判据用。"""
+    if not text:
+        return []
+    return [s.strip() for s in _DEDUP_SENTENCE_RE.split(str(text)) if s.strip()]
+
+
+# 生效条件：prev 与 new 任意（假值按 ""）；去首尾空白后 a==b 或任一为空 → False；
+# b.startswith(a)（前一条是后一条的纯前缀）→ True；否则按句切分后 a 的句子序列
+# 是 b 的句子序列的**严格**前缀 → True；都不满足 → False。
+def dedup_tail_match(prev, new) -> bool:
+    """「同一决策、只差后半句」判据单点：
+
+    · 纯前缀：前一条去首尾空白后是后一条的**字符串前缀**（'决定：把索引改成
+      倒排' ⊂ '决定：把索引改成倒排，因为查询快'）；
+    · 句前缀：按句切分后前一条的句子序列是后一条句子序列的严格前缀
+      （'今天决定用 SQLite。' ⊂ '今天决定用 SQLite。明天对比 Postgres。'）。
+    两者等价于「后一条只比前一条多后半句」，命中的后半句即待并入的新增部分。
+    刻意排除 a==b（同日同句没有后半句，不判重，仍两条）；排除「只差前半句」
+    （无前缀关系）与「后半句不同决策」（非前缀）。
+    """
+    a = str(prev or "").strip()
+    b = str(new or "").strip()
+    if not a or not b or a == b:
+        return False
+    if b.startswith(a):
+        return True
+    sa = dedup_sentences(a)
+    sb = dedup_sentences(b)
+    return bool(sa) and len(sa) < len(sb) and sb[:len(sa)] == sa
+
+
+# 生效条件：ts 为数值时间戳（float 化），返回 UTC 日期三元组 (年, 月, 日)；
+# 非法值抛 (TypeError, ValueError)。同日口径唯一单点，测试显式断言它。
+def dedup_day_key(ts):
+    """UTC 日期键：去重只在**同一 UTC 日期**内判，跨天不判。"""
+    return time.gmtime(float(ts))[:3]
+
+
+# 生效条件：cg 为 MdCG 实例、incoming_id 为本次写入的 node_id、ts 为其写入时刻。
+# 遍历索引中同层条目，跳过 protected/immutable/self_state/anchor/self 与跨天条目；
+# 对首个命中 dedup_tail_match(existing_content, content) 的条目执行并入
+# （_dedup_absorb），返回既有节点 id（合并信号）；无命中或任何异常 → None
+# （回落正常新建路径，fail-open 不堵写入）。
+def _dedup_try(cg, content, layer, ts, incoming_id):
+    """同年同日同层近重复查重：命中返回并入后的既有节点 id，否则 None。"""
+    if layer in ("anchor", "self"):
+        return None                      # 锚点/自我层不参与并入
+    day = dedup_day_key(ts)
+    for eid, entry in (cg.index.get("nodes") or {}).items():
+        if not isinstance(entry, dict) or entry.get("layer") != layer:
+            continue
+        if entry.get("protected") or entry.get("immutable") \
+                or entry.get("self_state"):
+            continue                     # 保护/顶点/自省节点不可被并入改写
+        try:
+            if dedup_day_key(entry.get("created_at") or 0) != day:
+                continue                 # 跨天不判：隔天同句仍两条
+        except (TypeError, ValueError):
+            continue
+        got = cg.get(eid)
+        if not got or got.get("content") is None:
+            continue
+        if dedup_tail_match(got.get("content"), content):
+            return _dedup_absorb(cg, eid, entry, incoming_id, content)
+    return None
+
+
+# 生效条件：cg 为 MdCG 实例、content 为新写入正文、layer 为层、ts 为时间戳、
+# incoming_id 为本次写入的 node_id、new_topic 为新写入的 topic、supersede_kw
+# 为显式的 supersede 控制键。
+# 当两条写入同一 key/topic 且后一条未显式声明 supersede=False 时，
+# 后一条覆盖前一条：旧节点 fm 标记 superseded=true 并记录 superseded_by，
+# 并返回新节点 id；否则返回 None 走正常新建路径。
+def _supersede_try(cg, content, layer, ts, incoming_id, new_topic, supersede_kw):
+    """同 key/topic 覆盖查重：判断是否应触发覆盖机制。"""
+    # 判断是否显式声明不覆盖
+    if supersede_kw is False:
+        return None
+
+    # 如果新写入没有显式的 topic，不触发覆盖。
+    # 空串/纯空白一并视作「无 topic」——覆盖键是**稳定标识**，空值没有
+    # 标识力（E-T15a t1 契约 B：空值/None 不触发覆盖）。否则两条
+    # topic="" 的写入会互相误盖（实测 nodes=1，与契约相悖）。
+    if new_topic is None or (
+            isinstance(new_topic, str) and not new_topic.strip()):
+        return None
+
+    # 获取已有节点中具有相同 topic 的节点
+    # 使用 cg.get() 而非直接从 index，因为 index entry 没有 frontmatter 字段
+    existing_nodes = cg.index.get("nodes", {})
+    target_key = None
+
+    for eid, entry in existing_nodes.items():
+        if not isinstance(entry, dict) or entry.get("layer") != layer:
+            continue
+        # 通过 cg.get 获取完整节点以访问 frontmatter
+        old_entry = cg.get(eid)
+        if old_entry is None:
+            continue
+        fm = old_entry.get("frontmatter") or {}
+        existing_topic = fm.get("topic")
+        # 旧节点侧同样收紧：空 topic 不参与覆盖匹配（与上方 new_topic
+        # 收紧同口径，双端都不给空值当覆盖键的机会）。
+        if (not isinstance(existing_topic, str)
+                or not existing_topic.strip()
+                or not isinstance(new_topic, str)
+                or not new_topic.strip()):
+            continue
+        if existing_topic == new_topic:
+            target_key = eid
+            break
+
+    # 如果没有找到具有相同 topic 的已有节点，则不触发覆盖
+    if target_key is None:
+        return None
+
+    # 检查旧节点是否已经是 superseded 状态（避免重复标记）
+    old_entry = cg.get(target_key)
+    if old_entry is not None:
+        old_fm = old_entry.get("frontmatter") or {}
+        # 只有当旧节点未被 superseded 时才标记
+        if old_fm.get("superseded") is not True:
+            # 标记旧节点为 superseded
+            old_fm["superseded"] = True
+            old_fm["superseded_by"] = incoming_id
+            # 使用 _write_node 更新旧节点的 frontmatter。
+            # 必须经 _node_disk_path(entry) 解析**绝对**盘路径再传给写盘口
+            # ——entry["path"] 是索引相对路径（如 knowledge/orphan/x.md），
+            # 直接传给 atomic_write 会落在进程 CWD 下而非 root 内的真实
+            # 节点文件（E-T15a t1 实测：旧节点 fm 里加不进 superseded）。
+            try:
+                _disk = cg._node_disk_path(entry)
+            except (ValueError, KeyError):
+                _disk = None
+            if _disk:
+                cg._write_node(target_key, _disk, old_fm,
+                              old_entry.get("content") or "",
+                              declared_sensitivity=old_fm.get("sensitivity"))
+            # 内存索引同步：读面（list_nodes / search / get）默认按
+            # fm.superseded 排除旧条目，而索引条目没有 frontmatter 子字典
+            # ——list_nodes 每次都 get() 读盘解真 fm，因此盘面写对即可。
+            # 不再向 index["nodes"] 里写入 fm 专属键（如 superseded），
+            # 避免索引扁平快照与 frontmatter 深层字段漂移（与 _node_entry
+            # 同源口径原则）。盘面写对即默认排除行为自动生效。
+
+    # 返回新节点 id（表示覆盖成功，旧节点已被标记）
+    return incoming_id
+
+
+# 生效条件：cg 为 MdCG 实例、eid/entry 为既有节点（index 条目）、incoming_id 为
+# 本次被并入的写入 id、content 为其正文。读取既有节点 fm，正文更新为较长那条
+# （经 _ensure_ccg_six，与正常 add 同款六要素补齐，异常 fail-open 原样），
+# fm 记 merged_from（追加 incoming_id）与 merge_count（+1），_write_node 覆写
+# 既有文件 + _stage 同步索引 + 刷新图缓存。任何异常 → None（回落正常路径）。
+def _dedup_absorb(cg, eid, entry, incoming_id, content):
+    """把后一条的后半句并入既有节点；返回既有节点 id 作为合并信号。"""
+    try:
+        got = cg.get(eid)
+        if not got or got.get("frontmatter") is None:
+            return None
+        fm = dict(got["frontmatter"])
+        new_content = cg._ensure_ccg_six(content, fm)
+        new_fm = dict(fm)
+        merged = list(new_fm.get(DEDUP_MERGED_FROM_FIELD) or [])
+        if incoming_id not in merged:
+            merged.append(incoming_id)
+        new_fm[DEDUP_MERGED_FROM_FIELD] = merged
+        new_fm[DEDUP_MERGE_COUNT_FIELD] = \
+            int(new_fm.get(DEDUP_MERGE_COUNT_FIELD) or 0) + 1
+        cg._write_node(eid, cg._node_disk_path(entry), new_fm, new_content,
+                       declared_sensitivity=new_fm.get("sensitivity"))
+        cg._stage(eid, _strip_empty_gate_fields(dict(entry)))
+        for _inv in (subgraph.invalidate_cache, chain.invalidate_cache,
+                     trust.invalidate_cache):
+            try:
+                _inv(cg)
+            except Exception:            # noqa: BLE001 - 缓存刷新失败不堵写入
+                pass
+        return eid
+    except Exception:                    # noqa: BLE001 - fail-open 回落正常路径
+        return None
 
 
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
@@ -2189,6 +2416,111 @@ class MdCG:
 
     # ---------- 写 ----------
 
+    # ---------- CCG 六要素写前补齐 ---------------------------------------
+    # 写盘前对 content 做一次六要素补齐：每要素判据单点 = nodefile.ccg_mark_present
+    # （正文已有标题行则一律不动），缺失的按**可推导源**用 _upsert_ccg_line 同款
+    # 语义补写（derive_fields 同款来源，见 backfill.py:213 / consolidate.py:581）。
+    # 补不上真实值的要素留缺失，**不发明**空行（backfill._put 纪律：无来源字段
+    # 不写；占位标记不是已声明的事实，绝不渲染成正文行）。
+    @staticmethod
+    def _as_single_line(v) -> str:
+        """list/tuple → 「；」连接的单行文本；其余 str().strip()；空 → ""（同 backfill._as_text）。"""
+        if isinstance(v, (list, tuple)):
+            return "；".join(str(x).strip() for x in v if str(x).strip())
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return ""
+        return str(v).strip()
+
+    @staticmethod
+    def _ccg_six_candidates(fm: dict):
+        """→ [(field, derivable_value)]：仅含**已声明**可推导源的要素（无来源不入列）。
+
+        来源口径（与 backfill.derive_fields 同款，见 backfill.py:213；不引入猜测）：
+          功能名     ← state_attributes.name，回退 frontmatter.title
+          生效条件   ← comment.生效条件/适用条件，回退 fm.condition_space 四槽合成
+                       （nodefile.condition_space_text require_full=True：四槽不齐
+                       返回 ""，**不**以部分槽冒充）
+          子功能     ← comment.子功能/子内容，回退 frontmatter.depends_on
+                       （trust.DEPS_FIELD，CCG「子功能」落字段）
+          执行       ← comment.执行/执行方式（backfill 同款：comment 是执行槽
+                       frontmatter 侧唯一已声明源；正文已有行由调用方
+                       ccg_mark_present 兜底；无声明留缺失——不发明空行）
+          验证方式   ← comment.验证方式，回退 frontmatter.verification_basis 经
+                       backfill.BASIS_TEXT 可读化（enum 不在表内则留缺失，不写裸 enum）
+          不适用条件 ← comment.不适用条件，回退 frontmatter.non_applicable_conditions
+        """
+        fm = fm or {}
+        st = fm.get("state_attributes")
+        st = st if isinstance(st, dict) else {}
+        com = st.get("comment")
+        com = com if isinstance(com, dict) else {}
+        _txt = MdCG._as_single_line
+        cad = []
+        # 功能名：优先 state_attributes.name（迁移入库规范功能名），回退 title
+        _name = _txt(st.get("name"))
+        if not _name:
+            _name = _txt(fm.get("title"))
+        if _name:
+            cad.append(("功能名", _name))
+        # 生效条件：comment 声明优先，回退 condition_space 四槽合成；不齐留缺失
+        _cond = _txt(com.get("生效条件") or com.get("适用条件"))
+        if not _cond:
+            _cond = nodefile.condition_space_text(fm.get("condition_space"))
+        if _cond:
+            cad.append(("生效条件", _cond))
+        # 子功能：comment 声明优先（backfill 同款），回退 depends_on；缺则留缺失
+        _sub = _txt(com.get("子功能") or com.get("子内容"))
+        if not _sub:
+            _sub = _txt(fm.get(trust.DEPS_FIELD))
+        if _sub:
+            cad.append(("子功能", _sub))
+        # 执行：comment 声明优先（backfill derive_fields:259-261 同款），
+        # 无声明留缺失——不发明空行
+        _exe = _txt(com.get("执行") or com.get("执行方式"))
+        if _exe:
+            cad.append(("执行", _exe))
+        # 验证方式：comment 声明优先，回退 enum → BASIS_TEXT 可读化（取不到留缺失）
+        _vb = _txt(com.get("验证方式"))
+        if not _vb and nodefile.verification_basis_valid(fm):
+            try:
+                from .backfill import BASIS_TEXT as _BASIS_TEXT
+                _vb = _txt(_BASIS_TEXT.get(fm.get("verification_basis")))
+            except Exception:                          # noqa: BLE001
+                _vb = ""
+        if _vb:
+            cad.append(("验证方式", _vb))
+        # 不适用条件：comment 声明优先，回退 frontmatter 列表
+        _neg = _txt(com.get("不适用条件"))
+        if not _neg:
+            _neg = _txt(fm.get("non_applicable_conditions"))
+        if _neg:
+            cad.append(("不适用条件", _neg))
+        return cad
+
+    def _ensure_ccg_six(self, content: str, fm: dict) -> str:
+        """content 六要素补齐：已有行不动，缺的按可推导源补，缺源留缺失。
+
+        整函数 **fail-open**：任何异常一律放行原 content——补齐器绝不能阻断
+        add 主写路径（与 derived_from 建链降级同风格：留痕看闸门，写入不断链）。
+        值含换行时丢弃不写（_upsert_ccg_line 的 N208 fail-closed 会整次
+        ValueError，补齐器不得引爆调用方写入）。
+        """
+        try:
+            out = content or ""
+            for _field, _val in self._ccg_six_candidates(fm):
+                if not _val or nodefile.is_placeholder_text(_val):
+                    continue                      # 无来源/占位：不发明空行
+                v = str(_val).strip()
+                if not v or nodefile.ccg_value_has_break(v):
+                    continue
+                if nodefile.ccg_mark_present(out, _field):
+                    continue                      # 已声明：一律不动
+                from .consolidate import _upsert_ccg_line
+                out = _upsert_ccg_line(out, _field, v)
+            return out
+        except Exception:                          # noqa: BLE001
+            return content or ""
+
 # 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None，verdict 为 BLINDSPOT 且 on_conflict="defer" 同样返回 None，其余情形完成写盘/入索引后返回 node_id。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance: float = 0.5,
@@ -2198,10 +2530,20 @@ class MdCG:
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
             semantic: str = None, depends_on=None, valid_from=None,
             valid_until=None, effective_from=None, effective_until=None,
-            believed_at=None, verification_state: str = None,
+            ttl_hours=None, believed_at=None, verification_state: str = None,
             importance_source: str = None, check_strength: str = None,
             uncertain_refs=None, **extra) -> str:
         """写入一个节点。
+
+        **E-T18a t1 写入侧前置判定（J1–J11 三态，默认关闭）**：正文先送
+        `judgment_rules.judge_event` 三态判定（entities/ref_signals 走同名
+        extra 关键字，命中即从 extra 摘除不进 frontmatter；**role 不摘除**——
+        是既有元数据键，且判定只按正文、不按 role）——判 `DROP` **前置短路
+        拒写**（返回 None，与 `on_conflict="defer"` 同形状，不写盘）；判
+        `KEEP_LIFE` 时寿命标记落在 frontmatter（`judgment_lifetime` /
+        `judgment_ref_count`，三态结论在 `judgment_state`）；开关默认关闭，
+        `MDCG_JUDGMENT=1|true|on|yes|enable` 开启时逐字节保持接线前行为
+        之外的判定（开关语义真源 `judgment_rules.is_enabled`）。
 
         verification_basis: 外部验证基底（白箱信任的硬门槛），
                             可选值在 nodefile.VERIFICATION_BASIS。
@@ -2248,6 +2590,57 @@ class MdCG:
                     与 check_strength **相反不继承**：这是正文属性，正文变了
                     检测就该变（覆写按当次检测重算，缺省 None 不落键）。
         """
+        # E-T18a t1 写入侧前置判定（J1–J11 三态；默认关闭，MDCG_JUDGMENT=1
+        # 显式开启）。位置在一切校验/副作用之前——「前置短路」字面语义：判 DROP
+        # 连层校验都不做，绝不写盘。判定面异常同 should_write 口径 fail-open
+        # 放行。**只按正文内容判**（role 一律 None）：role 是 fm/index 元数据
+        # （mdcos.add 落 index["role"]、test_mr_m4 直接读写 fm["role"]），
+        # command/tool-output 事件照常写入，噪声判定靠内容词表/结构信号。
+        _jg = _judgment_gate()
+        _jr_verdict = None
+        _jr_kept = ""
+        _jr_kept_state = ""
+        _jr_kept_why = ""
+        _original_content = content if isinstance(content, str) else str(content)
+        if _jg is not None:
+            try:
+                # entities/ref_signals 走同名 extra 关键字；命中即从 extra
+                # 摘除（不进 frontmatter，接线键不污染节点元数据）。role 是
+                # 既有元数据键，**不摘除**（区别于 entities/ref_signals）。
+                _jr_verdict = _jg.judge_event({
+                    "role": None, "text": content,
+                    "entities": extra.pop("entities", None),
+                    "ref_signals": extra.pop("ref_signals", None)})
+            except Exception:
+                _jr_verdict = None          # fail-open：判定面故障不堵写入
+            if not _jg.should_write(_jr_verdict):
+                # E-T24a t1：整句判 DROP 时先拆 KEEP/KEEP_LIFE 片段——拆出的
+                # 保留片段拼成正文写入；整句无保留片段（kept==""）才维持原 DROP
+                # 前置短路（返回 None）。拆分只发生在**写入侧**：judge_text
+                # 判定面一字未改（整句仍判 DROP，verdict 亦不变，只是正文换成
+                # 保留片段。契约 C：保留片段必须是原文子串，故拼接后仍是原文
+                # 子串，不改写措辞）。
+                try:
+                    _jr_split = _jg.split_keep_parts(
+                        content, role=None,
+                        entities=extra.pop("entities", None),
+                        ref_signals=extra.pop("ref_signals", None))
+                    _jr_kept = str(_jr_split.get("kept") or "")
+                except Exception:
+                    _jr_kept = ""           # fail-open：拆分面故障不堵写入
+                if not _jr_kept:
+                    return None             # 前置短路拒写（defer 同形状）
+                # 拆出保留片段：正文换成保留片段拼接，其余写入路径照旧
+                # （fm 判定字段落保留片段的结论——拆哪几句留由
+                # kept_verdicts 逐条可回溯；原整句 DROP 结论仍可从
+                # verdict 返回体拿）。**只动写入侧**：judge_text/bdq 判定面
+                # 一字未改（整句对判定面仍是 DROP）。
+                content = _jr_kept
+                _jr_kv = _jr_split.get("kept_verdicts") or []
+                _jr_kept_state = (str(_jr_kv[0].get("state"))
+                                 if _jr_kv else _jg.KEEP)
+                _jr_kept_why = (" ".join(_jg.explain(v) for v in _jr_kv)
+                                if _jr_kv else "")
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
         # P0-1（批次 24，外部审查报告）：node_id 是模型可控输入，直接拼
@@ -2291,6 +2684,36 @@ class MdCG:
             raise ValueError(f"未知检验强度：{check_strength}（允许：{CHECK_STRENGTHS}）")
         if uncertain_refs is not None and not isinstance(uncertain_refs, (list, tuple)):
             raise ValueError("uncertain_refs 须为短语列表（list/tuple）")
+        # E-T64a t1 同日同决策去重合并（写路径；开关随 MDCG_JUDGMENT，默认关零
+        # 行为）：同一天、同一决策、后一条只比前一条多后半句 → 并入既有节点，
+        # **不新建**（判中返回既有 node_id 即合并信号，fm 记 merged_from/
+        # merge_count）。未命中 → None → 走下方正常新建路径。位置在写保护
+        # 之前：并入改写的是**既有**节点，_dedup_try 内部已跳过
+        # protected/immutable/self_state/anchor/self，故不绕过保护语义。
+        if _jg is not None:
+            _dedup_id = _dedup_try(self, content, layer=layer,
+                                   ts=float(extra.get("created_at") or time.time()),
+                                   incoming_id=node_id)
+            if _dedup_id is not None:
+                return _dedup_id
+
+            # E-T15a t1：新版覆盖旧版确定性通道（覆盖开关同 MDCG_JUDGMENT，默认关零
+            # 行为——未设/显式 0 时同 key 二次写入仍按原样成两个节点）。
+            # 当两条写入同一 key/topic 且后一条未显式声明 supersede=False 时，
+            # 后一条覆盖前一条：旧节点 fm 标记 superseded=true 并记录 superseded_by，
+            # 默认读取/召回不含旧条目；include_superseded=True 时方可看到两条。
+            # 开关同 _jg（判定面惰性装载真源 judgment_rules，默认关）——不引入
+            # 第二套环境变量。
+            new_topic = extra.get("topic")
+            if new_topic is not None:
+                _supersede_id = _supersede_try(self, content, layer=layer,
+                                                ts=float(extra.get("created_at") or time.time()),
+                                                incoming_id=node_id,
+                                                new_topic=new_topic,
+                                                supersede_kw=extra.get("supersede", None))
+                # _supersede_try 返回 incoming_id 表示覆盖成功，但我们仍需正常写入新节点
+                # 以保持 both nodes 在 index 中（旧者被标记为 superseded）
+                # 无论 _supersede_id 是否为 None，都继续执行正常写入路径
         # 写保护：self/anchor 层、protected 标记、importance≥0.7 的**既有**节点
         # 不可被任意覆写；覆盖需 override=True（旧版本自动快照 + 审计留痕）。
         # N195（2026-09-28，多进程共享库形态）：写路径同样必须做代际感知——
@@ -2404,6 +2827,26 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # E-T18a t1（接线开启时）：三态判定结论 + J11 引用计数寿命标记落
+        # frontmatter——retain.retain_verdict 的 access_count 语义可直接消费。
+        # 开关关闭时 _jr_verdict 恒 None，frontmatter 与接线前逐位一致。
+        if _jr_verdict is not None:
+            # E-T24a t1：拆出保留片段时，fm 落**保留片段**的判定结论（拆分
+            # 器内部已逐条跑过 judge_text，此处取 kept_verdicts[0]——拆出
+            # 几个保留片段就用第一条的结论，why_kept 可回溯到具体保留句）。
+            # 未拆到保留片段（正常 KEEP/keep_life 整句）时沿用整句 verdict。
+            if _jr_kept and _jr_kept != _original_content:
+                fm[_jg.STATE_FIELD] = _jr_kept_state
+                fm[_jg.WHY_KEPT_FIELD] = _jr_kept_why
+            else:
+                _jr_life = _jg.lifetime_mark_of(_jr_verdict)
+                fm[_jg.STATE_FIELD] = _jr_verdict.get("state")
+                # E-T31a t1：留/留但定寿都带判断理由（verdict 推导，非空可回溯；
+                # 开关关闭时 _jr_verdict 恒 None，下面整段不执行，frontmatter 不变）。
+                fm[_jg.WHY_KEPT_FIELD] = _jg.why_kept_of(_jr_verdict)
+                if _jr_life is not None:
+                    fm[_jg.LIFETIME_FIELD] = _jr_life
+                    fm[_jg.REF_COUNT_FIELD] = _jr_life.get("ref_count")
         # issue50-d（2026-10-02）：重要度**来源**声明（"hint"|"heuristic"）落
         # frontmatter——下游免读文件即可判「这条 0.8 是显式声明还是闸门启发式
         # 分」。缺省 None 不落键（既有调用方 fm 形态逐位不变，零回归）。
@@ -2569,10 +3012,20 @@ class MdCG:
             fm.pop(_legacy, None)
             if _val not in (None, ""):
                 fm[_key] = _val
+        # ttl_hours（design 短 TTL 档，t12a）：ttl_hours>0 时落
+        # fm.effective_until=now+ttl_hours*3600、fm.ttl_hours=该值、
+        # fm.ttl_source='design'；规范键落、剔旧键（同族双写必留歧义），
+        # expired_at 走下方既有派生路径随终点落。None/0/负值零行为变化
+        # ——不落这三键、不改 effective_until（默认关）。
+        if ttl_hours is not None and ttl_hours > 0:
+            fm[trust.EFFECTIVE_UNTIL_FIELD] = time.time() + ttl_hours * 3600
+            fm.pop(trust.UNTIL_FIELD, None)
+            fm["ttl_hours"] = ttl_hours
+            fm["ttl_source"] = "design"
         # 过期时刻冗余（2026-09-20 补全阶段一声明的设计：nodefile.EXPIRED_AT_FIELD
-        # 注释自书「由 effective_until 派生，供审计/对账免计算直读」，但派生逻辑
-        # 从未落地——scrub._EXPIRY_KEYS 读取侧已消费该键，写入侧缺失即恒空）。
-        # 冗余字段不独立存活：终点在则随终点落、终点失则剔除（防与终点漂移）。
+        # 注释自书「由 effective_until 派生，供审计/对账免计算直读」；该派生逻辑
+        # 已由下方代码落地——scrub._EXPIRY_KEYS 读取侧消费该键，写入侧在此补齐）。
+        # 语义：冗余字段不独立存活，终点在则随终点落、终点失则剔除（防与终点漂移）。
         _end = None
         for _k in trust.UNTIL_ALIASES:
             if fm.get(_k) not in (None, ""):
@@ -2638,6 +3091,9 @@ class MdCG:
                                        f"≥{protect.AUTO_PROTECT_IMPORTANCE}")
         # 私有内容封装（默认恒等；MdCGSecure 覆盖为 AEAD 加密）。
         # 索引派生同样基于落盘内容，保证与 _scan_nodes 重建结果一致。
+        # G4c 写前六要素补齐：正文缺 CCG 行时按 fm 已声明源补（ccg_mark_present
+        # 已有的行不动，无来源不发明空行；fail-open 不阻断本次写入）。
+        content = self._ensure_ccg_six(content, fm)
         sealed = self._write_node(node_id, path, fm, content,
                                   declared_sensitivity=_declared_sens)
         # 覆写且路由键变化时清理旧桶同 id 文件：不清理则磁盘留双文件，
@@ -3134,13 +3590,76 @@ class MdCG:
 # 生效条件：role 为假值回落 "user"、text 为假值回落 ""、tags/meta 为假值回落 []/{} 后拼成 rec 追加到 recent_log，再按 window（默认模块级 DEFAULT_RECENT_WINDOW）调 roll_recent 截断，返回 {"event": rec, "dropped": dropped}；
     def remember_event(self, role: str, text: str, tags=None, meta=None,
                        window: int = DEFAULT_RECENT_WINDOW):
-        """追加一条近期事件（原始、未结构化），并按窗口滚动截断。"""
+        """追加一条近期事件（原始、未结构化），并按窗口滚动截断。
+
+        **E-T18a t1 写入侧前置判定（J1–J11 三态，默认关闭）**：事件先送
+        `judgment_rules.judge_event`（entities/ref_signals 可选落 meta 同名键；
+        meta.ref_count 为数时归一成 ref_signals）——判 `DROP` 前置短路**不落盘**
+        （返回 `{"event": None, "dropped": 0, "verdict": …}`，拒写原因在 verdict
+        可回溯）；写入成功的事件在 meta 打 `judgment_state` 三态结论，J11
+        （KEEP_LIFE）另带 `judgment_lifetime` / `judgment_ref_count`；返回体
+        接线开启时附 `verdict` 键。**只按正文判**（role 一律 None——role 是事件
+        元数据，command/tool-output 事件照常落窗，噪声靠内容词表判）。开关语义
+        真源 `judgment_rules.is_enabled`，默认关闭；`MDCG_JUDGMENT=1|true|on|yes|enable`
+        显式开启时记录体/返回体在接线前行为之上附加判定结论。
+        """
+        _jg = _judgment_gate()
+        _jr_verdict = None
+        _jr_meta = meta if isinstance(meta, dict) else {}
+        if _jg is not None:
+            # 引用信号：meta.ref_signals 显式优先；只给 meta.ref_count（数值）
+            # 时归一成 {"ref_count": n}——事件在写入时刻还没有被引用过是常态
+            # （J11 判定要求「寿命是事后属性」，无信号时回落 KEEP 不定寿）。
+            _jr_refs = _jr_meta.get("ref_signals")
+            if _jr_refs is None and isinstance(_jr_meta.get("ref_count"),
+                                               (int, float)):
+                _jr_refs = {"ref_count": int(_jr_meta["ref_count"])}
+            try:
+                _jr_verdict = _jg.judge_event(
+                    {"role": None, "text": text,
+                     "entities": _jr_meta.get("entities"),
+                     "ref_signals": _jr_refs})
+            except Exception:
+                _jr_verdict = None          # fail-open：判定面故障不堵写入
+            if not _jg.should_write(_jr_verdict):
+                # E-T24a t1：整句判 DROP 时先拆 KEEP/KEEP_LIFE 片段——拆出的
+                # 保留片段写入 event 正文；整句无保留片段（kept==""）才维持原
+                # DROP 前置短路（返回 {"event": None, "dropped": 0}）。
+                try:
+                    _jr_split = _jg.split_keep_parts(
+                        text, role=None,
+                        entities=_jr_meta.get("entities"),
+                        ref_signals=_jr_meta.get("ref_signals"))
+                    _jr_kept = str(_jr_split.get("kept") or "")
+                except Exception:
+                    _jr_kept = ""           # fail-open：拆分面故障不堵写入
+                if not _jr_kept:
+                    return {"event": None, "dropped": 0, "verdict": _jr_verdict}
+                # 拆出保留片段：event.text 换成保留片段拼接；verdict 换成
+                # **保留片段**的结论（拆分器内部已逐条 judge_text；整句 DROP
+                # 结论不再误导下游「本事件被拒写」——它是拆分产物）。
+                text = _jr_kept
+                _jr_kv = _jr_split.get("kept_verdicts") or []
+                _jr_verdict = _jr_kv[0] if _jr_kv else _jr_verdict
         rec = {"t": time.time(), "role": role or "user",
                "text": text or "", "tags": list(tags or []),
-               "meta": dict(meta or {})}
+               "meta": dict(_jr_meta)}
+        # 接线开启时：三态结论 + J11 寿命标记落 meta（在 append 之前——
+        # 落盘记录必须自带判定结论，事后补则俩口径迟早漂开）。
+        if _jr_verdict is not None:
+            _jr_life = _jg.lifetime_mark_of(_jr_verdict)
+            rec["meta"][_jg.STATE_FIELD] = _jr_verdict.get("state")
+            # E-T31a t1：留/留但定寿都带判断理由（verdict 推导，非空可回溯）。
+            rec["meta"][_jg.WHY_KEPT_FIELD] = _jg.why_kept_of(_jr_verdict)
+            if _jr_life is not None:
+                rec["meta"][_jg.LIFETIME_FIELD] = _jr_life
+                rec["meta"][_jg.REF_COUNT_FIELD] = _jr_life.get("ref_count")
         append_jsonl(self.recent_log, rec)
         dropped = self.roll_recent(window)
-        return {"event": rec, "dropped": dropped}
+        _ret = {"event": rec, "dropped": dropped}
+        if _jr_verdict is not None:
+            _ret["verdict"] = _jr_verdict
+        return _ret
 
 # 生效条件：read_jsonl(recent_log) 条数 <= window（默认 DEFAULT_RECENT_WINDOW）时返回 0 不写盘；否则在 FileLock 下 atomic_write 保留 recs[-window:] 并返回 len(recs) - len(keep)；window 为 0 时 recs[-0:] 即全部记录，返回 0 且不实际截断。
     def roll_recent(self, window: int = DEFAULT_RECENT_WINDOW) -> int:
@@ -3444,6 +3963,42 @@ class MdCG:
         if content is None:
             return None                     # 有节点但无密钥 → 不可读即不存在
         return {"id": node_id, "frontmatter": fm, "content": content, "path": e["path"]}
+
+# 生效条件：include_superseded 为真（缺省 False）时返回**全部**可读节点；缺省 False 时逐条读盘取 frontmatter，跳过 frontmatter.superseded 为真值的条目（E-T15a t1「新版覆盖旧版」通道的默认口径——被新版顶替的旧节点在默认读取/召回面不可见）。每条返回 {nid, ...索引扁平键, frontmatter, content, path}（字典列表，`nid` 键恒为节点 id，测试与调用方据它取值）。不可读（get 返 None / content 为 None）的条目一律跳过，与 get 的「不可读即不存在」同口径；不抛异常。
+    def list_nodes(self, include_superseded: bool = False) -> list:
+        """列出节点（默认排除已废弃；include_superseded=True 时含之）。
+
+        E-T15a t1 读取侧薄方法：判定面开关（MDCG_JUDGMENT）开启时，同
+        key/topic 二次写入会把旧节点 frontmatter 标成 `superseded=true`
+        并记 `superseded_by`。默认口径（include_superseded=False）据此
+        跳过旧节点，使「默认只见新值」可被程序化断言；显式
+        include_superseded=True 时返回两条，供回溯审计。
+
+        与 index["nodes"] 的区别：索引条目是**扁平**快照（path/layer/tags…），
+        不含 frontmatter；本方法逐条经 `self.get()` 读盘解出真 frontmatter，
+        故这里也是 `superseded` 标记的唯一判读处。
+        """
+        _maybe_reload = getattr(self, "_maybe_reload_index", None)
+        if callable(_maybe_reload):
+            _maybe_reload()          # P1b-2：读面代际感知（与 get 同口径）
+        out = []
+        for nid, e in list((self.index.get("nodes") or {}).items()):
+            if not isinstance(e, dict):
+                continue
+            got = self.get(nid)
+            if not got or got.get("content") is None:
+                continue
+            fm = got.get("frontmatter") or {}
+            if not include_superseded and fm.get("superseded") is True:
+                continue
+            row = dict(e)
+            row["nid"] = nid
+            row["frontmatter"] = fm
+            row["content"] = got.get("content")
+            if not row.get("path"):
+                row["path"] = got.get("path")
+            out.append(row)
+        return out
 
 # 生效条件：path 为节点盘上路径、exc 为读该文件时捕获的异常；仅当 fsutil.classify_read_failure(exc) 判为瞬时（非 FileNotFoundError）时调 fsutil.note_transient_read_failure 记账并返回 True，终态（真缺）不记账返回 False；本方法不改任何控制流（读不到仍是读不到）。
     @staticmethod
@@ -5028,15 +5583,79 @@ class MdCG:
                                   topic=f"{_q}|{_st}")
         return {"unresolved_id": nid, "question": question}
 
-    # ---------- 访问计数：append-only，检索路径不写节点文件 ----------
+    # ---------- 访问计数：日志留痕 + 命中节点即时落盘 ----------
 
 # 生效条件：无条件尝试把 {"t": time.time(), "ids": list(node_ids), "tier": tier} 追加到 access_log，append 抛 OSError 时静默吞掉；
+# 随后（日志已落）调 _fold_access_immediate 把本批命中即时折进 frontmatter 与索引快照（只动命中节点，O(命中数)）；折叠失败不抛出、不影响日志已留痕这一既有契约；
     def record_access(self, node_ids, tier=None):
+        """记一次访问：**先留痕，再即时落盘**。
+
+        E-T63a t1（2026-10-11）修复「折叠永不触发」——此前本方法只写
+        `_access.log`，而折叠唯一触发点是 sustain 的 `access_log_backlog`
+        诊断码，该码要求 `_acc_lines > ACCESS_LOG_COMPACT_LINES`(=500)
+        （sustain.py:114,873-877）。本地库实测 401 行 ⇒ 永不折叠 ⇒
+        frontmatter `access_count` 恒 0、`_index.json` 重建取 fm 仍 0，
+        「谁被反复引用」在**不跑 sustain 常驻循环**的进程里永远读不到。
+
+        现改为：日志照旧 append（审计痕迹与既有 `access_counts()` /
+        `compact_access()` 契约一字不动），紧接着把**本批命中**的节点
+        计数即时折进 frontmatter 并同步索引快照。折叠是 O(命中数) 的
+        受控写（只写被命中的节点文件），不是每命中一次就全盘重写整个库。
+        """
         try:
             append_jsonl(self.access_log,
                          {"t": time.time(), "ids": list(node_ids), "tier": tier})
         except OSError:
             pass
+        # 即时折叠：不依赖 sustain 常驻循环、不依赖 500 行阈值。
+        # 整体吞异常——记账是**旁路**语义，任何折叠失败都不得让检索路径
+        # 抛错（日志已留痕，后续 compact_access() 仍能把这一批补账）。
+        try:
+            self.fold_access_records(list(node_ids))
+        except Exception:                     # noqa: BLE001 —— 旁路不得打断检索
+            pass
+
+# 生效条件：node_ids 为空/非容器时返回 {}；否则对每个在 index["nodes"] 中存在的 id 读盘取 fm（_read 返回 fm 为 None 即跳过），
+# 把 fm["access_count"] 累加 1、fm["last_access"] 取 max(原值, now) 后经 _write_node 落盘，并把同一组值同步进该节点的索引条目（access_count/last_access）；
+# 返回 {id: {"access_count": n, "last_access": t}}（只含真正落盘的 id）。
+    def fold_access_records(self, node_ids, ts=None):
+        """把一批命中**即时**折进候选节点（frontmatter + 索引快照）。
+
+        与 `compact_access()` 的区别只在**范围与计数来源**：
+          · `compact_access()` 读整个 `_access.log` 的历史计数、清日志，
+            对全部历史命中 id 写盘（sustain 的批量折叠路径，语义不动）；
+          · 本方法只处理**本次传进来的这一批** id，每个 id 加 1，日志**不删**
+            （审计痕迹保留）。两条路各记各的增量，不会重复计数：
+            折叠不推进任何「已消费水位」，`compact_access()` 之后重放日志
+            会把同一批再加一次——这正是改动前的既有语义（日志是账本，
+            折叠是入账），本次不改变这一口径，只把入账推迟到「不迟于下次召回」。
+
+        索引同步是必须的（不是可选优化）：`_index.json` 重建取的是 fm，
+        而**在役进程**读的是内存条目——不同步就会出现「落盘了但本次进程
+        仍读到 0」的假象（与 `_node_entry` / `add()` 的定向 upsert 同款纪律：
+        写路径的索引键口径必须与重建路径一致）。
+        """
+        out = {}
+        if not node_ids:
+            return out
+        now = float(ts if ts is not None else time.time())
+        for nid in node_ids:
+            e = self.index["nodes"].get(nid)
+            if not e:
+                continue          # 索引里没有（幽灵 id / 已摘除）→ 不计
+            fm, content = self._read(e)
+            if fm is None:
+                continue          # 读盘失败（含无密钥）→ 跳过，不猜测
+            c = int(fm.get("access_count") or 0) + 1
+            last = max(float(fm.get("last_access") or 0), now)
+            fm["access_count"] = c
+            fm["last_access"] = last
+            self._write_node(nid, self._node_disk_path(e), fm, content)
+            # 索引快照同步（免读文件可判的扁指标量，见 _node_entry 同款注释）
+            e["access_count"] = c
+            e["last_access"] = last
+            out[nid] = {"access_count": c, "last_access": last}
+        return out
 
 # 生效条件：无 required 形参；遍历 self.access_log 的 read_jsonl 记录，ts 取 rec.get("t", 0)（缺键回落 0），对 rec.get("ids", []) 中每个 nid 计数加一，且 ts 大于该 nid 已记最大 ts 时更新 last[nid]=ts，返回 (counts, last)；
     def access_counts(self):

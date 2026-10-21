@@ -296,10 +296,10 @@ def save_key(key: bytes, path: str = None) -> str:
 # 子系统签名策略（D-4：智能体自行决定子系统怎么用签名链）
 # --------------------------------------------------------------------------
 
-# 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": False, "on_verify_fail": "degrade"}（调用方需经 policy() 归一化后再用）；
+# 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": True, "on_verify_fail": "reject"}（fail-closed：策略缺失/读不出即最严；调用方需经 policy() 归一化后再用）；
 def _default_policy() -> dict:
     return {"signer": None, "sign_on": ["handshake"],
-            "require_peer_signature": False, "on_verify_fail": "degrade"}
+            "require_peer_signature": True, "on_verify_fail": "reject"}
 
 
 # 生效条件：pol 中 'signer'/'sign_on'/'require_peer_signature'/'on_verify_fail' 键覆盖默认策略，sign_on 只保留属于 SIGN_ACTIONS 的项，on_verify_fail 不在 ON_VERIFY_FAIL 时回落 'degrade'。
@@ -319,11 +319,14 @@ def _normalize(pol: dict) -> dict:
 
 
 # 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
+# 覆盖范围（2026-10-21 补，病灶 C5）：本模块只被 evidence / links 两类写入调用；
+# 节点正文、审计日志、索引快照**都没有**签名覆盖。所以下面 load_policies() 的
+# fail-closed 只在「单元层」成立，系统层不要按「全库已签名」来读这条策略。
 def signers_file(path: str = None) -> str:
     return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
 
 
-# 生效条件：signers_file(path) 处可读出 dict 时补上缺省 schema/subsystems 后返回该 dict，否则返回 {'schema': SCHEMA, 'default_signer': DEFAULT_SIGNER, 'subsystems': {}, 'updated_at': None}。
+# 生效条件：signers_file(path) 处可读出 dict 时**按文件内容**生效（补缺省 schema/subsystems 后返回该 dict；文件里显式写的 require_peer_signature/on_verify_fail 一律沿用，不被改写）；文件不存在、读不出、或读出的不是 dict 时返回 **fail-closed 的严策略**（require_peer_signature=True / on_verify_fail='reject' / signer=DEFAULT_SIGNER）。
 def load_policies(path: str = None) -> dict:
     p = signers_file(path)
     if os.path.exists(p):
@@ -336,8 +339,29 @@ def load_policies(path: str = None) -> dict:
                 return d
         except (OSError, ValueError):
             pass
+    # 缺失 / 读不出 / 非 dict：一律从严（不再回落到最弱默认）
     return {"schema": SCHEMA, "default_signer": DEFAULT_SIGNER,
-            "subsystems": {}, "updated_at": None}
+            "subsystems": {}, "updated_at": None,
+            "require_peer_signature": True, "on_verify_fail": "reject"}
+
+
+# 生效条件：只读探针、无副作用、不落盘；解析 signers_file(path) 得到实际生效策略，返回 {'file', 'exists', 'effective'{'require_peer_signature','on_verify_fail','signer'}, 'missing_strict'}；文件不存在时 exists=False 且 missing_strict=True。
+def policy_source(path: str = None) -> dict:
+    """只读探针：这次实际读的是哪个策略文件、它存不存在、生效的是什么。"""
+    p = signers_file(path)
+    exists = os.path.exists(p)
+    d = load_policies(path)
+    sub = (d.get("subsystems") or {}).get("") or {}
+    eff = _normalize(sub)
+    if not eff.get("signer"):
+        eff["signer"] = d.get("default_signer") or DEFAULT_SIGNER
+    missing_strict = (not exists) or (eff.get("on_verify_fail") == "reject"
+                                      and bool(eff.get("require_peer_signature")))
+    return {"file": p, "exists": exists,
+            "effective": {"require_peer_signature": bool(eff.get("require_peer_signature")),
+                          "on_verify_fail": eff.get("on_verify_fail"),
+                          "signer": eff.get("signer")},
+            "missing_strict": missing_strict}
 
 
 # 生效条件：data 传入任意映射即被 dict(data) 浅拷贝并覆写 schema/updated_at 后写入 signers_file(path)（path 为假值时由 signers_file(path) 决定路径）。
