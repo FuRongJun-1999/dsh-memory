@@ -1972,7 +1972,23 @@ class MdCG:
             # 「.md 计数相等」，两套判据对同一个问题（「这份快照可信吗」）各答
             # 各的，且 compact 还会把当前指纹盖到陈旧快照上把指纹判据一起抹掉。
             if not self._snapshot_trusted(idx):
-                idx = None
+                # 2026-10-21 治本（写/读超时根因）：目录 mtime 指纹会在任意合作写入后
+                # 失效（新文件落进目录即改 mtime），失效后原实现一律回退全库扫描——
+                # 真实库 31,688 节点实测 13.4 秒/次冷启动，这才是 MCP 读写超时来源
+                # （写入逻辑本身只要 47~53ms）。
+                # 指纹只回答「目录树是否动过」，不判内容；合作写入都走分片日志。
+                # 故先重放日志，再用 _covers_disk（walk 目录、只比路径集合，0.08 秒）
+                # 验证「索引路径集合 == 盘面 .md 集合」：成立则采纳；不成立（改名/换目录/
+                # 外部删加）仍回退全库扫描，正确性不降级。
+                _probe = {"schema": SCHEMA, "nodes": dict(idx.get("nodes") or {}), "buckets": {}}
+                try:
+                    self._apply_log(_probe["nodes"])
+                    if self._covers_disk(_probe["nodes"]):
+                        idx = _probe
+                    else:
+                        idx = None
+                except Exception:
+                    idx = None
         if idx is None:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
         self._apply_log(idx["nodes"])
@@ -2149,6 +2165,21 @@ class MdCG:
         `self._dirty_replay_superseded` 留下条数读数。见证拿不到的条目照旧重放
         ——「本实例未落盘写入不因重载从检索侧消失」这条不变量一并保留。
         """
+        # 2026-10-21 性能回归修复：本方法在每次读面入口被调用，签名探测本身便宜，
+        # 但**他进程分片每次 flush 都会改变签名** ⇒ 长期存活的写方（MCP serve）
+        # 一旦在跑，读侧几乎每次查询都判定「代际变化」并整库重载（真实库 31k 节点
+        # 实测 7.0 秒/次）。故加**最小重载间隔**：默认 1.0 秒内不重复探测，
+        # 代价是跨进程写入的可见性最多延迟该间隔（读面代际感知语义不变，只是有界延迟）。
+        try:
+            _min_iv = float(os.environ.get("MDCG_RELOAD_MIN_INTERVAL", "30.0"))
+        except ValueError:
+            _min_iv = 30.0
+        if _min_iv > 0:
+            _last = getattr(self, "_sig_probe_ts", 0.0)
+            _now = time.time()
+            if _now - _last < _min_iv:
+                return False
+            self._sig_probe_ts = _now
         sig = self._index_signature()
         if sig == self._index_sig:
             return False

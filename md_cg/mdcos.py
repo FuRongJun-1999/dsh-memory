@@ -1374,7 +1374,11 @@ class MdCGOS(MdCG):
         # 因为它们本就是「域桶内精确命中」，改它会让桶优先级语义漂移。
         # 失败一律回落原 _score（信息不足不得中断检索）。
         _bm_scored = None
-        if os.environ.get("MDCG_BM25", "1") == "1":
+        # 2026-10-21 回归：默认开时实测 19~27 秒/查询（真实库 26k 候选），
+        # 而 bm25.search 直接调用第 2 次只需 0.02s ⇒ 每次 search 都重建块布局（
+        # entries 对象每轮都新建，缓存键命中不了）。在修好这条缓存前，
+        # 默认关（opt-in），避免检索面 20x 回退。
+        if os.environ.get("MDCG_BM25", "0") == "1":
             try:
                 from . import bm25 as _bm
                 # 用**独立 stat**：bm25.search 会累加 scanned/build 计数，
