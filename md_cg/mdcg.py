@@ -5436,7 +5436,7 @@ class MdCG:
                      # 阶段 1 大域收敛结果 + 完整打分明细（白箱可审计）
                      "big_domain": big_domain,
                      "big_domain_scores": big_scores,
-                     # reach 收敛层审计（2026-09-18）：reach=converged/off/short_term/...
+                     # reach 收敛层审计（2026-09-18）：reach=converged/off/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow（#611 起不再产生 short_term）
                      # 与 reach_seed（倒排命中数）/reach_diffused（图扩散增量）——
                      # A3「触碰量随查询变化」的观测面（scanned 只报读盘数）
                      "reach": stat.get("reach"),

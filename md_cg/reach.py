@@ -391,7 +391,7 @@ def _disk_fresh(idx: ReachIndex, cg) -> bool:
     return bool(idx.built_fingerprint) and idx.built_fingerprint == _fingerprint(cg)
 
 
-# 生效条件：仅当 enabled() 为真、terms 中各项长度均不小于 2、_index_with_meta(cg) 返回的 idx 非 None 且 idx.hash_complete 为真、由 qb/terms/q 生成的 token 集非空、按 entries 过滤后的 got 非空、且 entries 中未索引或 created_at 晚于 idx.built_at 的新节点数不超过 _FRESH_MAX 时返回 (got, meta)，否则按守卫失败原因返回 (None, {"reach": off/short_term/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow})。
+# 生效条件：仅当 enabled() 为真、_index_with_meta(cg) 返回的 idx 非 None 且 idx.hash_complete 为真、由 qb/terms/q 生成的 token 集非空、按 entries 过滤后的 got 非空、且未索引/新写入节点数不超过 _FRESH_MAX 时返回 (got, meta)；否则按守卫失败原因返回 (None, {"reach": off/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow})。# 单字符 term 不再整段跳过（issue #611）：改用「含该字的 bigram」并集做超集收敛，保召回。
 def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     meta = {"reach": "on"}
     if not enabled():
