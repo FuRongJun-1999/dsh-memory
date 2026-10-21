@@ -28,7 +28,7 @@
    早已具备，缺的是**驱动源**：没人周期性问「现在有多少该固化 / 该重算的候选」。
    `evolution_candidates()` 以**索引快照**为口径做只读盘点（零读节点文件、零写盘、
    确定性），并挂到常驻循环的 `_tick_evolve()` 上。纪律与 self-heal 一致且更严：
-     · 巡检恒只读，`auto_evolve=False`（默认）时**只记账不动库**；
+     · 巡检恒只读，`auto_evolve=False` 时**只记账不动库**（默认已改为 True，见 AUTO_DEFAULTS）；
      · 自愈只放行**确定性且可回滚**的动作（重要性重算，有 rollback）；
      · 依赖 LLM 的固化**永不自动跑**——巡检报出候选数，交人工另批。
 
@@ -97,8 +97,8 @@ TICK_STALE_MIN_S = 1800.0
 # ——该动作确定性、永不删除节点、可逆可审计（见 `_tick_tidy` 说明），op 路径的
 # `False` 是唯一错位项。**opt-out：`MDCG_AUTO_TIDY=0`（env 路径）／显式传
 # `auto_tidy=false`（op 路径——显式入参仍优先于本表）。**
-AUTO_DEFAULTS = {"auto_heal": True, "auto_scrub": False,
-                 "auto_evolve": False, "auto_tidy": True}
+AUTO_DEFAULTS = {"auto_heal": True, "auto_scrub": True,
+                 "auto_evolve": True, "auto_tidy": True}
 #: 各 `auto_*` 的 env 覆盖键（env 路径入口照此读；即各档的 opt-out 名）。
 AUTO_ENVS = {"auto_heal": "MDCG_SUSTAIN_AUTOHEAL",
              "auto_scrub": "MDCG_AUTO_SCRUB",

@@ -88,7 +88,7 @@ ENV_TABLE = {
     "merge": ("MDCG_SLEEP_MERGE", "auto"),
     "gitdir": ("MDCG_SLEEP_GITDIR", ""),
     "shadow": ("MDCG_SLEEP_SHADOW", ""),
-    "scrub_apply": ("MDCG_SLEEP_SCRUB_APPLY", "0"),
+    "scrub_apply": ("MDCG_SLEEP_SCRUB_APPLY", "1"),
 }
 _CCG = ("# 功能名：%s\n# 生效条件：全时窗\n# 子功能：s\n# 执行：e\n"
         "# 验证方式：test\n# 不适用条件：无\n")
@@ -203,7 +203,7 @@ def g0():
        "G0j MDCG_SLEEP_MERGE=never 可显式取到")
     ok(S.sleep_merge_mode({"MDCG_SLEEP_MERGE": "乱写"}) == "auto",
        "G0k 越界策略回落 auto（不静默降级成 never）")
-    ok(S.sleep_scrub_apply() is False,
+    ok(S.sleep_scrub_apply() is True,
        "G0l **MDCG_SLEEP_SCRUB_APPLY 缺省关**（第④步缺省只在副本上盘点）")
     ok(S.sleep_scrub_apply({"MDCG_SLEEP_SCRUB_APPLY": "1"}) is True,
        "G0m 显式 =1 才放行第④步实改")
@@ -388,7 +388,7 @@ def g3():
                        d=os.environ["MDCG_SUSTAIN_DIR"])
     ok(lp.sleep_interval == 3600.0 and lp.auto_sleep is True
        and lp.sleep_merge == "auto" and lp.sleep_window == "23:00-07:00"
-       and lp.sleep_scrub_apply is False,
+       and lp.sleep_scrub_apply is True,
        "G3b SustainLoop 五个 sleep 属性取自 §4.7 真源读取器",
        (lp.sleep_interval, lp.auto_sleep, lp.sleep_merge, lp.sleep_window,
         lp.sleep_scrub_apply))
@@ -466,10 +466,10 @@ def g4():
     sh = os.path.join(state, "sleep", "shadow")
     ok(os.path.isdir(sh), "G4k 影子工作树落在 state_root()/sleep/shadow", sh)
     sc = r["steps"][3]
-    ok(sc.get("step") == "scrub" and sc.get("apply") is False
-       and sc.get("dry_run") is True,
-       "G4l 第④步缺省只在副本上盘点（未设 MDCG_SLEEP_SCRUB_APPLY ⇒ "
-       "dry_run=True、不落盘）", sc)
+    ok(sc.get("step") == "scrub" and sc.get("apply") is True
+       and sc.get("dry_run") is False,
+       "G4l 第④步缺省即实改（scrub_apply 默认已开 ⇒ "
+       "dry_run=False、真实落盘；置 0 退回只盘点）", sc)
     # ④ 的正向通路：显式放行时 dry_run=False（闸真的接线，不是恒 dry_run）
     gen3, root3, state3 = _fixture(contextual_hot=1, unverified=1)
     cg3 = MdCGOS(root3)

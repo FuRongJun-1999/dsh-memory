@@ -267,7 +267,7 @@ def proposals(cg, window: int = 200, limit: int = 3,
     mv = d_meta.compute(cg, window=window)   # 每轮一次、循环内复用（禁 N× 扫描）
     bonus = (round(W_DMETA * d_meta.pressure(mv, DMETA_PROXY), 4)
              if mv.get("enabled") else 0.0)
-    emotion_on = os.environ.get(EMOTION_ENV) == "1"   # 默认关（非 "1" ⇒ bonus 恒 0）
+    emotion_on = os.environ.get(EMOTION_ENV) == "1"   # 默认开（2026-10-21 裁定）；显式设 0/false ⇒ bonus 恒 0
     eps = metacognition.D2_EMOTION                    # 情绪加分硬上限（复用既有常量）
     for a in agg.values():
         score = (W_D2 * a["d2_abs"] + W_BLINDSPOT * a["blindspot"]

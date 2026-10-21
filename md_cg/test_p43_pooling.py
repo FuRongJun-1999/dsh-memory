@@ -115,23 +115,26 @@ def _count(res, prefix):
 def main():
     print("md 认知图 P43 验收 · §七 召回分池与降权（不隐性提高上限）")
     print("=" * 70)
+    # 2026-10-21 使用者裁定：分池默认开 ⇒ 本守卫的「关闭态」基线须显式关
+    _old_switch = os.environ.get(PL.ENV_SWITCH)
+    os.environ[PL.ENV_SWITCH] = "0"
     root = None
     try:
         root = tempfile.mkdtemp(prefix="mdcg_p43_")
         cg = _mk(root)
         cfg = PL.resolve(True)
 
-        # ============================================= (1) 契约与默认关闭
+        # ============================================= (1) 契约与默认开启（显式关=反向腿）
         print("\n(1) 契约与默认关闭")
         cat = PL.catalog()
         ok(cat["pools"] == ["knowledge", "index", "negative"], "(1) catalog 三池齐备")
-        ok("off" in cat["default"], "(1) catalog 明示默认关闭")
+        ok("on" in cat["default"], "(1) catalog 明示默认开启（2026-10-21 裁定）")
         ok(cat["cap_ratio_sum"] == 1.0, "(1) 内置表额度之和为 1.0")
         ok(PL.resolve(None) is None and PL.resolve(False) is None,
            "(1) resolve(None/False) → 关闭")
         ok(set(PL.resolve(True)) == set(PL.POOL_ORDER), "(1) resolve(True) → 三池")
         old_env = os.environ.pop(PL.ENV_SWITCH, None)
-        ok(PL.from_env(None) is None, "(1) 环境变量未设 → 关闭")
+        ok(PL.from_env(None) is True, "(1) 环境变量未设 → 启用（默认开）")
         ok(PL.from_env(cfg) is cfg, "(1) 显式传表优先于环境变量")
         os.environ[PL.ENV_SWITCH] = "1"
         ok(PL.from_env(None) is True, "(1) 环境变量=1 → 启用内置表")
@@ -359,7 +362,7 @@ def main():
         # ============================================= (13) MCP 接入
         print("\n(13) MCP 接入")
         pc = call_tool(cg, "cg", {"op": "sustain", "action": "pooling"})
-        ok(pc["cap_ratio_sum"] == 1.0 and pc["default"].startswith("off"),
+        ok(pc["cap_ratio_sum"] == 1.0 and pc["default"].startswith("on"),
            "(13) sustain pooling 自描述可用")
         bench = call_tool(cg, "cg", {"op": "sustain", "action": "pool_bench",
                                      "queries": [QUERY], "k": 5, "limit": 5})
@@ -374,9 +377,13 @@ def main():
         sres = call_tool(cg, "mdcg_search", {"query": QUERY, "k": 5, "pools": True})
         ok(sres["meta"]["pools"]["enabled"] is True, "(13) mdcg_search 透传 pools=True")
         ok("taken" in sres["meta"]["pools"], "(13) mdcg_search 回报各池实取数")
+        os.environ.pop(PL.ENV_SWITCH, None)   # 未设 = 默认开（2026-10-21）
         sres2 = call_tool(cg, "mdcg_search", {"query": QUERY, "k": 5})
-        ok(sres2["meta"]["pools"]["enabled"] is False,
-           "(14) 不传 pools 的既有调用方零影响")
+        ok(sres2["meta"]["pools"]["enabled"] is True,
+           "(14) 不传 pools ⇒ 默认启用分池（2026-10-21 裁定）")
+        sres3 = call_tool(cg, "mdcg_search", {"query": QUERY, "k": 5, "pools": False})
+        ok(sres3["meta"]["pools"]["enabled"] is False,
+           "(14b) 显式 pools=False ⇒ 退回平截（反向腿）")
         tool = [t for t in KERNEL_TOOLS if t["name"] == "cg"][0]
         props = tool["inputSchema"]["properties"]
         ok("pools" in props and "queries" in props, "(13) schema 暴露 pools/queries")

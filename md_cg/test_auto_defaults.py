@@ -191,15 +191,15 @@ def g0():
 
 
 # ---------------------------------------------------------------- G1
-_EXPECT = {"auto_heal": True, "auto_scrub": False,
-           "auto_evolve": False, "auto_tidy": True}
+_EXPECT = {"auto_heal": True, "auto_scrub": True,
+           "auto_evolve": True, "auto_tidy": True}
 
 
 def g1():
     print("== G1 真源表与读取器 ==")
     S = globals()["sustain"]
     ok(dict(S.AUTO_DEFAULTS) == _EXPECT,
-       "G1 真源表四项与裁决值一致（含 auto_tidy=True——本轮唯一的对外可见变更）",
+       "G1 真源表四项与裁决值一致（scrub/evolve 默认已改 True——使用者裁定 2026-10-21）",
        S.AUTO_DEFAULTS)
     ok(set(S.AUTO_ENVS) == set(S.AUTO_DEFAULTS),
        "G1a env 键映射与真源表同键集", sorted(S.AUTO_ENVS))
@@ -313,9 +313,9 @@ def g4():
     ok(S.AUTO_DEFAULTS["auto_tidy"] is True,
        "G4 裁决值 = 开：auto_tidy 真源缺省为 True")
     ok(S.AUTO_DEFAULTS["auto_heal"] is True
-       and S.AUTO_DEFAULTS["auto_scrub"] is False
-       and S.AUTO_DEFAULTS["auto_evolve"] is False,
-       "G4a 另三项缺省与本轮前逐项相同（heal=True / scrub=False / evolve=False）",
+       and S.AUTO_DEFAULTS["auto_scrub"] is True
+       and S.AUTO_DEFAULTS["auto_evolve"] is True,
+       "G4a 三项缺省均为 True（heal/scrub/evolve——2026-10-21 裁定改为默认开）",
        S.AUTO_DEFAULTS)
     ok(S.AUTO_ENVS["auto_tidy"] == "MDCG_AUTO_TIDY",
        "G4b opt-out env 名（自真源读）= MDCG_AUTO_TIDY")
@@ -338,7 +338,7 @@ _GROUPS = (g0, g1, g2, g3, g4)
 #   M3 把 env 路径改回旧的手写 env 读取（= 旧 env 路径形态 + 第二处字面量）
 _MUTATIONS = (
     ("真源表 auto_tidy 改回 False（旧 op 路径值）", "mod", "md_cg/sustain.py",
-     '"auto_evolve": False, "auto_tidy": True}',
+     '"auto_evolve": True, "auto_tidy": True}',
      '"auto_evolve": False, "auto_tidy": False}', 1),
     ("op 路径读取器不回落真源（旧「另一处字面量」）", "mod", "md_cg/sustain.py",
      "        return bool(args[name])\n    return auto_default(name)",

@@ -850,9 +850,9 @@ KERNEL_TOOLS = [
             heal_interval=_p("number", "sustain start：巡检间隔秒（默认 300）"),
             auto_heal=_p("boolean", "sustain start：巡检异常时自动修复（默认是）"),
             scrub_interval=_p("number", "sustain start：自净间隔秒（默认 3600）"),
-            auto_scrub=_p("boolean", "sustain start：自净执行去污染（默认否，只巡检）"),
+            auto_scrub=_p("boolean", "sustain start：自净执行去污染（默认是；auto_scrub=false 可退回只巡检）"),
             evolve_interval=_p("number", "sustain start：演化巡检间隔秒（默认 7200）"),
-            auto_evolve=_p("boolean", "sustain start：演化巡检自动落盘确定性动作"
+            auto_evolve=_p("boolean", "sustain start：演化巡检自动落盘确定性动作（默认是）"
                                       "（仅重要性重算；固化需 LLM 仍交人工。默认否）"),
             allow_evolve=_p("boolean", "sustain heal：放行演化类修复"
                                       "（确定性动作才执行；默认否）"),
