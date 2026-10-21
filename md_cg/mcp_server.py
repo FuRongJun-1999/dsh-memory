@@ -4203,7 +4203,12 @@ def _dispatch(cg, name, args):
         # 命中直接返回上一次的**整个工具返回体**（形状与未命中一致）；
         # 显式 node_id / op 的调用一律绕过（那是"读某条"，不是"查一次"）。
         from . import hotcache as _hc
-        _hcobj = None if ("node_id" in a or a.get("op")) else _hc.get(cg)
+        # 工具层用**独立实例**：与 search_rrf 共用同一 _queries 字典会让两种值形状
+        # 共处一个键空间——一旦键相等就是「静默错答/解包炸裂」（蜂巢反思单元 P0）。
+        if not hasattr(cg, "_hotcache_tool"):
+            cg._hotcache_tool = _hc.HotCache()
+        # validity=True 的查询需要时钟窗，工具层不带窗口语义 ⇒ 一律不缓存（P1）。
+        _hcobj = None if ("node_id" in a or a.get("op") or a.get("validity")) else cg._hotcache_tool
         _ckw = None
         if _hcobj is not None:
             try:
@@ -4218,10 +4223,14 @@ def _dispatch(cg, name, args):
             except Exception:
                 _hit = None
             if _hit is not None:
-                _seq = _hit[0] if isinstance(_hit, tuple) else _hit
-                if isinstance(_seq, list) and _seq:
-                    return _seq[0]
-                return _seq
+                import copy as _copy
+                _rows, _tag = (_hit if isinstance(_hit, tuple) and len(_hit) == 2 else (None, {}))
+                if (isinstance(_tag, dict) and _tag.get("surface") == "mdcg_search"
+                        and _tag.get("v") == 1 and isinstance(_rows, list) and len(_rows) == 1
+                        and isinstance(_rows[0], dict)):
+                    # 深拷贝：hotcache 的 _copy_row 只浅一层，_out["results"] 列表会共享
+                    return _copy.deepcopy(_rows[0])
+                _hit = None          # 形状/版本不符 ⇒ 当未命中，不猜
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=_int_arg(a, "k", 20), context=a.get("context"),
                               roles=tuple(a["roles"]) if a.get("roles") else None,
@@ -4240,7 +4249,11 @@ def _dispatch(cg, name, args):
                             for n, s, q in res]}
         if _hcobj is not None and _ckw is not None:
             try:
-                _hcobj.put_query(a.get("query", ""), [_out], {}, **_ckw)
+                # 写入时深拷贝：否则**未命中那一次**返回给调用方的对象与缓存同一份，
+                # 调用方原地改（append/改 score）就污染了缓存（蜂巢验证单元指出 _copy_row 只浅一层）。
+                import copy as _copy2
+                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_out)],
+                                 {"surface": "mdcg_search", "v": 1}, **_ckw)
             except Exception:
                 pass
         return _out
