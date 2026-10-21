@@ -396,9 +396,8 @@ def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     meta = {"reach": "on"}
     if not enabled():
         return None, {"reach": "off"}
-    terms = list(terms or [])
-    if any(len(t or "") < 2 for t in terms):
-        return None, {"reach": "short_term"}      # 单字符 term 的 bigram 无法覆盖子串语义
+    terms = [t for t in (terms or []) if t]
+    _single = [t for t in terms if len(t) < 2]
     idx, _fail = _index_with_meta(cg)
     if idx is None:
         return None, dict({"reach": "index_unavailable"}, **_fail)
@@ -417,6 +416,13 @@ def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     toks |= bg((q or "").lower())
     for t in terms:
         toks |= bg(t)
+    # 单字符 term：任何含该字的文档必含「包含该字的某个 bigram」（长度 >=2 时成立），
+    # 故把倒排里所有含该字的 bigram 的 postings 并入 token 集 —— 仍是超集口径，不丢召回。
+    if _single:
+        _chars = set(_single)
+        for b in list(idx.post.keys()):
+            if any(c in b for c in _chars):
+                toks.add(b)
         toks |= bg((t or "").lower())
         # 与文档侧 ne() 口径对齐（terms 此前只做小写）——同样是超集方向，宁多读不漏召回
         toks |= bg(_ne(t or ""))

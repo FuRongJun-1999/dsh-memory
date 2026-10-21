@@ -1022,7 +1022,10 @@ class MdCGOS(MdCG):
             from . import hotcache as _hc
             hc = _hc.get(self)
             if hc is not None and node_id:
-                hc.invalidate_node(node_id)   # 节点级 O(1)，非 invalidate_node_and_queries
+                hc.invalidate_node(node_id)   # 节点级 O(1)
+                # issue #614：默认检索入口现在也吃 query 缓存（见 MdCGOS.search）。
+                # 键不含索引代际，故写路径必须全清——否则写后读会命中旧代结果（静默错答）。
+                hc.invalidate_all_queries()
         except Exception:                                  # noqa: BLE001
             pass
         return self._index_gen
@@ -1289,7 +1292,7 @@ class MdCGOS(MdCG):
         return out
 
 # 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；pool_cfg 由 pooling.resolve(pooling.from_env(pools)) 解析；_candidates 为空即返回 no_candidates；其余与 MdCG.search 同构（T0–T3 阶梯 + 资格判定），并按 roles/include_work 默认剔除工具输出与命令类 role，view 真值时移交 role 维度裁决权给 roleviews.matches（见 _candidates），validity 真值时候选层剔除已过期节点；
-    def search(self, query: str, layer: str = None, k: int = 20,
+    def _search_impl(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
                roles=None, include_work: bool = False, pools=None,
@@ -1502,6 +1505,41 @@ class MdCGOS(MdCG):
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
 
 # 生效条件：当 query、entries、stat 传入时，先以 terms/qb 从 entries 读取文档并保留 LIKE 命中或（semantic_on 且 frontmatter.semantic）的项；若 hits 为空则按 importance/created_at 降序取前 GLOBAL_CAP 作为兜底；随后对 hits 打分并按相关度与 importance 降序排序，超过 GLOBAL_CAP 时截断并更新 stat，否则返回全部 scored；
+
+    # 生效条件：热缓存已挂载（MDCG_HOTCACHE 默认开）且键覆盖全部影响结果的参数时命中缓存直接返回；
+    # 未挂载或抛错一律回落真实实现（缓存只省重复计算，不改变结果）。
+    def search(self, query, *args, **kwargs):
+        """默认检索入口的 query 级热缓存（issue #614 接线）。
+
+        修前热缓存的读写面只存在于 search_rrf，而默认入口走本类 search，
+        故 stats 恒零（实测：MDCG_RETRIEVAL_PIPELINE=1 也无效）。
+        键按 hotcache._query_key 既有口径，extra 收全部剩余 kwargs；
+        写路径由 _on_index_mutation 全清（invalidate_all_queries）。
+        """
+        from . import hotcache as _hc
+        hc = _hc.get(self)
+        if hc is None:
+            return self._search_impl(query, *args, **kwargs)
+        extra = {k: v for k, v in kwargs.items() if k != "record"}
+        if args:
+            extra["_args"] = list(args)
+        kw = dict(k=kwargs.get("k", 20), layer=kwargs.get("layer"),
+                  session=kwargs.get("session"), branch=kwargs.get("branch"),
+                  validity=kwargs.get("validity"), extra=extra or None)
+        try:
+            hit = hc.get_query(query, **kw)
+        except Exception:
+            hit = None
+        if hit is not None:
+            return hit
+        out = self._search_impl(query, *args, **kwargs)
+        try:
+            if isinstance(out, tuple) and len(out) == 2:
+                hc.put_query(query, out[0], out[1], **kw)
+        except Exception:
+            pass
+        return out
+
     def _lexical(self, query, entries, stat):
         """词法路径：LIKE 预筛 + 二元组相似度（口径见 mdcg.SCORE_MODE）。
 
