@@ -1362,6 +1362,50 @@ class MdCGOS(MdCG):
         if gates:
             stat["gates"] = gates
         neg_coverage = self._neg_coverage(terms) if include_neg else []
+        # ---- 融合统一（2026-10-21）：BM25 并入默认检索阶梯的全局阶段 ----
+        # 背景：默认读面走本函数（词法打分），BM25 只在 search_rrf 里作一路；
+        # 使用者裁定「BM25+ 实测提精度，应当默认使用」。此处把 BM25 打分接到
+        # 全局阶段（T1' reach / T2 / T3）的 scored 上——桶阶段（T0/T1）保持原口径，
+        # 因为它们本就是「域桶内精确命中」，改它会让桶优先级语义漂移。
+        # 失败一律回落原 _score（信息不足不得中断检索）。
+        _bm_scored = None
+        if os.environ.get("MDCG_BM25", "1") == "1":
+            try:
+                from . import bm25 as _bm
+                # 用**独立 stat**：bm25.search 会累加 scanned/build 计数，
+                # 记进主 stat 会把「候选面收敛」的读数污染成「全库扫描」。
+                _bm_scored, _bm_meta = _bm.search(self, q, entries, {"scanned": 0, "query": q})
+            except Exception:
+                _bm_scored = None
+        _bm_by_path = {}
+        for _d, _sc in (_bm_scored or ()):
+            try:
+                _bm_by_path[_d.get("path")] = _sc
+            except Exception:
+                break
+
+        def _path_of(d):
+            """docs 元素可能是 dict，也可能是 (doc, fm, content) 元组——两形都取 path。"""
+            if isinstance(d, tuple):
+                d = d[0] if d else {}
+            return d.get("path") if isinstance(d, dict) else None
+
+        def _bm_for(docs):
+            """把 BM25 分数映射到本阶段的 docs 上（缺失按 0，保持长度一致）。
+
+            docs 元素若为 (doc, fm, content) 元组形态则**不接管**——下游
+            cut_by_relevance 期望 scored[i][0] 是 dict；形态不符时一律回落 _score。
+            """
+            if not _bm_by_path:
+                return None
+            if any(isinstance(d, tuple) for d in docs):
+                return None
+            return [(d, _bm_by_path.get(_path_of(d), 0.0)) for d in docs]
+
+        def _score_bm(docs, *a, **kw):
+            """全局阶段优先用 BM25 分数；无 BM25 结果时回落原 _score。"""
+            _bm = _bm_for(docs)
+            return _bm if _bm is not None else self._score(docs, *a, **kw)
 
 # 生效条件：scored 为 None 时对 docs 调 self._score(docs, q, qb, pool_cfg)，非 None 时直接以之为打分结果；分数 >0 的条数达到（search 作用域内的）min_results 就返回 self._emit(scored, k, tier, stat, route_bucket, record, len(docs), ...)，否则返回 None。
         def try_stage(docs, tier, scored=None):
@@ -1371,7 +1415,7 @@ class MdCGOS(MdCG):
             # try_stage（mdcg.py P2-4，批次 31）同模板；_score 在单次 search 内
             # 是纯函数（docs/q/qb/pool_cfg 均不变），透传不改变任何分值与输出。
             if scored is None:
-                scored = self._score(docs, q, qb, pool_cfg)
+                scored = _score_bm(docs, q, qb, pool_cfg)
             valid = sum(1 for _, s in scored if s > 0)
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
@@ -1442,7 +1486,7 @@ class MdCGOS(MdCG):
             stat["cap"] = GLOBAL_CAP
             # 与 T2 **无条件**同序调用（不可按 cap 短路：cut_by_relevance 还会写
             # 池账 pool_taken/cands/lost，短路会让 meta.pools.taken 缺失 → test_p43(13) 红）
-            scored_r = self._score(hits_r, q, qb, pool_cfg)
+            scored_r = _score_bm(hits_r, q, qb, pool_cfg)
             hits_r, _rep = cut_by_relevance(hits_r, scored_r,
                                             GLOBAL_CAP, pools=pool_cfg,
                                             key_of=pooling.doc_key, stat=stat)
@@ -1476,7 +1520,7 @@ class MdCGOS(MdCG):
                 or (semantic_on() and d[1].get("semantic"))]
         stat["pre_cap"] = len(hits)
         stat["cap"] = GLOBAL_CAP
-        scored_h = self._score(hits, q, qb, pool_cfg)
+        scored_h = _score_bm(hits, q, qb, pool_cfg)
         hits, _rep = cut_by_relevance(hits, scored_h,
                                       GLOBAL_CAP, pools=pool_cfg,
                                       key_of=pooling.doc_key, stat=stat)
@@ -1489,7 +1533,7 @@ class MdCGOS(MdCG):
 
         stat["pre_cap"] = len(docs_all)
         stat["cap"] = GLOBAL_CAP
-        scored_a = self._score(docs_all, q, qb, pool_cfg)
+        scored_a = _score_bm(docs_all, q, qb, pool_cfg)
         picked, _rep = cut_by_relevance(docs_all, scored_a,
                                         GLOBAL_CAP, pools=pool_cfg,
                                         key_of=pooling.doc_key, stat=stat)
