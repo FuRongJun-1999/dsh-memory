@@ -41,6 +41,12 @@ ENUMS = {
     "MDCG_SCORE_MODE": ("legacy", "jaccard"),
 }
 
+#: 源码只认 "1" 为真值的 env 开关（人工核验：读点是 `os.environ.get(X) == "1"`，
+#: 因此 "true"/"yes"/"on" 在运行时不生效；校验器必须按同口径拒收，避免「报合法但实际关」。
+TRUE_LITERALS = {
+    "MDCG_RETRIEVAL_PIPELINE": ["1"],
+}
+
 #: 明显带值域约束的数值参数（**人工核验**，取自源码夹取/断言；未列者不约束）。
 #: 值 = (下限, 上限, 类型)；None 表示该侧不约束。
 RANGES = {
@@ -177,6 +183,10 @@ def _rule_for(e):
     elif e.get("semantic") in ("on", "off", "fail-open"):
         r["type"] = "bool"
         r["bool_like"] = True
+    if name in TRUE_LITERALS:
+        r["type"] = "bool"
+        r["bool_like"] = True
+        r["true_literals"] = list(TRUE_LITERALS[name])
     # ①b 域带枚举（"enum:a|b"）⇒ 枚举约束（覆盖 semantic 推出的布尔；issue #138 · EN_ATOMS）
     if dom.startswith("enum:"):
         r["type"] = "str"

@@ -62,7 +62,7 @@ RULES = {
     'MDCG_READ_CACHE': {'bool_like': True, 'type': 'bool'},
     'MDCG_RECONCILE': {'bool_like': True, 'type': 'bool'},
     'MDCG_REPLAY_NEG_MAX_COVERAGE': {'type': 'str'},
-    'MDCG_RETRIEVAL_PIPELINE': {'bool_like': True, 'type': 'bool'},
+    'MDCG_RETRIEVAL_PIPELINE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_S7_FRESHNESS': {'bool_like': True, 'type': 'bool'},
     'MDCG_SCORE_MODE': {'enum': ['legacy', 'jaccard'], 'type': 'str'},
     'MDCG_SEMANTIC': {'bool_like': True, 'type': 'bool'},
