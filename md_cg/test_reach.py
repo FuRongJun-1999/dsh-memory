@@ -144,7 +144,11 @@ def main():
         ok(got is None and meta.get("reach") == "off", "(4) MDCG_REACH=0 → 不收敛", str(meta))
         _env(True)
         got, meta = reach.narrow(cg, entries, ["白"], bigrams("白"), None, q="白")
-        ok(got is None and meta.get("reach") == "short_term", "(4) 单字符 term → 不收敛", str(meta))
+        # issue #611：单字符 term 不再整段跳过——用「含该字的 bigram」并集做超集收敛
+        # issue #611：判定口径改为「不再因单字符整段跳过」——后续可能 converged，
+        # 也可能因该字在库中无命中而 empty_converge；但绝不能再是 short_term。
+        ok(meta.get("reach") != "short_term",
+           "(4) 单字符 term 不再整段跳过（#611 新契约）", str(meta))
         saved = reach._index
         reach._index = lambda *a, **k: None
         try:

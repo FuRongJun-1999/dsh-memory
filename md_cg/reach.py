@@ -391,14 +391,13 @@ def _disk_fresh(idx: ReachIndex, cg) -> bool:
     return bool(idx.built_fingerprint) and idx.built_fingerprint == _fingerprint(cg)
 
 
-# 生效条件：仅当 enabled() 为真、terms 中各项长度均不小于 2、_index_with_meta(cg) 返回的 idx 非 None 且 idx.hash_complete 为真、由 qb/terms/q 生成的 token 集非空、按 entries 过滤后的 got 非空、且 entries 中未索引或 created_at 晚于 idx.built_at 的新节点数不超过 _FRESH_MAX 时返回 (got, meta)，否则按守卫失败原因返回 (None, {"reach": off/short_term/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow})。
+# 生效条件：仅当 enabled() 为真、_index_with_meta(cg) 返回的 idx 非 None 且 idx.hash_complete 为真、由 qb/terms/q 生成的 token 集非空、按 entries 过滤后的 got 非空、且未索引/新写入节点数不超过 _FRESH_MAX 时返回 (got, meta)；否则按守卫失败原因返回 (None, {"reach": off/index_unavailable/hash_incomplete/no_tokens/empty_converge/fresh_overflow})。# 单字符 term 不再整段跳过（issue #611）：改用「含该字的 bigram」并集做超集收敛，保召回。
 def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     meta = {"reach": "on"}
     if not enabled():
         return None, {"reach": "off"}
-    terms = list(terms or [])
-    if any(len(t or "") < 2 for t in terms):
-        return None, {"reach": "short_term"}      # 单字符 term 的 bigram 无法覆盖子串语义
+    terms = [t for t in (terms or []) if t]
+    _single = [t for t in terms if len(t) < 2]
     idx, _fail = _index_with_meta(cg)
     if idx is None:
         return None, dict({"reach": "index_unavailable"}, **_fail)
@@ -417,6 +416,13 @@ def narrow(cg, entries, terms, qb, context=None, hops: int = 1, q: str = ""):
     toks |= bg((q or "").lower())
     for t in terms:
         toks |= bg(t)
+    # 单字符 term：任何含该字的文档必含「包含该字的某个 bigram」（长度 >=2 时成立），
+    # 故把倒排里所有含该字的 bigram 的 postings 并入 token 集 —— 仍是超集口径，不丢召回。
+    if _single:
+        _chars = set(_single)
+        for b in list(idx.post.keys()):
+            if any(c in b for c in _chars):
+                toks.add(b)
         toks |= bg((t or "").lower())
         # 与文档侧 ne() 口径对齐（terms 此前只做小写）——同样是超集方向，宁多读不漏召回
         toks |= bg(_ne(t or ""))
