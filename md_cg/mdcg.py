@@ -1983,7 +1983,21 @@ class MdCG:
                 _probe = {"schema": SCHEMA, "nodes": dict(idx.get("nodes") or {}), "buckets": {}}
                 try:
                     self._apply_log(_probe["nodes"])
-                    if self._covers_disk(_probe["nodes"]):
+                    # 只认「**纯新增**」这一种变化：合作写入（add）在日志里留下**新 path**，
+                    # 而改名/对调/换目录是**盘面行为**、日志里没有对应新 path——它们会把
+                    # 目录 mtime 改掉却让路径集合保持不变（_covers_disk 必假阳）。
+                    # 判据：发生变化的目录，必须全都在「日志新增 path 的所在目录」里。
+                    _log_dirs = set()
+                    for _rec in ShardedLog.read_all(self.index_log_dir):
+                        _e = _rec.get("e") if isinstance(_rec, dict) else None
+                        _path = _e.get("path") if isinstance(_e, dict) else None
+                        if _path:
+                            _log_dirs.add(os.path.dirname(str(_path).replace("\\", "/")))
+                    _cur_fp = self._dir_fingerprint()
+                    _old_fp = idx.get("_fingerprint") or {}
+                    _changed = {d for d, m in _cur_fp.items() if _old_fp.get(d) != m}
+                    _changed |= {d for d in _old_fp if d not in _cur_fp}
+                    if self._covers_disk(_probe["nodes"]) and _changed <= _log_dirs:
                         idx = _probe
                     else:
                         idx = None
@@ -2171,9 +2185,9 @@ class MdCG:
         # 实测 7.0 秒/次）。故加**最小重载间隔**：默认 1.0 秒内不重复探测，
         # 代价是跨进程写入的可见性最多延迟该间隔（读面代际感知语义不变，只是有界延迟）。
         try:
-            _min_iv = float(os.environ.get("MDCG_RELOAD_MIN_INTERVAL", "30.0"))
+            _min_iv = float(os.environ.get("MDCG_RELOAD_MIN_INTERVAL", "0"))
         except ValueError:
-            _min_iv = 30.0
+            _min_iv = 0.0
         if _min_iv > 0:
             _last = getattr(self, "_sig_probe_ts", 0.0)
             _now = time.time()
