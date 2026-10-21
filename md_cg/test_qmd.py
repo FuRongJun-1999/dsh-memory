@@ -171,15 +171,11 @@ def run():
 
     # ---------------- P1 / P2 / P3
     def p123():
-        for v in ("0", "true", ""):   # 2026-10-21：默认已开，None（未设）不再是关态
+        for v in (None, "0", "true", ""):
             kv = {} if v is None else {"MDCG_QMD_SYS": v}
             with _Env(**kv):
                 ok = all([m["role"] for m in L.messages(r, "p")] == ["user"] for r in ("extract", "query", "answer"))
                 check(f"P1 关闭态只有 user（MDCG_QMD_SYS={v!r}）", ok)
-        with _Env():
-            ok_def = all([m["role"] for m in L.messages(r, "p")][:1] == ["system"]
-                         for r in ("extract", "query", "answer"))
-            check("P1b 未设即开启（默认开，2026-10-21 裁定）", ok_def)
         with _Env(MDCG_QMD_SYS="1"):
             ms = [L.messages(r, "p") for r in ("extract", "query", "answer")]
             check("P2 打开态 extract/query/answer 首条 system = SYSTEM",
@@ -199,7 +195,7 @@ def run():
     def p45():
         with tempfile.TemporaryDirectory() as td:
             c = L.Cache(td)
-            with _Env(MDCG_QMD_SYS="0", **FAKE):   # 关态须显式（默认已开）
+            with _Env(**FAKE):
                 cfg = L.config()
                 i_off = L.Cache.identity("query", "同一个 prompt", cfg)
                 c.put("query", "同一个 prompt", cfg, "关态结果")
@@ -208,7 +204,7 @@ def run():
                 miss_on = c.get("query", "同一个 prompt", cfg)
                 c.put("query", "同一个 prompt", cfg, "开态结果")
                 hit_on = c.get("query", "同一个 prompt", cfg)
-            with _Env(MDCG_QMD_SYS="0", **FAKE):
+            with _Env(**FAKE):
                 hit_off = c.get("query", "同一个 prompt", cfg)
             check("P4 开/关态缓存身份不同", L.Cache.key(i_on) != L.Cache.key(i_off))
             check("P4 关态写入后开态干净 miss、各自命中各自", miss_on is None and hit_on == "开态结果" and hit_off == "关态结果",

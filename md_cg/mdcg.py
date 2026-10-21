@@ -326,7 +326,7 @@ def semantic_on() -> bool:
     2. 打分面：_score 组合窗口共现分与词法分 max 聚合。
     老库（节点无 semantic 字段）行为逐位不变。
     """
-    return os.environ.get("MDCG_SEMANTIC", "1") == "1"
+    return os.environ.get("MDCG_SEMANTIC") == "1"
 
 
 # 生效条件：当 `text` 含英文字母且环境变量 `MDCG_EN_ATOMS` 为 `'1'` 且 `normalize_en_query` 可用时，返回小写化并过滤后的中文语素列表；`text` 无字母、开关未开或归一化异常时返回 `[]`。

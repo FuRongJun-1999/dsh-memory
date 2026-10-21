@@ -319,7 +319,7 @@ ENV_ROWS = [
     ('MDCG_WRITELIMIT', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'on', 'MDCG_WRITELIMIT', 'on', 'env_literal', 'md_cg/writelimit.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_RECONCILE', 'TUNE', 'tune', 'env', True, "''", 'str', 'on', 'MDCG_RECONCILE', 'on', 'env_literal', 'md_cg/reconcile.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_REACH', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_REACH', 'off', 'env_flag', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1"）', 'unknown', ''),
-    ('MDCG_REACH_DIFFUSE', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'bool:1', 'MDCG_REACH_DIFFUSE', 'off', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_REACH_DIFFUSE', 'CALIB', 'calib', 'env', True, "'0'", 'str', 'bool:1', 'MDCG_REACH_DIFFUSE', 'off', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_REACH_TTL', 'TUNE', 'tune', 'env', True, '600.0', 'float', 'value', 'MDCG_REACH_TTL', 'value', 'env_literal', 'md_cg/reach.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_POOLING', 'CALIB', 'calib', 'env', True, 'None', 'str', 'off', 'MDCG_POOLING', 'off', 'env_flag', 'md_cg/pooling.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（仅 1/on/true/yes/y 开）', 'unknown', ''),
     ('MDCG_QMD_SYS', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_QMD_SYS', 'off', 'env_flag', 'md_cg/qmd_llm.py', '', 'calibrating', 'QMD 统一系统提示词开关（extract/query/answer 三类调用带 SYSTEM；judge 恒不带）；未设 = 关（=="1"）；hive 主轮 92 题端到端读数见 PR 说明', 'unknown', ''),

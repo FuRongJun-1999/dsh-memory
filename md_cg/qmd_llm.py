@@ -68,7 +68,7 @@ class CacheIdentityError(RuntimeError):
 
 # 生效条件：环境变量 MDCG_QMD_SYS 取值恰为 "1" 时返回 True，否则 False。
 def sys_on() -> bool:
-    return os.environ.get(SYS_ENV, "1") == "1"
+    return os.environ.get(SYS_ENV) == "1"
 
 
 # 生效条件：role 为 judge 时恒返回 None；其余角色在 sys_on() 为真时返回 SYSTEM，否则 None；未知角色抛 ValueError。

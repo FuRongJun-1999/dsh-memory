@@ -869,7 +869,7 @@ class MdCGOS(MdCG):
         # 无法命中。默认关（env 未设 → get(self) 恒 None，零变更纪律）；
         # MDCG_HOTCACHE=1 显式启用，容量经 MDCG_HOTCACHE_MAX_NODES/MAX_QUERIES
         # 可配（缺省 256 对 567 节点级库会持续 LRU 淘汰，大库请调大）。
-        if os.environ.get("MDCG_HOTCACHE", "1") == "1":
+        if os.environ.get("MDCG_HOTCACHE") == "1":
             from . import hotcache as _hc
             _hc.attach(self)
         # 检索读缓存挂载（issue #31 P2，批次 21）：MdStore 理论落地——节点

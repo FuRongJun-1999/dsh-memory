@@ -81,7 +81,7 @@ def _efaces(pl):
 # 实跑红项必须与期望**恰好相等**（多红=断言语义纠缠，少红=该判据空转）。
 _STRIP = ("emotion_bonus = (round(W_EMO * eps * sign, 4) if emotion_on else 0.0)",
           "emotion_bonus = 0.0")
-_A_SWITCH = 'emotion_on = os.environ.get(EMOTION_ENV, "1") == "1"'
+_A_SWITCH = 'emotion_on = os.environ.get(EMOTION_ENV) == "1"'
 _A_BONUS = ("emotion_bonus = (round(W_EMO * eps * sign, 4) "
             "if emotion_on else 0.0)")
 _A_SCORE = 'a["score"] = round(score, 4)'
@@ -152,18 +152,18 @@ def _group(root, baseline_fn):
 
     try:
         # ---------- P1 反向腿：默认关 ⇒ 与「恒 bonus=0.0 基线」逐位一致 ----------
-        _set("0")   # 2026-10-21 使用者裁定：默认已开 ⇒ 反向腿须显式关
+        _set(None)
         pr_off = autonomy.proposals(cg, limit=10)
         base = baseline_fn(cg, limit=10)
         off = pr_off["proposals"]
-        ok("P1.1 显式关（「0」）每条 emotion_bonus==0.0",
+        ok("P1.1 默认关（env 未设）每条 emotion_bonus==0.0",
            all(p["emotion_bonus"] == 0.0 for p in off))
-        ok("P1.2 显式关 sort_score == round(score + d_meta_bonus, 4)（逐位退化）",
+        ok("P1.2 默认关 sort_score == round(score + d_meta_bonus, 4)（逐位退化）",
            all(p["sort_score"] == round(p["score"] + p["d_meta_bonus"], 4)
                for p in off))
-        ok("P1.3 显式关：排序面与『恒 bonus=0.0 基线』逐位一致",
+        ok("P1.3 默认关：排序面与『恒 bonus=0.0 基线』逐位一致",
            _sortface(off) == _sortface(base["proposals"]))
-        ok("P1.5 显式关：返回体 emotion.enabled is False、cap==ε",
+        ok("P1.5 默认关：返回体 emotion.enabled is False、cap==ε",
            pr_off["emotion"]["enabled"] is False
            and pr_off["emotion"]["cap"] == eps)
 
