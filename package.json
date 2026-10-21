@@ -83,7 +83,7 @@
     "@deepseek-ai/dsh-system-prompt": "^0.2.0-rc.2",
     "@deepseek-ai/dsh-tools": "^0.2.0-rc.2",
     "@deepseek-ai/schemastery": "^3.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "tsx": "^4.19.0",
     "typescript": "^5.5.0"
   },
