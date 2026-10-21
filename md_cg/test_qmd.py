@@ -171,11 +171,15 @@ def run():
 
     # ---------------- P1 / P2 / P3
     def p123():
-        for v in (None, "0", "true", ""):
+        for v in ("0", "true", ""):   # 2026-10-21：默认已开，None（未设）不再是关态
             kv = {} if v is None else {"MDCG_QMD_SYS": v}
             with _Env(**kv):
                 ok = all([m["role"] for m in L.messages(r, "p")] == ["user"] for r in ("extract", "query", "answer"))
                 check(f"P1 关闭态只有 user（MDCG_QMD_SYS={v!r}）", ok)
+        with _Env():
+            ok_def = all([m["role"] for m in L.messages(r, "p")][:1] == ["system"]
+                         for r in ("extract", "query", "answer"))
+            check("P1b 未设即开启（默认开，2026-10-21 裁定）", ok_def)
         with _Env(MDCG_QMD_SYS="1"):
             ms = [L.messages(r, "p") for r in ("extract", "query", "answer")]
             check("P2 打开态 extract/query/answer 首条 system = SYSTEM",

@@ -375,8 +375,11 @@ def main():
         ok(sres["meta"]["pools"]["enabled"] is True, "(13) mdcg_search 透传 pools=True")
         ok("taken" in sres["meta"]["pools"], "(13) mdcg_search 回报各池实取数")
         sres2 = call_tool(cg, "mdcg_search", {"query": QUERY, "k": 5})
-        ok(sres2["meta"]["pools"]["enabled"] is False,
-           "(14) 不传 pools 的既有调用方零影响")
+        ok(sres2["meta"]["pools"]["enabled"] is True,
+           "(14) 不传 pools ⇒ 默认启用分池（2026-10-21 裁定）")
+        sres3 = call_tool(cg, "mdcg_search", {"query": QUERY, "k": 5, "pools": False})
+        ok(sres3["meta"]["pools"]["enabled"] is False,
+           "(14b) 显式 pools=False ⇒ 退回平截（反向腿）")
         tool = [t for t in KERNEL_TOOLS if t["name"] == "cg"][0]
         props = tool["inputSchema"]["properties"]
         ok("pools" in props and "queries" in props, "(13) schema 暴露 pools/queries")
