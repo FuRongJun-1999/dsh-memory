@@ -4204,6 +4204,11 @@ def _dispatch(cg, name, args):
                               pools=a.get("pools"),
                               session=a.get("session"),
                               validity=a.get("validity"))
+        from . import conflict_surface
+        _cf = conflict_surface.as_meta([n for n, _s, _q in res])
+        if _cf:
+            meta = dict(meta or {})
+            meta.update(_cf)
         return {"meta": meta,
                 "results": [{"node": _node_view(n), "score": s, "state": q.get("state"),
                              "reason": q.get("reason"), **refindex.ref_fields(n)}
