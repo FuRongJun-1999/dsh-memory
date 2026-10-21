@@ -127,6 +127,19 @@ function countOf(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0
 }
 
+/** 摘要只接受完整的非负安全整数桶；坏盘面不伪装成零计数。 */
+function sumCounts(bucket: unknown, keys: readonly string[]): number | null {
+  if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) return null
+  let total = 0
+  for (const key of keys) {
+    const value = (bucket as Record<string, unknown>)[key]
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return null
+    total += value
+    if (!Number.isSafeInteger(total)) return null
+  }
+  return total
+}
+
 /** 盘面内容 → 状态：逐字段归并，形态不符的字段一律丢弃（不信任盘面内容）。 */
 function mergeState(raw: unknown): HookAuditState {
   const s = emptyState()
@@ -178,6 +191,25 @@ export class HookAuditRecorder {
 
   constructor(path?: string) {
     this.path = typeof path === 'string' && path.trim() ? path.trim() : DEFAULT_HOOK_AUDIT_PATH
+  }
+
+  /** #606：收尾时只读最新盘面，返回一行累计计数；缺失/损坏/不可读均静默。
+   * written 沿用“成功发起”口径，不能当成成功落库数；不读取 last/kinds 等文本进日志。 */
+  summary(): string | null {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(this.path, 'utf8'))
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+      const counts: unknown = (raw as { counts?: unknown }).counts
+      if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return null
+      const buckets = counts as Record<string, unknown>
+      const written = sumCounts(buckets.written, WRITE_ROLES)
+      const filtered = sumCounts(buckets.filtered, FILTER_REASONS)
+      const skipped = sumCounts(buckets.skipped, SKIP_REASONS)
+      if (written === null || filtered === null || skipped === null) return null
+      return `dsh-memory: 自动记忆审计（累计）written=${written} filtered=${filtered} skipped=${skipped}`
+    } catch {
+      return null
+    }
   }
 
   /** 一条**被设计滤除**的消息（三处过滤分支各调一次）。 */

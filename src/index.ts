@@ -450,7 +450,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       disposers.push(() => { if (toolsPoll) clearInterval(toolsPoll) })
     }
     // 自动记忆：沉淀进 md_cg 认知图（记忆唯一真源）。mdcg=null 时整体停用。
-    installMemoryHooks(ctx, mdcg, config.memory)
+    disposers.push(installMemoryHooks(ctx, mdcg, config.memory))
     // 角色扮演网页（同源挂载 /roleplay）：生成能力走可选「身体」后端（capability），
     // 转录/历史/翻译/落图走大脑（mdcg）。capability=null 时生成接口 fail-closed。
     await installRoleplayWeb(ctx, capability, config, disposers, mdcg)
