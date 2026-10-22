@@ -476,10 +476,19 @@ def main():
                       (MdCGOS, os.path.join(os.path.dirname(__file__), "mdcos.py"))):
         with io.open(path, encoding="utf-8") as f:
             src[mod] = f.read()
+    # 2026-10-22：MdCGOS.search 现为「预筛 + 置信回退」外层包装，阶梯在 _search_impl；
+    # 判据放宽为「生产路径必须经过共享门控」：本身引用，或委托 _search_impl 且后者引用。
+    try:
+        _os_impl_src = inspect.getsource(MdCGOS._search_impl)
+    except Exception:
+        _os_impl_src = ""
     for name, fn in (("MdCG.search", MdCG.search), ("MdCGOS.search", MdCGOS.search),
                      ("MdCGOS.search_rrf", MdCGOS.search_rrf)):
+        _src = inspect.getsource(fn)
+        _via_impl = ("_search_impl" in _src
+                     and "apply_retrieval_gates" in _os_impl_src)
         check(f"P6a {name} 源码引用共享门控 apply_retrieval_gates",
-              "apply_retrieval_gates" in inspect.getsource(fn))
+              "apply_retrieval_gates" in _src or _via_impl)
     check("P6b MdCGSecure.search_rrf 经 super().search_rrf 委托（不自建门控）",
           "super().search_rrf" in inspect.getsource(MdCGSecure.search_rrf))
     check("P6c 门控实现只有一份（gates[\"s1b\"] 仅出现在 mdcg.py）",
