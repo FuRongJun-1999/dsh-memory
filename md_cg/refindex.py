@@ -423,11 +423,18 @@ def _domain_of(it: dict) -> str:
     两者混成一个字段就会重演普查里的退化：实例名嵌进条件字段 → 3037 桶 /
     3048 节点（99.9% 单例桶），路由等于失效。
 
-    取 path 首段，与改造前 `normalize_domain(observation_position)` 的产物
-    **逐字相同**，故本次加标签不改变任何既有节点的分桶结果。
+    取**整条相对路径**（2026-10-21 采纳外部用户 miyu 的修复一）。
+
+    为什么不再取首段：真实知识树常见形态是「少数顶层目录 + 其下大量子树」，
+    例如 default-kb/{shorinwiki,kb}。取首段时只有 2 个桶、99 篇文档全压在一个
+    桶里 ⇒ 巨桶占比 97.2%、期望扫描 94.6%，路由等于失效（外部实测：改整路径后
+    桶数 2→60、最大桶 97.2%→5.8%、期望扫描 94.6%→2.7%）。
+
+    安全性：docindex.node_id 只哈希 path#heading_path，**不含本域键**，
+    故改域只换桶、节点 id 完全不变，不产生重复节点。
     """
     path = it.get("path") or ""
-    return path.split("/")[0] or "orphan"
+    return path or "orphan"
 
 
 
