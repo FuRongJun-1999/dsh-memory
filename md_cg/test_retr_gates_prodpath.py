@@ -123,7 +123,17 @@ def main():
     print("== P4 覆写防悬空（病灶复发形态的结构守卫）==")
     src_os = inspect.getsource(MdCGOS.search)
     src_cg = inspect.getsource(MdCG.search)
-    check("P4a MdCGOS.search 引用共享门控", "apply_retrieval_gates" in src_os)
+    # 2026-10-22：MdCGOS.search 现在是「预筛 + 置信回退」的外层包装（issue：预筛召回取舍），
+    # 真正的阶梯在 _search_impl。判据从「函数体必须直接出现」放宽为「生产路径必须经过它」：
+    # 要么 search 自身引用，要么 search 委托给 _search_impl 且后者引用。
+    _impl_src = ""
+    try:
+        _impl_src = inspect.getsource(MdCGOS._search_impl)
+    except Exception:
+        _impl_src = ""
+    check("P4a MdCGOS.search 引用共享门控",
+          "apply_retrieval_gates" in src_os
+          or ("_search_impl" in src_os and "apply_retrieval_gates" in _impl_src))
     check("P4b MdCG.search 引用共享门控", "apply_retrieval_gates" in src_cg)
     check("P4c 共享函数存在且可调（两路 MRO 都能到达）",
           callable(apply_retrieval_gates))
