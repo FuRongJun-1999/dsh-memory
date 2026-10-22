@@ -5511,6 +5511,8 @@ class MdCG:
         # 分阶段审计仅在门控真的产生信息时落键（默认关闭 → meta 与改动前逐字节一致；契约 §5.3）
         if stat.get("gates"):
             meta["gates"] = stat["gates"]
+        if stat.get("prefilter"):
+            meta["prefilter"] = stat["prefilter"]
         # P2-2（§5.2）：拒绝域命中的**独立读数**（与资格 REJECT 分开计数）——
         # 只在确有边界命中时落键（无边界命中的路径 meta 键集合与改动前一致）。
         if stat.get("boundary"):
