@@ -602,7 +602,11 @@ def normalize_en(text: str) -> str:
       - 时态/复数归零（walked→walk, pets→pet）
     """
     # 清标点（保留中文字符和空格和数字）
-    cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', text or "")
+    # issue #623（2026-10-22）：本函数原先直接对**原文**做字符类清理，而 [^\u4e00-\u9fff a-zA-Z0-9] 会把全角
+    # 拉丁/数字（ＡＢＣ１２３，U+FF01–FF5E）整段清成空格 ⇒ 查询词直接消失，全角与半角双向不可命中。
+    # 故先过 routing.nfkc_text（本仓 NFKC 唯一单点），再做字符类清理——一处改动同时覆盖
+    # _like 召回 / _score 打分 / reach 前筛三条腿（它们都由本函数产出 bigram）。
+    cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', routing.nfkc_text(text) or "")
 # 生效条件：m.group(0) 小写后交模块级 _norm_word_mem 查词级 memo（纯函数精确键控：命中返回缓存值，未命中按 EN_STOPWORDS 剔除/strip_tense_en 同口径计算并回填）——命中值≡逐词现算值，返回串接进归一结果；
     def _norm_word(m):
         return _norm_word_mem(m.group(0).lower())
@@ -4293,8 +4297,13 @@ class MdCG:
         return nodefile.positive_body(content)
 
     def _like_body_lower(self, entry, content):
-        """Lowercase positive body; readcache reuses this pure projection."""
-        return self._positive_body(entry, content).lower()
+        """Lowercase positive body; readcache reuses this pure projection.
+
+        issue #623（2026-10-22）：这里也要过 routing.nfkc_text——_like 拿
+        normalize_en 产出的词去 body 里找，而 body 若保留全角（ＡＢＣ１２３），
+        半角查询就永远找不到它。NFKC 单点同样只用 routing 那一份。
+        """
+        return routing.nfkc_text(self._positive_body(entry, content)).lower()
 
     def _doc_exact_text(self, entry, content):
         """Whitespace-free full content for the existing exact-hit tie break.
