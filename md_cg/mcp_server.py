@@ -262,11 +262,12 @@ TOOLS = [
         "inputSchema": _s("", query=_p("string", "查询", True), k=_p("integer", "条数"),
                           layer=_p("string", "限定层"), context=_p("object", "情境"),
                           roles=_p("array", "限定角色"), include_work=_p("boolean", "含工作角色"),
-                          session=_p("string", "会话归属过滤（frontmatter.session；"
-                                     "缺省不过滤）"),
-                          validity=_p("boolean", "时效过滤（显式启用，缺省不过滤）：仅排除"
-                                                 "**已过期**（valid_until 已过）节点，"
-                                                 "未生效（valid_from 未到）保留")),
+                          session=_p("string", "会话归属过滤（frontmatter.session；缺省不过滤）"),
+                          validity=_p("boolean", "时效过滤（显式启用，缺省不过滤）：仅排除已过期（valid_until 已过）节点，未生效（valid_from 未到）保留"),
+                          # 异步检索（2026-10-21）：怕 MCP 超时的客户端用它——提交后立刻拿
+                          # job_id，隔若干秒带 job_id 再来取结果（后台线程跑同一条检索）。
+                          defer_s=_p("number", "异步检索：大于 0 时立刻返回工单（job_id），检索在后台跑"),
+                          job_id=_p("string", "取异步检索结果：传上次返回的 job_id")),
     },
     {
         "name": "mdcg_get",
@@ -3684,6 +3685,84 @@ def _stg_call(cg, a):
 # --------------------------------------------------------------------------
 
 # 生效条件：a=args or {}，unit=(a.get("as_unit") or "").strip()，sess=_declared_session(a.get("session"))；cg.principal 为 None 或 unit 与 sess 皆为空时直接返回 _dispatch(cg,name,a)；否则先 narrowed_principal(cg.principal, unit)（TokenError 时返回 {"ok":False,"error":f"as_unit 非法：{e}"}），sess 非空时再以 copy 出的 Principal 覆盖 session，暂存 cg.principal/cg.session、置为作用域值、try 返回 _dispatch、finally 还原。
+# 生效条件：cg 为已构造的安全客户端、args 为 mdcg_search 的原始入参、defer_s>0 时——
+# 立即返回 {job_id,status=pending,hint}，并在守护线程里以**同一份入参（去掉 defer_s/job_id）**
+# 调 call_tool(cg,"mdcg_search",...)；失败也落进工单（status=error），不抛到调用方。
+_SEARCH_JOBS = {}
+_SEARCH_JOBS_LOCK = __import__("threading").Lock()
+_SEARCH_JOB_TTL = 600.0      # 秒：工单保留时长（过期即丢，防常驻进程无限涨）
+_SEARCH_JOB_MAX = 64         # 条：同时保留的工单上限
+
+
+def _search_job_gc(now=None, reserve=0):
+    """清过期/超量工单（调用方持锁）。TTL 与条数双闸，防常驻进程内存无界。"""
+    import time as _t
+    now = _t.time() if now is None else now
+    for _k in [k for k, v in _SEARCH_JOBS.items()
+               if now - float(v.get("created") or 0) > _SEARCH_JOB_TTL]:
+        _SEARCH_JOBS.pop(_k, None)
+    _keep = max(0, _SEARCH_JOB_MAX - int(reserve or 0))
+    if len(_SEARCH_JOBS) > _keep:
+        for _k, _v in sorted(_SEARCH_JOBS.items(),
+                             key=lambda kv: float(kv[1].get("created") or 0))[:len(_SEARCH_JOBS) - _keep]:
+            _SEARCH_JOBS.pop(_k, None)
+
+
+def _search_job_submit(cg, args, defer_s):
+    """提交异步检索：返回工单，不等待检索完成。"""
+    import random as _rnd
+    import threading as _th
+    import time as _t
+    with _SEARCH_JOBS_LOCK:
+        _search_job_gc(reserve=1)      # 给自己预留一格，插入后不超过上限
+        jid = "sjob_%d_%04d" % (int(_t.time() * 1000), _rnd.randint(0, 9999))
+        rec = {"job_id": jid, "status": "pending", "created": _t.time(),
+               "query": args.get("query"), "result": None, "error": None,
+               "elapsed_s": None}
+        _SEARCH_JOBS[jid] = rec
+    payload = {k: v for k, v in args.items() if k not in ("defer_s", "job_id")}
+
+    def _run():
+        _t0 = _t.time()
+        try:
+            out = call_tool(cg, "mdcg_search", payload)
+            with _SEARCH_JOBS_LOCK:
+                rec["status"] = "done"
+                rec["result"] = out
+                rec["elapsed_s"] = round(_t.time() - _t0, 3)
+        except Exception as exc:      # noqa: BLE001 —— 工单承接失败，不抛给调用方
+            with _SEARCH_JOBS_LOCK:
+                rec["status"] = "error"
+                rec["error"] = "%s: %s" % (type(exc).__name__, exc)
+                rec["elapsed_s"] = round(_t.time() - _t0, 3)
+
+    _th.Thread(target=_run, name="mdcg-search-job", daemon=True).start()
+    return {"job_id": jid, "status": "pending",
+            "poll_after_s": int(defer_s) if defer_s else 10,
+            "hint": "检索在后台进行；请约 %d 秒后再用 job_id 调用一次 mdcg_search 取结果"
+                    % (int(defer_s) if defer_s else 10)}
+
+
+def _search_job_result(jid):
+    """取异步检索结果：pending 原样回报，done 带 result，error 带 error。"""
+    with _SEARCH_JOBS_LOCK:
+        _search_job_gc()
+        rec = _SEARCH_JOBS.get(str(jid))
+        if rec is None:
+            return {"job_id": str(jid), "status": "unknown",
+                    "error": "未知或已过期的 job_id（工单保留 %d 秒）" % int(_SEARCH_JOB_TTL)}
+        snap = dict(rec)
+    out = {"job_id": snap["job_id"], "status": snap["status"],
+           "elapsed_s": snap.get("elapsed_s")}
+    if snap["status"] == "done":
+        out["result"] = snap.get("result")
+    elif snap["status"] == "error":
+        out["error"] = snap.get("error")
+    else:
+        out["poll_after_s"] = 10
+    return out
+
+
 def call_tool(cg, name, args):
     """MCP tools/call 入口：按 `as_unit` 做**请求级身份收窄**（单进程多身份），
     按 `session` 做**请求级会话归因**（单进程多会话）。
@@ -4224,6 +4303,18 @@ def _dispatch(cg, name, args):
         return _pack
 
     if name == "mdcg_search":
+        # ---- 异步检索（2026-10-21）：把「怕超时」变成「先拿工单，过几秒来取」----
+        # 背景：真实库首次检索曾要 8.4 秒、握手 5 秒，客户端 hook 若把超时设得较短
+        # 就会整单失败。异步面不改检索语义：后台线程跑的是**同一个** call_tool，
+        # 只是把「等待」从客户端挪到工单上。默认关（不带 defer_s 即同步）。
+        if a.get("job_id"):
+            return _search_job_result(str(a.get("job_id")))
+        try:
+            _defer = float(a.get("defer_s") or 0)
+        except (TypeError, ValueError):
+            _defer = 0.0
+        if _defer > 0:
+            return _search_job_submit(cg, a, _defer)
         from . import refindex
         # ---- query 级热缓存（默认面接线，2026-10-21）----
         # 热缓存的读写在 search_rrf 内，而默认检索面走 cg.search（本分支）——
