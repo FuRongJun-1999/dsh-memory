@@ -174,6 +174,8 @@ export const Config: z<Config> = z.object({
       importance: z.number().default(0.6),
       autoRecall: z.boolean().default(true),
       autoRecallLimit: z.number().default(4),
+      /** issue #635：self/anchor 层单列「身份锚点」块（默认 false = 维持既有行为）。 */
+      autoRecallIdentity: z.boolean().default(false),
       desensitize: z.boolean().default(true),
       /** **短期会话窗口**（滑动窗口，2026-10-06）——「短期保留近 N 条对话记录」
        *  的机制实现（长期记忆仍走灵枢的显式调用）。
@@ -197,7 +199,7 @@ export const Config: z<Config> = z.object({
         })
         .default({ enabled: true, turns: 10 }),
     })
-    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true, contextWindow: { enabled: true, turns: 10 } }),
+    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, autoRecallIdentity: false, desensitize: true, contextWindow: { enabled: true, turns: 10 } }),
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),

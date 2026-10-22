@@ -92,6 +92,14 @@ export interface MemoryHooksOptions {
   autoRecall: boolean
   /** 自动召回条数（默认 4）。 */
   autoRecallLimit: number
+  /** 身份锚点独立注入块（issue #635，默认 false = 保持既有行为）。
+   *
+   *  背景：永久层（self/anchor）被 RECALL_SKIP_LAYERS 跳过，用户写完「我是谁」永远
+   *  不会被自动注入，只能去改 stg.py（升级即被整包抹掉）。
+   *  开启后：额外取若干条 self/anchor 节点，单独渲染成「【身份锚点】」块，
+   *  **独立预算**（不占 recent 块），条数与字数都小（存在性提示，不承载知识）。
+   */
+  autoRecallIdentity?: boolean
   /** 自动记忆脱敏：写入前过滤敏感信息（密钥/密码/令牌/身份证/手机号，默认 true）。 */
   desensitize: boolean
   /** 落盘审计文件路径（issue #56，诊断面：哪些消息被设计滤除、source.kind 分布、
@@ -409,7 +417,7 @@ const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
  *  9 条全部保留。（注意：整块仍远小于一条知识节点 500~800 tok，故本块定位是
  *  「存在性索引/提醒」，不承载知识本身——要知识请显式 mdcg_recall 并给足预算。） */
 // issue #563：导出仅为可测（注入面脱敏顺序的回归用例需要直接喂 payload）。
-export function formatTimelineDecayed(payload: unknown): string {
+export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity?: boolean }): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { items?: unknown }).items))
     ? (payload as { items: Array<Record<string, unknown>> }).items
@@ -418,6 +426,9 @@ export function formatTimelineDecayed(payload: unknown): string {
   let rank = 0
   for (const it of items) {
     const layer = String(it['layer'] ?? '')
+    // issue #635：includeIdentity=true 时，永久层**在本块仍不渲染**（它们走独立块），
+    // 这里只放宽"跳过"以便调用方取到它们——真正的分流在 renderIdentityAnchors。
+    if (RECALL_SKIP_LAYERS.has(layer) && !opts?.includeIdentity) continue
     if (RECALL_SKIP_LAYERS.has(layer)) continue
     const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
@@ -437,6 +448,30 @@ export function formatTimelineDecayed(payload: unknown): string {
     if (out.join('\n').length >= RECALL_MAX_CHARS) break
   }
   return out.join('\n').slice(0, RECALL_MAX_CHARS)
+}
+
+/** 身份锚点块（issue #635）：只取永久层（self/anchor），独立预算。 */
+export const IDENTITY_MAX_ITEMS = 3
+export const IDENTITY_MAX_CHARS = 640
+export const IDENTITY_ITEM_CHARS = 160
+
+export function renderIdentityAnchors(payload: unknown): string {
+  const items = (payload && typeof payload === 'object'
+    && Array.isArray((payload as { items?: unknown }).items))
+    ? (payload as { items: Array<Record<string, unknown>> }).items
+    : []
+  const out: string[] = []
+  for (const it of items) {
+    const layer = String(it['layer'] ?? '')
+    if (!RECALL_SKIP_LAYERS.has(layer)) continue
+    const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
+    if (!preview) continue
+    const safe = redactKeepPlaceholders(preview)
+    out.push('  - [' + layer + '] ' + (safe.length > IDENTITY_ITEM_CHARS ? safe.slice(0, IDENTITY_ITEM_CHARS) + '…' : safe))
+    if (out.length >= IDENTITY_MAX_ITEMS) break
+    if (out.join('\n').length >= IDENTITY_MAX_CHARS) break
+  }
+  return out.join('\n').slice(0, IDENTITY_MAX_CHARS)
 }
 
 // ---------------------------------------------------------------- 会话窗口渲染
@@ -770,8 +805,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (sticky) {
             assembly.contexts.push({ name: 'lingshu:turn-reminder', text: sticky })
           }
-          const text = formatTimelineDecayed(
-            await graph.timeline(recallLimit, sid ? { session: sid } : {}))
+          // issue #635：身份锚点独立块（默认关）。开启时多取几条，按层分流：
+          // 非永久层 → 既有「最近记忆」块；self/anchor → 独立「身份锚点」块（独立预算）。
+          const identityOn = opts.autoRecallIdentity === true
+          const timelinePayload = await graph.timeline(
+            identityOn ? recallLimit + IDENTITY_MAX_ITEMS : recallLimit,
+            sid ? { session: sid } : {})
+          const text = formatTimelineDecayed(timelinePayload)
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
@@ -802,6 +842,20 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                 text: escapePromptBraces(renderUntrustedMemoryBlock(
                   `【灵枢最近记忆】\n${recallBody}`)),
               })
+            }
+          }
+          if (identityOn) {
+            try {
+              const idText = renderIdentityAnchors(timelinePayload)
+              if (idText) {
+                assembly.contexts.push({
+                  name: 'lingshu:identity-anchor',
+                  text: escapePromptBraces(renderUntrustedMemoryBlock(
+                    '【灵枢身份锚点】（self/anchor 层，独立预算）\n' + idText)),
+                })
+              }
+            } catch {
+              // 身份块失败不影响既有块（与下方窗口块同款 fail-soft）
             }
           }
           // ── 独立第二块：「【本会话近期对话】」（contextWindow 注入面）──
