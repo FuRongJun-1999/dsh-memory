@@ -346,7 +346,7 @@ ENV_ROWS = [
      '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = True（尝试账本总开关，缺省开——留痕面与 _audit/_write_2pc 同口径；显式 0/false/no/off 停用，停用不改写入语义）',
      'unknown', ''),
     ('MDCG_WARM_SEARCH', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_WARM_SEARCH', 'value', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
-    ('MDCG_PREFILTER', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_PREFILTER', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
+    ('MDCG_PREFILTER', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_PREFILTER', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
     ('MDCG_PREFILTER_MIN', 'TUNE', 'tune', 'env', True, "'50'", 'str', 'value', 'MDCG_PREFILTER_MIN', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
     ('MDCG_RECONCILE_BG', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_RECONCILE_BG', 'value', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关', 'unknown', ''),
 ]

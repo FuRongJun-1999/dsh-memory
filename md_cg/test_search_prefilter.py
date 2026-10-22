@@ -28,7 +28,8 @@ def _mk(tag_count_hi=True):
 
 
 def main():
-    os.environ.pop("MDCG_PREFILTER", None)
+    # 预筛自 2026-10-22 起是 opt-in（实测两次挡住归档读回），测试里显式开启
+    os.environ["MDCG_PREFILTER"] = "1"
     ok = 0
     bad = 0
 
@@ -56,13 +57,24 @@ def main():
     ids2 = [n.get("id") for n, _s, _q in res2]
     chk("solo" in [str(i) for i in ids2], "P2b 回退后仍能召回：%s" % (ids2[:3],))
 
+    # P5：置信回退——预筛命中很多但结果「格式对内容不对」时，自动退回全量
+    root2 = tempfile.mkdtemp(prefix="pf2_")
+    cg2 = MdCGSecure(root2)
+    for i in range(60):
+        cg2.add("f%d" % i, "公共内容 %d" % i, layer="knowledge", tags=["公共标签"])
+    cg2.add("target", "伽马 德尔塔 密文", layer="knowledge", tags=["孤立标签"])
+    res5, meta5 = cg2.search("公共标签 伽马 德尔塔", k=5, record=False)
+    ids5 = [str(n.get("id")) for n, _s, _q in res5]
+    chk(bool(meta5.get("prefilter_fallback")), "P5 覆盖不足时触发置信回退（cov=%r）" % (meta5.get("prefilter_coverage"),))
+    chk("target" in ids5, "P5b 回退后能召回只有正文匹配的节点：%s" % (ids5[:3],))
+
     # P3：显式关闭
     os.environ["MDCG_PREFILTER"] = "0"
     try:
         res3, meta3 = cg.search("预筛探针", k=3, record=False)
         chk(not meta3.get("prefilter"), "P3 MDCG_PREFILTER=0 时不预筛")
     finally:
-        os.environ.pop("MDCG_PREFILTER", None)
+        os.environ["MDCG_PREFILTER"] = "1"
 
     print("=" * 60)
     print("候选预筛守卫：%d 通过 / %d 失败" % (ok, bad))

@@ -1294,7 +1294,56 @@ class MdCGOS(MdCG):
         return out
 
 # 生效条件：query strip 后为空即返回 ([], {"tier": None, "reason": "empty_query", "scanned": 0})；pool_cfg 由 pooling.resolve(pooling.from_env(pools)) 解析；_candidates 为空即返回 no_candidates；其余与 MdCG.search 同构（T0–T3 阶梯 + 资格判定），并按 roles/include_work 默认剔除工具输出与命令类 role，view 真值时移交 role 维度裁决权给 roleviews.matches（见 _candidates），validity 真值时候选层剔除已过期节点；
-    def search(self, query: str, layer: str = None, k: int = 20,
+    # 生效条件：预筛（_prefilter_entries）生效且结果不足时——自动退回全量再查一次，
+    # 保证「先试快路、不自信就退回」；命中充足时零额外成本。
+    def search(self, *args, **kwargs):
+        """检索外层：分层预筛 + 置信回退（2026-10-22）。
+
+        背景：预筛把 26k 候选降到数百，代价是「标签不匹配就查不到」——实测已两次
+        挡住自己的归档读回（写进去的节点按关键词搜不到，按 id 能读到）。
+        这里加一道回退：预筛生效且（结果为空 或 条数不足 k）时，禁用预筛重查一次，
+        并把 meta.prefilter_fallback=True 如实标出，便于事后核对。
+        """
+        res, meta = self._search_impl(*args, **kwargs)
+        # 置信判据：预筛生效时，看**查询词在结果里的覆盖率**。
+        # 实测：标签不匹配的查询会返回 5 条「格式对但内容不对」的结果（覆盖率 2/3、2/4），
+        # 而真正命中的查询覆盖 3/3。故 < 75% 视为不自信 ⇒ 禁用预筛重查一次。
+        if isinstance(meta, dict) and meta.get("prefilter"):
+            try:
+                q = args[0] if args else kwargs.get("query", "")
+                terms = [t for t in re.split(r"[\s,，、;；]+", str(q or "")) if len(t) >= 2]
+                blob = []
+                for _item in (res or ()):
+                    _n = _item[0] if isinstance(_item, tuple) else _item
+                    if not isinstance(_n, dict):
+                        continue
+                    blob.append(str(_n.get("title") or ""))
+                    _fm = _n.get("frontmatter") or {}
+                    if isinstance(_fm, dict):
+                        blob.append(str(_fm.get("tags") or ""))
+                        blob.append(str(_fm.get("title") or ""))
+                    blob.append(str(_n.get("tags") or ""))
+                    blob.append(str(_n.get("content") or _n.get("snippet") or "")[:600])
+                _text = " ".join(blob).lower()
+                _need = max(1, int(len(terms) * 0.75 + 0.999))
+                _hit = sum(1 for t in terms if t.lower() in _text)
+                _weak = bool(terms) and _hit < _need
+            except Exception:
+                _weak = False
+            if _weak:
+                self._pf_off = True
+                try:
+                    res2, meta2 = self._search_impl(*args, **kwargs)
+                finally:
+                    self._pf_off = False
+                if isinstance(meta2, dict):
+                    meta2["prefilter_fallback"] = True
+                    meta2["prefilter_skipped"] = meta.get("prefilter")
+                    meta2["prefilter_coverage"] = "%d/%d" % (_hit, len(terms))
+                return res2, meta2
+        return res, meta
+
+    def _search_impl(self, query: str, layer: str = None, k: int = 20,
                context=None, min_results: int = 1, record: bool = True,
                include_neg: bool = True, judge: bool = True,
                roles=None, include_work: bool = False, pools=None,
@@ -1578,7 +1627,9 @@ class MdCGOS(MdCG):
         并把 prefilter 读数写进 meta，便于事后核对是否漏召回；显式 MDCG_PREFILTER=0 可关。
         """
         try:
-            if os.environ.get("MDCG_PREFILTER", "1") == "0":
+            if getattr(self, "_pf_off", False):
+                return None, None
+            if os.environ.get("MDCG_PREFILTER", "0") != "1":
                 return None, None
             try:
                 need = int(os.environ.get("MDCG_PREFILTER_MIN", "50"))
