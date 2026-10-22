@@ -1,0 +1,14 @@
+const React = require('react');
+function Icon({size=16}) {
+  return React.createElement('svg', {width:size,height:size,viewBox:'0 0 24 24',fill:'none',stroke:'currentColor',strokeWidth:1.5,'aria-hidden':true}, React.createElement('path',{d:'M7 4h10v16H7z M10 8h4 M10 12h4 M10 16h2'}));
+}
+function Panel() {
+  return React.createElement('iframe', {title:'灵枢 · 认知工作台',src:'/lingshu',style:{width:'100%',height:'100%',border:0,display:'block',background:'#f8f9f7'}});
+}
+module.exports = {
+  inject:['slots'],
+  apply(ctx) {
+    ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:'lingshu'},Panel));
+    ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'lingshu',order:20,label:'灵枢'},Icon));
+  },
+};

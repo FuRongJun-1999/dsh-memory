@@ -44,6 +44,8 @@ CI_WORKFLOW = ".github/workflows/workspace-index-check.yml"
 # —— 职责真源（本脚本即真源；新增顶层目录 / 根级文件必须在此登记，否则 --check 亮红）——
 # 值 = (职责一句话, [关键入口，相对本目录；目录名亦可])
 DIR_ROLES = {
+    "ui": ("灵枢极简前端增量包（可选：给已装插件补可视化侧栏；不随 npm 包分发）",
+           ["minimal/install.ps1", "minimal/payload/web/app.js"]),
     #: 收据目录（receipt 机制）：`完成` 必须带可复现命令输出（见 docs/state/会话状态.md 顶部用法）。
     #: 登记于此是按纪律 #18「新增顶层目录须在 DIR_ROLES 登记后重生成」——本条属**机械连带产物**。
     "receipts": ("收据（可复现命令输出的证据面）—— scripts/receipt.py 的 --write/--check/--list 落盘目录",

@@ -174,3 +174,6 @@ md_cg/_index.json
 md_cg/_node_locks/
 md_cg/_keys.json
 scripts/*.bak-*
+
+# UI 安装器在本机生成的备份（含个性化改动，只用于回退，不进仓库）
+.lingshu-ui-backup-*/
