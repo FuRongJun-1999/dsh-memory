@@ -186,10 +186,26 @@ export function extractText(content: Array<{ type: string; text?: string; [key: 
  * import 本包」在模块求值前就失败。惰性导入后：不在 DSH 宿主内时包仍可加载，
  * 只有真正注册工具才报错，且错误消息点名缺哪个包。
  */
+/** 工具对外名（issue #634）：正式名 + 可选兼容别名。
+ *
+ * 0.9.9 起去掉了 `${serverName}_` 前缀（lingshu_cg -> cg），升级瞬间
+ * 已存在会话里的旧名调用全部变成 unknown tool。这里给出「一个工具要注册哪些名字」的
+ * 纯函数，注册面与测试共用，避免两处各写一份判据。
+ */
+export function toolPublicNames(
+  toolName: string,
+  prefix: string,
+  legacyAliases = true,
+): string[] {
+  const primary = `${prefix}${toolName}`
+  if (prefix || !legacyAliases || toolName.startsWith("lingshu_")) return [primary]
+  return [primary, `lingshu_${toolName}`]
+}
+
 export async function registerLingshuTools(
   ctx: Context,
   bridge: LingshuBridge,
-  opts: { selection: ToolSelection; toolPrefix: string },
+  opts: { selection: ToolSelection; toolPrefix: string; legacyAliases?: boolean },
 ): Promise<() => void> {
   let defineTool: typeof import('@deepseek-ai/dsh-tools').defineTool
   try {
@@ -205,12 +221,21 @@ export async function registerLingshuTools(
   const disposers: Array<() => void> = []
   const registered: string[] = []
   try {
+    // issue #634（2026-10-22）：0.9.9 起工具名去掉 serverName 前缀（lingshu_cg -> cg），
+    // 升级瞬间已存在的会话里旧名调用全变 unknown tool，宿主与插件都没有提示。
+    // 这里加兼容别名：裸名照常注册，同时补注册 lingshu_<name>（legacyAliases=false 可关）。
+    // 别名与正式名指向同一个 execute，语义不变；描述标注 deprecated 供模型与人识别。
     for (const tool of tools) {
       if (!wanted.has(tool.name)) continue
-      const publicName = `${opts.toolPrefix}${tool.name}`
-      const definition = defineTool({
-        name: publicName,
-        description: tool.description || `灵枢 ${tool.name}`,
+      const names = toolPublicNames(tool.name, opts.toolPrefix, opts.legacyAliases !== false)
+      const publicName = names[0] as string
+      const aliasName = names[1] ?? ""
+      const makeDefinition = (registeredName: string, deprecated: boolean) => defineTool({
+        name: registeredName,
+        description: deprecated
+          ? '【已弃用别名】旧版工具名（升级兼容用），请改用 ' + publicName + '。原始描述：'
+            + (tool.description || '灵枢 ' + tool.name)
+          : (tool.description || '灵枢 ' + tool.name),
         parameters: schemaToParameters(tool.inputSchema),
         output: {
           schema: { type: 'json' } as never,
@@ -253,8 +278,14 @@ export async function registerLingshuTools(
           return { content: result.content } as never
         },
       })
-      disposers.push(ctx.tools.register(definition))
+      disposers.push(ctx.tools.register(makeDefinition(publicName, false)))
       registered.push(publicName)
+      if (aliasName) {
+        // 兼容别名：指向同一个 execute（makeDefinition 复用了同一份定义体），
+        // 标记 deprecated；下一轮 minor 再评估是否移除。
+        disposers.push(ctx.tools.register(makeDefinition(aliasName, true)))
+        registered.push(aliasName)
+      }
     }
   } catch (err) {
     for (const dispose of disposers) dispose()
