@@ -151,9 +151,13 @@ ROLE_SPECS = OrderedDict([
         #     其准入不靠 admin 闸而靠签章机械闸（E040/E041/E042）——编译者不得自证
         # task=结构层任务台账（工程做到哪一步/结果是什么）——记录单元本职：
         #     保存过程与结果；「不得自证」由 done 时的结果必填闸承接
+        # ref（2026-10-21 采纳外部用户 miyu 的修复二）：记录单元要能 prune
+        # 派生索引（带 code/doc 标签的索引节点，软删进 trash 可 restore）。
+        # 不算放大权限：不动 can_admin、不动 delegable；判据只覆盖索引节点，
+        # 记忆节点带 session 标签天然不在清退范围。
         "ops_allow": ["info", "route", "read", "write", "goal", "task", "recent",
                       "session", "ingest", "maintain", "insight", "ccg", "status",
-                      "edges"],
+                      "edges", "ref"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
