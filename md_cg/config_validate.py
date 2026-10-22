@@ -87,6 +87,7 @@ RULES = {
     'MDCG_TENANT': {'type': 'str'},
     'MDCG_TOOL_FACE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_UNIFY_QUERY': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_WARM_SEARCH': {'type': 'str'},
     'MDCG_WRITELIMIT': {'bool_like': True, 'type': 'bool'},
     'MDCG_WRITE_ATTEMPT_LEDGER': {'bool_like': True, 'type': 'bool'},
     'MDCG_WRITE_ATTEMPT_ROTATE_BYTES': {'type': 'str'},

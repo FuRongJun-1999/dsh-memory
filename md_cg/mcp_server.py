@@ -4975,7 +4975,26 @@ def _serve_line(cg, msg) -> bool:
                          "serverInfo": {"name": SERVER_NAME,
                                         "version": SERVER_VERSION}})
         elif method in ("notifications/initialized", "initialized"):
-            pass                          # 通知，无响应
+            # 2026-10-21 冷启动预热（MCP 读写超时的实测根因之一）：
+            # 本进程**首次**检索要读 26k 个候选文档（真实库实测 8.4 秒），
+            # 而读过一次之后**任意**新查询只要 0.26 秒（readcache 已热）。
+            # 故在握手完成后立刻起一个后台线程做一次"暖查询"，把这次一次性成本
+            # 挪到客户端等 initialize 之后的空档里；用户真正发起检索时通常已热。
+            # 不改变任何检索语义（record=False、结果丢弃），失败静默。
+            try:
+                if os.environ.get("MDCG_WARM_SEARCH", "1") != "0" and not globals().get("_warm_started"):
+                    globals()["_warm_started"] = True
+                    import threading as _th
+
+                    def _warm():
+                        try:
+                            cg.search("灵枢", k=1, record=False)
+                        except Exception:
+                            pass
+
+                    _th.Thread(target=_warm, name="mdcg-warm", daemon=True).start()
+            except Exception:
+                pass
         elif method == "tools/list":
             _reply(rid, {"tools": tools_for_surface()})
         elif method == "tools/call":

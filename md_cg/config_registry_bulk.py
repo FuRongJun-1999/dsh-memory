@@ -345,6 +345,7 @@ ENV_ROWS = [
      'md_cg/writepipe.py', 'ATTEMPT_LEDGER_DEFAULT', 'uncalibrated',
      '由生成器自 AST 复核（第一批未见标定读数）；有效缺省：未设 = True（尝试账本总开关，缺省开——留痕面与 _audit/_write_2pc 同口径；显式 0/false/no/off 停用，停用不改写入语义）',
      'unknown', ''),
+    ('MDCG_WARM_SEARCH', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_WARM_SEARCH', 'value', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
 ]
 
 # 环境面**分类登记**（只登记「属于环境面」与值域类型；**不登记缺省值**）
