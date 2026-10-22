@@ -348,6 +348,7 @@ ENV_ROWS = [
     ('MDCG_WARM_SEARCH', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_WARM_SEARCH', 'value', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
     ('MDCG_PREFILTER', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_PREFILTER', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
     ('MDCG_PREFILTER_MIN', 'TUNE', 'tune', 'env', True, "'50'", 'str', 'value', 'MDCG_PREFILTER_MIN', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关（未设=开/缺省即字面量）', 'unknown', ''),
+    ('MDCG_RECONCILE_BG', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_RECONCILE_BG', 'value', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '2026-10-21 手补：PR 内新增开关', 'unknown', ''),
 ]
 
 # 环境面**分类登记**（只登记「属于环境面」与值域类型；**不登记缺省值**）

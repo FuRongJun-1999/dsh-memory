@@ -5224,11 +5224,23 @@ def main():
     # 真源自身损坏只告警留痕不自动改写（T9 边界：结构合法≠内容正确）。告警与
     # 留痕由模块发声（diff 非空才输出，干净库零噪声）；MDCG_RECONCILE=0 关闭
     # （缺省开，开关真源 reconcile.enabled）。失败不阻塞启动，与③同风格。
-    try:
-        cg.reconcile_state()
-    except Exception as _exc:         # 对账故障不得影响服务可用性
-        sys.stderr.write("[mdcg-mcp] 启动对账 v0 失败（不阻塞启动）: %r\n"
-                         % (_exc,))
+    # 2026-10-21 启动耗时：reconcile_state 实测 2.92 秒（真实库 31,688 节点），
+    # 是 initialize 5.18 秒里最大的一块。它自己的注释与 reconcile 模块都写明
+    # 「失败不阻塞启动、属增益」，故默认放到**后台线程**跑：握手不再等它。
+    # MDCG_RECONCILE_BG=0 可退回同步（旧行为，便于对照与排障）。
+    def _reconcile_bg():              # noqa: D401 —— 承接面：cg.reconcile_state()
+        try:
+            cg.reconcile_state()
+        except Exception as _exc:     # 对账故障不得影响服务可用性
+            sys.stderr.write("[mdcg-mcp] 启动对账 v0 失败（不阻塞启动）: %r\n"
+                             % (_exc,))
+
+    if os.environ.get("MDCG_RECONCILE_BG", "1") == "0":
+        _reconcile_bg()
+    else:
+        import threading as _thr
+        _thr.Thread(target=_reconcile_bg, name="mdcg-reconcile",
+                    daemon=True).start()
     # 进程自报（诊断设施，fail-safe）：把「md_cg 实际加载源 + render 契约代际」
     # 落成 `<tempdir>/md_cg_servers/<pid>.json`，供 `scripts/mdcg_stale_servers.py`
     # 机械判定**活进程代际**。根因（第4条取证）：原先只能比「进程启动时间 vs

@@ -66,6 +66,7 @@ RULES = {
     'MDCG_REACH_TTL': {'min': 0.0, 'type': 'float'},
     'MDCG_READ_CACHE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_RECONCILE': {'bool_like': True, 'type': 'bool'},
+    'MDCG_RECONCILE_BG': {'type': 'str'},
     'MDCG_RELOAD_MIN_INTERVAL': {'type': 'str'},
     'MDCG_RETRIEVAL_PIPELINE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_S7_FRESHNESS': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
