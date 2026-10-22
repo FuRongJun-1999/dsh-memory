@@ -1518,6 +1518,17 @@ class MdCGOS(MdCG):
                 stat.pop(_k, None)
 
         # 截断依据=相关度（同 MdCG.search：cap 值不变，改的是拿什么排序）
+        # ---- 候选预筛（2026-10-21，使用者指出的分层检索）----
+        # 现状：T2 无条件 _read_many(entries) 读全量正文（真实库 26k 文档 6.4 秒），
+        # 这是「每进程首查 8 秒」的主因。既然**全局索引里已有元数据**（tags/桶），
+        # 就先按索引元数据筛一轮：把词项与 tags/bucket_zh 命中的条目当候选，
+        # 命中太少（默认 <50）再回退全量，并用 meta.prefilter 如实暴露是否筛过。
+        # 只用**原始查询词**（>=2 字）：扩展词里有单字（库/记），substring 匹配会命中几乎所有 tag，等于没筛。
+        _raw_terms = [t for t in re.split(r"[\s,，、;；]+", q or "") if len(t) >= 2]
+        _pf_entries, _pf_meta = self._prefilter_entries(entries, _raw_terms)
+        if _pf_entries is not None:
+            stat["prefilter"] = _pf_meta
+            entries = _pf_entries
         docs_all = self._read_many(entries, stat)
         # 语义资格（MDCG_SEMANTIC=1）：fm.semantic 节点无条件入池
         hits = [d for d in docs_all
@@ -1555,6 +1566,40 @@ class MdCGOS(MdCG):
                           context, neg_coverage, big_domain, big_scores, pool_cfg)
 
 # 生效条件：当 query、entries、stat 传入时，先以 terms/qb 从 entries 读取文档并保留 LIKE 命中或（semantic_on 且 frontmatter.semantic）的项；若 hits 为空则按 importance/created_at 降序取前 GLOBAL_CAP 作为兜底；随后对 hits 打分并按相关度与 importance 降序排序，超过 GLOBAL_CAP 时截断并更新 stat，否则返回全部 scored；
+    # 生效条件：terms 非空、entries 为候选条目列表；词项与条目的 tags / bucket_zh 有交集且命中数
+    # 达到 MDCG_PREFILTER_MIN（默认 50）时返回（筛后条目, {"prefilter": "tags", ...}），否则返回 (None, None)
+    # 表示「不筛、走全量」——命中太少说明索引元数据不足以支撑该查询，不能拿它当召回面。
+    def _prefilter_entries(self, entries, terms):
+        """按**索引元数据**预筛候选（分层检索的第二级：全局索引 → 正文）。
+
+        为什么用它：T2 无条件读全量正文是真实库 26k 文档 6.4 秒的主因；
+        而全局索引里已带 tags/bucket_zh，先按词项筛一轮通常能把候选降到数百。
+        边界（诚实声明）：这是**召回取舍**——只在元数据命中足够多时启用，
+        并把 prefilter 读数写进 meta，便于事后核对是否漏召回；显式 MDCG_PREFILTER=0 可关。
+        """
+        try:
+            if os.environ.get("MDCG_PREFILTER", "1") == "0":
+                return None, None
+            try:
+                need = int(os.environ.get("MDCG_PREFILTER_MIN", "50"))
+            except ValueError:
+                need = 50
+            ts = [str(t).lower() for t in (terms or []) if t]
+            if not ts:
+                return None, None
+            out = []
+            for e in entries or ():
+                blob = " ".join(str(x) for x in (e.get("tags") or ())).lower()
+                blob += " " + str(e.get("bucket_zh") or "").lower()
+                if any(t in blob for t in ts):
+                    out.append(e)
+            if len(out) < need:
+                return None, None
+            return out, {"prefilter": "tags", "matched": len(out),
+                         "pool": len(entries or ()), "min": need}
+        except Exception:
+            return None, None
+
     def _lexical(self, query, entries, stat):
         """词法路径：LIKE 预筛 + 二元组相似度（口径见 mdcg.SCORE_MODE）。
 
