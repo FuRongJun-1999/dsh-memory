@@ -57,6 +57,8 @@ RULES = {
     'MDCG_NEG_SIM': {'max': 1.0, 'min': 0.0, 'type': 'float'},
     'MDCG_PLAIN_CACHE_MAX': {'type': 'str'},
     'MDCG_POOLING': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_PREFILTER': {'type': 'str'},
+    'MDCG_PREFILTER_MIN': {'type': 'str'},
     'MDCG_PROPOSAL_EMOTION': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_QMD_SYS': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_REACH': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
