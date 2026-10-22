@@ -95,6 +95,9 @@ export const inject = ['tools']
 export interface Config {
   /** 内部标识（provider/日志用；**不再用于工具名前缀**，工具名与 MCP 服务同名）。 */
   serverName: string
+  /** issue #634：是否同时注册 lingshu_* 兼容别名（缺省 true）。
+   *  0.9.9 起工具名去前缀，旧会话/旧脚本硬编码旧名会 unknown tool。 */
+  toolAliases: boolean
   /** Python 可执行文件（或 md_cg-mcp console script）。
    *  缺省 = 平台感知（issue #19）：Windows `python` / Linux·macOS `python3`，
    *  可用 env `MDCG_PYTHON` 覆盖；显式配置本项优先级最高。 */
@@ -149,6 +152,9 @@ export interface Config {
 
 export const Config: z<Config> = z.object({
   serverName: z.string().default('lingshu'),
+  /** issue #634：0.9.9 起工具名去前缀（lingshu_cg -> cg）。
+   *  缺省 true = 同时注册 lingshu_* 兼容别名；设 false 则只注册裸名。 */
+  toolAliases: z.boolean().default(true),
   // issue #19：默认值按平台解析（Windows: python / 其它: python3；env MDCG_PYTHON 可覆盖）。
   // 写死 'python' 时 Linux/macOS 首装即 spawn ENOENT（PEP 394 只有 python3），
   // 且表现为「装好了但记忆永远为空」——最难定位的失效形态。
@@ -430,6 +436,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       // `cg` / `stg` / `mdcg_*`。此前按 `${config.serverName}_` 拼成 `cg`，造成「同一个
       // MCP 服务、不同端看到不同工具名」的初次识别错误。serverName 仍用于内部 provider/日志标识。
       toolPrefix: '',
+      // issue #634：默认补注册 lingshu_* 兼容别名（旧会话/旧脚本硬编码旧名时不至于 unknown tool）。
+      // 需要「只要裸名」的部署可设 tools.legacyAliases=false。
+      legacyAliases: config.toolAliases !== false,
         })
         disposers.push(dispose)
         toolsRegistered = true
