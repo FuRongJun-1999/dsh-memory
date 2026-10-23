@@ -854,8 +854,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                     '【灵枢身份锚点】（self/anchor 层，独立预算）\n' + idText)),
                 })
               }
-            } catch {
-              // 身份块失败不影响既有块（与下方窗口块同款 fail-soft）
+            } catch (err) {
+              // issue #128 同款纪律：fail-soft 但不静默——空 catch 会被
+              // test/session-declaration-report ③ 判红，也会让「身份块从未注入成功」
+              // 与「确实没有身份节点」不可分辨。失败不越过会话流边界（不抛）。
+              ctx.logger.warn(`dsh-memory: 身份锚点注入失败（已跳过该块）: ${redactForLog(err)}`)
             }
           }
           // ── 独立第二块：「【本会话近期对话】」（contextWindow 注入面）──

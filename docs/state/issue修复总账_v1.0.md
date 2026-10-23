@@ -103,7 +103,7 @@
 | issue | 站点/分面 | 合成状态 | 说明 |
 |---|---|---|---|
 | #426 | B（U02）/D+F（U04）/A（U14） | **部分修复** | B 单元判 duplicate（`1c990e9e`；后续 `5be2fd1e` 在历史，当前存活未核）；D/F 本端修（工作树）；A deferred（`md_cg/mdcos.py:2628/2649-2655` 仍旧）。整体不能关单 |
-| #446 | 站点1/3（读面/结构）/站点2（密封短路+落盘闸） | **部分修复** | 站点1/3 由 `7cfa8029` 覆盖（`crypto.py:399/598` 的 `verify_encrypted` 在 HEAD）；站点2 仍用 `is_encrypted` 前缀（`mdcos.py:5949`、`mdcg.py:1778`），P0 未闭环 |
+| #446 | 站点1/3（读面/结构）/站点2（密封短路+落盘闸） | **部分修复** | 站点1/3 由 `7cfa8029` 覆盖（`crypto.py:399/598` 的 `verify_encrypted` 在 HEAD）；站点2 仍用 `is_encrypted` 前缀（`mdcos.py:5949`、`mdcg.py:1782`），P0 未闭环 |
 | #352 | A/C/D/E（U18 一轮）/B（U18 二轮） | **部分修复** | A（rollback 21/0）、C（imgaudit 10/0）、D（pathsjson 15/0）、E（refindex 14/0）duplicate；B 直写面修好，缺省 confirm 档 accept 仍复现“假正文挂 verified”；守卫 approved=false |
 | #492 | 链尾执行器（writepipe）/工具面（mcp_server） | **部分修复** | `writepipe.py` 的 `include_dup_readout` 已入 HEAD（`ef9a9cfb`）；`mcp_server.py:3924-3927` 仍无条件算，NEED_FILE |
 | #358 | ① 截断可观测/② BLINDSPOT 静默丢正文 | **fixed（①）+ duplicate（②）** | ① 本端修（工作树）；② `a3c3530c` 已覆盖 |
