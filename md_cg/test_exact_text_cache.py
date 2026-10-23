@@ -142,14 +142,22 @@ class ExactTextCache(unittest.TestCase):
         cg = self.make_store({"same": "# 正文：İΣ Alpha 中文\n# 不适用条件：Forbidden"})
         entry, fm, body = self.docs(cg)[0]
         fm["tags"] = ["MixedTag"]
-        lower = nodefile.positive_body(body).lower()
+        # issue #636（2026-10-23）：_like_body_lower 现在过 fold_accents（重音折叠），
+        # 判据随之重述——期望值用同一折叠口径计算，而不是旧的无折叠 lower()。
+        lower = mdcg.fold_accents(nodefile.positive_body(body)).lower()
+        raw_lower = nodefile.positive_body(body).lower()
         for terms in ([], ["alpha"], ["Alpha"], ["i\u0307"], ["中文"],
                       ["forbidden"], ["mixedtag"], ["absent"]):
             with self.subTest(terms=terms):
-                expected = any(t in lower or t.lower() in "mixedtag" for t in terms)
-                self.assertEqual(cg._like(body, fm, terms), expected)
+                # issue #636 后两条 path 的 body 侧口径不同（这是刻意的）：
+                #   无 body_lower 的旧分支仍用裸 lower()；
+                #   传 _like_body_lower 的缓存分支用 fold_accents 后的 lower()。
+                # 故期望值分开算——断言的是「每条 path 与它自己的归一化逐位一致」。
+                expected_raw = any(t in raw_lower or t.lower() in "mixedtag" for t in terms)
+                expected_folded = any(t in lower or t.lower() in "mixedtag" for t in terms)
+                self.assertEqual(cg._like(body, fm, terms), expected_raw)
                 self.assertEqual(cg._like(body, fm, terms, entry=entry,
-                                         body_lower=cg._like_body_lower), expected)
+                                         body_lower=cg._like_body_lower), expected_folded)
         self.assertTrue(cg._like(body, fm, [], index_keys={"hit": True},
                                  body_lower=lambda *_: self.fail("index hit should return early")))
 

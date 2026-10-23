@@ -2715,6 +2715,17 @@ class MdCGOS(MdCG):
                     skipped.append({"id": node["id"], "tokens": t,
                                     "reason": "oversize_or_over_budget"})
                     continue          # 关闭截断或预算不足：跳过，继续尝试更小的
+            # issue #637：**召回面可配最低分**（MDCG_RECALL_MIN_SCORE，默认 -1 = 关）。
+            # 默认关的理由：test_validity_filter ⑤⑦ 依赖 RRF 旁系低分条目可见；
+            # 需要「只装相关记忆」的部署设 0.01 即启用（零分条目连同 reason 记账跳过）。
+            try:
+                _rmin = float(os.environ.get("MDCG_RECALL_MIN_SCORE", "-1"))
+            except ValueError:
+                _rmin = -1.0
+            if _rmin >= 0 and score < _rmin:
+                skipped.append({"id": node["id"], "tokens": t,
+                                "reason": "below_min_score", "score": score})
+                continue
             used += t
             # Only summarize already available qualification/frontmatter data;
             # query suitability and persistent verification are distinct states.

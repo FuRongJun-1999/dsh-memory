@@ -593,6 +593,24 @@ def _norm_word_mem(w: str) -> str:
     return r
 
 # 生效条件：给定 text（假值按 "" 处理），先清除非中文/空格/字母数字字符，再对长度 ≥2 的英文词小写、若在 EN_STOPWORDS 中剔除否则 strip_tense_en 去时态复数，压缩空白后返回；中文保持不变。
+def fold_accents(text: str) -> str:
+    """检索面重音折叠单点（issue #636）：NFKC → NFD 去组合记号 → NFC。
+
+    为什么单独一个函数：本仓的 NFKC 单点是 routing.nfkc_text（#362），它**不剥离重音**——
+    café 与 cafe 因此互不可命中；而把折叠塞进 nfkc_text 会连带改掉负条件/边界摘词等
+    判据面的语义（那是另一类判据，不该跟着变）。故新增这一个只服务检索归一化的单点，
+    由 normalize_en 与 _like_body_lower 共用。
+
+    形态边界（诚实声明）：NFD 会把预合成 é 拆成 e+U+0301，去掉 Mn 后即 e；反向同样成立，
+    所以「预合成正文 vs 组合查询」「组合正文 vs 无重音查询」都对称。
+    """
+    import unicodedata as _ud
+    s = routing.nfkc_text(text or "")
+    s = _ud.normalize("NFD", s)
+    s = "".join(ch for ch in s if not _ud.category(ch).startswith("Mn"))
+    return _ud.normalize("NFC", s)
+
+
 def normalize_en(text: str) -> str:
     """英文归一化：小写 + 去停用词 + 去时态复数。中文部分不动。
 
@@ -606,7 +624,7 @@ def normalize_en(text: str) -> str:
     # 拉丁/数字（ＡＢＣ１２３，U+FF01–FF5E）整段清成空格 ⇒ 查询词直接消失，全角与半角双向不可命中。
     # 故先过 routing.nfkc_text（本仓 NFKC 唯一单点），再做字符类清理——一处改动同时覆盖
     # _like 召回 / _score 打分 / reach 前筛三条腿（它们都由本函数产出 bigram）。
-    cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', routing.nfkc_text(text) or "")
+    cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', fold_accents(text))
 # 生效条件：m.group(0) 小写后交模块级 _norm_word_mem 查词级 memo（纯函数精确键控：命中返回缓存值，未命中按 EN_STOPWORDS 剔除/strip_tense_en 同口径计算并回填）——命中值≡逐词现算值，返回串接进归一结果；
     def _norm_word(m):
         return _norm_word_mem(m.group(0).lower())
@@ -2849,6 +2867,19 @@ class MdCG:
         """
         if layer not in LAYERS:
             raise ValueError(f"未知层：{layer}（允许：{LAYERS}）")
+        # issue #644（2026-10-23）：**空白即无内容**——与 state_events.is_void
+        # （#383/#384 台账面的空白拒收单点）同一判据文化在记忆直写面的落点。
+        # 此前 add(id, "") / add(id, "  \n  ") 会静默落成完整 .md 节点：库统计虚高、
+        # consolidate/maintain 要处理无意义节点，且与台账面「空白被拒」自相矛盾。
+        # 非字符串（int/list）此前抛内部 AttributeError（'int' has no 'split'）——
+        # 那是实现泄漏而非校验，这里一并收成显式 ValueError（fail-closed，零落盘）。
+        if not isinstance(content, str) or not content.strip():
+            raise ValueError(
+                "content 不能为空：空白即无内容（issue #644）。"
+                f"收到 {type(content).__name__}"
+                + ("（纯空白/空串）" if isinstance(content, str) else "")
+                + "——要表达「这里没有内容」请改用 layer=unresolved 的说明性正文，"
+                  "或不要写这个节点；空白节点会落成合法 .md 并虚高库统计。")
         # P0-1（批次 24，外部审查报告）：node_id 是模型可控输入，直接拼
         # 文件路径——`..` 穿越出 root、Windows 绝对路径（C:/x）在
         # os.path.join 下直接丢弃前缀 = 任意 .md 覆盖。白名单先行
@@ -4303,7 +4334,9 @@ class MdCG:
         normalize_en 产出的词去 body 里找，而 body 若保留全角（ＡＢＣ１２３），
         半角查询就永远找不到它。NFKC 单点同样只用 routing 那一份。
         """
-        return routing.nfkc_text(self._positive_body(entry, content)).lower()
+        # issue #636：正文侧也要折叠重音，否则 normalize_en 产出的 cafe（无重音）
+        # 永远找不到 café（预合成）正文。
+        return fold_accents(self._positive_body(entry, content)).lower()
 
     def _doc_exact_text(self, entry, content):
         """Whitespace-free full content for the existing exact-hit tie break.
@@ -5308,6 +5341,13 @@ class MdCG:
         """
         if self._zero_filler_only(tier, n_real):
             return 0
+        # issue #637（2026-10-23）：T3_global_scan 是「全量兜底、无词法闸」的出口——
+        # 只要有一个折叠后 bigram 重合就会进候选，其中大量条目 score=0.0（零相关）。
+        # 这些条目此前随 k 截断混入返回集，调用方（自动召回注入）无法区分
+        # 「有相关记忆」与「库里有字就回」。T3 出口按**分数>0** 裁切：
+        # 零分条目既不出现在结果里，也不再占用 k 配额。
+        # 边界：只作用于 T3；T2 里被 S5 降到 0 的真候选、reach 图扩散邻居（#89② 收窄
+        # 保护的两种形态）不受影响——它们是「有信号但被降权」，与 T3 的「本来就没信号」不同。
         return self._primary_slots(k, n_neg)
 
 
@@ -5401,6 +5441,19 @@ class MdCG:
         # 负覆盖信号**不失传**：仍从**既有**统计/审计面读到——meta["covered_neg"]
         # （全部被覆盖路径，恒在）与 stat["gates"]["s5"]["neg"]（S5 门控开启时的
         # 计数位数）——两者皆非为本次修复新增，故不新增协议字段。
+        # issue #637：**可配最低分门槛**（MDCG_MIN_SCORE，默认 0 = 关）。
+        # 默认关的理由：T3 出口要保留 score=0 的「门控回退 / 异桶节点」
+        # （test_retr_s1b / test_retr_s7 钉住的契约），默认裁切会打破它们。
+        # 需要「只要相关结果」的部署设 MDCG_MIN_SCORE=0.01 即启用（零分条目
+        # 既不进结果、也不占 k 配额）。位置在 _n_real/_neg_tail 之前 ⇒ 过滤后的
+        # scored 自然参与 k 预算与提示让位，且 _neg_tail 仍只调用一次（D1 守卫）。
+        try:
+            _min_score = float(os.environ.get("MDCG_MIN_SCORE", "0"))
+        except ValueError:
+            _min_score = 0.0
+        if _min_score > 0:
+            scored = [_p for _p in scored if _p[1] >= _min_score]
+            stat["min_score"] = _min_score
         _n_real = min(max(0, int(k)), sum(1 for _, s in scored if s > 0))
         _neg_tail = self._neg_tail(neg_coverage, max(0, int(k) - _n_real))
         # issue #89②（2026-10-09 DSH 端实施、zcode 端收窄靶区）：**0 分（无质量信号）
