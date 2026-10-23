@@ -10,7 +10,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.9）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.12）**
 
 📖 **[第三方上手教程](https://znsvdekx.vibedrop.site/)** —— 《灵枢 dsh-memory 初学者上手研究报告》（由第三方独立编写，非本项目官方文档）
 
@@ -82,7 +82,7 @@ python -m md_cg.mcp_server             # 直连自检：收到 initialize 应答
 ## ✨ 核心亮点
 
 - **🧠 不失忆**——落盘即长期留存，遗忘只能显式发起、不做静默淘汰；检索索引只是派生物，**原文即真源**
-- **⚡ 高性能**——Rust 检索内核（零第三方依赖）＋ `--serve` 进程实例支撑多智能体并发。公开基准 [hive-memory-bench](https://github.com/FuRongJun-1999/hive-memory-bench) 六家同口径：**逐字保真 100% · 保地基 68.4% · 证据链 97.7–99.2% · 写入 0.011–0.019 秒（零 LLM，同表其余 75.7–658.5 秒）**
+- **⚡ 高性能**——Rust 检索内核（零第三方依赖）＋ `--serve` 进程实例支撑多智能体并发。公开基准 [hive-memory-bench](https://github.com/FuRongJun-1999/hive-memory-bench) 六家同口径：**逐字保真 100% · 保地基 68.4%/65.0% · 证据链 97–100% · 写入 0.013–0.020 秒（零 LLM，同表其余 75.7–658.5 秒）**
 - **🛡️ 无幻觉**——记什么、取什么、能不能写入全部由确定性规则裁决，不依赖 LLM 黑箱；写没写成功只看 `committed`，绝不假装通过
 - **🔌 多智能体适用**——同一份大脑 + 同一份纪律，接入 DSH · CodeBuddy · ZCode · Codex CLI · Claude Code，任何 MCP 宿主可直接挂载
 - **📊 可复现评测**——权威对照在独立公开基准 hive-memory-bench；另公开两个自建题池；**已有两份第三方独立验证**（七轮复评 + LoCoMo 独立复现，自报数字逐位一致）
