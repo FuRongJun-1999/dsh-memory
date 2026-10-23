@@ -2444,6 +2444,16 @@
    "why": "文档面存量手写锚：同上，冻结。"
   },
   {
+   "key": "docs/state/issue修复总账_v1.0.md#f443641798f7359f -> crypto.py:399",
+   "at": "docs/state/issue修复总账_v1.0.md:106",
+   "why": "2026-10-23 fold_accents 插入使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
+   "key": "docs/state/issue修复总账_v1.0.md#f443641798f7359f -> mdcos.py:5949",
+   "at": "docs/state/issue修复总账_v1.0.md:106",
+   "why": "2026-10-23 fold_accents 插入使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
    "key": "docs/state/会话状态.md#2a59bda170452a15 -> rollback.py:501",
    "at": "docs/state/会话状态.md:87",
    "why": "文档面存量手写锚：同上，冻结。"
