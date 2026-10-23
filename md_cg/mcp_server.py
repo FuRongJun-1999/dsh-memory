@@ -227,6 +227,9 @@ TOOLS = [
                          semantic=_p("boolean", "启用第 6 路条件空间结构化匹配"
                                                "（白箱语义路：CCG 生效条件 + condition_space "
                                                "四槽，不适用条件命中即剔除；默认否）"),
+                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
+                                                "默认 false = 保持既有契约——test_p27_docindex ⑤ 断言"
+                                                "文档节点必须可被检索到；需要「只看真记忆卡」的调用方显式传 true）"),
                           expand=_p("array", "LLM 查询侧扩展词：[{term,weight}] 或 [\"词\"]；"
                                              "仅在查询时刻生效，索引侧仍白箱"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
@@ -2660,6 +2663,17 @@ def _cg_dispatch(cg, a):
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
             res, meta = cg.search(q, **search_args)
+        # read 面过滤 doc_ 索引节点（2026-10-23 使用者批准）：doc_ 为会话日志切片，
+        # 与真记忆卡同分（0.016）且占 top5 的 60–80%，稀释可达性。默认 true，可显式关。
+        _excluded_doc = 0
+        if a.get("exclude_doc", False):
+            _before = len(res)
+            res = [x for x in res if not str((x[0] or {}).get("id", "")).startswith("doc_")]
+            _excluded_doc = _before - len(res)
+        if _excluded_doc and isinstance(meta, dict):
+            meta = dict(meta)
+            meta["excluded_doc"] = _excluded_doc
+            meta["exclude_doc"] = True
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
