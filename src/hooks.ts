@@ -92,6 +92,12 @@ export interface MemoryHooksOptions {
   autoRecall: boolean
   /** 自动召回条数（默认 4）。 */
   autoRecallLimit: number
+  /** 逢十轮提醒（纪律第 16 条；issue #645）。缺省 10 = 每 10 个真实用户回合提醒一次；
+   *  数字 = 自定义间隔（1~100）；false = 关闭。
+   *
+   *  计轮单位是「用户消息条数」，不是 assemble 次数——实测一次模型请求约 10 次 assemble，
+   *  按 assemble 计数会把「每 10 轮」退化成「每一步」。 */
+  turnReminder?: boolean | number
   /** 身份锚点独立注入块（issue #635，默认 false = 保持既有行为）。
    *
    *  背景：永久层（self/anchor）被 RECALL_SKIP_LAYERS 跳过，用户写完「我是谁」永远
@@ -764,10 +770,21 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   // 因此本实现把「要不要补」交还给宿主：压缩归档后宿主会把 retained 置空并重新投影快照
   // （RuntimeContextProjection 的 retained === null 分支），本块自然跟着回来——
   // 不需要插件自己数步数做自愈。
-  /** 进程内轮次计数（session → 已 assemble 轮数）。见 shouldRemindTurn。 */
-  /** 进程内「本十轮段提醒文本」（session → 文本）：段内每轮重推同一文本，避免快照增删。 */
-  const remindText = new Map<string, string>()
-  const turnSeq = new Map<string, number>()
+  /** 真实轮次计数（session → 用户消息条数）。issue #645：计轮单位必须是「用户回合」，
+   *  不是 assemble 次数——实测一步约 10 次 assemble，按 assemble 计数会把「每 10 轮」
+   *  退化成「每一步」，提醒于是常驻上下文、agent 反复空转归档。 */
+  const userTurns = new Map<string, number>()
+  /** 待推送提醒（session → 文本）：用户回合计数命中时写入，assemble 时只消费一次；
+   *  不做 sticky 重推（那是提醒常驻的直接原因）。 */
+  const pendingReminder = new Map<string, string>()
+  /** 提醒间隔：false → 0（关闭）；数字 → clamp 1..100；未设 → 10。 */
+  const reminderInterval = (() => {
+    const cfg = opts.turnReminder
+    if (cfg === false) return 0
+    const n = typeof cfg === 'number' ? cfg : 10
+    if (!Number.isFinite(n)) return 10
+    return Math.max(1, Math.min(100, Math.floor(n)))
+  })()
   if (opts.autoRecall) {
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
@@ -790,22 +807,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 真机单实例下两者逐位等价（差异窗口不可达）。
           const sid = sessionIdOf(hostCtx?.agent?.session)
             || (observedSession ? currentSession() : '')
-          // 逢十轮提醒（纪律第 16 条）：assemble 每轮触发一次 ⇒ 以此计轮。
-          // 状态只在本进程内（重启归零）：宁可多提醒一次，不留假状态。
-          const turnKey = sid || '__no_sid__'
-          const turnNo = (turnSeq.get(turnKey) ?? 0) + 1
-          turnSeq.set(turnKey, turnNo)
-          // 粘性提醒（2026-10-21）：只在触发轮 push、下一轮就消失会让宿主多追两份快照
-          // （10→11 增删各一次）。故把「本轮所属十轮段的提醒文本」按会话记住，
-          // 段内每轮**原样重推**（文本不变 ⇒ 渲染快照不追加），跨段才换一次文本。
-          if (shouldRemindTurn(turnNo)) {
-            remindText.set(turnKey, escapePromptBraces(formatTurnReminder(turnNo)))
+          // 逢十轮提醒（纪律第 16 条；issue #645 修正）：计数挪到 session/event 的真实
+          // 用户回合上，这里只消费一次待推文本。旧实现把 assemble 当轮次 + 段内永久重推
+          // ⇒ 提醒几乎常驻、agent 反复空转归档；sid 缺失时还回落共用键 __no_sid__，
+          // 并行会话互相污染频率。现改为：无 sid 不提醒；提醒只在本回合第一次 assemble 出现。
+          if (sid) {
+            const pending = pendingReminder.get(sid)
+            if (pending) {
+              pendingReminder.delete(sid)
+              assembly.contexts.push({ name: 'lingshu:turn-reminder', text: pending })
+            }
           }
-          const sticky = remindText.get(turnKey)
-          if (sticky) {
-            assembly.contexts.push({ name: 'lingshu:turn-reminder', text: sticky })
-          }
-          // issue #635：身份锚点独立块（默认关）。开启时多取几条，按层分流：
           // 非永久层 → 既有「最近记忆」块；self/anchor → 独立「身份锚点」块（独立预算）。
           const identityOn = opts.autoRecallIdentity === true
           const timelinePayload = await graph.timeline(
@@ -950,6 +962,16 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       }
       const text = extractText(event.data.content)
       if (!text) return
+      // 逢十轮提醒的**计轮点**（issue #645）：真实用户回合 = 用户消息条数。
+      // 放在脱敏之前——被脱敏丢弃的消息也是一次真实交互，不应影响计数。
+      // 无 sid 不计数、不提醒（旧实现回落共用键 __no_sid__，并行会话会互相污染频率）。
+      if (sid && reminderInterval > 0) {
+        const n = (userTurns.get(sid) ?? 0) + 1
+        userTurns.set(sid, n)
+        if (shouldRemindTurn(n, reminderInterval)) {
+          pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
+        }
+      }
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) { audit.skipped('sanitized', 'user'); return }
       memorize('user', 'user', (g) => g.remember(safe, {
@@ -1028,8 +1050,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
  *  不等收尾」。zcode 端由 `scripts/zcode_window_hook.py` 注入提醒；**DSH 端此前
  *  完全没有实现**——纪律在产物里、机制不在，代理只能靠自觉（实测：整场长会话
  *  一次归档都没做）。本函数是该缺口的判定单点。 */
-export function shouldRemindTurn(n: number): boolean {
-  return Number.isFinite(n) && n >= 10 && n % 10 === 0
+export function shouldRemindTurn(n: number, interval = 10): boolean {
+  if (!Number.isFinite(n) || !Number.isFinite(interval)) return false
+  const step = Math.floor(interval)
+  if (step <= 0) return false
+  return n >= step && n % step === 0
 }
 
 /** 提醒文本（不含注入边界转义——转义在 push 站点做，与其它块同规）。 */
