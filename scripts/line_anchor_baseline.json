@@ -2429,6 +2429,16 @@
    "why": "文档面存量手写锚：同上，冻结。"
   },
   {
+   "key": "docs/state/issue修复总账_v1.0.md#d8b67bb0dd0a31fd -> crypto.py:399",
+   "at": "docs/state/issue修复总账_v1.0.md:106",
+   "why": "2026-10-22 修 #635 时 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
+   "key": "docs/state/issue修复总账_v1.0.md#d8b67bb0dd0a31fd -> mdcos.py:5949",
+   "at": "docs/state/issue修复总账_v1.0.md:106",
+   "why": "2026-10-22 修 #635 时 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
    "key": "docs/state/issue修复总账_v1.0.md#d8e45adb0919ce49 -> md_cg/mdcos.py:4878",
    "at": "docs/state/issue修复总账_v1.0.md:63",
    "why": "文档面存量手写锚：同上，冻结。"
