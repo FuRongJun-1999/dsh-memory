@@ -42,6 +42,10 @@ function makeCtx(): {
   installMemoryHooks(ctx, {
     isReady: () => true,
     async timeline() { return payload },
+    // 用户回合会触发自动记忆写入（memorize → remember + 读回），mock 补齐。
+    async remember() { return { ok: true, id: 'n1' } },
+    async read() { return { ok: true, content: 'x', frontmatter: {} } },
+    async write() { return { ok: true } },
   } as never, {
     userMessage: true, assistantMessage: false, toolResult: false,
     importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true,
@@ -76,9 +80,37 @@ test('① 记忆不变时：注入块每步照旧 push，渲染文本逐字节�
     assert.ok(rendered.includes('【灵枢最近记忆】'), `第 ${step} 步应注入召回块`)
   }
 
-  // 判据重述（2026-10-21）：第 10 轮会插入「逢十轮提醒」块（纪律第 16 条的机制），
-  // 那是一次**功能性**内容变化 ⇒ 追加第二份快照属预期；关键是不再有逐轮抖动。
-  assert.equal(appends, 2, '12 步内应只在首步与第 10 轮各追加一份快照（其余步稳定）')
+  // 判据重述（2026-10-23，issue #645）：提醒的计轮单位改成**真实用户回合**后，
+  // 没有新用户消息的 12 次 assemble 不会再插提醒 ⇒ 只追加首份快照。
+  assert.equal(appends, 1, '无新用户回合时，12 步只应在首步追加一份快照')
+
+  // 正对照：走满 10 个真实用户回合后，**下一次** assemble 会带来一次功能性变化
+  // （提醒块出现），之后不再重复（不 sticky）。
+  const onEvent = listeners.get('session/event') as unknown as
+    (session: unknown, event: unknown) => void
+  assert.ok(onEvent, '应注册 session/event 监听')
+  for (let turn = 1; turn <= 10; turn++) {
+    onEvent({ id: 'sess-1', header: {} }, {
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '第' + turn + '轮' }] },
+    })
+  }
+  const stepOnce = async (): Promise<void> => {
+    const assembly: Assembly = { contexts: [{ name: 'clock', text: '当前时间 12:00' }], variables: {} }
+    await handler(assembly, { agent: { session: { id: 'sess-1', header: {} } } }, async () => assembly)
+    const rendered = renderContextSnapshot(assembly)
+    if (hostAppends(retained, rendered)) { appends++; retained = rendered }
+  }
+  await stepOnce()
+  assert.equal(appends, 2, '第 10 回合后的首次 assemble 应追加一次（提醒块出现）')
+  await stepOnce()
+  await stepOnce()
+  // 提醒只出现一步：下一步它消失 ⇒ 再追加一次（出现 + 消失 = 两次）。
+  // 这是 issue #645 明确接受的代价——「接受一次额外的快照追加」，换取提醒不再常驻、
+  // 不再诱发 agent 反复空转归档。后续步保持稳定（不再追加）。
+  assert.equal(appends, 3, '提醒出现与消失各追加一份，之后稳定')
+  await stepOnce()
+  assert.equal(appends, 3, '之后不再追加（不 sticky）')
 })
 
 test('② 记忆真变了才追加：内容变化 → 恰好多一份；之后再次稳定', async () => {
