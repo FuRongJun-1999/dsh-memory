@@ -390,10 +390,10 @@ def load_spec_text(repo):
         out.append(s)
     return "\n".join(out).rstrip()
 
-# 生效条件：nodes 可迭代；输出「本仓 18 条纪律」的**附录表**（编号 / 触发 / 声明）。
+# 生效条件：nodes 可迭代；输出「本仓 N 条纪律」的**附录表**（编号 / 触发 / 声明；N 现算）。
 # 用途：方案甲——正文用《AI 编程通用规范》，18 条降为本仓适配附录（保留可审计的声明出口）。
 def render_routing_appendix(nodes):
-    out = ["### 附录：本仓 18 条纪律（语义 / 触发 / 动作 / 声明出口）", ""]
+    out = ["### 附录：本仓 %d 条纪律（语义 / 触发 / 动作 / 声明出口）" % len(list(nodes)), ""]
     for i, n in enumerate(nodes, 1):
         cond = (n.get("conditions") or {}).get("apply")
         ex = n.get("execution") or {}
