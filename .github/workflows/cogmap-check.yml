@@ -1,29 +1,13 @@
 name: cogmap-check
 
+# 触发面（2026-10-23 修）：本检查是 main 分支保护的**必需检查**，
+# 此前按 paths 过滤 ⇒ 不触碰所列路径的 PR 永不触发 ⇒ 必需检查「从未出现」
+# ⇒ GitHub 判 mergeState=BLOCKED，只能管理员绕过（已复现 PR #577 / #593 / #661）。
+# 同一缺陷在本仓**三处**必需检查上存在：discipline-check / cogmap-check / publish-artifact-check。
+# 现一律删除 paths 过滤：**必需检查必须总跑**。判据内容一字未改，只是让它真的跑。
 on:
   push:
-    paths:
-      - README.md
-      - docs/mdcg/功能调用映射表_v0.1.md
-      - scripts/cogmap_sync.py
-      - package.json
-      - scripts/link_check.py
-      - md_cg/mcp_server.py
-      - md_cg/whitebox.py
-      - .github/workflows/cogmap-check.yml
-      - '**/*.md'
   pull_request:
-    paths:
-      - README.md
-      - docs/mdcg/功能调用映射表_v0.1.md
-      - scripts/cogmap_sync.py
-      - package.json
-      - scripts/link_check.py
-      - md_cg/mcp_server.py
-      - md_cg/whitebox.py
-      - .github/workflows/cogmap-check.yml
-      - '**/*.md'
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
