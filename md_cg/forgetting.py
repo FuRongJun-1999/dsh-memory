@@ -53,6 +53,30 @@ from . import security as _security
 from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
 
+# ---------------------------------------------------------------- 失败态契约
+# 口径：`设计/修复-00-P0定义与台账字段.md` §三（十值）。
+# P0 修复（删除/遗忘/读失败同形）：`history()` 从前用裸 `[]` 同时表达两件完全不同
+# 的事 ——「日志里确实没有留痕」和「日志读不出来」。上层（`mdcos.forgetting_history`
+# → MCP op）看不到区别，于是「读失败」被当成「他没忘过任何东西」。
+# 用 `list` 子类承载结局：既有调用方一行不改，需要区分的地方读 `.status`。
+STATE_OK = "ok"
+STATE_EMPTY_VALID = "empty_valid"
+STATE_MISSING = "missing"
+STATE_UNREADABLE = "unreadable"
+STATE_CORRUPT = "corrupt"
+
+
+class ForgettingRows(list):
+    """遗留痕列表 + 结局。`status` 取上面五个同名常量之一。"""
+
+    status: str = STATE_OK
+    error: str = ""
+
+    def __init__(self, rows=(), *, status: str = STATE_OK, error: str = "") -> None:
+        super().__init__(rows)
+        self.status = status
+        self.error = error
+
 # ---------------------------------------------------------------- 判据常量
 
 DUP_MERGE = 0.85            # 重复度 ≥ 此值 → MERGE
@@ -628,7 +652,8 @@ def history(cg, limit=100):
     """
     p = os.path.join(cg.root, LOG_FILE)
     if not os.path.exists(p):
-        return []
+        # 日志还没建 = 一次留痕都没写过（empty_valid），不是读失败。
+        return ForgettingRows(status=STATE_EMPTY_VALID)
     out = []
     try:
         with open(p, "r", encoding="utf-8") as f:
@@ -642,9 +667,17 @@ def history(cg, limit=100):
                     if not _security.node_visible(cg, (r or {}).get("node_id")):
                         continue
                     out.append(r)
-    except Exception:
-        return []
-    return out[-limit:]
+    except Exception as exc:
+        # 读不出来就是读不出来 —— 不许返回空列表让上层读成「没有留痕」。
+        return ForgettingRows(
+            status=STATE_UNREADABLE, error="%s: %s" % (type(exc).__name__, exc)
+        )
+    # `limit=0` 曾静默返回**全部**行：`out[-0:]` 等于 `out[0:]`，切片被负零吃掉了。
+    # 调用方要「只要状态不要行」时传 0，拿到的是整本留痕 —— 与「limit 是上限」相反。
+    rows = out[-limit:] if limit and limit > 0 else []
+    return ForgettingRows(
+        rows, status=STATE_OK if out else STATE_EMPTY_VALID
+    )
 
 
 # 生效条件：cg 必填；日志路径不存在返回 {"total": 0, "by_verdict": {}}；否则流式累计行数与 verdict 分布。
