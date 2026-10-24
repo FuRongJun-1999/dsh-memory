@@ -1,0 +1,15 @@
+{
+ "schema": 1,
+ "deliverables": [
+  {
+   "id": "ui-minimal",
+   "source": "docs/UI_极简前端.md",
+   "echo": "docs/output/echo/ui-minimal.md",
+   "anchors": {
+    "理论": "v1.1",
+    "架构": "v0.9.13",
+    "本投影": "v0.9.13"
+   }
+  }
+ ]
+}

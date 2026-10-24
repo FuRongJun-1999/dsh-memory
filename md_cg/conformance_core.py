@@ -425,6 +425,33 @@ def _steps():
         ok = out["i2_ok"] and out["i17_ok"]
         return (PASS if ok else FAIL), out
 
+    def s_inv_i18_anchor(ctx):
+        """I18：对外材料必须携带版本锚（理论／架构／投影 三元）。
+
+        为什么归在 conformance 里：I17 说「任何投影不得自称权威」，而版本锚是
+        读者回溯到「信息＋条件空间＋证据链」的唯一入口——缺锚的投影不可回溯。
+        本步只验证**判定能力**（解析器行为），不校验真实文档路径
+        （fixture 在临时库上跑，不应依赖仓内文件）。
+        """
+        from . import version_anchor as va
+        ok_full = va.check_anchor(
+            "> **版本锚**：理论=智能论 3.4 ｜ 架构=统一架构 v1.2 ｜ 投影=样例 v1")
+        ok_yaml = va.check_anchor(
+            "version_anchor:\n  theory: 智能论 3.4\n"
+            "  architecture: 统一架构 v1.2\n  projection: 样例 v1")
+        bad_missing = va.check_anchor("> **版本锚**：理论=智能论 3.4")
+        bad_absent = va.check_anchor("没有任何锚的文档")
+        out = {
+            "single_line_ok": ok_full[0],
+            "yaml_ok": ok_yaml[0],
+            "missing_field_rejected": bad_missing[0] is False,
+            "missing_fields": bad_missing[1]["missing"],
+            "absent_rejected": bad_absent[0] is False,
+        }
+        ok = (out["single_line_ok"] and out["yaml_ok"]
+              and out["missing_field_rejected"] and out["absent_rejected"])
+        return (PASS if ok else FAIL), out
+
     def s_inv_i8_trace(ctx):
         """I8：无 _evolution 记录即未发生——状态变更必须留痕。
 
@@ -653,6 +680,7 @@ def _steps():
         ("inv_write_trace", s_inv_write_trace),
         ("inv_zero_llm", s_inv_zero_llm),
         ("inv_i2_i17", s_inv_i2_i17),
+        ("inv_i18_anchor", s_inv_i18_anchor),
         ("inv_i8_trace", s_inv_i8_trace),
         ("inv_envelope_i1", s_inv_envelope_i1),
         ("gap_cs_not_indexed", s_gap_cs_not_indexed),
