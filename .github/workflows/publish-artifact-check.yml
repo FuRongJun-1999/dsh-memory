@@ -25,43 +25,14 @@ name: publish-artifact-check
 # 背景（2026-09-20 取证）：0.4.9 / 0.4.10 发布件实测夹带非追踪件（docs/experiments 2434 件、
 # whitebox_kb 运行时数据、md_cg/knowledge/orphan）；本 workflow 把「发版前机械核验」从人工
 # 记忆变为门禁。已发布版本按使用者裁定不回溯处置，红着即拦下一次发布。
+# 触发面（2026-10-23 修）：本检查是 main 分支保护的**必需检查**，
+# 此前按 paths 过滤 ⇒ 不触碰所列路径的 PR 永不触发 ⇒ 必需检查「从未出现」
+# ⇒ GitHub 判 mergeState=BLOCKED，只能管理员绕过（已复现 PR #577 / #593 / #661）。
+# 同一缺陷在本仓**三处**必需检查上存在：discipline-check / cogmap-check / publish-artifact-check。
+# 现一律删除 paths 过滤：**必需检查必须总跑**。判据内容一字未改，只是让它真的跑。
 on:
   push:
-    paths:
-      - 'package.json'
-      - '.npmignore'
-      - '.gitignore'
-      - 'README.md'
-      - 'scripts/check_publish_artifact.py'
-      - 'scripts/check_local_paths.py'
-      - '.github/workflows/publish-artifact-check.yml'
-      - 'lib/**'
-      - 'src/**'
-      - 'md_cg/**'
-      - 'skills/**'
-      - 'dsh/**'
-      - 'hive/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'docs/**'
   pull_request:
-    paths:
-      - 'package.json'
-      - '.npmignore'
-      - '.gitignore'
-      - 'README.md'
-      - 'scripts/check_publish_artifact.py'
-      - 'scripts/check_local_paths.py'
-      - '.github/workflows/publish-artifact-check.yml'
-      - 'lib/**'
-      - 'src/**'
-      - 'md_cg/**'
-      - 'skills/**'
-      - 'dsh/**'
-      - 'hive/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
