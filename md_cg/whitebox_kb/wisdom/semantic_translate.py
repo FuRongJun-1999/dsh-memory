@@ -3138,6 +3138,37 @@ def _domain_group(node_domain: str) -> str:
     return ""
 
 
+# 失败态契约（P0 修复 · 删除/遗忘/读失败同形；口径 `设计/修复-00-P0定义与台账字段.md` §三）
+# `two_stage_retrieve()` 从前四条腿各自 `except Exception: pass`，然后
+# `if not domain_scores: return []`。于是「数据库读不出来」「索引查询炸了」
+# 「学科卡扫描炸了」和「这个问题本来就没有命中」在返回体上完全一样：调用方
+# （chat 侧）看到空列表就照常回答「没找到相关知识」——检索失败被讲成了知识缺口。
+# 现在每条腿的失败都记进 `legs_failed`，空结果带 `status`：
+#   not_attempted（问题里没有可检索的实义词/规范词）／unreadable（腿全崩）／
+#   empty_valid（腿都跑通了，确实没命中）／partial（部分腿崩，结果照给但要降强度）／
+#   ok（有命中且没腿崩）。
+STATE_OK = "ok"
+STATE_EMPTY_VALID = "empty_valid"
+STATE_NOT_ATTEMPTED = "not_attempted"
+STATE_UNREADABLE = "unreadable"
+STATE_PARTIAL = "partial"
+
+
+class StageHits(list):
+    """两阶段检索结果 + 结局。列表用法（判空/切片/迭代）全部照旧。"""
+
+    status: str = STATE_OK
+    error: str = ""
+    legs_failed: tuple = ()
+
+    def __init__(self, hits=(), *, status: str = STATE_OK, error: str = "",
+                 legs_failed=()) -> None:
+        super().__init__(hits)
+        self.status = status
+        self.error = error
+        self.legs_failed = tuple(legs_failed)
+
+
 def two_stage_retrieve(dex, question, top_domains=3, limit=5):
     """两阶段收敛检索（地图式：大区域 → 小区域）。
 
@@ -3150,14 +3181,16 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
     import json as _json
     q_toks = _card_q_tokens(question)
     fp = {}
+    _legs_failed = []
     try:
         fp = encode(question)
-    except Exception:
+    except Exception as _enc_exc:
         fp = {}
+        _legs_failed.append("encode: %s: %s" % (type(_enc_exc).__name__, _enc_exc))
     # v1.34 修复：q_toks 空（「1+1等于几」全虚词）但 fp 有规范词（加法）时
     # 仍应检索——翻译表是确定性语义，不依赖问题实词窗口。
     if not q_toks and not fp:
-        return []
+        return StageHits(status=STATE_NOT_ATTEMPTED, legs_failed=_legs_failed)
     # ---- 第一阶段：域级打分 ----
     domain_scores = {}
     domain_hits = {}
@@ -3232,8 +3265,9 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
                 "domain": _d, "domain_group": _g,
                 "edu_level": sa.get("edu_level", ""),
                 "_card_hit": True})
-    except Exception:
-        pass
+    except Exception as _kccs_exc:
+        _legs_failed.append("kccs-index: %s: %s"
+                            % (type(_kccs_exc).__name__, _kccs_exc))
     # 翻译表域命中：fp 规范词 → DOMAIN_ROUTE 域 → 大域（数学/物理…）
     for term, w in fp.items():
         _route_dom = DOMAIN_ROUTE.get(term)
@@ -3300,10 +3334,14 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
                 "domain": _cd, "domain_group": _cg,
                 "edu_level": _csa.get("edu_level", ""),
                 "_card_hit": False})
-    except Exception:
-        pass
+    except Exception as _card_exc:
+        _legs_failed.append("subject-card: %s: %s"
+                            % (type(_card_exc).__name__, _card_exc))
     if not domain_scores:
-        return []
+        # 域分全空：要么腿崩了（读不出来），要么腿跑通但确实没命中。
+        status = STATE_UNREADABLE if _legs_failed else STATE_EMPTY_VALID
+        return StageHits(status=status, error="; ".join(_legs_failed),
+                         legs_failed=_legs_failed)
     # 收敛 top 域
     ranked_domains = sorted(domain_scores.items(), key=lambda x: -x[1])
     top_ds = [g for g, _s in ranked_domains[:top_domains]]
@@ -3320,8 +3358,9 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
                     x.get("name") == _h.get("name") for x in merged):
                 _h["domain_group"] = _hg
                 merged.append(_h)
-    except Exception:
-        pass
+    except Exception as _route_exc:
+        _legs_failed.append("card-route: %s: %s"
+                            % (type(_route_exc).__name__, _route_exc))
     # 收敛排序：注释命中（_card_hit，人工校准=最强）→ 域分 → 条目命中
     # → 注释匹配分（「1+1」：加减法 kp 注释命中 _card_hit=True 应优先于
     #  学科卡扫描的「分类加法原理」_card_hit=False——人工注释 > 字符串扫描）
@@ -3329,7 +3368,12 @@ def two_stage_retrieve(dex, question, top_domains=3, limit=5):
                                -domain_scores.get(x.get("domain_group", ""), 0),
                                -x.get("_entry_hit", 0.0),
                                -x.get("score", 0)))
-    return merged[:limit]
+    if _legs_failed:
+        status = STATE_PARTIAL
+    else:
+        status = STATE_OK if merged else STATE_EMPTY_VALID
+    return StageHits(merged[:limit], status=status,
+                     error="; ".join(_legs_failed), legs_failed=_legs_failed)
 
 
 def graph_retrieve(dex, question, limit=10):

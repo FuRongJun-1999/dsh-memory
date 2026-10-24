@@ -124,13 +124,63 @@ def _fm_of(cg, nid, cache=None) -> dict:
     return fm
 
 
+# 失败态契约（P0 修复 · 删除/遗忘/读失败同形；口径 `设计/修复-00-P0定义与台账字段.md` §三）
+# `_access()` 从前在异常时返回 `({}, {})`：调用方拿到的是「所有节点都没被访问过」。
+# 对淘汰判据（`retain`/`scrub` 按访问次数分层）来说，这把「访问日志读不出来」
+# 变成了「整库都是冷的」——一个读失败会直接改写淘汰结论。三元组子类让老调用
+# 一行不改（`counts, last = _access(cg)` 照旧解包），同时能读到结局。
+STATE_OK = "ok"
+STATE_EMPTY_VALID = "empty_valid"
+STATE_MISSING = "missing"
+STATE_UNREADABLE = "unreadable"
+STATE_CORRUPT = "corrupt"
+
+
+class AccessCounts(tuple):
+    """`(counts, last)` + 结局。"""
+
+    status: str = STATE_OK
+    error: str = ""
+
+    def __new__(cls, counts=None, last=None, *, status: str = STATE_OK, error: str = ""):
+        obj = super().__new__(cls, (counts or {}, last or {}))
+        obj.status = status
+        obj.error = error
+        return obj
+
+
 # 生效条件：cg.access_counts() 调用成功时返回其结果（访问次数, 最后访问时间）；调用抛出任何 Exception 时返回 ({}, {})；
 def _access(cg):
-    """(访问次数, 最后访问时间)：读访问日志，未 compact 的也算。"""
+    """(访问次数, 最后访问时间)：读访问日志，未 compact 的也算。
+
+    读失败 → `AccessCounts(status="unreadable")`，**值仍是空的但带着结局**：
+    调用方必须显式决定「拿不到访问账时按什么口径分层」，不能默默当全冷处理。
+    """
     try:
-        return cg.access_counts()
-    except Exception:
-        return {}, {}
+        counts, last = cg.access_counts()
+        ok = bool(counts or last)
+        return AccessCounts(counts, last,
+                            status=STATE_OK if ok else STATE_EMPTY_VALID)
+    except Exception as exc:
+        return AccessCounts(status=STATE_UNREADABLE,
+                            error="%s: %s" % (type(exc).__name__, exc))
+
+
+class Pools(dict):
+    """`{stratum: [候选]}` + 这次分层**用的访问账是否读得到**。
+
+    分层算法本身不变（读不到访问账时按「全冷」分层是既有口径），但淘汰计划
+    必须能看出「这一批是因为真的没人读，还是因为账读不出来」。
+    """
+
+    access_status: str = STATE_OK
+    access_error: str = ""
+
+    def __init__(self, pools=None, *, access_status: str = STATE_OK,
+                 access_error: str = "") -> None:
+        super().__init__(pools or {})
+        self.access_status = access_status
+        self.access_error = access_error
 
 
 # 生效条件：`from . import chain` 成功且 chain.adjacency(cg, skip_archived=False) 正常返回时返回该 dict，导入或调用抛任何异常时返回 {}。
@@ -181,7 +231,8 @@ def _handled(cg) -> set:
 def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     """构造各层候选池（不读文件的部分先用索引 + 访问日志）。"""
     nodes = _nodes(cg)
-    counts, last = _access(cg)
+    acc = _access(cg)
+    counts, last = acc
     adj = _adjacency(cg)
     indeg = {}
     for _src, outs in adj.items():
@@ -238,7 +289,7 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
         key=lambda x: float(nodes.get(x[0], {}).get("importance") or 0.5))
     pools["disputed"].sort(key=lambda x: -len(x[1]))
     pools["low_conf"].sort(key=lambda x: x[1])
-    return pools
+    return Pools(pools, access_status=acc.status, access_error=acc.error)
 
 
 # 生效条件：strategy=="random" 时直接返回 {"random": int(n)}；strategy=="risk" 时按剔除 hot/random 后的 STRATUM_WEIGHTS 权重分配；其它策略名走全权重分配，两者都把 int(n) 余量补进已存在的 random 键否则补进 stale。
@@ -569,7 +620,8 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
         [node_ids] if isinstance(node_ids, str) else list(node_ids))
     if limit:
         ids = ids[:int(limit)]
-    counts, _last = _access(cg)
+    acc = _access(cg)
+    counts = acc[0]
     adj = _adjacency(cg)
     indeg = {}
     for _src, outs in adj.items():
@@ -648,6 +700,7 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
     med = sum(1 for i in issues if i["severity"] == "medium")
     return {"ok": not (high or med), "n_checked": checked,
             "n_issues": len(issues), "issues": issues, "by_kind": by_kind,
+            "access_status": acc.status, "access_error": acc.error,
             "stats": {"checked": checked, "high": high, "medium": med,
                       "low": sum(1 for i in issues if i["severity"] == "low")},
             "t": now}

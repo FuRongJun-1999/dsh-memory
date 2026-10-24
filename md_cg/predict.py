@@ -223,6 +223,29 @@ def causal_gate(cg, a_id, b_id):
 # ---------------------------------------------------------------- 语义邻近
 
 # 生效条件：cg.get(node_id) 的 content 去空后非空时以前 200 字符检索，返回相似度不低于常量 SEMANTIC_MIN_SIM 且非自身的至多 k 个 (nid, similarity)；content 为空或检索抛异常时返回 []；
+# 失败态契约（P0 修复 · 删除/遗忘/读失败同形；口径 `设计/修复-00-P0定义与台账字段.md` §三）
+# `semantic_neighbors()` 从前三种结局都返回 `[]`：正文为空（没什么可搜的）、检索器抛异常
+# （读不出来）、搜到了但都低分。上层 `causal_gate` 拿不到候选就记「无伪因果」，于是
+# 「检索失败」与「确实没有邻近节点」在下游完全同形 —— 预测链会静默退化成空跑。
+STATE_OK = "ok"
+STATE_EMPTY_VALID = "empty_valid"
+STATE_NOT_ATTEMPTED = "not_attempted"
+STATE_UNREADABLE = "unreadable"
+STATE_FAILED = "failed"
+
+
+class NeighborHits(list):
+    """`[(node_id, similarity)]` + 结局。既有解包/切片/判空写法全部照旧可用。"""
+
+    status: str = STATE_OK
+    error: str = ""
+
+    def __init__(self, hits=(), *, status: str = STATE_OK, error: str = "") -> None:
+        super().__init__(hits)
+        self.status = status
+        self.error = error
+
+
 def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
     """语义邻近候选：[(node_id, similarity)]。
 
@@ -233,12 +256,14 @@ def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
     node = cg.get(node_id) or {}
     text = (node.get("content") or "").strip()
     if not text:
-        return []
+        # 节点没有正文 → 本轮根本没尝试检索，不是「搜了没有」。
+        return NeighborHits(status=STATE_NOT_ATTEMPTED)
     try:
         results, _meta = cg.search(text[:200], k=int(k) + 3,
                                    record=False, judge=False)
-    except Exception:
-        return []
+    except Exception as exc:
+        return NeighborHits(status=STATE_FAILED,
+                            error="%s: %s" % (type(exc).__name__, exc))
     out = []
     for item in results:
         if isinstance(item, (tuple, list)):
@@ -256,12 +281,29 @@ def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
         out.append((nid, round(score, 4)))
         if len(out) >= int(k):
             break
-    return out
+    return NeighborHits(out, status=STATE_OK if out else STATE_EMPTY_VALID)
 
 
 # ---------------------------------------------------------------- D-001 分支
 
 # 生效条件：传入 cg 与 node_id 时，其出边中关系类型属于常量 CAUSAL_BRANCH_TYPES 者直通为 causal 候选，semantic 为真时再并入经 causal_gate 放行的语义邻近候选，按 confidence 降序、node_id 升序返回；
+class BranchCandidates(list):
+    """D-001 分支候选 + 语义腿这次的结局（`semantic_status`/`semantic_error`）。
+
+    `[]` 从前同时表示「这条节点没有分支」和「语义腿崩了、只剩下边」；
+    现在后者带 `semantic_status="failed"`，调用方可以据此压低结论强度。
+    """
+
+    semantic_status: str = STATE_NOT_ATTEMPTED
+    semantic_error: str = ""
+
+    def __init__(self, cands=(), *, semantic_status: str = STATE_NOT_ATTEMPTED,
+                 semantic_error: str = "") -> None:
+        super().__init__(cands)
+        self.semantic_status = semantic_status
+        self.semantic_error = semantic_error
+
+
 def branch_candidates(cg, node_id, semantic=True):
     """D-001 局部分支候选：因果/时序边直通 + 语义邻近（经 D-002 门）。"""
     from . import chain
@@ -276,8 +318,11 @@ def branch_candidates(cg, node_id, semantic=True):
         cands.append({"node_id": tgt, "confidence": _edge_conf(e),
                       "source": "causal", "relation_type": rel,
                       "condition": chain.edge_condition(e) or ""})
+    semantic_status, semantic_error = STATE_NOT_ATTEMPTED, ""
     if semantic:
-        for tgt, sim in semantic_neighbors(cg, node_id):
+        hits = semantic_neighbors(cg, node_id)
+        semantic_status, semantic_error = hits.status, hits.error
+        for tgt, sim in hits:
             if tgt in seen:
                 continue
             ok, why = causal_gate(cg, node_id, tgt)
@@ -288,7 +333,8 @@ def branch_candidates(cg, node_id, semantic=True):
                           "source": "semantic_induced", "relation_type": why,
                           "condition": "", "similarity": sim})
     cands.sort(key=lambda c: (-c["confidence"], c["node_id"]))
-    return cands
+    return BranchCandidates(cands, semantic_status=semantic_status,
+                            semantic_error=semantic_error)
 
 
 # ---------------------------------------------------------------- D-003 / D-004
