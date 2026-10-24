@@ -13,37 +13,19 @@ name: discipline-check
 #
 # --allow-missing：仓外目标（~/.dsh 受管块）与本地私有件（AGENTS.md，.gitignore）
 # 在 CI 上不存在属预期；缺失跳过，但产物存在时仍逐字严格校验。
+# 触发面（2026-10-23 修）：本检查是 main 分支保护的**必需检查**（required_status_checks.contexts 含 discipline），
+# 此前按 paths 过滤 ⇒ 不触碰纪律路径的 PR（如只改 md_cg/*.py、docs/theory/*.md、README）
+# **永不触发**该 workflow ⇒ 必需检查「从未出现」⇒ GitHub 判 mergeState=BLOCKED，只能管理员绕过。
+# 已三次复现：PR #577（README 精简）/ #593（docs/theory 入仓）/ #661（关系类型白名单）。
+#
+# 现删除 paths 过滤：**必需检查必须总跑**，否则「不碰纪律面」的 PR 结构性无法通过常规流程。
+# 反方案（若不删而保留 paths）只有一个：把 discipline 从 required contexts 移除——
+# 那等于放松保护，不取。
+# 代价：每次 PR 多跑一次本 workflow（约 1-3 分钟）；收益：纪律漂移在每个 PR 上都被检，
+# 而不只在「碰巧改了纪律文件」的 PR 上被检。
 on:
   push:
-    paths:
-      - 'docs/工作纪律_认知图条目_v1.1.json'
-      - 'docs/discipline/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'codex/**'
-      - 'claude/**'
-      - 'AGENTS.md'
-      - 'scripts/render_discipline.py'
-      - 'scripts/verify_discipline.py'
-      - 'scripts/discipline_nodes.py'
-      - 'scripts/test_injection_chain.py'
-      - 'scripts/test_discipline_cg_root_failclosed.py'
-      - '.github/workflows/discipline-check.yml'
   pull_request:
-    paths:
-      - 'docs/工作纪律_认知图条目_v1.1.json'
-      - 'docs/discipline/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'codex/**'
-      - 'claude/**'
-      - 'AGENTS.md'
-      - 'scripts/render_discipline.py'
-      - 'scripts/verify_discipline.py'
-      - 'scripts/discipline_nodes.py'
-      - 'scripts/test_injection_chain.py'
-      - 'scripts/test_discipline_cg_root_failclosed.py'
-      - '.github/workflows/discipline-check.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
