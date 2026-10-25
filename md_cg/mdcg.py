@@ -39,6 +39,23 @@ from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
 # 单点守卫：写入 / 发出路径的 6 处调用点统一走 _ensure_list——str 按「一个值」
 # 处理（不再逐字符展开）；None / 空串按空列表（与改动前逐位一致）；其余可迭代
 # 仍 list(x)。
+# 生效条件：把原始环境变量值解析成**有限浮点**门槛。缺省/空串返回 default；
+# 非数值或 nan/inf 返回 default 且状态 invalid（调用方须如实记账，不得静默）。
+# 为什么单独成单点：issue #659 F26-06 实测 MDCG_MIN_SCORE=inf 时 inf > 0 恒真，
+# 全量结果被滤空；F26-12 又实测两处开关判据不一致（>0 与 >=0）。判据只写一次。
+def parse_min_score(raw, default=0.0):
+    """→ (value, status)，status 取 default / ok / invalid。"""
+    if raw is None or str(raw).strip() == "":
+        return float(default), "default"
+    try:
+        v = float(raw)
+    except (TypeError, ValueError):
+        return float(default), "invalid"
+    if v != v or v in (float("inf"), float("-inf")):
+        return float(default), "invalid"
+    return v, "ok"
+
+
 def _ensure_list(x):
     """归一成列表：任何假值（None/空串/0/False/[]）-> []；str -> [str]；其它可迭代 -> list(x)。"""
     if not x:
@@ -5487,10 +5504,9 @@ class MdCG:
         # 需要「只要相关结果」的部署设 MDCG_MIN_SCORE=0.01 即启用（零分条目
         # 既不进结果、也不占 k 配额）。位置在 _n_real/_neg_tail 之前 ⇒ 过滤后的
         # scored 自然参与 k 预算与提示让位，且 _neg_tail 仍只调用一次（D1 守卫）。
-        try:
-            _min_score = float(os.environ.get("MDCG_MIN_SCORE", "0"))
-        except ValueError:
-            _min_score = 0.0
+        # issue #659 F26-06/#F26-12：判据单点化——非有限值（nan/inf）不再被当成「门槛很高」
+        # 把结果整体滤空，而是回落默认并如实记账（stat 落 min_score_input）。
+        _min_score, _ms_status = parse_min_score(os.environ.get("MDCG_MIN_SCORE", "0"), 0.0)
         # issue #655：门槛**只作用于 T3 全量兜底出口**。T2 里被 S5 降到 0 的真候选、
         # reach 显式补入的图扩散邻居是「有信号但被降权 / 被显式补入」，与 T3 的
         # 「本来就没信号」不同——按 #89② 契约（S5 只降权不删除）不得被门槛删掉。
@@ -5500,8 +5516,18 @@ class MdCG:
             stat["min_score_scope"] = "T3_global_scan"
         elif _min_score > 0:
             stat["min_score_ignored_outside_t3"] = _min_score
+        if _ms_status == "invalid":
+            # 非法输入不静默：原始值原样记账，运行口径 = 默认（关）。
+            stat["min_score_input"] = "invalid"
         _n_real = min(max(0, int(k)), sum(1 for _, s in scored if s > 0))
         _neg_tail = self._neg_tail(neg_coverage, max(0, int(k) - _n_real))
+        # issue #659 F26-15：负覆盖尾在过滤**之后**才独立 extend，此前绕过门槛
+        # （0.0 分提示条照进结果）。门槛生效时同一判据也要过一遍，并如实记账。
+        if _min_score > 0 and _neg_tail:
+            _kept_tail = [_t for _t in _neg_tail if float(_t[1] or 0) >= _min_score]
+            if len(_kept_tail) != len(_neg_tail):
+                stat["min_score_dropped_neg_tail"] = len(_neg_tail) - len(_kept_tail)
+            _neg_tail = _kept_tail
         # issue #89②（2026-10-09 DSH 端实施、zcode 端收窄靶区）：**0 分（无质量信号）
         # 条目不得装进结果**——它们对调用方无价值且有误导（LLM 会当成相关内容）。
         # 但与 `try_stage` 的 `valid` 同一口径的 `_n_real`（＝ min(k, sum(s>0))）**只服务
@@ -5642,6 +5668,17 @@ class MdCG:
         # 未启用则 meta 键集合与改动前逐字节一致（默认关零变更纪律）。
         if stat.get("time_filter"):
             meta["time_filter"] = stat["time_filter"]
+        # issue #659 F26-14：stat["min_score"] 此前写入后无人读（meta 是显式白名单）。
+        # 门槛生效时把生效值、作用域、被丢弃数一并透出，调用方才能判断「为什么结果变少」。
+        if stat.get("min_score") is not None:
+            meta["min_score"] = stat["min_score"]
+            meta["min_score_scope"] = stat.get("min_score_scope")
+        if stat.get("min_score_ignored_outside_t3") is not None:
+            meta["min_score_ignored_outside_t3"] = stat["min_score_ignored_outside_t3"]
+        if stat.get("min_score_input") == "invalid":
+            meta["min_score_input"] = "invalid"
+        if stat.get("min_score_dropped_neg_tail"):
+            meta["min_score_dropped_neg_tail"] = stat["min_score_dropped_neg_tail"]
         # issue #89①：次级排序键用毕即剥离——EXACT_HIT_KEY 是**内部键**，
         # 不得随 doc 引用透出。MCP 面（_node_view / 三处显式取键）本就是白名单，
         # 本步是第二道防线，也为将来新增的消费面兜底。

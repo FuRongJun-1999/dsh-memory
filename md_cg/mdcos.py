@@ -28,6 +28,7 @@ import time
 import uuid
 
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, fold_accents,
+                    parse_min_score,
                     STATE_ACCEPT,
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
@@ -2494,12 +2495,13 @@ class MdCGOS(MdCG):
         # （cg(op=read) 默认 bm25=True → search_rrf）**从不经过 _emit**，开关静默失效。
         # 这里按同一环境变量、同一语义在融合面补一刀：过滤发生在资格判定之前，
         # 被滤掉的不参与 boundary_counts（否则统计会把已丢弃条目算成命中）。
-        _rrf_min = 0.0
-        try:
-            _rrf_min = float(os.environ.get("MDCG_MIN_SCORE", "0"))
-        except ValueError:
-            _rrf_min = 0.0
+        # issue #659 F26-06/F26-12：与 mdcg._emit 共用同一解析单点（nan/inf 不再把结果滤空）。
+        _rrf_min, _rrf_status = parse_min_score(os.environ.get("MDCG_MIN_SCORE", "0"), 0.0)
         _rrf_dropped = 0
+        if _rrf_status == "invalid":
+            _rrf_note = {"min_score_input": "invalid"}
+        else:
+            _rrf_note = None
         if _rrf_min > 0:
             _kept = []
             for _nid, _fs in fused:
@@ -2619,6 +2621,7 @@ class MdCGOS(MdCG):
         return results, {"tier": "RRF", "scanned": stat["scanned"],
                          **({"min_score": _rrf_min, "min_score_dropped": _rrf_dropped}
                             if _rrf_min > 0 else {}),
+                         **(_rrf_note or {}),
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
@@ -2743,11 +2746,11 @@ class MdCGOS(MdCG):
             # issue #637：**召回面可配最低分**（MDCG_RECALL_MIN_SCORE，默认 -1 = 关）。
             # 默认关的理由：test_validity_filter ⑤⑦ 依赖 RRF 旁系低分条目可见；
             # 需要「只装相关记忆」的部署设 0.01 即启用（零分条目连同 reason 记账跳过）。
-            try:
-                _rmin = float(os.environ.get("MDCG_RECALL_MIN_SCORE", "-1"))
-            except ValueError:
-                _rmin = -1.0
-            if _rmin >= 0 and score < _rmin:
+            # issue #659 F26-12：此处原为 >=0、另一处为 >0，两处开关判据相反
+            # （=0 时一处关、一处开；-0.0 >= 0 为真会开闸）。统一成 >0 一个判据，
+            # 且解析走同一单点（nan/inf 回落默认 -1 = 关）。
+            _rmin, _rmin_status = parse_min_score(os.environ.get("MDCG_RECALL_MIN_SCORE", "-1"), -1.0)
+            if _rmin > 0 and score < _rmin:
                 skipped.append({"id": node["id"], "tokens": t,
                                 "reason": "below_min_score", "score": score})
                 continue

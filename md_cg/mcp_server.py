@@ -129,6 +129,18 @@ def _s(_desc, **props):
             [k for k, v in props.items() if v.get("_req")]}
 
 
+# 生效条件：把任意 MCP 入参收敛成布尔。bool 原样返回；数字 0/非 0 判假/真；
+# 字符串按 true/1/yes/on 判真（大小写与空白不敏感），其余判假；None 判假。
+def _as_flag(v):
+    if isinstance(v, bool):
+        return v
+    if v is None:
+        return False
+    if isinstance(v, (int, float)):
+        return v != 0
+    return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 # 生效条件：始终返回 {"type":t,"description":desc}，仅当 req 为真值时该字典额外含 "_req": True。
 def drop_doc_nodes(items, id_of, enabled=False):
     """过滤 doc_ 索引节点（会话日志切片）——**单一判据**，供所有可达路径共用。
@@ -139,6 +151,9 @@ def drop_doc_nodes(items, id_of, enabled=False):
       · 唯一生效的 cg(op=read) 面其 inputSchema 未声明该参数。
     本函数把判据收成一处，调用方只负责传 enabled 与取 id 的方式。
     """
+    # issue #659 F26-28：调用方可能传字符串（MCP 客户端不保证类型）——
+    # 旧实现直接 if enabled，字符串 "false" 是真值 → 反向开启过滤。
+    enabled = _as_flag(enabled)
     if not enabled:
         return list(items or []), 0
     kept, dropped = [], 0
@@ -2698,9 +2713,16 @@ def _cg_dispatch(cg, a):
                 _out["warning"] = _kwarn
             return _out
         from . import refindex
+        # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
+        # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
+        _doc_filter_on = _as_flag(a.get("exclude_doc", False))
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
                            validity=a.get("validity"), **_tkw)
+        _k_want = search_args["k"]
+        if _doc_filter_on:
+            # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）
+            search_args["k"] = min(max(_k_want * 4, _k_want + 32), 400)
         if a.get("bm25", True) and hasattr(cg, "search_rrf"):
             ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
@@ -2710,8 +2732,11 @@ def _cg_dispatch(cg, a):
         # 与真记忆卡同分（0.016）且占 top5 的 60–80%，稀释可达性。默认 true，可显式关。
         # issue #653：判据收敛到 drop_doc_nodes（单一真源），不再就地手写第二条。
         res, _excluded_doc = drop_doc_nodes(
-            res, lambda x: (x[0] or {}).get("id"), a.get("exclude_doc", False))
-        meta = _note_doc_filter(meta, _excluded_doc, a.get("exclude_doc", False))
+            res, lambda x: (x[0] or {}).get("id"), _doc_filter_on)
+        # 截回调用方要的 k（超取只为让 doc_ 不占配额，不改变对外语义）
+        if _doc_filter_on and len(res) > _k_want:
+            res = res[:_k_want]
+        meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
