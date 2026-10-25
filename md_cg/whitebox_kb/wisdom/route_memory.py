@@ -17,6 +17,16 @@
 
 存储：本地 JSON（经验库）+ 可选灵枢记忆联动（白箱绑定灵枢）。
 
+**现状声明**（2026-10-25 病灶 K17）：经验库 `route_memory.json` **不在版本库内**，
+首次使用时是空的——即「第三层路由能跑，但没有任何历史经验可召回」；它由
+`semantic_translate` 在检索顶分偏弱（<0.5）时按需写入（`verified=False`，
+需经验证单元确认才升为可用路径）。调用方不要把它当成「必然有历史路径」。
+
+同族另两层（`cspmn` / `csre`）依赖外挂 npz 索引（`neural_index.npz` /
+`csre_lexicon_index.npz`），两者都不在版本库内。缺索引时它们降级但不假装可用：
+cspmn 由 `_load_error` + `_require_loaded()` 直接抛错；csre 由 `load_error`
+与「拒绝写空索引」兜住，`navigate._l1_domain_prior` 把降级原因记进 `_CSRE_DIAG`。
+
 用法：:
     from route_memory import RouteMemory
     rm = RouteMemory()

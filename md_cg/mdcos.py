@@ -5031,11 +5031,58 @@ class MdCGSecure(MdCGOS):
         #: 被创建、越权探测信号完全丢失。此处显式初始化，使 `crypto_status()` 的
         #: `read_foreign_seen` 恒可读、实例上稳定存在。
         self._read_foreign_seen = 0
+        #: G5（2026-10-25）：**解不开**与**不存在**必须分家。旧形态下 `get()` 对
+        #: 「节点不在」「密级不够」「信封绑了别的 actor」「密文坏了」一律返回 None，
+        #: 不给原因、不留痕——调用方无法区分「这条没有」与「这条有但我读不了」，
+        #: 现场只能猜。这里按 node_id 记最近一次失败（`reason` / `detail` / `path`），
+        #: 供 `last_open_failure()` 读取；容量固定，避免长跑实例无限增长。
+        self._open_failures = {}
         super().__init__(root, actor=self.principal.actor, **kw)
         self.session = self.principal.session
         self._init_crypto(master_key)
 
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
+
+# 生效条件：node_id 为真值时记在 self._open_failures[node_id]（同 id 只留最近一次），为假值时记在键 "__latest__"；容量上限 _OPEN_FAIL_MAX，超了按插入序丢最旧；
+    _OPEN_FAIL_MAX = 64
+
+    def _note_open_failure(self, node_id, reason, detail="", path=""):
+        """记一次读失败（G5）：**只记账，不改任何返回语义**。
+
+        `reason` 取 `not_found` / `read_denied` / `read_locked` / `read_foreign` /
+        `open_failed` —— 前两个是「本来就不该给你」，后三个是「给了你也解不开」，
+        现场分不清就会把密钥事故读成正常空结果。
+        """
+        if not path:
+            try:
+                e = (getattr(self, "index", None) or {}).get("nodes", {}) \
+                    .get(node_id) or {}
+                p = e.get("path") or ""
+                if p and not os.path.isabs(p):
+                    p = os.path.join(self.root, p)
+                path = p
+            except Exception:      # noqa: BLE001 —— 记账本身不许抛出
+                path = ""
+        rec = {"id": node_id, "reason": reason, "detail": str(detail)[:200],
+               "path": path, "tenant": self.principal.tenant,
+               "actor": self.principal.actor,
+               "clearance": self.principal.clearance,
+               "at": time.time()}
+        self._open_failures[node_id or "__latest__"] = rec
+        if len(self._open_failures) > self._OPEN_FAIL_MAX:
+            for k in list(self._open_failures)[:len(self._open_failures) -
+                                              self._OPEN_FAIL_MAX]:
+                self._open_failures.pop(k, None)
+        return rec
+
+# 生效条件：node_id 为真值时回该 id 的最近一次失败记录（dict），未传或该 id 无记录时回全局最近一条，都没有回 None；
+    def last_open_failure(self, node_id=None):
+        """最近一次读失败的原因（G5）。None = 本次实例上没发生过读失败。"""
+        if node_id:
+            return self._open_failures.get(node_id)
+        if not self._open_failures:
+            return None
+        return list(self._open_failures.values())[-1]
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
     @staticmethod
@@ -5053,13 +5100,17 @@ class MdCGSecure(MdCGOS):
     def _init_crypto(self, master_key=None):
         """解析 KEK（显式 → 环境变量 → 仓库外主密钥文件），签发本身份 DEK。
 
-        主密钥缺失时自动生成于仓库外 `~/.mdcg/master.key`（0600）；
-        仍取不到才 `dek=None`，写 private/secret 时 fail-closed。
+        新建主密钥**必须显式**：`MDCG_ALLOW_KEY_CREATE=1` 时才允许在文件缺失时新建
+        （首次部署设一次即可）。未开时缺失/读不出都走 `_crypto_error`，写 private/secret
+        fail-closed —— 旧形态「找不到就新建」会把**密钥丢失静默变成换钥**（旧密文全解不开
+        而系统照常启动）。E192。
         """
+        allow_create = (os.environ.get("MDCG_ALLOW_KEY_CREATE") or "0").strip().lower() \
+            in ("1", "true", "yes", "on")
         try:
             kek = (self._resolve_master_key(master_key)
                    if master_key is not None
-                   else crypto.load_master_key())
+                   else crypto.load_master_key(allow_create=allow_create))
             if not kek:
                 self._crypto_error = "no_master_key"
                 self.kek = self.dek = None
@@ -5175,6 +5226,8 @@ class MdCGSecure(MdCGOS):
         except Exception:                     # noqa: BLE001 —— 判据载体异常按不可读
             _vis = False
         if not _vis:
+            self._note_open_failure(node_id, "read_denied",
+                                   "读隔离：密文不可见（密级/会话判据）")
             if batch is not None:
                 _bump_batch(batch, "read_denied", node_id)
                 return None
@@ -5184,6 +5237,8 @@ class MdCGSecure(MdCGOS):
                                      "reason": "读隔离：密文不可见"})
             return None
         if not self.dek:
+            self._note_open_failure(node_id, "read_locked",
+                                   self._crypto_error or "no_dek")
             if batch is not None:
                 _bump_batch(batch, "read_locked", node_id)
                 return None
@@ -5239,6 +5294,9 @@ class MdCGSecure(MdCGOS):
             mine = crypto.identity_fingerprint(self.principal.tenant,
                                                self.principal.actor)
             if declared and declared != mine:
+                self._note_open_failure(
+                    node_id, "read_foreign",
+                    "读隔离：密文属他身份（信封绑 actor，预期非篡改）")
                 if _read_foreign_sampled(self):
                     crypto.audit(self.root, {
                         "op": "read_foreign", "node_id": node_id,
@@ -5246,6 +5304,7 @@ class MdCGSecure(MdCGOS):
                         "actor": self.principal.actor,
                         "reason": "读隔离：密文属他身份（预期，非篡改）"})
                 return None
+            self._note_open_failure(node_id, "open_failed", str(e)[:120])
             crypto.audit(self.root, {"op": "open_failed", "node_id": node_id,
                                      "tenant": self.principal.tenant,
                                      "actor": self.principal.actor,
@@ -5560,9 +5619,17 @@ class MdCGSecure(MdCGOS):
                 self._maybe_reload_index()
             e = self.index["nodes"].get(node_id)
         if e is not None and not self._readable(e):
+            self._note_open_failure(node_id, "read_denied",
+                                   "读隔离：索引判据（密级/会话）不可见")
             return None                     # 读隔离：不可见即不存在
+        _prev_fail = self._open_failures.get(node_id)
         node = super().get(node_id, probe=probe)
         if node is None:
+            # G5：只有「这次读**没有**记过失败原因」才是真不存在。解密失败时
+            # `_open_content` 已经把 read_foreign / open_failed 记上了，不能再被
+            # 一个 not_found 覆盖成「这条不存在」。
+            if self._open_failures.get(node_id) is _prev_fail:
+                self._note_open_failure(node_id, "not_found", "节点不存在")
             return None
         # N213（2026-09-28）：命中陈旧条目的路径此前**零探活**——可见性判据取自
         # 本进程索引条目（sensitivity/session 是上一代快照），正文却解密自**当前
@@ -5580,6 +5647,8 @@ class MdCGSecure(MdCGOS):
         except Exception:                     # noqa: BLE001 —— 判据载体异常按不可见
             _vis = False
         if not _vis:
+            self._note_open_failure(node_id, "read_denied",
+                                   "读隔离：盘面判据（密级/会话）不可见")
             return None                     # 陈旧判据放行、盘上真值拒绝：以盘面为准
         return node
 

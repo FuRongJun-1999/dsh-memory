@@ -14,12 +14,19 @@
 白箱声明：查询与索引向量均为**条件空间稀疏向量**（维度=协议规范词，
 每一维都是一个中文规范词，匹配过程全程可解释）——零训练、零黑盒嵌入，
 bge 遗产 npz 不再作为输入来源（其作者已退役）。
+
+**索引是外挂派生物，仓库里没有**（2026-10-25 病灶 K17）：`csre_lexicon_index.npz`
+不在版本库内，需 `python -m whitebox_kb.wisdom.csre --build` 生成。缺索引/空索引
+时 `ensure_loaded()` 返回 False 并把原因写进 `load_error`；`build_index()` 对
+0 张 knowledge_point 卡的语料返回 `{"units":0,"error":…}`，`save_index()` 直接
+抛 `RuntimeError` 拒绝写空索引（空 npz 会让下一次加载假成功）。
 """
 from __future__ import annotations
 
 import json
 import os
 import sqlite3
+import sys
 from concurrent.futures import ThreadPoolExecutor
 
 import numpy as np
@@ -45,6 +52,10 @@ class Csre:
         self.unit_domains = None
         self.vocab = None
         self.block_cache = {}     # domain → (row_idx 子块, norm 子矩阵)
+        # 失败态留痕（病灶 K17）：索引缺失/为空/build 语料为空，都必须能读出原因，
+        # 不能靠返回 False / 空 list 让调用方自己猜（旧实现两者都静默）。
+        self.load_error = ""      # ensure_loaded 未成功的原因
+        self.build_error = ""     # build_index 没有可建内容的原因
 
     # ---------- 索引构建（白箱条件向量） ----------
     def build_index(self) -> dict:
@@ -72,6 +83,22 @@ class Csre:
                 "SELECT id, content, state_attributes FROM nodes "
                 "WHERE tags LIKE '%knowledge_point%'").fetchall()
             conn.close()
+
+        if not rows:
+            # 病灶 K17：空语料不许造出「看起来加载成功」的空索引。
+            # 旧行为是照样 np.vstack 出 (0,V) 矩阵并 save_index() 落盘，
+            # 于是下一次 ensure_loaded() 因为「文件存在」返回 True，前两层
+            # 路由拿到 0 单元、静默出 []——「没建」与「建了个空的」不可分。
+            self.matrix = np.zeros((0, 1), dtype=np.float32)
+            self._unit_norm = np.zeros((0, 1), dtype=np.float32)
+            self.unit_ids, self.unit_names, self.unit_domains = [], [], []
+            self.vocab = []
+            self.block_cache.clear()
+            self.build_error = (
+                "语料 0 张 knowledge_point 卡（%s）—— 索引留空且不写盘；"
+                "空索引不算「已建好」"
+                % ("md 直读（WB_MD_DIRECT=1）" if _md is not None else self.db_path))
+            return {"units": 0, "vocab": 0, "error": self.build_error}
 
         vocab_rows = []
         for nid, _content, sa in rows:
@@ -147,22 +174,48 @@ class Csre:
         norms[norms == 0] = 1.0
         self._unit_norm = self.matrix / norms
         self.block_cache.clear()
+        self.build_error = ""
         return {"units": len(units), "vocab": len(vocab)}
 
+    # 生效条件：self.matrix 非 None 时直接返回 True；否则索引文件不存在、np.load 抛异常、或载入后 unit_ids 为空时，把原因写进 self.load_error 并返回 False（**空索引不算加载成功**）；成功载入时清空 load_error 返回 True；
     def ensure_loaded(self) -> bool:
+        """载入 npz 索引。失败原因写进 `self.load_error`（病灶 K17：
+        旧实现「文件不存在」与「文件是空的」都只返回 False，调用方无从区分）。"""
         if self.matrix is not None:
             return True
-        if os.path.exists(self.index_path):
+        if not os.path.exists(self.index_path):
+            self.load_error = ("索引不存在: %s（需 `python -m "
+                               "whitebox_kb.wisdom.csre --build`）"
+                               % self.index_path)
+            return False
+        try:
             d = np.load(self.index_path, allow_pickle=True)
             self.matrix = d["vectors"]
             self.unit_ids = list(d["unit_ids"])
             self.unit_names = list(d["names"])
             self.unit_domains = list(d["domains"])
             self.vocab = list(d["vectors_vocab"])
-            return True
-        return False
+        except Exception as e:  # noqa: BLE001 —— 任何载入失败都留原因
+            self.matrix = None
+            self.load_error = "索引加载失败: %s: %s" % (type(e).__name__, e)
+            return False
+        if not self.unit_ids:
+            # 空索引（0 单元）不是「可用索引」：继续用会让 rank_domains 恒 []
+            self.matrix = None
+            self.load_error = "索引里 0 个单元（空索引，需 --build）: %s" \
+                              % self.index_path
+            return False
+        self.load_error = ""
+        return True
+
 
     def save_index(self) -> None:
+        """落盘索引。**拒绝写空索引**（病灶 K17）：空 npz 会让下一次
+        `ensure_loaded()` 因为「文件存在」假成功，把「没建」洗成「建好了」。"""
+        if self.build_error or self.matrix is None or not (self.unit_ids or []):
+            raise RuntimeError(
+                "拒绝写空索引：%s（写下去会让下一次 ensure_loaded 假成功）"
+                % (self.build_error or "矩阵未构建或 0 单元"))
         np.savez_compressed(self.index_path,
                             vectors=self.matrix,
                             unit_ids=np.array(self.unit_ids),
@@ -260,5 +313,9 @@ if __name__ == "__main__":
     args = ap.parse_args()
     eng = Csre(args.db)
     stats = eng.build_index()
+    if stats.get("error"):
+        # 病灶 K17：空语料在这里就停，绝不把空索引写盘（写下去会污染下一次加载）
+        print(json.dumps(stats, ensure_ascii=False), file=sys.stderr)
+        sys.exit(2)
     eng.save_index()
     print(json.dumps(stats, ensure_ascii=False))

@@ -3761,7 +3761,12 @@ def graph_retrieve(dex, question, limit=10):
     try:
         _top_score = merged[0].get("score", 0) if merged else 0
         if _top_score < 0.5:
-            from route_memory import RouteMemory
+            # 包内相对导入优先（病灶 K17）；平铺导入只在 sys.path 已含 wisdom/
+            # 时可用，缺了会抛 ModuleNotFoundError 并被下面的 except 吞成静默。
+            try:
+                from .route_memory import RouteMemory
+            except ImportError:
+                from route_memory import RouteMemory
             _rm = RouteMemory()
             _hist = _rm.recall(question, threshold=0.6)
             if _hist:
@@ -3780,8 +3785,12 @@ def graph_retrieve(dex, question, limit=10):
                                    verified=False)  # 本次未经验证，待验证
                     except Exception:
                         pass
-    except Exception:
-        pass
+    except Exception as _e:  # noqa: BLE001 —— 第三层不可用不阻断检索，但必须留痕
+        # 病灶 K17：旧实现这里 `pass`，于是「经验库缺失/导入失败/召回异常」
+        # 全被吞成静默，第三层在不在跑没有任何读数。
+        _g = globals().setdefault("_RT_LAYER3_DIAG", {"last": "", "count": 0})
+        _g["last"] = "%s: %s" % (type(_e).__name__, _e)
+        _g["count"] = int(_g.get("count") or 0) + 1
     _record_chain_heat([h['name'] for h in merged[:3]])
     # v1.34 Evidence 证据链（第七阶段 · 条件递归到精准执行 v0.1 §3）：
     # 每次检索返回附证据对象（对齐 GPT Evidence）——回答可追溯：

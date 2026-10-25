@@ -34,26 +34,59 @@ def get_sub_route(state_attributes) -> str:
 # 对措辞变体盲（完整短语字面匹配）——故 L1 只做先验不裁决：
 # 非零且 score≥τ → 域先验；零向量/低分/引擎异常 → None 回退全扫。
 _CSRE_CACHE: dict = {}
+#: 上一轮 L1 门控没给出域先验的原因（病灶 K17：旧实现一律静默 return None，
+#: 「索引没建」与「索引建了但这题不在覆盖内」在调用方眼里完全同形）。
+#: 取值："" / "no_db_path" / "load_failed:<原因>" / "exception:<类型>:<消息>" /
+#:       "low_score:<分数>" / "no_domain"
+_CSRE_DIAG: dict = {"last": "", "count": 0}
 
 
+def csre_diag() -> dict:
+    """L1 门控的降级读数（只读，供巡检/自检查询）。"""
+    return dict(_CSRE_DIAG)
+
+
+def _note_prior_gap(reason: str) -> None:
+    _CSRE_DIAG["last"] = reason
+    _CSRE_DIAG["count"] = int(_CSRE_DIAG.get("count") or 0) + 1
+
+
+# 生效条件：dex 上能取到 db_path、CSRE 索引能 ensure_loaded、top 分 ≥0.5 且带 domain 时返回域串；任一环不满足返回 None 并把原因记进 _CSRE_DIAG；
 def _l1_domain_prior(dex, question: str) -> str | None:
-    """CSRE 域先验（混合门控）：非零且 top 分 ≥0.5 返回域串，否则 None。"""
+    """CSRE 域先验（混合门控）：非零且 top 分 ≥0.5 返回域串，否则 None。
+
+    **降级必须留痕**（病灶 K17）：`ensure_loaded()` 为 False 时读它的
+    `load_error`（索引缺失 / 空索引 / 载入异常），异常路径记异常类与消息。
+    """
     try:
         db_path = getattr(dex, "db_path", None) or \
             getattr(getattr(dex, "store", None), "db_path", None) or \
             getattr(getattr(dex, "engine", None), "db_path", None)
         if not db_path:
+            _note_prior_gap("no_db_path")
             return None
         key = str(db_path)
         if key not in _CSRE_CACHE:
-            from csre import Csre
+            # 包内相对导入优先（病灶 K17）：平铺 `from csre import` 只在
+            # sys.path 含 wisdom/ 时可用，缺了会抛 ImportError 被下方 except
+            # 吞成「静默 None」，与「索引没建」混为一谈。
+            try:
+                from .csre import Csre
+            except ImportError:
+                from csre import Csre
             _c = Csre(str(db_path))
-            _c.ensure_loaded()
+            if not _c.ensure_loaded():
+                _note_prior_gap("load_failed:" + (getattr(_c, "load_error", "")
+                                                 or "未知原因"))
+                return None
             _CSRE_CACHE[key] = _c
         doms = _CSRE_CACHE[key].rank_domains(question, top_k=1)
         if doms and doms[0].get("score", 0) >= 0.5:
+            _CSRE_DIAG["last"] = ""
             return doms[0].get("domain") or None
-    except Exception:
+        _note_prior_gap("low_score:%r" % ((doms[0].get("score") if doms else None),))
+    except Exception as e:  # noqa: BLE001 —— 门控异常不阻断导航，但必须留痕
+        _note_prior_gap("exception:%s: %s" % (type(e).__name__, e))
         return None
     return None
 

@@ -928,17 +928,27 @@ class Agent:
                     "honest": True}
 
     def chat(self, message: str, session_id: str = "default") -> Dict:
-        """信息分层处理入口（v1.16）：
-        语义识别分流 → 智慧之书优先自处理 → 无法完成/无法判断走 LLM。
+        """信息分层处理入口（v1.16 设计口径）。
 
-        route 字段：
+        **实际可路由的只有 `self` 一态**（2026-10-25 病灶 C11）：分层续答层
+        `aeis_core/layered.py` **没有搬进本包**（`aeis_core/__init__.py:20`
+        明写「`layered.py`（LLM 路由）同样不搬，只抽其中的纯文本工具」），
+        故下面 `from . import layered as _ly` 在本仓内恒抛 `ImportError`，
+        走 `except` 分支把 `route` 置回 `self`。
+
+        route 字段（设计三态 vs 本仓实况）：
           self           智慧之书已处理（情感/闲聊/记忆/自省/转折/高置信知识）
-          llm            智慧之书没把握 → DeepSeek 续答（智慧之书回答作上下文，
-                        wisdom_reply 字段保留原回答）
+                         —— **本仓内唯一可达的一态**
+          llm            智慧之书没把握 → LLM 续答
+                         —— 需要 `layered.py`，本仓不可达（见 `llm_layer` 字段）
           self_fallback  LLM 不可用 → 回退智慧之书回答
+                         —— 同上，本仓不可达
 
-        调用方（MCP 工具/网页端）按 route 消费：self 直接用 reply；
-        llm 时 reply 已是最终回答（wisdom_reply 可溯源）。
+        调用方（MCP 工具/网页端）按 route 消费：self 直接用 reply。
+        `llm_layer` 字段给出续答层为什么不可用（`unavailable：<异常>` /
+        `error：<异常类>`），把「静默降级」变成可读读数；要恢复三态需先把
+        `layered.py` 搬进 `aeis_core/`（并补 `route_reply`/`whitebox_check`
+        两个符号），搬之前任何 `route=="llm"` 的期望都是错的。
         """
         result = self.wisdom_chat(message, session_id=session_id)
         try:
@@ -962,8 +972,14 @@ class Agent:
                 except Exception:
                     pass
             return layered_result
-        except Exception:
-            result["route"] = "self"  # 分层模块异常 → 不阻断，按自处理返回
+        except ImportError as e:
+            # 常态分支（不是异常）：layered.py 未搬入本包，见 docstring。
+            result["route"] = "self"
+            result["llm_layer"] = f"unavailable：{e}"
+            return result
+        except Exception as e:  # noqa: BLE001 —— 分层模块真异常也不阻断
+            result["route"] = "self"
+            result["llm_layer"] = f"error：{type(e).__name__}: {e}"
             return result
 
     def history_recheck(self, limit: int = 5) -> Dict:

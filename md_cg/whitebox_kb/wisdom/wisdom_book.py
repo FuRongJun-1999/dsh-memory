@@ -40,8 +40,9 @@ from md_store import MdStore  # noqa: E402
 DEFAULT_DB = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                           "wisdom-book-cloud.db")
 
-# md 语料真源根：与 migrate_wisdom_graph.DEFAULT_ROOT 同一定位
-# （dsh-memory/_md_cg_wisdom_graph，4355 节点 + L1-L4 确定性校验）
+# md 语料真源根：与 migrate_wisdom_graph.DEFAULT_ROOT 同一定位。
+# 计数以语料为准（病灶 J2）：4355 节点是**迁移源**读数，当前 md 语料实测
+# 10 013 节点；语料里 subgraph/edges 均为 0，故派生库 edges=0 不是提取失败。
 DEFAULT_MD_ROOT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(
         os.path.dirname(os.path.abspath(__file__))))),
