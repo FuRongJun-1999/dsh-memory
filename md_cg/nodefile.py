@@ -251,6 +251,44 @@ def is_dep_sentinel(value) -> bool:
     return False
 
 
+
+# 生效条件：content 中某 CCG 要素行写成「带冒号但冒号后为空」（如 '# 不适用条件：'），
+# 且其后到下一个标题之间**存在非空非标题行**时，返回 [(要素名, 行号), ...]；否则 []。
+def ccg_empty_colon_before_body(content):
+    """检测「带冒号空值 + 换行正文」形态（issue #669 P1 前置守卫）。
+
+    为什么这是坏形态：判定面的两个函数对它的读法**不一致**——
+      · 取值面 ccg_field_value 严格取冒号后同一行 ⇒ 得空串，**不看下一行**；
+      · 剥除面 _strip_ccg_segments 见 rest.strip() 非空（冒号算非空）⇒ 只剥标题行。
+    于是后续列表项全部残留进 body，被 _ban_hit(body, neg) 当断言命中，
+    报成「条件自相矛盾」（实测 self_negation 1.0）。闸门放行的形态判定面吃不了，
+    就该在闸门挡——本判据即那道闸。
+
+    不是「换行即坏」：裸标题（# 不适用条件，无冒号）+ 单行值两个面读法一致，合法。
+    """
+    lines = (content or "").split("\n")
+    bad = []
+    for i, ln in enumerate(lines):
+        hit = None
+        for mark in CCG_MARKS:
+            rest = _ccg_heading_rest(ln, mark)
+            if rest is None:
+                continue
+            if rest.strip() in ("：", ":"):
+                hit = mark
+            break
+        if not hit:
+            continue
+        for nxt in lines[i + 1:]:
+            t = nxt.strip()
+            if not t:
+                continue
+            if t.startswith("#"):
+                break
+            bad.append((hit, i + 1))
+            break
+    return bad
+
 # 生效条件：content 中不存在形如 `# <field_name>` 的标题行 → 返回 None；存在 → 返回该行的值（行内冒号之后的 strip 结果；无冒号则取标题后首个非空非标题行），可为空串；
 def ccg_field_value(content, field_name: str):
     """读取 `# <字段>` 的值（首个命中行；全/半角冒号兼容）。无该行 → None。
