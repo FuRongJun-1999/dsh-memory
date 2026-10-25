@@ -101,10 +101,30 @@ def _theory_ref():
             "level": 4, "anchor": "1.6.5", "lang": "md", "precise": True}
 
 
+def _tmp_root() -> str:
+    """临时库落点：优先 WOOK_TMP，其次 <repo>/tmp，最后系统临时目录。
+
+    B180（2026-10-25）：原来直接 `tempfile.mkdtemp(prefix="mdcg_w6_contract_")`
+    建在**当前工作目录**（常是 lingshu-src/），跑一次测试就在仓库里留一个
+    `mdcg_w6_contract_xxxx` 目录，arch-check 随即报「lingshu-src/ 新增子目录」，
+    门与测试互相打架。临时物一律落在显式声明的临时根下。
+    """
+    env = os.environ.get("WOOK_TMP")
+    if env:
+        os.makedirs(env, exist_ok=True)
+        return env
+    repo_tmp = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "tmp")
+    try:
+        os.makedirs(repo_tmp, exist_ok=True)
+        return repo_tmp
+    except OSError:
+        return tempfile.gettempdir()
+
+
 # ---------------------------------------------------------------- A–D 核心组
 def _core_group():
     """写入→读回 · 保护 · 幂等/唯一 · 引用锚（单隔离库，自造不依赖模块级实例）。"""
-    cg = MdCGOS(tempfile.mkdtemp(prefix="mdcg_w6_contract_"))
+    cg = MdCGOS(tempfile.mkdtemp(prefix="mdcg_w6_contract_", dir=_tmp_root()))
     ref = _theory_ref()
     out = cg.identity_contract(
         CID, grantor=GRANTOR, grantee=GRANTEE, timestamp=TS,
@@ -171,7 +191,7 @@ def _core_group():
 # ---------------------------------------------------------------- E MCP 入口
 def _mcp_group():
     """MCP 入口端到端：admin 闸 + 读回（对齐 test_p45 R65.9 的 MCP 做法）。"""
-    root = tempfile.mkdtemp(prefix="mdcg_w6_contract_mcp_")
+    root = tempfile.mkdtemp(prefix="mdcg_w6_contract_mcp_", dir=_tmp_root())
     ref = _theory_ref()
     args = {"action": "contract", "contract_id": CID, "grantor": GRANTOR,
             "grantee": GRANTEE, "timestamp": TS, "status_summary": SUMMARY,
