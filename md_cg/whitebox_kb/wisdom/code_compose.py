@@ -860,6 +860,16 @@ def code_route(question, uid=None, fn=None):
 
 
 if __name__ == "__main__":
+    import sys as _sys
+
+    if "--verify-all" in _sys.argv[1:]:
+        # 单元库全量自检（病灶 E31：此前只跑 219 个单例里的一个子集，没有门跑全库）
+        rep = verify_all_domain_units()
+        print(f"=== 单元库全量自检 ===\n总数 {rep['total']} / 通过 {rep['passed']} / 失败 {len(rep['failed'])}")
+        for f in rep["failed"]:
+            print(f"  [✘] {f['domain']}/{f['uid']}  {f['reason']}")
+        _sys.exit(0 if not rep["failed"] else 1)
+
     print("=== 白箱自举·代码编写主线（组合生成 + 自校验 · 零 LLM） ===\n")
     QS = [
         "写一个函数把数组从小到大排序",

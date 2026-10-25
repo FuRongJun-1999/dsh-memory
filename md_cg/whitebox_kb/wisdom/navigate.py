@@ -279,3 +279,14 @@ def navigate_retrieve(dex, question: str, *, max_depth: int = 3,
 
 __all__ = ["get_knowledge_type", "get_sub_route", "refine_question",
            "navigate_retrieve", "chain_fingerprint"]
+
+
+if __name__ == "__main__":
+    import json as _json
+    import sys as _sys
+
+    if "--diag" in _sys.argv[1:]:
+        # 门控降级读数（病灶 K17）：缺索引/低分/异常时这一层为什么没参与，一眼可查
+        print(_json.dumps(csre_diag(), ensure_ascii=False, indent=1))
+        _sys.exit(0)
+
