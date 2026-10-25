@@ -9,10 +9,17 @@ import { installMemoryHooks } from '../src/hooks.ts'
 // 新实现：计数在「真实用户回合」上，命中时记一条 pending，assemble 只消费一次。
 
 function makeHarness(opts = {}) {
+  // 同名事件可能有多个监听（自动召回块 + 提醒消费块是两个独立 assemble handler），
+  // 必须累积而不是覆盖——覆盖会让测试只跑到后注册的那个，误判「提醒没注入」。
   const events = new Map()
   const ctx = {
     logger: { info() {}, warn() {}, error() {} },
-    on(name, fn) { events.set(name, fn); return () => {} },
+    on(name, fn) {
+      const arr = events.get(name) || []
+      arr.push(fn)
+      events.set(name, arr)
+      return () => {}
+    },
     get() { return undefined },
   }
   const graph = {
@@ -37,10 +44,14 @@ function makeHarness(opts = {}) {
   })
   const assemble = async () => {
     const assembly = { contexts: [] }
-    await events.get('system-prompt/assemble')(assembly, { agent: { session } }, async () => {})
+    for (const fn of events.get('system-prompt/assemble') || []) {
+      await fn(assembly, { agent: { session } }, async () => {})
+    }
     return assembly.contexts.filter((c) => c.name === 'lingshu:turn-reminder')
   }
-  const userTurn = (text) => events.get('session/event')(session, userMsg(text))
+  const userTurn = (text) => {
+    for (const fn of events.get('session/event') || []) fn(session, userMsg(text))
+  }
   return { assemble, userTurn, events }
 }
 
@@ -79,7 +90,12 @@ test('⑤ 无会话标识时不提醒（旧实现回落 __no_sid__ 共用计数�
   const events = new Map()
   const ctx = {
     logger: { info() {}, warn() {}, error() {} },
-    on(name, fn) { events.set(name, fn); return () => {} },
+    on(name, fn) {
+      const arr = events.get(name) || []
+      arr.push(fn)
+      events.set(name, arr)
+      return () => {}
+    },
     get() { return undefined },
   }
   const graph = {
@@ -96,12 +112,26 @@ test('⑤ 无会话标识时不提醒（旧实现回落 __no_sid__ 共用计数�
   })
   const emptySession = { header: {} }
   for (let i = 1; i <= 10; i++) {
-    events.get('session/event')(emptySession, {
+    for (const fn of events.get('session/event') || []) fn(emptySession, {
       type: 'user/message',
       data: { source: { kind: 'user' }, content: [{ type: 'text', text: '第' + i + '轮' }] },
     })
   }
   const assembly = { contexts: [] }
-  await events.get('system-prompt/assemble')(assembly, { agent: { session: emptySession } }, async () => {})
+  for (const fn of events.get('system-prompt/assemble') || []) {
+    await fn(assembly, { agent: { session: emptySession } }, async () => {})
+  }
   assert.equal(assembly.contexts.filter((c) => c.name === 'lingshu:turn-reminder').length, 0)
+})
+
+test('⑥ autoRecall=false 时提醒仍注入（#657：不寄生在自动召回下）', async () => {
+  const { assemble, userTurn } = makeHarness({ autoRecall: false })
+  for (let i = 1; i <= 10; i++) userTurn('第' + i + '轮')
+  assert.equal((await assemble()).length, 1, '关自动召回不该让提醒永不注入')
+})
+
+test('⑦ userMessage=false 时仍计轮（#658：关知识面写入不该杀死提醒）', async () => {
+  const { assemble, userTurn } = makeHarness({ userMessage: false })
+  for (let i = 1; i <= 10; i++) userTurn('第' + i + '轮')
+  assert.equal((await assemble()).length, 1, '关用户消息记忆后计轮仍应生效')
 })

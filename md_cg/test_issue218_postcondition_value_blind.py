@@ -85,8 +85,10 @@ def j0_judgement_unchanged():
     ok(nodefile.ELEMENT_TERM_MIN == 2, 'J0c ELEMENT_TERM_MIN 仍为 2',
        nodefile.ELEMENT_TERM_MIN)
     src = io.open(os.path.join(_HERE, "mdcg.py"), encoding="utf-8").read()
-    ok('if any(t in " ".join(post) for t in (terms or [])):' in src,
-       'J0d term 出口判据原文未变')
+    # issue #652：term 出口加了折叠（terms 与 post 两侧同口径），判据原文随之更新；
+    # 断言的是「仍是同一处单点门控」，不是逐字不变。
+    ok('if any(t and fold_accents(t) in _post_folded for t in (terms or [])):' in src,
+       'J0d term 出口判据原文未变（含 #652 折叠臂）')
     ok("elif is_postcondition_query(q):" in src,
        'J0e declared 出口判据原文未变（本件未取消它）')
 

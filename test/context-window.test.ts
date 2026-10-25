@@ -126,8 +126,10 @@ function makeHarness(graph: object, overrides: Partial<MemoryHooksOptions> = {})
   })
   const assemble = async (hostCtx: unknown): Promise<Assembly> => {
     assert.ok(assembleHandlers[0], '应注册 system-prompt/assemble 监听')
+    // 同名事件可能有多个监听（自动召回块 + 逢十轮提醒消费块是两个独立 handler，
+    // 见 issue #657），按注册顺序全部执行——只跑 [0] 会漏掉另一个块。
     const a: Assembly = { contexts: [], variables: {} }
-    await assembleHandlers[0]!(a, hostCtx, async () => a)
+    for (const h of assembleHandlers) await h(a, hostCtx, async () => a)
     return a
   }
   const send = (session: unknown, event: unknown): void => {
