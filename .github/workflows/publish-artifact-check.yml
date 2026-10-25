@@ -26,6 +26,12 @@ name: publish-artifact-check
 # whitebox_kb 运行时数据、md_cg/knowledge/orphan）；本 workflow 把「发版前机械核验」从人工
 # 记忆变为门禁。已发布版本按使用者裁定不回溯处置，红着即拦下一次发布。
 on:
+  # 定时触发（E62）：本门原先只有 push/pull_request/workflow_dispatch，不推 PR 就永
+  # 远不跑；而「本机每日回归面」在编排侧（orchestrator/gates-regress.json），不覆盖本门。
+  # 这里按天跑一次兜底：发版面文件没变也能发现「判据脚本自己坏了」或依赖漂移。
+  # cron 是 UTC；19:20 UTC = 北京时间次日 03:20（低峰）。
+  schedule:
+    - cron: '20 19 * * *'
   push:
     paths:
       - 'package.json'

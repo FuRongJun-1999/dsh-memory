@@ -646,6 +646,10 @@ VERIFICATION_BASIS_ALLOW = ("compiler", "test", "measurement", "formal_proof",
 TOOL_MSG_MAX_CHARS = 4000    # 工具结果回喂模型的单条截断（防上下文爆炸）
 TOOL_MSG_TAIL_CHARS = 1200   # 截断时保尾长度（Pi⑦③：错误/收尾信息在尾部）
 TOOL_DUMP_MAX_CHARS = 200000  # 工具结果**落盘**上限（2026-09-20 v15-3：磁盘面同样封顶）
+# 落盘失败计数（E77）：进程级累计 + 最近一次原因；供回喂文本与自检读取，
+# 避免「落盘失败」只剩一行日志、失败次数无从统计。
+_DUMP_FAILS = 0
+_DUMP_FAIL_LAST = ""
 DEFAULT_MAX_TOOL_ROUNDS = 5
 
 # ------------------------------------------------- 读放开 · 写严格（2026-09-19 裁定）
@@ -1695,14 +1699,27 @@ def _shrink_tool_text(text: str, job_dir: str | None, tag: str) -> tuple:
             with open(os.path.join(job_dir, name), "w", encoding="utf-8") as f:
                 f.write(payload)
         except OSError as e:
-            log(job_dir, f"工具输出落盘失败: {e}")
+            global _DUMP_FAILS, _DUMP_FAIL_LAST
+            _DUMP_FAILS += 1
+            _DUMP_FAIL_LAST = f"{type(e).__name__}: {e}"
+            log(job_dir, f"工具输出落盘失败(count={_DUMP_FAILS}): {e}")
             name = ""
     head = text[:TOOL_MSG_MAX_CHARS - TOOL_MSG_TAIL_CHARS]
     tail = text[-TOOL_MSG_TAIL_CHARS:]
+    # 落盘失败不许只留一行日志：回喂文本里必须带**可数**的失败次数（旧实现只说
+    # 「job 目录不可写」，读的人无从知道这次委托一共丢了几段中间内容）。
+    loss = (f"落盘失败（job 目录不可写；本进程已失败 {_DUMP_FAILS} 次）"
+            if not name else "见 " + name)
     note = (f"\n…（中间省略 {len(text) - TOOL_MSG_MAX_CHARS} 字符；完整输出"
-            f"{'见 ' + name if name else '落盘失败（job 目录不可写）'}，"
+            f"{loss}，"
             f"共 {len(text)} 字符）…\n")
     return head + note + tail, name
+
+
+# 生效条件：无入参；返回 {"fails": 进程级落盘失败累计次数, "last": 最近一次失败原因文本}（E77：失败必须可数）。
+def dump_fail_stats() -> dict:
+    """落盘失败的可读读数（`_shrink_tool_text` 的失败次数与最近原因）。"""
+    return {"fails": _DUMP_FAILS, "last": _DUMP_FAIL_LAST}
 
 
 # 生效条件：当 spec/job_dir/trace/usage/rnd/est/budget 传入时，基于 trace 中 ok 项生成 digest，调用 progress 写进展卡（仅 job_dir 为真且为目录时该卡才落盘，非目录时 progress no-op），并返回 content=digest、usage、model=spec.get('model')、tool_trace=trace、tool_rounds=rnd、completed=False、need_continue=True 及 handoff 块；

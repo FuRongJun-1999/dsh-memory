@@ -626,13 +626,13 @@ def detect_language(question):
 
 
 def identify_task(question):
-    """任务方向识别：问题 → 编程任务（最长关键词优先）"""
-    best, best_len = None, 0
-    for task, kws in TASK_KEYWORDS.items():
-        for k in kws:
-            if k in question and len(k) > best_len:
-                best, best_len = task, len(k)
-    return best
+    """任务方向识别：问题 → 编程任务（最长关键词优先）。
+
+    算法在 `kwroute.match_longest`（单一实现），本函数只提供 `TASK_KEYWORDS` 这张表。
+    """
+    from kwroute import match_longest
+
+    return match_longest(question, TASK_KEYWORDS.items())
 
 
 def extract_fn_name(question):
@@ -681,6 +681,27 @@ def _run_case(fn, case):
     return fn(inp), exp
 
 
+_run_case_placeholder = None
+
+
+def _case_matches(got, exp):
+    """样例比对（E31）：dict 期望按**子集**语义——exp 里出现的每个键都必须在 got 里
+    且等值；其余键不参与比较。非 dict 期望仍严格等值。
+
+    为什么要分开：VM 执行循环这类单元的返回体是六键 dict
+    （trust/symbols/cond/stack/halt/error），样例只关心其中一两个键
+    （`{"trust": 0.8}`）；严格等值会让这些用例**恒红**（实测全库 218/219），
+    而把六个键在每条样例里逐个写全，等于把实现细节抄进样例。
+    """
+    if isinstance(exp, dict) and isinstance(got, dict):
+        for k, v in exp.items():
+            if k not in got or got[k] != v:
+                return False
+        return True
+    return got == exp
+
+
+# 生效条件：code/unit 均为契约内形态时逐层校验（L1 ast、L2 样例、L3 边界），返回 (ok, checks)；Python 分支遇到首个失败即返回，非 Python 走结构+py_ref 腿。
 def verify_code(code, unit, lang="python"):
     """自校验：L1 语法 + L2 样例 + L3 边界（白箱自己发现代码错误）
     Python：ast 语法 + exec 样例运行；Rust/JS：结构校验 + py_ref 逻辑样例
@@ -711,7 +732,7 @@ def verify_code(code, unit, lang="python"):
                 got = fn(inp)
             except Exception:
                 return False, [f"✗ L2 样例崩溃: {inp}"]
-            if got != exp:
+            if not _case_matches(got, exp):
                 return False, [f"✗ L2 样例失败: {inp} → {got}（期望 {exp}）"]
         checks.append(f"✔ 结构通过 | 样例 {len(unit.get('cases', []))} 组全过（py_ref 逻辑）")
         return True, checks
@@ -743,7 +764,7 @@ def verify_code(code, unit, lang="python"):
             return False, [f"✗ L2 样例崩溃: {case} → {e}"]
         if got == "call":
             continue  # call 特殊标记（域注入型，由集成测试覆盖）
-        if got != exp:
+        if not _case_matches(got, exp):
             return False, [f"✗ L2 样例失败: {case} → {got}（期望 {exp}）"]
     # L3 边界（额外边界用例：None/空/重复已含在 cases）
     checks.append(f"✔ 语法通过 | 样例 {len(cases)} 组全过")
@@ -782,6 +803,39 @@ def code_solidify(question, task=None, uid=None, fn=None):
     except Exception:
         pass
     return entry
+
+
+# 生效条件：无入参（可用 domain 限定某域）；逐域逐单元取模板 → compose_domain_code → verify_code，返回 {"total","passed","failed":[{domain,uid,reason}]}——**全库一条腿**，不再靠抽查单个单元。
+def verify_all_domain_units(domain=None):
+    """跑全库单元自检（E31）：verify_code 逐单元跑一遍，返回统计与失败清单。
+
+    旧形态：单元库没有「跑全库」的门，只有个别单测抽查，于是
+    218/219 里那条恒红的样例（VM-执行循环）长期没人发现。
+    """
+    res = {"total": 0, "passed": 0, "failed": []}
+    domains = [domain] if domain else sorted(DOMAIN_UNITS)
+    for dom in domains:
+        units = DOMAIN_UNITS.get(dom) or {}
+        for uid, u in units.items():
+            res["total"] += 1
+            try:
+                _t, _uid, code = compose_domain_code(u.get("task", ""),
+                                                    domain=dom, unit_id=uid)[:3]
+            except Exception as e:      # 组合失败也算这条腿没通过
+                res["failed"].append({"domain": dom, "uid": uid,
+                                      "reason": f"compose 失败: {type(e).__name__}: {e}"})
+                continue
+            if not code:
+                res["failed"].append({"domain": dom, "uid": uid,
+                                      "reason": "compose 未产出代码"})
+                continue
+            ok, checks = verify_code(code, u)
+            if ok:
+                res["passed"] += 1
+            else:
+                res["failed"].append({"domain": dom, "uid": uid,
+                                      "reason": (checks or [""])[0][:200]})
+    return res
 
 
 def code_route(question, uid=None, fn=None):

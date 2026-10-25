@@ -107,7 +107,7 @@ def load_edges(db: str):
     return out
 
 
-# 生效条件：以 db、root 建库后，dry_run 为真则跳过写入与回读校验（written=0、count_equal 恒为真、health 为 None），为假则按 rows 逐条 override 写入并做 10 项字段回读比对累计 field_mismatches；clearance 非 "private" 时 sensitivity 取 DEFAULT_SENSITIVITY、否则为 "private"；layer 不在 LAYER_MAP 的记入 unknown_layers 并按 knowledge 写入；verbose 为真时打印 report；最终返回该 report。
+# 生效条件：以 db、root 建库后，dry_run 为真则跳过写入与回读校验（written=0；此时 count_equal/field_mismatches/health 一律置 None、verified=False、precheck 给出源库自洽读数——**不表示通过**），为假则按 rows 逐条 override 写入并做 10 项字段回读比对累计 field_mismatches；clearance 非 "private" 时 sensitivity 取 DEFAULT_SENSITIVITY、否则为 "private"；layer 不在 LAYER_MAP 的记入 unknown_layers 并按 knowledge 写入；verbose 为真时打印 report；最终返回该 report。
 def migrate(db: str, root: str, layers=None, limit=None, dry_run=False,
             clearance: str = "private", verbose=True):
     rows = load_nodes(db, layers, limit)
@@ -179,19 +179,49 @@ def migrate(db: str, root: str, layers=None, limit=None, dry_run=False,
                     bad.append((r["id"], name))
                     break
 
+    # ---------- 预演检查（dry-run 时真跑；E40） ----------
+    # 旧报告在 dry-run 下 `count_equal` 恒真、`field_mismatches` 恒 0、`health` 恒 None ——
+    # 拿这种报告当「预检通过」等于什么都没检。现在 dry-run 只跑**能在 SQLite 侧做的**
+    # 检查，并把写后校验类字段一律置 null（不适用 ≠ 通过）。
+    precheck = None
+    if dry_run:
+        seen, dup, empty_content, empty_id = set(), [], 0, 0
+        for r in rows:
+            rid = r.get("id")
+            if not rid:
+                empty_id += 1
+            elif rid in seen:
+                dup.append(rid)
+            else:
+                seen.add(rid)
+            if not (r.get("content") or "").strip():
+                empty_content += 1
+        precheck = {
+            "rows": len(rows),
+            "dup_ids": len(dup), "dup_samples": dup[:5],
+            "empty_id": empty_id,
+            "empty_content": empty_content,
+            "unknown_layers": sorted(unknown_layers),
+            "edges_total": sum(len(v) for v in edges.values()),
+            "note": "dry-run 只做源库自洽检查；等价校验（content/tags/…）与 health 不适用",
+        }
+
     report = {
         "db": db, "root": root, "dry_run": dry_run,
         "layers_filter": layers,
         "sqlite_nodes": len(rows),
         "md_nodes_total": len(cg.index["nodes"]),
         "written": written,
-        "count_equal": (dry_run or len(rows) == written),
-        "field_mismatches": len(bad),
+        # dry-run 下这三项不可用 ⇒ null（旧值 True/0 是假绿）
+        "count_equal": None if dry_run else (len(rows) == written),
+        "field_mismatches": None if dry_run else len(bad),
+        "verified": not dry_run,
+        "precheck": precheck,
         "samples": bad[:5],
         "edges_total": sum(len(v) for v in edges.values()),
         "unknown_layers": sorted(unknown_layers),
         "elapsed_sec": round(time.time() - t0, 1),
-        "health": cg.health() if not dry_run else None,
+        "health": None if dry_run else cg.health(),
     }
     if verbose:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -212,9 +242,29 @@ def main(argv):
         return 1
     layers = opt("--layers")
     layers = [x.strip() for x in layers.split(",")] if layers else None
-    return 0 if migrate(db, root, layers=layers, limit=opt("--limit"),
-                        dry_run="--dry-run" in argv,
-                        clearance=opt("--clearance", "private")) else 0
+    rep = migrate(db, root, layers=layers, limit=opt("--limit"),
+                  dry_run="--dry-run" in argv,
+                  clearance=opt("--clearance", "private"))
+    # 退出码（E41）：旧写法 `return 0 if migrate(...) else 0` 两侧都是 0（migrate 无
+    # 返回值），校验红根本不出现在退出码里。现在：0=通过/预演无异常，3=校验红，
+    # 1=参数错（上面已返回）。
+    if not rep:
+        print("[migrate_aeis] 迁移未产出报告 —— 无法判定，按红处理", file=sys.stderr)
+        return 3
+    if rep.get("dry_run"):
+        pc = rep.get("precheck") or {}
+        bad = (pc.get("dup_ids", 0) + pc.get("empty_id", 0))
+        if bad:
+            print("[migrate_aeis] 预演失败：dup_ids=%s empty_id=%s（详见 precheck）"
+                  % (pc.get("dup_ids"), pc.get("empty_id")), file=sys.stderr)
+            return 3
+        return 0
+    if not rep.get("count_equal") or rep.get("field_mismatches"):
+        print("[migrate_aeis] 等价校验红：count_equal=%s field_mismatches=%s（samples=%s）"
+              % (rep.get("count_equal"), rep.get("field_mismatches"),
+                 rep.get("samples")), file=sys.stderr)
+        return 3
+    return 0
 
 
 if __name__ == "__main__":

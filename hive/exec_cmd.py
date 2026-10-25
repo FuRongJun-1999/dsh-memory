@@ -128,6 +128,12 @@ def _spec_gate(spec: dict):
         return ('commands 必须是数组（对象数组 [{"command": [...]}] 或 argv 数组 '
                 '["python","x.py"]）——当前是 %s；本执行器不把脏类型当「无命令」'
                 '转发 LLM' % type(raw).__name__)
+    # B92：同一 spec 同时给 command 与 commands = 同一意图的两个口径。
+    # 旧实现在 :145 先取 commands、把 command 静默丢掉（无留痕、rc 仍 0），
+    # 于是「写错了字段名」与「故意双写」同形。两个都非空即规格错（rc=2）。
+    if spec.get("command") and isinstance(raw, list) and raw:
+        return ("同一 spec 同时给了 command 与 commands —— 二者是同一意图的两个口径，"
+                "只收一个：单步用 command（argv 数组），多步用 commands（数组）")
     env = spec.get("env")
     if env is not None and not isinstance(env, dict):
         return "env 必须是对象（键值对）——当前是 %s" % type(env).__name__

@@ -27,6 +27,10 @@
       不得误判为冒充、门禁仍 exit 0
 
 运行：python -X utf8 scripts/test_check_publish_artifact_manifest.py
+
+退出码（C169）：0 = 全过且**零 skip**；1 = 有断言红；3 = 有 skip 但无红
+（skip ≠ 通过：本机没 npm/git 就静默绿，长期 skip 与「一直全过」同码——确要放行加
+`--allow-skip`，那时才回到 0）。
 """
 import importlib.util
 import json
@@ -227,7 +231,19 @@ def main():
     e2e()
     selftest_green()
     print("\n%d passed, %d failed, %d skipped" % (passed, failed, skipped))
-    return 1 if failed else 0
+    if failed:
+        return 1
+    if skipped:
+        # C169：skip 不改退出码的老写法让「本机缺 npm/git」与「真全过」同码，
+        # 长期 skip 因此永远看起来是绿的。这里把 skip 显式升成 3，要放行得由
+        # 调用方在命令行写明 --allow-skip。
+        if "--allow-skip" in sys.argv[1:]:
+            print("[skip→0] 已显式 --allow-skip：%d 条 skip 按放行处理" % skipped)
+            return 0
+        sys.stderr.write("[skip→3] %d 条 skip 不等于通过；确要放行请加 --allow-skip\n"
+                         % skipped)
+        return 3
+    return 0
 
 
 if __name__ == "__main__":
