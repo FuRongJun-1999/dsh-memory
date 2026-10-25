@@ -82,6 +82,9 @@ INTERFACES = {
 PROFILE_PREFIX = "identity_"
 AUDIT_FILE = "_identity.jsonl"
 
+# 审计写失败的告警闸：每进程只吵一次（否则一轮身份操作会刷满 stderr）。
+_AUDIT_WARNED = False
+
 TAG_ANCHOR = "identity_anchor"
 TAG_TRAIT = "identity_trait"
 TAG_OBS = "identity_observation"
@@ -133,14 +136,21 @@ def _nid(prefix, subject_id, seed=""):
     return f"{PROFILE_PREFIX}{prefix}_{_slug(subject_id)}_{h.hexdigest()[:10]}"
 
 
-# 生效条件：rec 先被 dict(rec) 拷贝，仅当拷贝中缺 "ts" 键时补 time.time()，随后写入 cg.root 下 AUDIT_FILE 指向的 jsonl；写盘抛 OSError 时静默跳过并返回 None。
+# 生效条件：rec 先被 dict(rec) 拷贝，仅当拷贝中缺 "ts" 键时补 time.time()，随后写入 cg.root 下 AUDIT_FILE 指向的 jsonl；成功返回 True，写盘抛 OSError 时向 stderr 提示一次（每进程仅首次）并返回 False —— 审计写失败**不得静默**，也不得中断调用方。
 def log(cg, rec):
+    global _AUDIT_WARNED
     rec = dict(rec)
     rec.setdefault("ts", time.time())
     try:
         append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
-    except OSError:
-        pass
+        return True
+    except OSError as exc:
+        if not _AUDIT_WARNED:
+            _AUDIT_WARNED = True
+            import sys
+            print("[identity] 审计写入失败，本条及后续同类失败不再提示：%s: %s"
+                  % (type(exc).__name__, exc), file=sys.stderr)
+        return False
 
 
 # 生效条件：cg.root 下 AUDIT_FILE 路径缺失或打开即抛 OSError 时返回空列表；否则逐行解析非空 JSON（json.loads 抛 ValueError 的行跳过），读取中途抛 OSError 时返回已解析的部分 out，正常返回 out[-int(limit or 100):]，其中 limit 为 0/空串等假值时按 100 取值；

@@ -10,7 +10,9 @@
 hive serve 心跳）用的是 `scripts/judgment_manifest.py`，两侧 PATTERNS 一旦
 不同，digest 必不相等 → A3 红。因此：
   ① 本文件的 PATTERNS / 排序 / digest 算法与 `scripts/` 版**逐字同步**
-     （含 issue #36 的七组构成）；
+     （含 issue #36 的组构成；组数以 `PATTERNS` 长度为准，当前 **10 组**
+     = 7 组通配 + `test/` 三条精确名。C37/2026-10-25：此处原写作「7 组」的
+     中文数字形式，与 `len(PATTERNS)==10` 相悖，已按实测改正）；
   ② `md_cg/interop.py` **优先加载源码树的 `scripts/judgment_manifest.py`**，
      只有它不在（安装态）才回落到本模块。
 
@@ -34,6 +36,7 @@ hive serve 心跳）用的是 `scripts/judgment_manifest.py`，两侧 PATTERNS �
   compiler/tests/*.py     compiler 测试
   swarm/tests/*.py        swarm 测试
   test/{hive_exec,hive_wm}_test.py   test/ 侧逐文件裁决可收件（A6；精确名冻结）
+  test/chaos_injection/run_all.py   chaos 套件入口（批次99 补收；精确名冻结）
 
 安装态（出货包）只有 `md_cg/test_*.py` 一组可得——其余组命中数为 0，
 `missing_patterns` 显式随清单与冻结凭证落盘（不静默少算）；A3 两侧必须在
@@ -96,21 +99,44 @@ def collect() -> dict:
     return out
 
 
-# 生效条件：scripts/run_tests.py 在（源码树）时以 _discovered_files() 为唯一执行清单真源，逐文件判定是否落在冻结 PATTERNS 覆盖域内（域外=collect 永不收=漏冻）返回缺失列表；rt 不在（安装态）时返回 None——调用方须如实说明「无法核对」，不得当作通过。批次 23 域覆盖语义（与 scripts 版同口径，v20 D-36-1：集合差形式在 collect 超集下恒空=假牙）。
+class _Unverifiable:
+    """「无法核对」的显式哨兵（E43/2026-10-25）。
+
+    此前安装态 `coverage_gap()` 返回 `None`：它是假值，`if gap:` / `if not gap:`
+    这类写法会把「没核对」读成「没有缺口 = 通过」——正是本模块自己在
+    docstring 里禁止的事（「不得当作通过」）。哨兵把这句纪律变成机械约束：
+    对它做布尔求值直接抛 TypeError，调用方只能 `is UNVERIFIABLE` 显式分支。
+    """
+
+    __slots__ = ()
+
+    def __bool__(self):
+        raise TypeError(
+            "coverage_gap() 返回 UNVERIFIABLE（安装态无法核对）：它既不是通过也"
+            "不是失败，不能参与布尔判断——请用 `gap is UNVERIFIABLE` 显式分支")
+
+    def __repr__(self):
+        return "UNVERIFIABLE"
+
+
+UNVERIFIABLE = _Unverifiable()
+
+
+# 生效条件：scripts/run_tests.py 在（源码树）时以 _discovered_files() 为唯一执行清单真源，逐文件判定是否落在冻结 PATTERNS 覆盖域内（域外=collect 永不收=漏冻）返回缺失列表（空列表=通过）；rt 不在（安装态）时返回 UNVERIFIABLE 哨兵——它不可布尔求值，调用方须显式 `is UNVERIFIABLE` 分支并如实说明「无法核对」。批次 23 域覆盖语义（与 scripts 版同口径，v20 D-36-1：集合差形式在 collect 超集下恒空=假牙）。
 def coverage_gap(manifest: dict):
     """覆盖完备性守卫（issue #36）：「跑什么」⊆「冻结什么」。
 
     批次 23 起与 `scripts/` 版同口径——**域覆盖判定**：每个 run_tests
     会跑的文件必须落在冻结 PATTERNS 的覆盖域内（域外 = collect 永不收
     → 不进判据指纹 → 漏冻）。v20 D-36-1：集合差形式在 collect 超集下
-    恒空（假牙）。安装态（run_tests 不在）返回 None——调用方须如实
-    说明「无法核对」，不得当作通过。
+    恒空（假牙）。安装态（run_tests 不在）返回 UNVERIFIABLE 哨兵（不是
+    None、不是 []）——调用方须如实说明「无法核对」，不得当作通过。
     """
     import fnmatch
     import importlib.util
     rt_path = os.path.join(HERE, "scripts", "run_tests.py")
     if not os.path.isfile(rt_path):
-        return None
+        return UNVERIFIABLE
     spec = importlib.util.spec_from_file_location("run_tests", rt_path)
     rt = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(rt)
@@ -143,7 +169,7 @@ def main(argv=None) -> int:
         return 0
     if argv[:1] == ["--check-coverage"]:
         gap = coverage_gap(manifest)
-        if gap is None:
+        if gap is UNVERIFIABLE:
             print(json.dumps({
                 "verdict": "UNVERIFIABLE",
                 "reason": "scripts/run_tests.py 不在（安装态）——覆盖完备性守卫"

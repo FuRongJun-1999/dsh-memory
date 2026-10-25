@@ -263,7 +263,12 @@ def _run(tmp):
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix="twophase_")
+    # 临时根必须写死绝对路径：原写法 `mkdtemp(prefix="twophase_")` 不给 dir=，
+    # 于是落在 cwd —— 在仓根跑一次就在 `lingshu-src/` 里留下 `twophase_*` 目录，
+    # `scripts/arch-check.py` 报「新增子目录」而红。TMP 给的是相对路径也不采信。
+    _tmp_root = os.environ.get("TMP") or r"D:\wook\tmp"
+    os.makedirs(_tmp_root, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="twophase_", dir=_tmp_root)
     old = os.environ.pop("MDCG_POLICY_FILE", None)
     try:
         _run(tmp)

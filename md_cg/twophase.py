@@ -61,14 +61,18 @@ def log_path(cg) -> str:
     return os.path.join(cg.root, LOG_FILE)
 
 
-# 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回去尾换行后的字符串（仅剥 "\n"）。
+# 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回剥掉**全部尾部换行符**（`\r` 与 `\n` 任意组合）后的字符串。
 def _norm(text: str) -> str:
     """正文口径归一（**对账正确性的前提**）：`nodefile.dumps` 写盘时会给正文补尾
     换行，`loads` 读回即带它。若 intent 按入参原文、对账按读回内容各算一次指纹，
     两者**永远不会相等** → 每一笔都误报 interrupted——比不做对账更坏（假阳性会
     淹没真问题，且诱人去"修"不存在的问题）。故两侧统一按「去尾换行」归一。
+
+    剥的字符集是 `\\r` **与** `\\n` 两个：只剥 `\\n` 时，CRLF 正文（尾部 `\\r\\n`）
+    两侧各剩一个 `\\r` 之差而对不上——实测`reconcile` 把完好的 CRLF 写入判成
+    `interrupted / content_mismatch`。这里统一剥到两个字符都不剩。
     """
-    return (text or "").rstrip("\n")
+    return (text or "").rstrip("\r\n")
 
 
 # 生效条件：给定 cg 与 rec 时，把 rec 以 JSONL 追加写入 log_path(cg)，无返回值、无分支。

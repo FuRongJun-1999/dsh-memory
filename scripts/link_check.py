@@ -39,6 +39,10 @@ LINK = re.compile(r"\]\(([^)\s]+?)(?:\s+\"[^\"]*\")?\)")
 SKIP_SCHEMES = ("http://", "https://", "mailto:", "tel:", "data:", "#")
 NON_PATH_CHARS = "[]*<>{}"
 
+# 白名单判据可用性（由 _allowlist() 写入，_allowlist_available() 读）：默认 True =
+# 「还没取用，谈不上缺失」，避免 import 期就把它当成坏的。
+_ALLOWLIST_OK = True
+
 
 # 生效条件：用必需形参 args 追加到 ["git","-c","core.quotepath=false"] 后在模块常量 REPO 目录下执行（capture_output=True、text、encoding=utf-8、errors=replace、shell=False），返回 (r.stdout or "") 逐行 strip 后的非空行列表——r.stdout 为 None 或空串时返回 []，且不检查返回码。
 def _git(args):
@@ -49,16 +53,33 @@ def _git(args):
     return [ln.strip() for ln in (r.stdout or "").splitlines() if ln.strip()]
 
 
-# 生效条件：成功导入 cogmap_sync 时返回 set(getattr(cogmap_sync,"FILE_LINK_ALLOWLIST",{}) or {})，即该属性为真值字典时得到其键集合、属性缺失或为假值（None/{}）时得到空集；导入触发 Exception 时打印警告并返回 set()（无必需形参）。
+# 生效条件：成功导入 cogmap_sync 时返回 set(getattr(cogmap_sync,"FILE_LINK_ALLOWLIST",{}) or {})，即该属性为真值字典时得到其键集合、属性缺失或为假值（None/{}）时得到空集；导入触发 Exception 时打印警告、把模块级 `_ALLOWLIST_OK` 置 False 并返回空集（无必需形参）。
 def _allowlist():
-    """复用管线白名单（单一真源）。导入失败时返回空集并提示——避免静默改变口径。"""
+    """复用管线白名单（单一真源）。
+
+    **空集有两种含义，必须能分开**：① `cogmap_sync` 载入成功、白名单本身为空
+    （= 当前确实没有登记条目，判据完整）；② `cogmap_sync` 载不进来（= 判据缺失）。
+    旧写法两种都返回 `set()`，于是②会被读成①：已登记的「本地才有」链接全部掉进
+    BROKEN/UNTRACKED，产出一批假红，而提示只是一行 print、退出码照旧按红色算。
+    `_allowlist_available()` 就是给调用方区分这两种情况的唯一入口。
+    """
+    global _ALLOWLIST_OK
     try:
         import cogmap_sync
+        _ALLOWLIST_OK = True
         return set(getattr(cogmap_sync, "FILE_LINK_ALLOWLIST", {}) or {})
     except Exception as exc:  # pragma: no cover - 仅在非常规调用方式下触发
+        _ALLOWLIST_OK = False
         print("警告：未能载入 cogmap_sync.FILE_LINK_ALLOWLIST（%s）；"
-              "白名单链接将按普通链接判定" % exc)
+              "白名单不可用 ⇒ 本轮的 ALLOWED 恒为 0，已登记链接会落到 BROKEN/UNTRACKED"
+              % exc)
         return set()
+
+
+# 生效条件：返回上一次 _allowlist() 的载入结果——成功导入为 True，导入抛异常为 False；从未调用过时为 True（未取用即不受影响）。
+def _allowlist_available() -> bool:
+    """白名单判据是否可用（区分「登记为空」与「判据缺失」）。"""
+    return _ALLOWLIST_OK
 
 
 # 生效条件：必需形参 relcand 精确命中必需形参 tracked 集合时返回 True；否则仅当 tracked 中存在以 relcand.rstrip("/")+"/" 为前缀的元素时返回 True，tracked 为空集时 any(...) 为 False 而返回 False。
@@ -164,12 +185,19 @@ def scan():
             else:
                 n_ok += 1
     return {"files": files, "broken": broken, "untracked": untracked,
-            "non_path": non_path, "ok": n_ok, "allowed": n_allowed}
+            "non_path": non_path, "ok": n_ok, "allowed": n_allowed,
+            "allowlist_available": _allowlist_available()}
 
 
-# 生效条件：无必需形参，取 scan() 结果后，若 res["broken"] 或 res["untracked"] 任一为非空列表则打印断链结论并返回 1，二者皆为空列表时打印全部可达结论并返回 0（另有非路径条目仅计数打印，不影响返回值）。
+# 生效条件：无必需形参，取 scan() 结果后——白名单判据不可用且命令行带 --require-allowlist 时先打印判据缺失并返回 3；否则 res["broken"] 或 res["untracked"] 任一非空则打印断链结论并返回 1，皆空则打印全部可达并返回 0（非路径条目只计数打印，不影响返回值）。
 def main():
     res = scan()
+    if res["allowlist_available"] is False:
+        print("[判据缺失] cogmap_sync.FILE_LINK_ALLOWLIST 载入失败：本轮 ALLOWED 恒为 0，"
+              "BROKEN/UNTRACKED 里可能混着已登记条目。")
+        if "--require-allowlist" in sys.argv[1:]:
+            print("结论：前置条件不成立（白名单判据缺失），检查没做成——退出码 3。")
+            return 3
     n = res["ok"] + res["allowed"] + len(res["broken"]) + len(res["untracked"])
     print("扫描受管 md：%d 个；判定链接：%d 条（跳过非路径形态 %d 条）"
           % (len(res["files"]), n, len(res["non_path"])))
