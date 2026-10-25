@@ -18,6 +18,17 @@
 
 **灵枢是一套可运行的长期记忆基础设施**——对话自动沉淀为纯文本 md 认知图，记什么、取什么、能不能写入全部由确定性规则裁决，全程可审计、结果可复现。它不训练模型，做的是**模型之外的那一整套**：记忆怎么存、取的时候依据什么、写错了怎么被发现、改过怎么留痕。任何支持 MCP 的 AI Agent 可直接挂载，不与任何单一 Agent 框架绑定。
 
+## 🖥️ DSH Desktop 下的一条启动告警（属预期，运行不受影响）
+
+DSH Desktop（Electron 打包）的安装器会把 generation 里所有 @deepseek-ai/* 提升为**宿主单例**后再做闭包校验；
+本插件历史上把 @deepseek-ai/schemastery 声明成普通依赖，于是「先删掉、再按 generation 校验」必然判定解析不到，
+每次启动会有一条 migration failed（约 2.6 秒）与 profile maintenance frozen。
+
+**0.9.14 起已修**：schemastery 改为 peerDependencies + optional，与 cordis、@deepseek-ai/dsh-* 同一口径；
+运行时仍由宿主的 host-module-fallback 兜住 @deepseek-ai/ 前缀的 import。
+
+若在旧版本看到这条告警：**功能不受影响**（记忆写入/召回、cg(op=info) 都正常），升级即可消除。
+
 ## ⚠️ 升级须知：工具名去掉 lingshu_ 前缀（0.9.9 起）
 
 | 版本 | 工具名 |

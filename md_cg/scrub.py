@@ -231,7 +231,7 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     for nid, e in nodes.items():
         layer = str(e.get("layer") or "")
         if layer in SELF_LAYERS:
-            continue                              # 自我认知不抽查、不去污染
+            continue
         created = float(e.get("created_at") or 0)
         age_d = _days(created, now)
         la = float(last.get(nid) or 0)
@@ -479,8 +479,11 @@ def associate(cg, node_id: str, *, hops: int = DEFAULT_HOPS, limit: int = 30,
 # 两侧新增键须同步（交叉守卫 test_validity_filter）。
 _EXPIRY_KEYS = ("effective_until", "valid_until", "expires_at", "expire_at",
                 "expiry", "deadline", "expired_at")
+# issue #665：过程记录（rev_*/rej_*）的固定字段也在此列——它们是展示字段，
+# 逐条取值不同，当键跨节点比对必然误报（假设/否决原因 是 rej 记录的两行）。
 _SKIP_KEYS = ("功能名", "执行", "条件", "来源", "标签", "状态", "备注", "标题",
-              "描述", "name", "id", "title", "layer", "tags", "说明")
+              "描述", "name", "id", "title", "layer", "tags", "说明",
+              "假设", "否决原因", "验证")
 _NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可")
 _POS_WORDS = ("应当", "建议", "必须", "需要", "可以", "允许", "推荐", "宜")
 
@@ -516,6 +519,11 @@ def _kv_pairs(content) -> dict:
     for raw in (content or "").splitlines():
         line = raw.strip().lstrip("#").strip()
         if not line:
+            continue
+        # issue #665（#40 的残留面）：行首为列表符的行是**展示性字段**
+        # （裁决记录的「- 提案 / - 轮次 / - 红队」等），逐条取值天然不同，
+        # 当键去跨节点比对必然误报「同键不同值」。不抽键。
+        if line[:2] in ("- ", "* ", "+ ", "· ", "• "):
             continue
         for sep in ("：", ":"):
             if sep in line:
@@ -644,7 +652,16 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
         if not e:
             continue
         layer = str(e.get("layer") or "")
+        # issue #665（#40 残留面）：过程记录不参与矛盾比对——
+        # rev_/rej_ 是 contextual 层 role=tool-output 的裁决/否决留痕，属审计面而非知识断言。
+        if layer == 'contextual' and str(e.get('role') or '') == 'tool-output':
+            continue
         if layer in SELF_LAYERS:
+            continue
+        # issue #665（#40 残留面）：过程记录不参与矛盾比对——rev_/rej_ 是
+        # contextual 层 role=tool-output 的裁决/否决留痕，属审计面而非知识断言；
+        # 让它们互判「同键不同值」只会把真矛盾淹在误报里。
+        if layer == 'contextual' and str((nodes.get(nid) or {}).get('role') or '') == 'tool-output':
             continue
         try:
             node = cg.get(nid)
