@@ -804,9 +804,16 @@ def check(cg, content, layer=None, condition_space=None,
 
     # ---- L1-a 自否定：自己的负条件排除自己的生效条件/正文 ----
     body = _body_text(content)
-    if neg and (_ban_hit(" ".join(pos), neg) or _ban_hit(body, neg)):
+    _hit_pos = bool(neg) and _ban_hit(" ".join(pos), neg)
+    _hit_body = bool(neg) and _ban_hit(body, neg)
+    if _hit_pos or _hit_body:
+        # issue #669②：两个面压成同一句话会让作者看不出「到底哪一面命中」——
+        # 判据（type/score）不变（N238 契约：正文面命中仍是 self_negation 1.0），
+        # 只把命中面写进 detail，可诊断性提升不改变任何行为。
+        _face = ("生效条件面" if _hit_pos else "") + ("+正文面" if _hit_body else "")
         hard.append({"type": "self_negation", "with": None,
-                     "detail": "不适用条件命中自身生效条件/正文：条件自相矛盾",
+                     "detail": "不适用条件命中自身%s：条件自相矛盾（命中面=%s）"
+                               % ("生效条件/正文" if (_hit_pos and _hit_body) else "正文", _face),
                      "score": 1.0})
         strength = 1.0
     elif neg and _cov(tw_neg, body) >= SELF_NEGATION:

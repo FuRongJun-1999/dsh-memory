@@ -2924,6 +2924,20 @@ class MdCG:
         # consolidate/maintain 要处理无意义节点，且与台账面「空白被拒」自相矛盾。
         # 非字符串（int/list）此前抛内部 AttributeError（'int' has no 'split'）——
         # 那是实现泄漏而非校验，这里一并收成显式 ValueError（fail-closed，零落盘）。
+        # issue #669 P1：**写入面前置守卫**——「带冒号空值 + 换行正文」这种形态，
+        # 取值面（ccg_field_value 只看同一行）与剥除面（_strip_ccg_segments 见冒号
+        # 算非空、只剥标题行）读法不一致，后续列表项残留进 body 后被自否定判据
+        # 当断言命中，报成「条件自相矛盾」（实测 self_negation 1.0 假 REJECT）。
+        # 闸门放行的形态判定面必须能吃；吃不了就在闸门挡，别让作者在判定面看假陈述。
+        _bad_ccg = nodefile.ccg_empty_colon_before_body(content) if isinstance(content, str) else []
+        if _bad_ccg:
+            _where = "；".join("第 %d 行「# %s：」" % (ln, mark) for mark, ln in _bad_ccg)
+            raise ValueError(
+                "CCG 要素行冒号后为空、值写在后续行：%s——该形态会让取值面读到空串"
+                "而剥除面只剥标题行，列表项残留进正文后被误判「条件自相矛盾」"
+                "（issue #669）。两种修法任选：①写成单行（多项用「；」分隔），"
+                "如「# 不适用条件：甲；乙」；②多项走 frontmatter 的 "
+                "non_applicable_conditions 列表，CCG 行只留一句摘要。" % _where)
         if not isinstance(content, str) or is_void_content(content):
             raise ValueError(
                 "content 不能为空：空白即无内容（issue #644）。"
