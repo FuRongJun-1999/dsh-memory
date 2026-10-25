@@ -33,6 +33,9 @@
   python scripts/review_reconcile.py check  --docs-root "d:/.../dsh-memory"
   python scripts/review_reconcile.py at "docs/mdcg/xxx.md:120" --docs-root "d:/.../dsh-memory"
   python scripts/review_reconcile.py rebuild --docs-root "d:/.../dsh-memory" --apply
+
+退出码（E79，2026-10-25 起）：0＝对过且一致；1＝对过但不一致（六桶任一非空）；
+  2＝**没有对账样本**（`cards == 0`，六桶必然全空）——空集不等于一致。
 """
 from __future__ import annotations
 
@@ -180,7 +183,8 @@ def _check(cg, args):
     ok = not any(buckets.values())
     out = {"ok": ok, "mode": "check", "root": _root(args), "docs_root": doc_root,
            "cards": len(cards), "truncated": truncated,
-           "counts": {k: len(v) for k, v in buckets.items()}, **buckets}
+           "counts": {k: len(v) for k, v in buckets.items()}, **buckets,
+           "empty": not cards}
     if buckets["drift"]:
         out["hint"] = ("行位/内容已漂移：跑 `rebuild --apply` 重建（同 id 覆写，"
                        "键不含行位故不产生新代节点）")
@@ -268,7 +272,7 @@ def _rebuild(cg, args):
             "after": after["counts"]}
 
 
-# 生效条件：_root 就绪后按 args.cmd 分派——"check" 调 _check、"at" 调 _at、"rebuild" 调 _rebuild；三者结果经 args.json 为真时以 json.dumps(ensure_ascii=False, indent=1) 整份打印，否则按人读格式打印汇总；返回 0 仅当结果的 ok 为真，否则返回 1；finally 中执行 cg.close()。
+# 生效条件：_root 就绪后按 args.cmd 分派——"check" 调 _check、"at" 调 _at、"rebuild" 调 _rebuild；三者结果经 args.json 为真时以 json.dumps(ensure_ascii=False, indent=1) 整份打印，否则按人读格式打印汇总；退出码：check 模式对账样本为 0 时返回 2（空集不构成「一致」，E79），否则 0 仅当结果的 ok 为真、其余 1；finally 中执行 cg.close()。
 def _execute(cg, args):
     if args.cmd == "check":
         out = _check(cg, args)
@@ -281,6 +285,10 @@ def _execute(cg, args):
         print(json.dumps(out, ensure_ascii=False, indent=1))
     else:
         _report(out, args)
+    # E79（2026-10-25）：对账样本为 0 时六桶必然全空、`ok` 恒真 ⇒ 旧实现退 0，
+    # 与「真对过一遍、确认一致」在退出码上逐字同形。空集单独一档（2）。
+    if args.cmd == "check" and not out.get("cards"):
+        return 2
     return 0 if out.get("ok") else 1
 
 
@@ -303,7 +311,10 @@ def _report(out, args):
         for hk in ("hint", "hint2"):
             if out.get(hk):
                 print("  %s" % out[hk])
-        print("  判定：%s" % ("一致" if out["ok"] else "不一致"))
+        if not out.get("cards"):
+            print("  判定：无样本（本次未对账任何 doc_ref 卡，空集不等于一致）")
+        else:
+            print("  判定：%s" % ("一致" if out["ok"] else "不一致"))
         return
     if mode == "at":
         s = out["section"]

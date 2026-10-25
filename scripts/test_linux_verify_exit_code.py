@@ -37,6 +37,8 @@
   （「全过」腿的失败 detail 会列出被测脚本 stdout 里被记为 `[FAIL]` 的段，红了能一眼定位。）
 
 运行：python -X utf8 scripts/test_linux_verify_exit_code.py
+退出码：0＝全部断言通过；1＝有失败；3＝整组 SKIP（本机无 bash，L1–L9 一条断言都没跑）。
+        ——E171（2026-10-25）：旧写法把「整组跳过」报成 0，与真全过在退出码上同形。
 """
 import os
 import re
@@ -204,7 +206,9 @@ def main():
     if bash is None:
         skip("L1–L9", "本机无 bash（容器腿行为断言需要）")
         print("\n%d passed, %d failed, %d skipped" % (passed, failed, skipped))
-        return 1 if failed else 0
+        # E171（2026-10-25）：L0 只验了行尾，L1–L9 全跳过 ⇒ 退出码必须与「真全过」分开
+        # ——旧写法 `1 if failed else 0` 把「一条没跑」报成绿。
+        return 1 if failed else 3
 
     with tempfile.TemporaryDirectory() as tmp:
         work = os.path.join(tmp, "work")

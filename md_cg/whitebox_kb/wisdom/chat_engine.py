@@ -1101,18 +1101,21 @@ def chat(dex, message, session_id="default", memory=None, prefeed_fn=None,
     _st = _STATE.setdefault(session_id, {"searches": 0, "misses": 0,
                                          "last_hits": []})
     _st["searches"] += 1
+    # 「最近尝试」记的是**换过的词**，不是命中名：收敛时 last_hits 已被清空，
+    # 旧写法在清空之后才拼提示，于是那句「（最近尝试：…）」恒为空、永远不出现。
+    _st["last_attempts"] = ((_st.get("last_attempts") or []) + [message.strip()[:40]])[-3:]
     if _miss:
         _st["misses"] += 1
     else:
         _st["misses"] = 0
         _st["last_hits"] = [h.get("name") for h in hits[:2] if h.get("name")]
     if _st["misses"] >= _CONVERGE_LIMIT:
+        _recent = [q for q in (_st.get("last_attempts") or []) if q]
         _st["misses"] = 0  # 触发后重置，避免永久收敛
         _st["last_hits"] = []
         _facts = (f"本会话已搜索 {_st['searches']} 次，"
                   f"连续 {_CONVERGE_LIMIT} 次未检索到可靠知识"
-                  + (f"（最近尝试：{'、'.join(_st['last_hits'])})"
-                     if _st["last_hits"] else ""))
+                  + (f"（最近尝试：{'、'.join(_recent)}）" if _recent else ""))
         return {"reply": f"{_facts}——我不再换词反复试了（搜索收敛）。"
                          "目前没有把握，不编。你可以换个角度问，"
                          "或者我先记下来等我学会。",
@@ -1485,22 +1488,63 @@ SELF_TEST = [
 ]
 
 
-def self_test(dex):
+# 生效条件：r 为 chat() 的返回字典、expect 为非空字符串时，逐个通道（正文 / 命中卡名 / 命中卡直答 / 情绪标签）判 expect 是否出现；任一通道出现即判通过并返回该通道名，四通道都不含返回 ""（判不通过）。
+def _selftest_judge(r, expect):
+    """SELF_TEST 一行的判定：expect 出现在哪个通道就记哪个通道，四通道都没有返回 ""。
+
+    E22（2026-10-25）：旧 `self_test` 只 `print` 从不比较 `expect` —— 答成什么都「通过」，
+    自测退回成为日志。这里把「期望」变成可判定的东西，并把命中的通道名留下，
+    红了能看出「是正文没提、还是连卡都没命中」。
+    """
+    reply = (r.get("reply") or "")
+    hits = r.get("hits") or []
+    names = " ".join(str(h.get("name") or "") for h in hits)
+    answers = " ".join(str(h.get("direct_answer") or "") for h in hits)
+    emo = (r.get("emotion") or {}).get("label") or ""
+    for channel, blob in (("reply", reply), ("hit_name", names),
+                          ("hit_answer", answers), ("emotion", emo)):
+        if expect and expect in blob:
+            return channel
+    return ""
+
+
+def self_test(dex, chat_fn=None):
+    """逐行跑 SELF_TEST 并**判定**；返回不命中条数（0 表示八行全命中）。
+
+    E22：`expect` 列此前没有任何消费者。现在每行给出 `PASS`/`FAIL（通道：…）`，
+    末尾给汇总，并把不命中条数返回给 `__main__` 当退出码（0 仅当全部命中）。
+    `chat_fn` 只为可测而留（默认模块级 `chat`）。
+    """
+    fn = chat_fn or chat
     print("=" * 56)
     print("普通人对话引擎 · 自测")
     print("=" * 56)
+    n_fail = 0
     for msg, expect in SELF_TEST:
-        r = chat(dex, msg, session_id="selftest")
-        print(f"【{msg}】")
-        print(f"  → {r['reply'][:80]}")
-        print(f"  情感: {r['emotion']['label'] if r['emotion'] else '无'} | "
-              f"诚实边界: {r['honest']} | 命中: {[h['name'] for h in r['hits'][:2]]}")
+        r = fn(dex, msg, session_id="selftest")
+        channel = _selftest_judge(r, expect)
+        if channel:
+            mark = "PASS（通道：%s）" % channel
+        else:
+            n_fail += 1
+            mark = "FAIL（期望 %r 在正文/命中卡名/直答/情绪四通道里都没有）" % (expect,)
+        print("【%s】" % msg)
+        print("  → %s" % (r.get("reply") or "")[:80])
+        print("  情感: %s | 诚实边界: %s | 命中: %s"
+              % ((r.get("emotion") or {}).get("label") or "无",
+                 r.get("honest"),
+                 [h.get("name") for h in (r.get("hits") or [])[:2]]))
+        print("  判定: %s" % mark)
     print()
+    print("%d/%d 命中，%d 条不命中" % (len(SELF_TEST) - n_fail, len(SELF_TEST), n_fail))
+    return n_fail
 
 
 if __name__ == "__main__":
     from wisdom_book import ConditionDex
     dex = ConditionDex(db_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), 'wisdom-book-cloud.db'),
                        fresh=False)
-    self_test(dex)
-    dex.close()
+    try:
+        raise SystemExit(1 if self_test(dex) else 0)
+    finally:
+        dex.close()

@@ -58,17 +58,27 @@ def read_package_version(path):
 
 # 生效条件：path 指向文件读出的全文经 _TARBALL_RE.search 命中时返回捕获组 1，无任何匹配时返回 None。
 def _find_tarball(doc):
-    """在解析出的 YAML 文档里找 `tarball` 字段（顶层映射；列表形态逐项下探）——
-    非空字符串返回其值；无字段 / 显式空值返回 None；其余形态抛 ValueError（fail-closed）。"""
+    """在解析出的 YAML 文档里找 `tarball` 字段（映射与列表**都逐层下探**）——
+    非空字符串返回其值；无字段 / 显式空值返回 None；其余形态抛 ValueError（fail-closed）。
+
+    E157（2026-10-25）：旧实现在映射层「本层没有 `tarball` 就 return None」，不下探
+    嵌套映射 —— 而条目 YAML 里 tarball 常声明在 `plugin:` / `install:` 之下，于是
+    「嵌套里声明了、版本过期」被读成「未声明」，与真·未声明同形静默放行（rc 与
+    stdout 逐字相同）。现在映射层与列表层走同一套下探：任何一个非空 tarball 都取。
+    """
     if isinstance(doc, dict):
-        if "tarball" not in doc:
-            return None
-        v = doc["tarball"]
-        if v is None:
-            return None
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-        raise ValueError("tarball 字段形态非法（非空字符串才有效）：%r" % (v,))
+        if "tarball" in doc:
+            v = doc["tarball"]
+            if v is None:
+                return None                     # 显式空值：本层明确「未声明」
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+            raise ValueError("tarball 字段形态非法（非空字符串才有效）：%r" % (v,))
+        for v in doc.values():
+            found = _find_tarball(v)
+            if found:
+                return found
+        return None
     if isinstance(doc, list):
         for item in doc:
             v = _find_tarball(item)

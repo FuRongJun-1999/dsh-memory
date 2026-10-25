@@ -37,6 +37,8 @@
   G10 unit：`selfreport` 的 report/info 契约未被本次改动破坏（写入沙盒后 read_all 可读回）
 
 运行：python -X utf8 scripts/test_mdcg_stale_servers_scan.py
+退出码：0＝全部断言通过；1＝有失败；3＝整组 SKIP（非 Windows，G0–G10 一条断言都没跑）。
+        ——E171（2026-10-25）：旧写法把「整组跳过」报成 0，与真全过在退出码上同形。
 """
 import importlib.util
 import json
@@ -124,7 +126,9 @@ def main():
     if os.name != "nt":
         skip("G0–G10", "mdcg_stale_servers 是 Windows-only（import 期 ctypes.WinDLL）")
         print("\n%d passed, %d failed, %d skipped" % (passed, failed, skipped))
-        return 0
+        # E171（2026-10-25）：整组 SKIP 时一条断言都没跑，退出码必须与「真全过」分开
+        # ——旧写法返回 0，跳过与全过在退出码上逐字同形（消费门按 0 判过）。
+        return 1 if failed else 3
     try:
         mod = _load_mod("n255_stale")
         mod_ok = True
