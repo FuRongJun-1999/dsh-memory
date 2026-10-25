@@ -200,8 +200,10 @@ def _battery(vd, home, cg, live, old_form):
     _ok(os.path.isfile(tpl), "P0 模板文件在场", tpl)
     _ok(("（SHA256 前16位）：" + sha) in live and live.count("zcode/AGENTS.md") >= 1,
         "P0 渲染件含指纹行 + 指向字面量", "")
-    _ok(len([l for l in live.splitlines() if re.match(r"^\| \d+ \| ", l)]) == 18,
-        "P0 渲染件内嵌声明出口表 18 行", "")
+    # 条数从真源现算（纪律 18 → 19 时不再用硬编码 18 打红；判据是「与真源条数一致」）
+    _expect_rows = len(R.load_source(REPO)["subgraph"]["nodes"])
+    _ok(len([l for l in live.splitlines() if re.match(r"^\| \d+ \| ", l)]) == _expect_rows,
+        "P0 渲染件内嵌声明出口表 %d 行" % _expect_rows, "")
     _ok(not re.search(r"[A-Za-z]:[\\/]", live) and "{{" not in live,
         "P0 渲染件无本机盘符路径、无裸 '{{'", "")
 
