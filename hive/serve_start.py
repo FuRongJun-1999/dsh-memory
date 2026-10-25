@@ -254,24 +254,45 @@ def show_config(config_path=None):
             e["note"] = _ORCH_ONLY_NOTE
         entries.append(e)
     mk_problem = _model_key_problem(merged)
-    if mk_problem:
-        problems.append(mk_problem)
-    if not any((merged.get(k) or "").strip() for k in IDENTITY_KEYS):
-        problems.append("身份面未配置：HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE 均空"
-                        "——锚判据整体不启用（安全方向降级，行为=旧产物判据，见 keyres.rs 头注）"
-                        "；编排任务会在 orch.py load_principal 处 fail-closed")
     disabled = llm_disabled(merged)
+    # B93：原来 `ok` 只由 `cfg_err / bad_keys / (mk_problem and not disabled)` 三项决定，
+    # 而 `problems` 里还有两条不参与判决的条目（身份面未配置、已声明关闭时的缺模型密钥）
+    # ⇒ 同一份输出里「problems 非空」与「ok=true / 结论=可拉起」并存，运维读不出该不该处置。
+    # 改法：把每条问题**显式归类**——fatal（真拉起/真不可用）与 degraded（能跑但能力/安全降级），
+    # `ok` 只由 fatal 决定，degraded 单列成 `degraded / degraded_reasons`，
+    # 结论按「不可拉起 / 可拉起但降级 / 可拉起」三态写。不留未归类的问题。
+    fatal: list = []
+    degraded_reasons: list = []
+    if cfg_err:
+        fatal.append(cfg_err)
+    for k in sorted(bad_keys):
+        fatal.append(f"配置项解析失败：{k}（来源 {_source_of(raw.get(k))} 未设或文件不可读）")
+    if mk_problem:
+        (degraded_reasons if disabled else fatal).append(mk_problem)
+    if not any((merged.get(k) or "").strip() for k in IDENTITY_KEYS):
+        degraded_reasons.append(
+            "身份面未配置：HIVE_ORCH_TOKEN / HIVE_ORCH_TOKEN_FILE 均空"
+            "——锚判据整体不启用（安全方向降级，行为=旧产物判据，见 keyres.rs 头注）"
+            "；编排任务会在 orch.py load_principal 处 fail-closed")
+    problems = fatal + degraded_reasons
     if cfg_err:
         conclusion = "不可拉起：配置文件不可用（见 problems）"
     elif bad_keys:
         conclusion = "不可拉起：配置项解析失败（fail fast，见 problems）"
     elif mk_problem and not disabled:
         conclusion = f"不可拉起：无可用模型密钥（配 {MODEL_KEY}，或声明 {LLM_DISABLED_KEY}）"
+    elif degraded_reasons:
+        conclusion = ("可拉起但降级（" + "；".join("f" + str(i + 1) for i in range(len(degraded_reasons)))
+                      + f" 见 degraded_reasons，共 {len(degraded_reasons)} 条）"
+                      + (f"——{LLM_DISABLED_KEY} 真值，仅确定性任务可用" if disabled else ""))
     elif disabled:
         conclusion = f"可拉起（模型面已声明关闭：{LLM_DISABLED_KEY} 真值）——仅确定性任务可用"
     else:
         conclusion = "可拉起（模型密钥就绪）"
-    return {"ok": not (cfg_err or bad_keys or (bool(mk_problem) and not disabled)),
+    return {"ok": not fatal,
+            "fatal": fatal,
+            "degraded": bool(degraded_reasons),
+            "degraded_reasons": degraded_reasons,
             "config": cfg, "keys": entries, "problems": problems,
             "llm_disabled": disabled, "conclusion": conclusion}
 
