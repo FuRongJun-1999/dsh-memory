@@ -18,23 +18,8 @@
 
 **灵枢是一套可运行的长期记忆基础设施**——对话自动沉淀为纯文本 md 认知图，记什么、取什么、能不能写入全部由确定性规则裁决，全程可审计、结果可复现。它不训练模型，做的是**模型之外的那一整套**：记忆怎么存、取的时候依据什么、写错了怎么被发现、改过怎么留痕。任何支持 MCP 的 AI Agent 可直接挂载，不与任何单一 Agent 框架绑定。
 
-## 🖥️ DSH Desktop 下的一条启动告警（宿主侧已知问题，运行不受影响）
-
-**本插件面向 DSH 网页端**；DSH Desktop 目前不稳定，下面这条属宿主侧行为差异，**不在本仓修复范围**（issue #660 已记录分析）。
-
-现象：每次启动有一条 migration failed（约 2.6 秒）与 profile maintenance frozen，日志写
-schemastery does not resolve from the installation closure。
-
-机制（可复核）：DSH Desktop 的 installer.mjs 先把 generation 里所有 @deepseek-ai/* 提走当**宿主单例**
-（hoistHostSingletons），随后**又按该 generation 目录**做依赖闭包校验——「先删掉、再按原处校验」这对规则，
-对任何把宿主包声明为普通依赖的插件都必然判「解析不到」。运行时不受影响：宿主的 host-module-fallback
-会把 @deepseek-ai/ 前缀的 import 兜到宿主自带副本上。
-
-**为什么不改包声明**：改成 peerDependencies 会让「裸 npm 安装后 import」直接失败（issue #222 的原始缺陷，
-test/issue222_optional_peer.test.ts 守着这条契约）。两条契约在当前依赖形态下不可兼得，
-而目标端（网页端）不受影响，故维持现状、记录在案。
-
-若在旧版本看到这条告警：**功能不受影响**（记忆写入/召回、cg(op=info) 都正常）。
+> **装不起来 / 看到奇怪的告警？** 先看 [环境与已知问题](docs/ops/环境与已知问题.md)——
+> DSH Desktop 的启动告警、体积与整目录耦合、异步落盘、以及五条「看起来像 bug 其实是契约」的设计取舍都在那里。
 
 ## ⚠️ 升级须知：工具名去掉 lingshu_ 前缀（0.9.9 起）
 
@@ -174,7 +159,7 @@ DeepSeek Harness (cordis)
 | 去哪里 | 看什么 |
 |---|---|
 | [docs/ 目录索引](docs/README.md) | 六域快速索引 · 新文档归域规则 |
-| [安装与运维](docs/ops/README.md) | 安装前置 / 30+ 配置项 / 写入凭据 / 升级重启 / 排障 FAQ |
+| [安装与运维](docs/ops/README.md) | 安装前置 / 30+ 配置项 / 写入凭据 / 升级重启 / [环境与已知问题](docs/ops/环境与已知问题.md)（宿主告警·体积·落盘·设计取舍） |
 | [评测总览](docs/eval/评测总览.md) | 六家横评 / 弱证据与证据防火墙 / 中英双语差距 / 公开数据集 / 七维标尺 / 第三方验证 |
 | [开发与编码约定](docs/dev/README.md) | 测试约定 / UTF-8 与 id 契约 / 开关矩阵 / Linux 双栈验证 |
 | [多 harness 接入](docs/mdcg/多harness接入.md) | 五端纪律注入差异 / 出货面 vs 源码树分界 |

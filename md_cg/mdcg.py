@@ -4702,6 +4702,8 @@ class MdCG:
         self._maybe_reload_index()      # P1b-2：读面代际感知（空查询早退后、读索引前）
         pool_cfg = pooling.resolve(pooling.from_env(pools))
         now = time.time() if validity else None      # 统一取一次 now，保判定口径一致
+        # issue #672：口径落 stat，_emit 据此透出 meta.validity_scope（只排过期 / off）
+        stat_validity_on = bool(validity)
 
         terms = expand_query_terms(q)
         # 英文归一化后再取 bigram（小写+去停用词+去时态；中文不动）
@@ -4851,7 +4853,8 @@ class MdCG:
                 if any(t and fold_accents(t) in _folded_content for t in terms):
                     neg_coverage.append(e)
 
-        stat = {"scanned": 0, "query": q, "gates": gates}
+        stat = {"scanned": 0, "query": q, "gates": gates,
+                "validity_on": stat_validity_on}   # issue #672：口径透出给 _emit
         if _tf_audit:
             stat["time_filter"] = _tf_audit
         route_bucket = None
@@ -5682,6 +5685,8 @@ class MdCG:
         # 未启用则 meta 键集合与改动前逐字节一致（默认关零变更纪律）。
         if stat.get("time_filter"):
             meta["time_filter"] = stat["time_filter"]
+        # issue #672：时效口径如实透出（只排过期 / 未启用），避免名字误读。
+        meta["validity_scope"] = "expired_only" if stat.get("validity_on") else "off"
         # issue #659 F26-14：stat["min_score"] 此前写入后无人读（meta 是显式白名单）。
         # 门槛生效时把生效值、作用域、被丢弃数一并透出，调用方才能判断「为什么结果变少」。
         if stat.get("min_score") is not None:
