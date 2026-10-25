@@ -105,7 +105,11 @@ test('⑥ 端到端：含 {{ 的记忆经注入后，宿主真函数可渲染', 
   const listeners = new Map<string, (a: unknown, c: unknown, n: () => Promise<unknown>) => Promise<unknown>>()
   const ctx = {
     logger: { info: () => {}, warn: () => {} },
-    on(ev: string, fn: never) { listeners.set(ev, fn as never) },
+    on(ev: string, fn: never) {
+      const arr = listeners.get(ev) || []
+      arr.push(fn as never)
+      listeners.set(ev, arr)
+    },
   } as never
 
   // 记忆真源（含用户 docker 命令原文）——模拟已沉淀进认知图的节点
@@ -125,11 +129,11 @@ test('⑥ 端到端：含 {{ 的记忆经注入后，宿主真函数可渲染', 
     desensitize: true,
   })
 
-  const handler = listeners.get('system-prompt/assemble')
-  assert.ok(handler, '应注册 system-prompt/assemble 监听')
+  const handlers = listeners.get('system-prompt/assemble') || []
+  assert.ok(handlers[0], '应注册 system-prompt/assemble 监听')
 
   const assembly = { contexts: [] as Array<{ name: string; text: string }>, variables: {} }
-  await handler(assembly, ctx, async () => undefined)
+  await handlers[0]!(assembly, ctx, async () => undefined)
 
   const injected = assembly.contexts.find((c) => c.name === 'lingshu:auto-recall')
   assert.ok(injected, '应注入 lingshu:auto-recall context')

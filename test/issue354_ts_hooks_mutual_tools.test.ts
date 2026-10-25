@@ -96,7 +96,7 @@ function makeHarness(o: {
   const assemble = async (): Promise<any> => {
     assert.ok(assembleHandlers[0], '应注册 system-prompt/assemble 监听')
     const a: any = { contexts: [], variables: {} }
-    await assembleHandlers[0]!(a, {}, async () => a)
+    for (const h of assembleHandlers) await h(a, {}, async () => a)
     return a
   }
   return { assemble, sessionHandlers, warns }
