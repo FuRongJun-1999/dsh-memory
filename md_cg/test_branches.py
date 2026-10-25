@@ -6,6 +6,7 @@
 ② 放弃分支不污染主支检索（召回主支时分支节点零命中）。
 """
 
+import gc
 import os
 import shutil
 import sys
@@ -18,6 +19,7 @@ from .security import AccessDenied, Principal
 
 _ok = 0
 _bad = []
+_OPEN = []   # 本测开过的实例：清理前必须逐个 close()，否则 rmtree 会静默失败
 
 
 def _check(name, cond, detail=""):
@@ -36,7 +38,9 @@ def _mk_cg(tmp, role="designer", seq=[0]):
     p = Principal(tenant="default", actor="t_" + role, role=role,
                   can_write=(role != "guest"),
                   can_admin=(role == "designer"))
-    return MdCGSecure(root, principal=p)
+    cg = MdCGSecure(root, principal=p)
+    _OPEN.append(cg)
+    return cg
 
 
 def _fm(cg, nid):
@@ -55,14 +59,34 @@ def _hits(cg, q, **kw):
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix="branches_")
+    # B176 同族：临时目录必须落在本仓 tmp/（显式 dir=），不许落到源码树根。
+    # 旧写法 `mkdtemp(prefix="branches_")` 落在 lingshu-src/ 根下，运行被中断时
+    # `arch-check.py` 每次都报「块内部结构变了：新增子目录 branches_xxxx」。
+    _tmp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp")
+    os.makedirs(_tmp_root, exist_ok=True)
+    tmp = tempfile.mkdtemp(prefix="branches_", dir=_tmp_root)
     try:
         _run(tmp)
     except Exception:
         traceback.print_exc()
         _bad.append("未捕获异常")
     finally:
+        # 清理三步，顺序不能反：
+        # ① gc.collect() 先把「解释器退出时才落盘的」索引缓存逼出来——这些 __del__
+        #    会重建目录树，跑在 rmtree 之后就会把刚删掉的目录又建回来（实测过一次）；
+        # ② close() 关句柄：`_index.json.lock` 还开着时 rmtree(ignore_errors=True) 会静默留下整棵树；
+        # ③ 删完复核。残留只允许出现在 tmp/（源码树干净即可），所以只记 note 不记失败。
+        gc.collect()
+        for _cg in _OPEN:
+            try:
+                _cg.close()
+            except Exception:
+                pass
+        _OPEN.clear()
         shutil.rmtree(tmp, ignore_errors=True)
+        if os.path.exists(tmp):
+            print("  note 临时目录未删净（位于 tmp/，不污染源码树）：%s"
+                  % os.path.basename(tmp))
     print("\nbranches 验收：%d 通过%s" % (
         _ok, ("，%d 失败：%s" % (len(_bad), "; ".join(_bad))) if _bad else ""))
     return 1 if _bad else 0
