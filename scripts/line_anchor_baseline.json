@@ -2369,6 +2369,21 @@
    "why": "文档面存量手写锚：同上，冻结。"
   },
   {
+   "key": "docs/state/issue修复总账_v1.0.md#30c442e64c435261 -> md_cg/crypto.py:519-520",
+   "at": "docs/state/issue修复总账_v1.0.md:31",
+   "why": "2026-10-24 #665/#666 改动使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
+   "key": "docs/state/issue修复总账_v1.0.md#30c442e64c435261 -> md_cg/mdcg.py:1807",
+   "at": "docs/state/issue修复总账_v1.0.md:31",
+   "why": "2026-10-24 #665/#666 改动使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
+   "key": "docs/state/issue修复总账_v1.0.md#30c442e64c435261 -> md_cg/mdcos.py:5949",
+   "at": "docs/state/issue修复总账_v1.0.md:31",
+   "why": "2026-10-24 #665/#666 改动使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
    "key": "docs/state/issue修复总账_v1.0.md#43853ca84b2663f1 -> md_cg/mdcos.py:2628",
    "at": "docs/state/issue修复总账_v1.0.md:495",
    "why": "文档面存量手写锚：同上，冻结。"
@@ -2447,6 +2462,11 @@
    "key": "docs/state/issue修复总账_v1.0.md#f443641798f7359f -> crypto.py:399",
    "at": "docs/state/issue修复总账_v1.0.md:106",
    "why": "2026-10-23 fold_accents 插入使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
+  },
+  {
+   "key": "docs/state/issue修复总账_v1.0.md#f443641798f7359f -> mdcg.py:1773",
+   "at": "docs/state/issue修复总账_v1.0.md:106",
+   "why": "2026-10-24 #665/#666 改动使 mdcg.py 行号位移，按内容敏感键制重登记（引用目标不变）。"
   },
   {
    "key": "docs/state/issue修复总账_v1.0.md#f443641798f7359f -> mdcos.py:5949",
