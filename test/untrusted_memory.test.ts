@@ -64,7 +64,11 @@ async function injectedText(preview: string): Promise<string> {
   const listeners = new Map<string, (a: unknown, c: unknown, n: () => Promise<unknown>) => Promise<unknown>>()
   const ctx = {
     logger: { info: () => {}, warn: () => {} },
-    on(ev: string, fn: never) { listeners.set(ev, fn as never) },
+    on(ev: string, fn: never) {
+      const arr = listeners.get(ev) || []
+      arr.push(fn as never)
+      listeners.set(ev, arr)
+    },
   } as never
   const graph = {
     isReady: () => true,
@@ -76,10 +80,10 @@ async function injectedText(preview: string): Promise<string> {
     userMessage: true, assistantMessage: false, toolResult: false,
     importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true,
   })
-  const handler = listeners.get('system-prompt/assemble')
-  assert.ok(handler, '应注册 system-prompt/assemble 监听')
+  const handlers = listeners.get('system-prompt/assemble') || []
+  assert.ok(handlers[0], '应注册 system-prompt/assemble 监听')
   const assembly = { contexts: [] as Array<{ name: string; text: string }>, variables: {} }
-  await handler!(assembly, ctx, async () => undefined)
+  await handlers[0]!(assembly, ctx, async () => undefined)
   const injected = assembly.contexts.find((c) => c.name === 'lingshu:auto-recall')
   assert.ok(injected, '应注入 lingshu:auto-recall context')
   return injected.text

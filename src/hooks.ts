@@ -785,12 +785,26 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     if (!Number.isFinite(n)) return 10
     return Math.max(1, Math.min(100, Math.floor(n)))
   })()
-  if (opts.autoRecall) {
+  {
+    // 本 handler **恒定注册**（#657）：提醒是独立配置（memory.turnReminder），
+    // 关掉自动召回不该让它只写不读；召回部分在内部按 opts.autoRecall 门控。
     const recallLimit = Math.max(1, Math.min(10, opts.autoRecallLimit || 4))
     ctx.on('system-prompt/assemble', async (assembly, _ctx, next) => {
       try {
         // 异步取最近记忆节点（失败静默——不阻塞模型请求）
-        if (graph.isReady()) {
+        // 会话标识：门控内外都要用（提醒消费 + 自动召回），故先解析。
+        const hostCtx = (_ctx as unknown) as { agent?: { session?: unknown } } | undefined
+        const sid = sessionIdOf(hostCtx?.agent?.session)
+          || (observedSession ? currentSession() : '')
+        // 逢十轮提醒的消费面（#657）：不受 autoRecall 门控。
+        if (sid) {
+          const pending = pendingReminder.get(sid)
+          if (pending) {
+            pendingReminder.delete(sid)
+            assembly.contexts.push({ name: 'lingshu:turn-reminder', text: pending })
+          }
+        }
+        if (opts.autoRecall && graph.isReady()) {
           // 会话隔离（P45）：自动召回只注入**本会话**的记忆，防多会话串台；
           // 取不到会话标识则退回旧行为（不加过滤），不做半吊子猜测。
           // ⚠️ 取值必须**每步稳定**：本块按 v0.4.8 契约每步都 push，内容一旦与上
@@ -799,14 +813,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 退回「最近一次 session/event 的会话」。
           // 想读**所有**会话做了什么：别走自动召回（它会串台），显式调
           // `stg(op=timeline, session="*")`，返回项带 session 归属。
-          const hostCtx = (_ctx as unknown) as { agent?: { session?: unknown } } | undefined
-          // 回落 = **本实例观测门 × 模块单点值**（裁定项 dwfq-7b3a555e-1，见上方
-          // observedSession 注释）：本实例尚未观测 → 回落 ''（保持「新实例 =
-          // 干净状态」，与 test/session-attribution.test.ts ② 的「未观测 → 不加
-          // 过滤」相容）；已观测 → 取 lib/session_state.ts 的进程级单点值。
-          // 真机单实例下两者逐位等价（差异窗口不可达）。
-          const sid = sessionIdOf(hostCtx?.agent?.session)
-            || (observedSession ? currentSession() : '')
+          // sid 已在门控外解析（提醒消费与召回共用同一份，避免两次口径漂移）。
           // 逢十轮提醒（纪律第 16 条；issue #645 修正）：计数挪到 session/event 的真实
           // 用户回合上，这里只消费一次待推文本。旧实现把 assemble 当轮次 + 段内永久重推
           // ⇒ 提醒几乎常驻、agent 反复空转归档；sid 缺失时还回落共用键 __no_sid__，
@@ -941,6 +948,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       observedSession = true
     }
     const sessionTag = sid ? { session: sid } : { session: UNASSIGNED_SESSION }
+    // 逢十轮提醒的**计轮点**（#645/#658）：真实用户回合 = 用户消息条数。
+    // 位置在 opts.userMessage 之外——那个开关是「消息不自动进知识面」的正当决策，
+    // 与「提醒还该不该跑」是两件事；旧实现把计轮塞在它里面，关知识面会连带静默杀死提醒。
+    if (event.type === 'user/message' && event.data.source?.kind === 'user'
+        && !isRelayedMessage(event.data.source) && sid && reminderInterval > 0) {
+      const n = (userTurns.get(sid) ?? 0) + 1
+      userTurns.set(sid, n)
+      if (shouldRemindTurn(n, reminderInterval)) {
+        pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
+      }
+    }
     if (event.type === 'user/message' && opts.userMessage) {
       // 落盘审计（issue #56）：source.kind 分布——先于两级判据记录**完整**输入分布
       // （含被滤与放行），「宿主到底给这条消息标了什么 kind」是排障第一问。
@@ -962,16 +980,6 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       }
       const text = extractText(event.data.content)
       if (!text) return
-      // 逢十轮提醒的**计轮点**（issue #645）：真实用户回合 = 用户消息条数。
-      // 放在脱敏之前——被脱敏丢弃的消息也是一次真实交互，不应影响计数。
-      // 无 sid 不计数、不提醒（旧实现回落共用键 __no_sid__，并行会话会互相污染频率）。
-      if (sid && reminderInterval > 0) {
-        const n = (userTurns.get(sid) ?? 0) + 1
-        userTurns.set(sid, n)
-        if (shouldRemindTurn(n, reminderInterval)) {
-          pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
-        }
-      }
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) { audit.skipped('sanitized', 'user'); return }
       memorize('user', 'user', (g) => g.remember(safe, {

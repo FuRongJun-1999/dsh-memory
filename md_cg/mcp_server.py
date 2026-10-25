@@ -130,6 +130,36 @@ def _s(_desc, **props):
 
 
 # 生效条件：始终返回 {"type":t,"description":desc}，仅当 req 为真值时该字典额外含 "_req": True。
+def drop_doc_nodes(items, id_of, enabled=False):
+    """过滤 doc_ 索引节点（会话日志切片）——**单一判据**，供所有可达路径共用。
+
+    issue #653：此前该过滤只活在 cg(op=read) 的非 budget 分支里：
+      · mdcg_recall / mdcg_search 直调库层，从不读该键（传了无效、无告警）；
+      · cg(op=read) 的 budget_tokens 早退分支在过滤块之前 return（静默忽略）；
+      · 唯一生效的 cg(op=read) 面其 inputSchema 未声明该参数。
+    本函数把判据收成一处，调用方只负责传 enabled 与取 id 的方式。
+    """
+    if not enabled:
+        return list(items or []), 0
+    kept, dropped = [], 0
+    for it in items or []:
+        nid = str(id_of(it) or "")
+        if nid.startswith("doc_"):
+            dropped += 1
+            continue
+        kept.append(it)
+    return kept, dropped
+
+
+def _note_doc_filter(meta, dropped, enabled):
+    """把过滤读数如实体现在 meta 上（不静默）。"""
+    if dropped and isinstance(meta, dict):
+        meta = dict(meta)
+        meta["excluded_doc"] = dropped
+        meta["exclude_doc"] = bool(enabled)
+    return meta
+
+
 def _p(t, desc, req=False, **extra):
     d = {"type": t, "description": desc}
     if req:
@@ -746,6 +776,9 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
+                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
+                                                "默认 false = 保持既有契约——test_p27_docindex 断言"
+                                                "文档节点必须可被检索到；需要只看真记忆卡时显式传 true）"),
             excerpt_strategy=_p("string", "read 超预算条目摘录方式：prefix（默认）或 query（查询相关原文片段）"),
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
@@ -2650,6 +2683,16 @@ def _cg_dispatch(cg, a):
                              session=a.get("session"),
                              validity=a.get("validity"),
                              **({"paths": ("bm25",)} if a.get("bm25", True) and hasattr(cg, "search_rrf") else {}), **_tkw)
+            # issue #653：budget 早退分支此前在过滤之前 return，exclude_doc 静默忽略。
+            if isinstance(_out, dict):
+                _pack2, _drop2 = drop_doc_nodes(
+                    _out.get("pack") or [], lambda it: (it or {}).get("id"),
+                    a.get("exclude_doc", False))
+                if _drop2:
+                    _out = dict(_out)
+                    _out["pack"] = _pack2
+                    _out["meta"] = _note_doc_filter(_out.get("meta"), _drop2,
+                                                    a.get("exclude_doc", False))
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
@@ -2665,15 +2708,10 @@ def _cg_dispatch(cg, a):
             res, meta = cg.search(q, **search_args)
         # read 面过滤 doc_ 索引节点（2026-10-23 使用者批准）：doc_ 为会话日志切片，
         # 与真记忆卡同分（0.016）且占 top5 的 60–80%，稀释可达性。默认 true，可显式关。
-        _excluded_doc = 0
-        if a.get("exclude_doc", False):
-            _before = len(res)
-            res = [x for x in res if not str((x[0] or {}).get("id", "")).startswith("doc_")]
-            _excluded_doc = _before - len(res)
-        if _excluded_doc and isinstance(meta, dict):
-            meta = dict(meta)
-            meta["excluded_doc"] = _excluded_doc
-            meta["exclude_doc"] = True
+        # issue #653：判据收敛到 drop_doc_nodes（单一真源），不再就地手写第二条。
+        res, _excluded_doc = drop_doc_nodes(
+            res, lambda x: (x[0] or {}).get("id"), a.get("exclude_doc", False))
+        meta = _note_doc_filter(meta, _excluded_doc, a.get("exclude_doc", False))
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"), **refindex.ref_fields(n)}
@@ -4314,6 +4352,16 @@ def _dispatch(cg, name, args):
                     _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
         except Exception:
             pass
+        # issue #653：recall 面此前完全不读 exclude_doc（schema 挂在它身上却不生效）。
+        if isinstance(_pack, dict):
+            _pk, _pk_drop = drop_doc_nodes(
+                _pack.get("pack") or [], lambda it: (it or {}).get("id"),
+                a.get("exclude_doc", False))
+            if _pk_drop:
+                _pack = dict(_pack)
+                _pack["pack"] = _pk
+                _pack["meta"] = _note_doc_filter(_pack.get("meta"), _pk_drop,
+                                                 a.get("exclude_doc", False))
         return _pack
 
     if name == "mdcg_search":
@@ -4382,6 +4430,10 @@ def _dispatch(cg, name, args):
                               pools=a.get("pools"),
                               session=a.get("session"),
                               validity=a.get("validity"))
+        # issue #653：search 面此前同样不读 exclude_doc（直调库层）。
+        res, _sd_drop = drop_doc_nodes(
+            res, lambda x: (x[0] or {}).get("id"), a.get("exclude_doc", False))
+        meta = _note_doc_filter(meta, _sd_drop, a.get("exclude_doc", False))
         from . import conflict_surface
         _cf = conflict_surface.as_meta([n for n, _s, _q in res])
         if _cf:

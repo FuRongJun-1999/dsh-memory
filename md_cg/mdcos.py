@@ -27,7 +27,8 @@ import re
 import time
 import uuid
 
-from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, STATE_ACCEPT,
+from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, fold_accents,
+                    STATE_ACCEPT,
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
                    TIER_BUCKET_SCAN, TIER_GLOBAL_LIKE, TIER_GLOBAL_SCAN,
                    GLOBAL_CAP, expand_query_terms_weighted,
@@ -1289,7 +1290,9 @@ class MdCGOS(MdCG):
             if not fm:
                 continue
             content = self._open_content(fm.get("id"), fm, content)
-            if content and any(t in content for t in terms):
+            # issue #656：terms 已折叠、content 是原文；正文侧同样折叠才算同口径。
+            if content and any(t and fold_accents(t) in fold_accents(content)
+                               for t in terms):
                 out.append(e)
         return out
 
@@ -2487,6 +2490,24 @@ class MdCGOS(MdCG):
         boundary_counts = {"hit": 0, "terms": 0,
                            "counts": {"accept": 0, "reject": 0, "defer": 0,
                                       "blindspot": 0}}
+        # issue #654：MDCG_MIN_SCORE 此前只活在 MdCG._emit 内，而默认读路径
+        # （cg(op=read) 默认 bm25=True → search_rrf）**从不经过 _emit**，开关静默失效。
+        # 这里按同一环境变量、同一语义在融合面补一刀：过滤发生在资格判定之前，
+        # 被滤掉的不参与 boundary_counts（否则统计会把已丢弃条目算成命中）。
+        _rrf_min = 0.0
+        try:
+            _rrf_min = float(os.environ.get("MDCG_MIN_SCORE", "0"))
+        except ValueError:
+            _rrf_min = 0.0
+        _rrf_dropped = 0
+        if _rrf_min > 0:
+            _kept = []
+            for _nid, _fs in fused:
+                if float(_fs) >= _rrf_min:
+                    _kept.append((_nid, _fs))
+                else:
+                    _rrf_dropped += 1
+            fused = _kept
         for nid, fs in fused:
             node, s = node_by_id[nid]
             if quals.get(nid):
@@ -2593,7 +2614,11 @@ class MdCGOS(MdCG):
                          k=k, layer=layer,
                          session=session, branch=branch, validity=validity,
                          view=view, extra=_cache_extra, clock_window=_query_window)
+        if _rrf_dropped:
+            stat["min_score"] = _rrf_min
         return results, {"tier": "RRF", "scanned": stat["scanned"],
+                         **({"min_score": _rrf_min, "min_score_dropped": _rrf_dropped}
+                            if _rrf_min > 0 else {}),
                          "paths": per_path, "fused": len(results),
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,

@@ -89,7 +89,7 @@ function makeHarness(graph: object, overrides: Partial<MemoryHooksOptions> = {})
   const assemble = async (hostCtx: unknown): Promise<Assembly> => {
     assert.ok(assembleHandlers[0], '应注册 system-prompt/assemble 监听')
     const a: Assembly = { contexts: [], variables: {} }
-    await assembleHandlers[0]!(a, hostCtx, async () => a)
+    for (const h of assembleHandlers) await h(a, hostCtx, async () => a)
     return a
   }
   const send = (session: unknown, event: unknown): void => {
@@ -196,10 +196,14 @@ test('⑤ 会话隔离不破坏「每步照旧 push」：同会话连续两步�
     '同会话连续两步注入块须逐字节相同 → 宿主不追加新快照')
 })
 
-test('⑥ 开关尊重既有语义：关掉 autoRecall 则不注册自动召回监听', async () => {
+test('⑥ 开关尊重既有语义：关掉 autoRecall 则不注入召回块（#657 后仍有独立的提醒监听）', async () => {
   const { graph, timelineCalls } = makeGraph()
-  const { assembleHandlerCount } = makeHarness(graph, { autoRecall: false })
+  const { assemble } = makeHarness(graph, { autoRecall: false })
+  const a = await assemble({ agent: { session: { id: 'sess_x', header: {} } } })
 
-  assert.equal(assembleHandlerCount(), 0, 'autoRecall=false 不应注册 system-prompt/assemble 监听')
+  // #657：autoRecall=false 时**提醒消费面仍注册**（独立配置 memory.turnReminder），
+  // 故判据从「零监听」改为行为面：不注入召回块、不发起 timeline 调用。
+  assert.equal(a.contexts.some((c) => c.name === 'lingshu:auto-recall'), false,
+    'autoRecall=false 不应注入召回块')
   assert.equal(timelineCalls.length, 0, 'autoRecall=false 不应发起 timeline 调用')
 })
