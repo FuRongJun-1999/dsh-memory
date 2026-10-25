@@ -13,7 +13,7 @@ import sys
 import tempfile
 import traceback
 
-from . import branches
+from . import branches, nodefile
 from .mdcos import MdCGSecure
 from .security import AccessDenied, Principal
 
@@ -48,8 +48,24 @@ def _fm(cg, nid):
     return rec.get("frontmatter") or {}
 
 
+def _strip_ccg(text):
+    """剥掉写入面自动补的 CCG 标题行（`# 验证方式：…` / `# 生效条件：…` 等）。
+
+    写入面 `MdCG._ensure_ccg_six` 会给未声明的 CCG 六要素补行（与
+    `md_cg/migrate_roleplay._content_equals` 同族、同一份判据）：正文里多出来的
+    这些「回读才有、写入没有」的行不是内容差异，比内容前必须先剥掉；原文自带的
+    CCG 行不动（两边都剥，剥完逐字比才是真判据）。
+    """
+    out = []
+    for ln in (text or "").splitlines():
+        if any(nodefile.ccg_mark_present(ln, m) for m in nodefile.CCG_MARKS):
+            continue
+        out.append(ln)
+    return "\n".join(out).strip()
+
+
 def _content(cg, nid):
-    return ((cg.get(nid) or {}).get("content") or "").strip()
+    return _strip_ccg((cg.get(nid) or {}).get("content"))
 
 
 def _hits(cg, q, **kw):

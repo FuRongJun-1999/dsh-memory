@@ -234,9 +234,18 @@ def scrypt_kek(passphrase, salt):
                           n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=SCRYPT_DKLEN)
 
 
-# 生效条件：master_file=None、env_var=MASTER_ENV、create=True 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d；若 create 为假返回 None；否则生成 KEY_LEN 随机密钥写入 path 并返回 key。
-def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
-    """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
+# 生效条件：master_file=None、env_var=MASTER_ENV、create=None、allow_create=None 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d（读失败/内容坏抛 CryptoError，**绝不因此新建**）；文件不存在时仅 allow_create=True 才新建，未显式允许时 create is False 返回 None、其余抛 CryptoError（拒绝静默换钥）。
+def load_master_key(master_file=None, env_var=MASTER_ENV, create=None,
+                    allow_create=None):
+    """KEK 来源：环境变量 → 主密钥文件。
+
+    三态（**绝不静默换钥**）：
+      · 拿到密钥 → 返回 bytes
+      · 文件不存在且 `allow_create=True` → 新建一把并落盘（唯一允许新建的路径）
+      · 文件不存在且未显式允许 → `create=False` 时返回 None，其余抛 CryptoError
+    旧形态（`create=True` 缺省）在「密钥文件丢了」与「首次部署」两种场景下都直接新建，
+    于是**密钥丢失被静默换成新钥**：旧密文从此解不开，而系统照常启动、零报错。
+    """
     raw = (os.environ.get(env_var) or "").strip()
     if raw:
         try:
@@ -245,10 +254,21 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
             raise CryptoError(f"环境变量 {env_var} 不是合法 hex / base64 主密钥") from e
     path = master_file or MASTER_FILE
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return _b64d(f.read().strip())
-    if not create:
-        return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return _b64d(f.read().strip())
+        except (OSError, ValueError) as e:
+            # 文件在但读不出/内容坏了：这是**故障**，不是「没有密钥」。旧形态在这里会
+            # 落到下面的新建分支，把「读失败」变成「换一把新钥」。
+            raise CryptoError(
+                f"主密钥文件存在但读取失败（{path}）：{type(e).__name__}: {e}"
+                " —— 不自动新建（拒绝静默换钥）") from e
+    if allow_create is not True:
+        if create is False:
+            return None
+        raise CryptoError(
+            f"主密钥文件不存在（{path}）且未显式允许新建 —— 拒绝静默换钥；"
+            "首次部署请显式传 allow_create=True")
     key = secrets.token_bytes(KEY_LEN)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
