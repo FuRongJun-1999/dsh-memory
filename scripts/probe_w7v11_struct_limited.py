@@ -82,7 +82,14 @@ class _ROGet:
 def cmd_fastpath(root: str, sample: int = 0) -> dict:
     from md_cg import refindex, nodefile  # noqa: F401
 
-    idx = json.load(open(os.path.join(root, "_index.json"), encoding="utf-8"))
+    try:
+        with open(os.path.join(root, "_index.json"), encoding="utf-8") as fh:
+            idx = json.load(fh)
+    except (OSError, ValueError) as e:
+        # 环境缺口：不是「结构面健康」，也不是「结构面为空」，是读不到判据面。
+        return {"cg_root_placeholder": "<库根>",
+                "surface": {"state": "env_error",
+                            "detail": "读不到 _index.json：%s" % e}}
     nodes = idx.get("nodes") or {}
     led = refindex.Ledger(root)
     files = led.load().get("files") or {}
@@ -164,9 +171,27 @@ def cmd_fastpath(root: str, sample: int = 0) -> dict:
                 if len(out["examples_skip"]) < 3:
                     out["examples_skip"].append({"node_id": nid, "path": rel})
     # agree_unchanged_skip 的语义即「跳过」
+    # E101 修：空面显式化。以前「索引 0 节点 / 台账 0 文件 / covered=0」时所有计数
+    # 都是 0，JSON 看起来处处为 0（stale=0、dangling=0、mismatch=0），与「结构面
+    # 全部健康」同形——在测试库上跑一遍就得到「全过」。现在给出 surface.state。
+    surface = {"state": "ok", "detail": ""}
+    if out["index_nodes"] == 0:
+        surface.update({"state": "empty", "detail": "_index.json 里 0 个节点"})
+    elif out["ledger_files"] == 0:
+        surface.update({"state": "empty", "detail": "台账 0 个文件（无水位条目）"})
+    elif out["watermark_nodes"] == 0:
+        surface.update({"state": "empty",
+                        "detail": "水位条目与索引节点集无交集（%d 节点 / %d 文件）"
+                                  % (out["index_nodes"], out["ledger_files"])})
+    elif out["covered"] == 0:
+        surface.update({"state": "empty",
+                        "detail": "有水位条目但 %d 条都取不回节点或无 ref"
+                                  % out["watermark_nodes"]})
     out["probe_rate"] = (round(out["probe_needed"] / out["covered"], 4)
                          if out["covered"] else None)
+    out["surface"] = surface
     return out
+
 
 
 # --------------------------------------------------------------------------
@@ -353,6 +378,14 @@ def main():
     else:
         res = cmd_sustain(args.root, args.name, args.stamp_dir)
     print(json.dumps(res, ensure_ascii=False, indent=1, default=str))
+    surf = res.get("surface") or {}
+    if surf.get("state") == "env_error":
+        print("STRUCT-FACE ENV-ERROR：%s（判据面没建起来，读数不可当通过）"
+              % surf.get("detail", ""))
+        return 2
+    if surf.get("state") == "empty":
+        print("STRUCT-FACE EMPTY：%s（空面不是「全部健康」）" % surf.get("detail", ""))
+        return 3
     return 0
 
 

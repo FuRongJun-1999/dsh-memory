@@ -53,26 +53,91 @@ def load_rows(ledger_path):
     return rows
 
 
+DUP_REASONS = ("exact_dup", "exact_duplicate", "duplicate", "dedup")
+
+
+def classify_outcome(out):
+    """把 writepipe 返回归类成 (status, detail)。
+
+    E151 修：旧版靠**返回形态**猜结果——`out.get("committed")` 真、或者
+    `gate.verdict == "DROP"`，就把这一行记成「幂等去重即成功」。问题有三：
+      ① committed 若不是 True（如 "true"、1、dict）也算成功，缺显式校验；
+      ② 任何 DROP 都算幂等成功，可 gate 拒收（安全/越权/格式）与 exact_dup
+         是两回事，混在一起等于把拒收洗成「已存在」；
+      ③ 缺 verdict、或 verdict 大小写不同的返回一律进 failed，形态一变
+         「已存在」就翻脸成失败。
+    现在：显式看 committed is True；DROP 只在 reason ∈ DUP_REASONS 时算幂等；
+    其它 DROP 记 rejected（带原因）；拿不到判定记 failed（带原样返回）。
+    """
+    if not isinstance(out, dict):
+        return "failed", {"error": "返回非 dict：%r" % (out,)[:200]}
+    if out.get("committed") is True:
+        return "committed", {}
+    # 真机读数（2026-10-25 实跑 546 行）：重跑同一行时返回的不是 DROP，而是
+    # committed=false + moved_to=review_queue + autonomy.decision=confirm——即
+    # 覆写判定发生在 exact_dup 之前，重跑会往审核队列里堆变更单。这既不是
+    # 「已存在（幂等）」，也不是「写失败」，必须单列，否则会被洗成其中一边。
+    moved = str(out.get("moved_to") or "")
+    auto = out.get("autonomy") or {}
+    if moved == "review_queue" or str(auto.get("decision") or "") in ("confirm", "defer"):
+        return "deferred", {"moved_to": moved or "(未标落点)",
+                            "decision": auto.get("decision"),
+                            "pid": out.get("pid")}
+    gate = out.get("gate") or {}
+    verdict = out.get("verdict") or {}
+    state = str(gate.get("verdict") or verdict.get("state") or "").upper()
+    reason = str(gate.get("reason") or verdict.get("reason")
+                 or out.get("reason") or "").lower()
+    if state == "DROP":
+        if any(reason.startswith(r) for r in DUP_REASONS):
+            return "dropped", {"reason": reason}
+        return "rejected", {"state": state, "reason": reason or "(未给原因)"}
+    return "failed", {"state": state or "(缺 verdict)", "out": str(out)[:300]}
+
+
 def migrate(cg, rows):
     """逐行迁移：row → 载荷 → writepipe 既有审核链。返回统计。"""
-    stats = {"rows": len(rows), "committed": 0, "dropped": 0, "failed": []}
+    stats = {"rows": len(rows), "committed": 0, "dropped": 0, "rejected": 0,
+             "deferred": 0, "identical": 0, "failed": [], "by_reason": {}}
     for i, row in enumerate(rows):
         try:
             payload = hyperedge.row_from_ledger(row)
+            nid = hyperedge.node_id_for(row)
+            # 幂等前置判据（E151）：写链在 confirm 档下会把「同 id 覆写」先送审，
+            # 于是重跑 546 行会往审核队列堆 546 张变更单，返回里没有 DROP，旧逻辑
+            # 只能记成 failed。真正想知道的「这条已经在了」由内容比对直接给。
+            existing = cg.get(nid) or {}
+            rec_body = (existing.get("content") or "").rstrip("\n")
+            pay_body = payload["content"].rstrip("\n")
+            # 写链会在正文前补一行 `# 验证方式：…`、并在尾部补换行，故用「载荷正文被
+            # 节点正文包含」判同文：node_id 由台账行确定性推出，同 id 且同文即幂等。
+            if rec_body and pay_body and pay_body in rec_body:
+                stats["identical"] += 1
+                continue
             a = {"op": "write", "content_kind": hyperedge.CONTENT_KIND,
                  "content": payload["content"],
-                 "node_id": hyperedge.node_id_for(row),
+                 "node_id": nid,
                  "layer": "knowledge", "tags": ["receipt", "hyperedge"]}
             a.update(payload["frontmatter"])     # fm 键平铺（EXTRA_FM_KEYS 通道）
             out = writepipe.default_pipeline().execute(cg, a)
-            if out.get("committed"):
+            status, detail = classify_outcome(out)
+            if status == "committed":
                 stats["committed"] += 1
-            elif (out.get("gate") or {}).get("verdict") == "DROP" \
-                    or (out.get("verdict") or {}).get("state") == "DROP":
+            elif status == "dropped":
                 stats["dropped"] += 1            # exact_dup：幂等去重即成功
+                r = detail.get("reason") or "?"
+                stats["by_reason"][r] = stats["by_reason"].get(r, 0) + 1
+            elif status == "rejected":
+                stats["rejected"] += 1
+                stats["failed"].append({"line": i + 2, "row": dict(row),
+                                        "rejected": detail})
+            elif status == "deferred":
+                stats["deferred"] += 1
+                stats["failed"].append({"line": i + 2, "row": dict(row),
+                                        "deferred": detail})
             else:
                 stats["failed"].append({"line": i + 2, "row": dict(row),
-                                        "out": str(out)[:300]})
+                                        "out": detail})
         except Exception as exc:  # noqa: BLE001
             stats["failed"].append({"line": i + 2, "row": dict(row),
                                     "error": repr(exc)})
@@ -111,6 +176,9 @@ def h2_idempotent(cg, rows, before_count, stats2):
     after_count = _count_hyperedges(cg)
     return {"before": before_count, "after": after_count,
             "recommitted": stats2["committed"], "redropped": stats2["dropped"],
+            "rejected": stats2.get("rejected", 0),
+            "deferred": stats2.get("deferred", 0),
+            "identical": stats2.get("identical", 0),
             "refailed": len(stats2["failed"]),
             "ok": (before_count == after_count and not stats2["failed"])}
 
@@ -175,12 +243,17 @@ def main():
     hyperedge.register(audit_mod)     # 回放比对验证器注入（否则 audit DEFER）
     try:
         s1 = migrate(cg, rows)
-        print("迁移① committed=%d dropped=%d failed=%d"
-              % (s1["committed"], s1["dropped"], len(s1["failed"])))
+        print("迁移① committed=%d dropped=%d rejected=%d deferred=%d identical=%d failed=%d%s"
+              % (s1["committed"], s1["dropped"], s1["rejected"], s1["deferred"],
+                 s1["identical"], len(s1["failed"]),
+                 ("（去重原因 %s）" % json.dumps(s1["by_reason"], ensure_ascii=False))
+                 if s1["by_reason"] else ""))
         if s1["failed"]:
             for f in s1["failed"][:5]:
                 print("  失败行 L%s：%s" % (f["line"], f.get("error")
-                                            or f.get("out", "")[:120]))
+                                            or json.dumps(f.get("rejected")
+                                                          or f.get("out") or "",
+                                                          ensure_ascii=False)[:120]))
         h1 = h1_replay(cg, rows)
         print("H1 全量回放：%d/%d 一致（坏 %d）"
               % (h1["consistent"], h1["checked"], h1["bad_total"]))
@@ -188,9 +261,10 @@ def main():
         s2 = migrate(cg, rows)
         h2 = h2_idempotent(cg, rows, before, s2)
         print("H2 幂等重跑：%s（before=%s after=%s recommit=%d redrop=%d"
-              " refail=%d）" % ("OK" if h2["ok"] else "FAIL", h2["before"],
-                               h2["after"], h2["recommitted"], h2["redropped"],
-                               h2["refailed"]))
+              " rejected=%d deferred=%d identical=%d refail=%d）"
+              % ("OK" if h2["ok"] else "FAIL", h2["before"], h2["after"],
+                 h2["recommitted"], h2["redropped"], h2["rejected"],
+                 h2["deferred"], h2["identical"], h2["refailed"]))
         h1b = h1_replay(cg, rows)
         h2["replay_ok"] = h1b["bad_total"] == 0
         h3 = h3_visible(cg, rows)

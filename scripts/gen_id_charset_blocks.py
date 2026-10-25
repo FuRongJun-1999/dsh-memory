@@ -32,8 +32,14 @@
 用法：
     python -X utf8 scripts/gen_id_charset_blocks.py            # 干跑：逐区块贡献 + 未收明细 + 自检
     python -X utf8 scripts/gen_id_charset_blocks.py --write    # 落盘 hive/id_charset_blocks.txt
-    python -X utf8 scripts/gen_id_charset_blocks.py --check    # 守卫：盘上 != 重算 ⇒ 退出 1（表缺失也 1）
-退出码：0 = 一致 / 写入成功；1 = 陈化或自检失败（fail-closed，绝不落盘）；2 = 用法错误。
+    python -X utf8 scripts/gen_id_charset_blocks.py --check    # 守卫：盘上 != 重算 ⇒ 退出 1（表缺失 2）
+退出码（E78：豁免不再与「已核过」同码）：
+  0 = 逐字一致 / 写入并复读成功
+  1 = 真陈化（盘上与重算不一致）
+  2 = 表缺失或不可读（环境）
+  3 = 跨版本豁免（本机解释器低于表快照，**没有做**逐字比对）
+  4 = 生成期或落盘后自检失败（fail-closed）
+  5 = 拒绝写入（降级覆盖：本机版本低于盘上表快照）
 纪律第 15 条：纯文件读写 + 显式 UTF-8；本脚本不起任何子进程。
 """
 from __future__ import annotations
@@ -58,6 +64,15 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(_HERE)
 OUT_REL = "hive/id_charset_blocks.txt"
 OUT_PATH = os.path.join(REPO, "hive", "id_charset_blocks.txt")
+
+#: 退出码（E78）：以前「逐字一致」与「跨版本豁免（没比对）」都是 0，调用方分不清
+#: 「这表被核过」和「这台机器根本没核」；自检失败/表缺失/拒绝写入也混用 1。
+EXIT_OK = 0            # 一致 / 写入并复读通过
+EXIT_STALE = 1         # 真陈化：盘上与重算不一致
+EXIT_ENV = 2           # 表缺失或不可读（环境）
+EXIT_EXEMPT = 3        # 跨版本豁免：本机解释器低于表快照，未做逐字比对
+EXIT_SELFCHECK = 4     # 生成期自检失败（fail-closed，不落盘）
+EXIT_WRITE_REFUSED = 5  # 降级覆盖被拒（本机版本低于表快照）
 MAX_CP = 0x10FFFF
 
 # ---------------------------------------------------------------- 判据面常量
@@ -477,7 +492,7 @@ def main(argv=None) -> int:
 
     if failures:
         print("✖ 自检失败 %d 项：fail-closed，绝不落盘" % len(failures))
-        return 1
+        return EXIT_SELFCHECK
 
     if args.check:
         try:
@@ -485,7 +500,7 @@ def main(argv=None) -> int:
                 have = fh.read()
         except OSError as exc:
             print("✖ 表缺失或不可读（fail-closed）：%s —— %s" % (OUT_REL, exc))
-            return 1
+            return EXIT_ENV
         # 版本三态（2026-10-03 外部报告核验新增；表头本已声明「本表=某版本快照」）：
         #   本机 == 表快照 ⇒ 原路径（逐字比对）。
         #   本机 >  表快照（解释器升级）⇒ 原路径：重算 ≠ 盘上 ⇒ 判陈化、催促重跑
@@ -498,12 +513,13 @@ def main(argv=None) -> int:
         if _tv and _ver_tuple(version) < _ver_tuple(_tv):
             print("✔ 陈化守卫豁免（跨版本）：本机 unicodedata %s 低于表快照 %s——"
                   "逐字比对需在 ≥%s 的解释器上进行，本环境跳过；表以 %s 为准"
-                  % (version, _tv, _tv, _tv))
-            return 0
+                  "（exit=%d：这不是「已核过」）"
+                  % (version, _tv, _tv, _tv, EXIT_EXEMPT))
+            return EXIT_EXEMPT
         if have == text:
             print("✔ 陈化守卫通过：%s 与重算结果逐字一致（%d 条区间 / %d 码点）"
                   % (OUT_REL, len(intervals), len(adopted)))
-            return 0
+            return EXIT_OK
         have_lines, want_lines = have.split("\n"), text.split("\n")
         first = next((i for i, (a, b) in enumerate(zip(have_lines, want_lines), 1) if a != b),
                      min(len(have_lines), len(want_lines)) + 1)
@@ -516,7 +532,7 @@ def main(argv=None) -> int:
             same_set = False
             print("   盘上解析失败：%s" % exc)
         print("   区间集合是否相同：%s" % ("相同（仅表头陈化）" if same_set else "不同"))
-        return 1
+        return EXIT_STALE
 
     if args.write:
         # 防降级覆盖（2026-10-03 外部报告核验新增）：本机低于表快照版本时拒绝写入——
@@ -525,14 +541,14 @@ def main(argv=None) -> int:
         if _tv and _ver_tuple(version) < _ver_tuple(_tv):
             print("✖ 拒绝写入（fail-closed）：本机 unicodedata %s 低于盘上表快照 %s——"
                   "请用 ≥%s 的解释器重生成（仓库 CI 为 Python 3.12）" % (version, _tv, _tv))
-            return 1
+            return EXIT_WRITE_REFUSED
         with open(OUT_PATH, "w", encoding="utf-8", newline="\n") as fh:
             fh.write(text)
         with open(OUT_PATH, encoding="utf-8") as fh:
             back = fh.read()
         if back != text:
             print("✖ 落盘后复读不一致（fail-closed）：%s" % OUT_REL)
-            return 1
+            return EXIT_SELFCHECK
         print("✔ 已落盘 %s：%d 条最小区间 / %d 码点（落盘后复读逐字一致）"
               % (OUT_REL, len(intervals), len(adopted)))
         return 0

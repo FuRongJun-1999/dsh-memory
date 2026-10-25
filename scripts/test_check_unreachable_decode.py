@@ -202,22 +202,33 @@ def _materialize_head(tmp):
 
 
 def _head_leg(tmp):
-    """D 组（默认模式内联）：HEAD 版跑 A 组，应恰按 A2–A5 点名转红；已修则 SKIP。"""
+    """D 组（默认模式内联）：HEAD 版跑 A 组，应恰按 A2–A5 点名转红；已修则 SKIP。
+
+    E161：这条自证腿会随提交消失——修复一旦进 HEAD，「红基线」就再也复现不出来。
+    旧版把它记成一条 SKIP 后 rc 仍是 0，等于「自证不在了」与「自证通过」同形。
+    现在把状态写进 `_SELF_PROOF`（reproduced / unavailable / mismatch / env_error），
+    由报告行输出，`--impl head` 模式下 unavailable 以独立退出码表达。
+    """
     keep = list(_RESULTS)
     del _RESULTS[:]
     head, why = _materialize_head(tmp)
     if head is None:
+        _SELF_PROOF.update({"status": "env_error", "why": why})
         _check("D 红基线自证：HEAD 版物化", False, why)
     else:
         _case_decode(head, os.path.join(tmp, "head_run"))
         reds = {n for n, ok, _d in _RESULTS if not ok}
         del _RESULTS[:]          # 明细只用于分类；D 腿只留一条结论
         if not reds:
+            _SELF_PROOF.update({"status": "unavailable",
+                                "why": "HEAD 版已呈修复形态——红基线只在本改动提交前可复现"})
             _skip("D 红基线自证",
                   "HEAD 版已呈修复形态——红基线只在本改动提交前可复现")
         elif reds == set(_HEAD_EXPECT_RED):
+            _SELF_PROOF.update({"status": "reproduced", "why": ""})
             _check("D 红基线自证：HEAD 版恰按 4 条点名转红（崩溃形态可复现）", True)
         else:
+            _SELF_PROOF.update({"status": "mismatch", "why": "转红集合与预期不符"})
             _check("D 红基线自证：HEAD 版转红集合意外（多红 %r / 少红 %r）"
                    % (sorted(reds - set(_HEAD_EXPECT_RED)),
                       sorted(set(_HEAD_EXPECT_RED) - reds)), False)
@@ -238,8 +249,8 @@ def _baseline_mode(impl, tmp):
           "这正是本缺陷的诡诈处，区分面在 [SYNTAX]/汇总/继续扫描三段）")
     exp = set(_HEAD_EXPECT_RED)
     if not reds:
-        print("\nHEAD 版 A/B/C 全绿——HEAD 已含修复，红基线只在本改动提交前可复现（SKIP）")
-        return 0
+        print("\nHEAD 版 A/B/C 全绿——HEAD 已含修复，红基线只在本改动提交前可复现（SKIP，exit=3）")
+        return 3
     if reds == exp:
         print("\n红基线成立：HEAD 版恰按 4 条点名转红（崩溃形态可复现）")
         return 0
@@ -278,6 +289,10 @@ def _mutate_mode(tmp):
     return 0 if not bad else 1
 
 
+#: 红基线自证腿状态（E161）：reproduced / unavailable / mismatch / env_error / not_run
+_SELF_PROOF = {"status": "not_run", "why": ""}
+
+
 def _report():
     failed = 0
     for name, ok, detail in _RESULTS:
@@ -291,6 +306,8 @@ def _report():
         print("  [SKIP] %s（%s）" % (name, why))
     print("\n%d passed, %d failed, %d skipped"
           % (len(_RESULTS) - failed, failed, len(_SKIPPED)))
+    print("SELF-PROOF=%s%s" % (_SELF_PROOF["status"],
+                               ("（%s）" % _SELF_PROOF["why"]) if _SELF_PROOF["why"] else ""))
     return 1 if failed else 0
 
 
@@ -329,12 +346,12 @@ def main(argv=None):
             head, why = _materialize_head(tmp)
             if head is None:
                 print("取不到 HEAD 版：%s" % why)
-                return 1
+                return 2
             return _baseline_mode(head, tmp)
         impl = os.path.abspath(args.impl) if args.impl else DEFAULT_IMPL
         if not os.path.isfile(impl):
             print("--impl 指向的文件不存在：%s" % impl)
-            return 1
+            return 2
         return _live_mode(impl, tmp)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)

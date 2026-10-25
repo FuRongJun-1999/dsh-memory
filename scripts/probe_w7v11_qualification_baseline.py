@@ -30,6 +30,7 @@
 """
 from __future__ import annotations
 
+import ast
 import hashlib
 import inspect
 import json
@@ -353,16 +354,65 @@ def _prio_dist(cands):
     return dict(sorted(d.items(), key=lambda kv: -float(kv[0])))
 
 
+def _dotted(node):
+    """把属性链拍成点分名（md_cg.goal_gen.generate）；非 Name 打底则返回空串。"""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if not isinstance(node, ast.Name):
+        return ""
+    parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
 def _refs(*fnames):
-    """发生器是否被 sleep/sustain 自动循环引用（应为否——opt-in 如实记录）。"""
+    """发生器是否被 sleep/sustain 自动循环**引用**（应为否——opt-in 如实记录）。
+
+    三态口径（B80）：none / imported / called；另有 missing（文件不存在）与
+    syntax_error（解析失败）。旧写法 `"goal_gen" in txt` 是子串判存在，注释里写
+    「不引用 goal_gen」、路径串 'goal_gen.py'、同前缀名 goal_gen_v2 都会误命中，
+    而且把「只是 import」和「真的调用」混成同一个 True。
+    """
     out = {}
     for f in fnames:
         p = os.path.join(os.path.dirname(goal_gen.__file__), f)
-        txt = ""
-        if os.path.exists(p):
+        if not os.path.exists(p):
+            out[f] = "missing"
+            continue
+        try:
             with open(p, encoding="utf-8") as fh:
-                txt = fh.read()
-        out[f] = ("goal_gen" in txt)
+                tree = ast.parse(fh.read())
+        except (OSError, SyntaxError, ValueError):
+            out[f] = "syntax_error"
+            continue
+        imported = False
+        called = False
+        aliases = set()
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for a in node.names:
+                    parts = a.name.split(".")
+                    if parts[-1] == "goal_gen":
+                        imported = True
+                        # `import md_cg.goal_gen` 绑定的是 md_cg；`import goal_gen` 绑 goal_gen
+                        aliases.add(a.asname or parts[0])
+            elif isinstance(node, ast.ImportFrom):
+                mod = (node.module or "").split(".")
+                if mod and mod[-1] == "goal_gen":
+                    imported = True
+                    for a in node.names:
+                        aliases.add(a.asname or a.name)
+                else:
+                    for a in node.names:
+                        if a.name == "goal_gen":
+                            imported = True
+                            aliases.add(a.asname or a.name)
+            elif isinstance(node, ast.Call):
+                dotted = _dotted(node.func)
+                if dotted and dotted.split(".")[0] in aliases:
+                    called = True
+        out[f] = "called" if called else ("imported" if imported else "none")
     return out
 
 

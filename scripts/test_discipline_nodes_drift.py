@@ -22,9 +22,20 @@
 定点变异：`--mutate` 逐条把修复点改回缺陷形态，断言转红条数恰为预期；
 锚点未命中 → ANCHOR-MISS → 退出码 2（fail-closed）。
 
-退出码：0 = 全过（或红基线符合预期）；1 = 有断言失败 / 红基线未达标；2 = 用法或环境错误。
+退出码（E164：两种红不许同码）：
+  0 = 全过
+  1 = 工作树断言失败（真缺陷）
+  2 = 环境错误（git show 失败 / 物化不了 HEAD / 用法错误）
+  3 = 红基线未达标（自证腿失效：HEAD 版没有按点转红）
+  4 = 定点变异不恰合（变异自证失效）
+  5 = ANCHOR-MISS（变异锚点消失，自证无法执行）
 """
 from __future__ import annotations
+
+#: 退出码映射（E164）：真缺陷、自证失效、锚点消失、环境缺口必须是四个不同的码，
+#: 否则调用方（门/巡检）只能看到「1」，把「守卫自己坏了」当「产品坏了」。
+_EXIT = {"ok": 0, "live_red": 1, "env_error": 2,
+         "baseline_miss": 3, "mutate_miss": 4, "anchor_miss": 5}
 
 import argparse
 import importlib.util
@@ -255,7 +266,7 @@ def _live_mode(impl):
     _battery(impl, REPO)
     bad = [n for n, okc, _d in _RESULTS if not okc]
     print("\n断言组 %d 通过 / %d 失败" % (len(_RESULTS) - len(bad), len(bad)))
-    return 0 if not bad else 1
+    return "ok" if not bad else "live_red"
 
 
 def _baseline_mode(impl):
@@ -270,7 +281,7 @@ def _baseline_mode(impl):
                                    if okr else "未达标，缺 %r" % (miss,)))
     print("红基线断言组 %d 通过 / %d 失败%s"
           % (len(_RESULTS) - len(reds), len(reds), "（符合预期）" if okr else ""))
-    return 0 if okr else 1
+    return "ok" if okr else "baseline_miss"
 
 
 def _mutate_mode(tmp):
@@ -280,7 +291,7 @@ def _mutate_mode(tmp):
     for i, (name, old, new, exp) in enumerate(_MUTATIONS, 1):
         if old not in src:
             sys.stderr.write("[discipline_nodes_drift] ANCHOR-MISS：%s\n" % name)
-            return 2
+            return "anchor_miss"
         path = os.path.join(tmp, "mut_%d.py" % i)
         with io.open(path, "w", encoding="utf-8", newline="") as f:
             f.write(src.replace(old, new, 1))
@@ -299,7 +310,7 @@ def _mutate_mode(tmp):
         if not good:
             bad += 1
     print("\n定点变异 %d/%d 恰合" % (len(_MUTATIONS) - bad, len(_MUTATIONS)))
-    return 0 if not bad else 1
+    return "ok" if not bad else "mutate_miss"
 
 
 def main(argv=None):
@@ -317,10 +328,12 @@ def main(argv=None):
     tmp = tempfile.mkdtemp(prefix="dn_drift_guard_")
     try:
         if args.mutate:
-            return _mutate_mode(tmp)
-        if args.impl == "head":
-            return _baseline_mode(_load(_materialize_head(tmp), "dn_head"))
-        return _live_mode(_load(_LIVE, "dn_live"))
+            status = _mutate_mode(tmp)
+        elif args.impl == "head":
+            status = _baseline_mode(_load(_materialize_head(tmp), "dn_head"))
+        else:
+            status = _live_mode(_load(_LIVE, "dn_live"))
+        return _EXIT[status]
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

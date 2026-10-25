@@ -57,9 +57,64 @@ TENT = re.compile(r"帐篷")
 HOME = re.compile(r"家里|在家|回家|新家|别墅|小屋|海景")
 
 
-def r_of(turns_no, role):
-    """校准轮号：ME r=(turns-4)/2；DS r=(turns-5)/2（2026-10-05 复核实测映射）。"""
-    return (turns_no - (4 if role == "我说" else 5)) / 2.0
+def detect_layout(turns):
+    """从语料本身推定轮次布局 → {"ok","anchor","rounds","why","round_of"}。
+
+    C99 修：旧 `r_of` 把 `(turns-4)/2`、`(turns-5)/2` 写死，等于硬绑「第 1 轮从
+    turns=5 开始、每轮 2 段、DS 紧跟 ME」这一份转录的排版。换一份少/多几行前言、
+    或 ME/DS 不交替的语料，公式照样出数，只是每个 r 都错而不报错。
+    现在改为：报错显式（ok=False），不出数。
+    """
+    roles = [r for r, _t in turns]
+    anchor = next((i for i, r in enumerate(roles, 1) if r == "我说"), None)
+    info = {"ok": False, "anchor": anchor, "rounds": 0, "why": "", "round_of": {}}
+    if anchor is None:
+        info["why"] = "整份转录没有「我说」段"
+        return info
+    if anchor != 1:
+        info["why"] = ("前言 %d 段后才出现「我说」（旧公式假定 anchor=5）"
+                       % (anchor - 1))
+    # 交替校验：每个 ME 之后必须紧跟 DS，回合数按 ME 计
+    round_of, n_round, i = {}, 0, anchor
+    while i <= len(roles):
+        if roles[i - 1] != "我说":
+            info["why"] = "turns=%d 处期望「我说」，实为「%s」" % (i, roles[i - 1])
+            return info
+        n_round += 1
+        round_of[i] = n_round
+        if i + 1 <= len(roles):
+            if roles[i] != "DeepSeek说":
+                info["why"] = ("turns=%d 处 ME 之后不是 DS，实为「%s」"
+                               % (i + 1, roles[i]))
+                return info
+            round_of[i + 1] = n_round
+        i += 2
+    info.update({"ok": True, "rounds": n_round, "round_of": round_of})
+    return info
+
+
+LAYOUT = {"ok": False, "anchor": 5, "rounds": 0, "why": "未初始化", "round_of": {}}
+
+
+def turn_at(r):
+    """r 值 → turns（ME 侧；r=0.5 落在首轮）。随 layout.anchor 走，不写死 5。"""
+    return 2.0 * r + (LAYOUT["anchor"] or 5) - 1
+
+
+def r_of(turns_no, role=None):
+    """校准轮号：r = 轮序号 − 0.5（首轮 r=0.5，ME 与紧随的 DS 同号）。
+
+    布局不支持时返回 "UNMAPPED"（旧版会静默算出错值）。
+    """
+    if not LAYOUT["ok"]:
+        return "UNMAPPED"
+    k = LAYOUT["round_of"].get(turns_no)
+    return "UNMAPPED" if k is None else k - 0.5
+
+
+def _rfmt(v):
+    """r 的打印格式：数值按 %4.0f，UNMAPPED 原样右对齐（旧版全是 %4.0f，遇非数就崩）。"""
+    return ("%4.0f" % v) if isinstance(v, float) else "%4s" % v
 
 
 def dwell_value(text):
@@ -78,6 +133,13 @@ def main():
     ap.add_argument("--corpus", required=True, help="转录文件路径（UTF-8 双角色）")
     args = ap.parse_args()
     turns = load_turns(args.corpus)
+    LAYOUT.clear()
+    LAYOUT.update(detect_layout(turns))
+    if not LAYOUT["ok"]:
+        print("布局不受支持（exit 3）：%s —— 本探针的 r 口径依赖「ME/DS 交替、首轮从"
+              " turns=%d 起」，换语料请先核对排版，不要沿用旧公式读数"
+              % (LAYOUT["why"], LAYOUT["anchor"] or 0))
+        sys.exit(3)
     bodies = [body_only(t) for _r, t in turns]
     print("轮段数:", len(turns), "（我说 %d / DS %d）"
           % (sum(1 for r, _ in turns if r == "我说"),
@@ -85,7 +147,7 @@ def main():
 
     # ---- S1 房贷/房租：区间用正确映射 [2*590+5, 2*688+5] ----
     mortgage = [i for i, b in enumerate(bodies, 1) if re.search(r"房贷|房租", b)]
-    lo, hi = 2 * 590 + 5, 2 * 688 + 5
+    lo, hi = int(turn_at(590.5)), int(turn_at(688.5))
     in_win = [x for x in mortgage if lo <= x <= hi]
     print("\n[S1 房贷/房租] 剥离思考块后命中 %d 处；报告口径区间 turns [%d, %d] 内 %d 处"
           % (len(mortgage), lo, hi, len(in_win)), in_win)
@@ -117,9 +179,8 @@ def main():
     print("\n[S2 住所·口径B（时期消歧，搬迁时点 turns=%s）] 有信息轮 %d；值段 %d 个"
           % (casa, len(inform), len(segments)))
     for s in segments:
-        print("  turns %4d–%4d  r≈%4.0f–%4.0f  %s"
-              % (s[0], s[2], r_of(s[0], roles.get(s[0], "我说")),
-                 r_of(s[2], roles.get(s[2], "我说")), s[1]))
+        print("  turns %4d–%4d  r≈%s–%s  %s"
+              % (s[0], s[2], _rfmt(r_of(s[0])), _rfmt(r_of(s[2])), s[1]))
 
     events = [(s[0], s[1]) for s in segments]
     recur, seen_hist = [], []
@@ -136,8 +197,8 @@ def main():
           "排除），缺陷级计数须与 CD-WHALE-01 报告逐点对照；全列如下："
           % len(recur))
     for t, v, prev_at in recur:
-        print("    turns %4d（r≈%4.0f）%s 再现（上次 turns %4d，间隔 %d）"
-              % (t, r_of(t, roles.get(t, "我说")), v, prev_at, t - prev_at))
+        print("    turns %4d（r≈%s）%s 再现（上次 turns %4d，间隔 %d）"
+              % (t, _rfmt(r_of(t)), v, prev_at, t - prev_at))
 
     # ---- 判据① 收敛＞覆盖：**实指事件**基线（v3 起代替 v2 的「商讨/搬入」双基线——
     # 剥离思考块后『商讨』误命中消失，双基线自动合一于实指词位置）。----

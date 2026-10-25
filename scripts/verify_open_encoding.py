@@ -153,31 +153,54 @@ class AnchorMiss(Exception):
     """锚点漂移（退出码 2）。"""
 
 
-def _tracked_rels():
-    """git 追踪面（仓根相对 · posix 分隔）集合；git 不可用/非仓 ⇒ None（调用方降级）。
+#: 判据面状态：ok / empty_tracked / env_error（B122）。
+#: 以前「git 不可用」只说一句 [降级] 就照常走，「git 可用但追踪面是空集」则被
+#: check_floors 当成「扫描面锚点塌陷」——两者都是环境问题，却一个可能打出 ✔、另一个
+#: 与真实代码回归同码同文。现在分开：env_error 不当通过，empty_tracked 明说是空集。
+SURFACE_STATE = {"state": "ok", "detail": ""}
 
-    判据面须锚在**追踪面**而非文件系统面：`SCAN_DIRS` 子树内的 gitignore 产物
-    （`hive/jobs/`、`md_cg/_md_cg_eval_*/`、`md_cg/knowledge/` 运行态等）不在 CI
-    干净克隆里，用文件系统面判定会让「本地红 / CI 绿」分裂。按「是否被 git 追踪」
-    这个**性质**判，不逐个硬编码排除目录。
+
+def _tracked_rels():
+    """git 追踪面 → (state, set)。state ∈ ok / empty_tracked / env_error。
+
+    ok            ：git 可用且至少有一个追踪文件
+    empty_tracked ：git 可用但 ls-files 为空（ROOT 不是仓根、或仓库未 init）
+    env_error     ：git 不可用 / 命令失败 / 输出解码失败
     """
     try:
         proc = subprocess.run(["git", "-C", ROOT, "ls-files", "-z"],
                               capture_output=True, check=True)
-    except Exception:                                  # noqa: BLE001 —— 兜底见下
-        return None
-    return {p.replace("\\", "/") for p in
-            proc.stdout.decode("utf-8", "replace").split("\0") if p}
+    except FileNotFoundError:
+        return "env_error", set()
+    except subprocess.CalledProcessError as e:
+        return "env_error", set()
+    except Exception:                                  # noqa: BLE001
+        return "env_error", set()
+    try:
+        rels = {p.replace("\\", "/") for p in
+                proc.stdout.decode("utf-8", "replace").split("\0") if p}
+    except Exception:                                  # noqa: BLE001
+        return "env_error", set()
+    return ("ok" if rels else "empty_tracked"), rels
 
 
 # 生效条件：base 为仓根绝对路径时，遍历 SCAN_DIRS 下全部 .py（跳过 __pycache__；目录缺失即抛 AnchorMiss），返回按正斜杠相对路径排序的 (rel, abspath) 列表。
 # 判据面 = 文件系统走查 ∩ **git 追踪面**（仅当 base 就是仓根 ROOT 时启用；对其它 base——含定点变异的最小物化面 `tmp`——保持原走查语义，故变异自证不受影响）。降级（明示）：git 不可用 ⇒ 退化为原走查并打印 `[降级]`，读数须按降级看待。
 def list_py(base: str) -> list[tuple[str, str]]:
     at_root = os.path.abspath(base) == ROOT
-    tracked = _tracked_rels() if at_root else None
-    if at_root and tracked is None:
-        print("[降级] git 不可用：SCAN_DIRS 扫描面退化为文件系统走查"
-              "（可能与 CI 干净克隆不一致）")
+    tracked = None
+    if at_root:
+        state, rels = _tracked_rels()
+        SURFACE_STATE["state"] = state
+        SURFACE_STATE["detail"] = ("git 追踪面 %d 文件" % len(rels)) if state == "ok" else state
+        if state == "env_error":
+            print("[ENV] git 不可用：追踪面无法建立，本次扫描按**未尝试**处理"
+                  "（不当作通过，也不当作代码回归）")
+        elif state == "empty_tracked":
+            raise AnchorMiss("[EMPTY] git 可用但追踪面是空集（ls-files 0 条）："
+                             "ROOT=%s 可能不是仓根，或仓库未初始化" % ROOT)
+        else:
+            tracked = rels
     out: list[tuple[str, str]] = []
     for d in SCAN_DIRS:
         top = os.path.join(base, d)
@@ -366,6 +389,9 @@ def self_test() -> tuple[list[str], list[str]]:
 
     # ---- 扫描面锚 + 真实仓对照 ----
     bad, counts, files = scan(ROOT)
+    if SURFACE_STATE["state"] == "env_error":
+        # 环境缺口显式失败：不能因为「没建起追踪面」就打出 ✔（那正是 B122 的混同）。
+        miss.append("[ENV] 追踪面不可用，扫描面未建立（files=%d，读数不可当通过）" % files)
     try:
         check_floors(counts)
     except AnchorMiss as e:
@@ -490,6 +516,11 @@ def main(argv: list[str] | None = None) -> int:
         check_floors(counts)
     except AnchorMiss as e:
         print("ANCHOR-MISS：%s" % e)
+        return 2
+
+    if SURFACE_STATE["state"] == "env_error":
+        print("ENV-ERROR：追踪面不可用（git 缺失或命令失败），扫描面未建立 —— "
+              "这不是通过，也不是代码回归（files=%d）" % files)
         return 2
 
     print("扫描面：%d 文件 / 文本 open %d / 二进制 open %d / Attribute .open %d"

@@ -159,6 +159,19 @@ def parse_b(text: str):
     return blocks, think, counts
 
 
+def detect_format(text: str):
+    """语料形态探测 → ('B'|'A'|'unknown', 理由)。
+
+    「认不出」与「处理完了」必须分开（B104）：以前只看有没有 `## N.` 就二选一，
+    两边都解析不出块时照样写三个空 .md 并打 PREP DONE，调用方拿到全零读数却当成功。
+    """
+    if re.search(r"^##\s*\d+\.\s", text, flags=re.M):
+        return "B", "found '## N. <role>' section heads"
+    if _A_ROLE.search(text) or any(_A_ROLE.match(ln.strip()) for ln in text.splitlines()):
+        return "A", "found '**我说：**' style role lines"
+    return "unknown", "no A-type role line and no B-type section head"
+
+
 def _join(blocks, stream):
     out = []
     for s, body in blocks:
@@ -185,12 +198,33 @@ def main() -> int:
 
     os.makedirs(out_root, exist_ok=True)
     overall = []
+    unrecognized = []
     for src in a.corpus:
         text = open(src, encoding="utf-8").read()
-        is_b = bool(re.search(r"^##\s*\d+\.\s", text, flags=re.M))
-        blocks, think, counts = parse_b(text) if is_b else parse_a(text)
+        fmt, why = detect_format(text)
+        is_b = fmt == "B"
+        blocks, think, counts = (parse_b(text) if is_b else parse_a(text)) if fmt != "unknown" else ([], [], {})
         name = os.path.splitext(os.path.basename(src))[0]
         d = os.path.join(out_root, name)
+        # 三态：ok（解析出块）/ empty_valid（源文件本来就空）/ unrecognized（有内容但认不出）
+        if blocks:
+            status = "ok"
+        elif not text.strip():
+            status = "empty_valid"
+        else:
+            status = "unrecognized"
+        if status == "unrecognized":
+            unrecognized.append(os.path.basename(src))
+            rep = {"corpus": os.path.basename(src), "status": status, "reason": why,
+                   "format": "unknown", "blocks_total": 0}
+            os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "prep_report.json"), "w", encoding="utf-8",
+                      newline="\n") as f:
+                json.dump(rep, f, ensure_ascii=False, indent=2)
+            overall.append(rep)
+            print(json.dumps(rep, ensure_ascii=False))
+            print("UNRECOGNIZED：%s —— %s（不写空产物，不计入成功）" % (os.path.basename(src), why))
+            continue
         os.makedirs(d, exist_ok=True)
 
         me = _join(blocks, "我说")
@@ -211,6 +245,7 @@ def main() -> int:
 
         rep = {
             "corpus": os.path.basename(src),
+            "status": status,
             "format": "B(hermes-export)" if is_b else "A(transcript)",
             "blocks_total": len(blocks),
             "blocks_我说": sum(1 for s, _b in blocks if s == "我说"),
@@ -231,7 +266,13 @@ def main() -> int:
         overall.append(rep)
         print(json.dumps(rep, ensure_ascii=False))
     print()
-    print("PREP DONE：%d 份语料 → %s" % (len(overall), out_root))
+    ok_n = sum(1 for r in overall if r.get("status") in ("ok", "empty_valid"))
+    if unrecognized:
+        # 退出码表达「有语料没认出」：全零产物 + PREP DONE 退出 0 会让调用方当成功（B104）。
+        print("PREP INCOMPLETE：%d 份成功 / %d 份认不出（%s）→ %s"
+              % (ok_n, len(unrecognized), "、".join(unrecognized), out_root))
+        return 3
+    print("PREP DONE：%d 份语料 → %s" % (ok_n, out_root))
     return 0
 
 

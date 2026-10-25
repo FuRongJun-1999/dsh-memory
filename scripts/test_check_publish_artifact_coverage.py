@@ -62,6 +62,10 @@ _REAL_TOKEN = "sk-" + "9f3aK2mQ8vLpR4sT1uWz7yB6nH0cX5dE"
 
 passed = failed = skipped = 0
 
+#: 环境缺口（E163）：缺 npm/git、子进程起不来、超时 —— 与「真缺陷」不是一回事。
+#: 旧版这类腿记一条 SKIP 后整体 rc 仍是 0，于是「E2E 没跑」与「E2E 全过」同形。
+_ENV_GAPS = []
+
 
 def check(name, cond, detail=""):
     global passed, failed
@@ -74,10 +78,12 @@ def check(name, cond, detail=""):
               + str(detail).replace("\n", " | ")[:400])
 
 
-def skip(name, why):
+def skip(name, why, env_gap=False):
     global skipped
     skipped += 1
-    print("  [SKIP] %s（%s）" % (name, why))
+    if env_gap:
+        _ENV_GAPS.append("%s：%s" % (name, why))
+    print("  [SKIP] %s（%s%s）" % (name, why, "；环境缺口" if env_gap else ""))
 
 
 def _env():
@@ -213,10 +219,24 @@ def unit(mod):
               == "根内普通正文")
 
 
+def _leg_env_error(got, label):
+    """被测门 rc=2（环境错误）⇒ 这条腿记为环境缺口，不记失败（E163）。
+
+    旧版把 rc=2 也拿去和「期望 rc=1」比，于是「npm 在 Windows 上 EPERM」与
+    「R7 判据没生效」在报告里长得一模一样。
+    """
+    if got.returncode == 2:
+        tail = (got.stdout or "")[-200:].replace("\n", " ")
+        skip(label, "被测门 rc=2（环境错误，非判据缺陷）：%s" % tail, env_gap=True)
+        return True
+    return False
+
+
 def e2e_local():
     print("[2] E2E 本地模式（临时 git 仓 + 真实 npm）")
     if shutil.which("npm") is None or shutil.which("git") is None:
-        skip("L1/L2/L3 E2E", "本机无 npm 或 git")
+        missing = [x for x in ("npm", "git") if shutil.which(x) is None]
+        skip("L1/L2/L3 E2E", "本机无 %s" % "/".join(missing), env_gap=True)
         return
     limit = 3 * 1024 * 1024
     with tempfile.TemporaryDirectory() as tmp:
@@ -228,11 +248,14 @@ def e2e_local():
                    {"lib/big.txt": body})
         got = _run_gate(over)
         out = got.stdout or ""
-        check("L1 超限腿 exit 1（修前 exit 0）", got.returncode == 1,
-              "rc=%s\n%s" % (got.returncode, out[-600:]))
-        check("L1 VERDICT=FAIL（修前 PASS）", "VERDICT=FAIL" in out, out[-400:])
-        check("L1 R7 判负并点名未扫件", "R7 扫描面完整性 命中=" in out and "lib/big.txt" in out,
-              out[-800:])
+        if _leg_env_error(got, "L1 超限腿"):
+            pass
+        else:
+            check("L1 超限腿 exit 1（修前 exit 0）", got.returncode == 1,
+                  "rc=%s\n%s" % (got.returncode, out[-600:]))
+            check("L1 VERDICT=FAIL（修前 PASS）", "VERDICT=FAIL" in out, out[-400:])
+            check("L1 R7 判负并点名未扫件", "R7 扫描面完整性 命中=" in out and "lib/big.txt" in out,
+                  out[-800:])
 
         # L2：postpack 删除腿——npm 清单仍列 lib/gone.txt，盘上已无
         gone = os.path.join(tmp, "postpack")
@@ -243,12 +266,15 @@ def e2e_local():
                    {"lib/keep.txt": "keep\n", "lib/gone.txt": "gone\n"})
         got = _run_gate(gone)
         out = got.stdout or ""
-        check("L2 postpack 删除腿 exit 1（修前 exit 0）", got.returncode == 1,
-              "rc=%s\n%s" % (got.returncode, out[-600:]))
-        check("L2 R7 判负并点名 lib/gone.txt",
-              "R7 扫描面完整性 命中=" in out and "lib/gone.txt" in out, out[-800:])
-        check("L2 现场核对：postpack 后盘上确无 lib/gone.txt（前提坐实）",
-              not os.path.isfile(os.path.join(gone, "lib", "gone.txt")))
+        if _leg_env_error(got, "L2 postpack 删除腿"):
+            pass
+        else:
+            check("L2 postpack 删除腿 exit 1（修前 exit 0）", got.returncode == 1,
+                  "rc=%s\n%s" % (got.returncode, out[-600:]))
+            check("L2 R7 判负并点名 lib/gone.txt",
+                  "R7 扫描面完整性 命中=" in out and "lib/gone.txt" in out, out[-800:])
+            check("L2 现场核对：postpack 后盘上确无 lib/gone.txt（前提坐实）",
+                  not os.path.isfile(os.path.join(gone, "lib", "gone.txt")))
 
         # L4：对照腿——同一令牌放进 53 B 小文件 → R1 判负（修前亦然），且 R7 PASS。
         # 与 L1 成对，坐实「判据随文件大小翻转」已消除：两形态都判负，差异只在判负的规则。
@@ -258,11 +284,14 @@ def e2e_local():
                    {"lib/small.txt": _REAL_TOKEN + "\n"})
         got = _run_gate(small)
         out = got.stdout or ""
-        check("L4 对照腿：同一令牌在小文件 → R1 判负",
-              got.returncode == 1 and "[FAIL] R1 凭据/密钥面 命中=1" in out,
-              out[-600:])
-        check("L4 对照腿：小文件形态 R7 PASS（未扫=0，成因隔离）",
-              "R7 扫描面完整性" in out and "[FAIL] R7" not in out, out[-500:])
+        if _leg_env_error(got, "L4 对照腿"):
+            pass
+        else:
+            check("L4 对照腿：同一令牌在小文件 → R1 判负",
+                  got.returncode == 1 and "[FAIL] R1 凭据/密钥面 命中=1" in out,
+                  out[-600:])
+            check("L4 对照腿：小文件形态 R7 PASS（未扫=0，成因隔离）",
+                  "R7 扫描面完整性" in out and "[FAIL] R7" not in out, out[-500:])
 
         # L3：反向腿——干净仓必须仍然绿（新判据不误伤发版链路）
         clean = os.path.join(tmp, "clean")
@@ -271,10 +300,13 @@ def e2e_local():
                    {"lib/keep.txt": "普通正文\n"})
         got = _run_gate(clean)
         out = got.stdout or ""
-        check("L3 反向腿 exit 0", got.returncode == 0,
-              "rc=%s\n%s" % (got.returncode, out[-600:]))
-        check("L3 VERDICT=PASS", "VERDICT=PASS" in out, out[-400:])
-        check("L3 R7 PASS（未扫=0）", "R7 扫描面完整性" in out
+        if _leg_env_error(got, "L3 反向腿"):
+            pass
+        else:
+            check("L3 反向腿 exit 0", got.returncode == 0,
+                  "rc=%s\n%s" % (got.returncode, out[-600:]))
+            check("L3 VERDICT=PASS", "VERDICT=PASS" in out, out[-400:])
+            check("L3 R7 PASS（未扫=0）", "R7 扫描面完整性" in out
               and "[FAIL] R7" not in out, out[-600:])
 
 
@@ -324,7 +356,14 @@ def main():
     e2e_registry(mod)
     selftest_green()
     print("\n%d passed, %d failed, %d skipped" % (passed, failed, skipped))
-    return 1 if failed else 0
+    if failed:
+        return 1
+    if _ENV_GAPS:
+        # 环境缺口不是通过：E2E 腿没跑，读数只覆盖了 unit / registry / selftest。
+        print("ENV-INCOMPLETE：%d 条腿因环境缺口未执行 —— %s"
+              % (len(_ENV_GAPS), "；".join(_ENV_GAPS)))
+        return 3
+    return 0
 
 
 if __name__ == "__main__":
