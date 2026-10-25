@@ -23,7 +23,9 @@ render_discipline/discipline_nodes 副本）→ ⓪②③④ 组断言按点转�
 定点变异：`--mutate` 逐条把修复点改回缺陷形态，断言转红条数恰为预期；
 锚点未命中 → ANCHOR-MISS → 退出码 2（fail-closed）。
 
-退出码：0 = 全过（或红基线符合预期）；1 = 断言失败 / 红基线未达标；2 = 用法或环境错误。
+退出码：0 = 全过（或红基线符合预期）；1 = 断言失败 / 红基线未达标；2 = 用法或环境错误
+（退出码 2 覆盖两条环境面：`--impl head` 取不到 HEAD 版、以及真源/矩阵/产物/副本任一
+不可读——后者旧写法是 traceback 收尾（解释器自己给的退出码 1），与「判据真红」同码）。
 """
 from __future__ import annotations
 
@@ -280,11 +282,19 @@ def main(argv=None):
 
     tmp = tempfile.mkdtemp(prefix="vd_semantic_guard_")
     try:
-        if args.mutate:
-            return _mutate_mode(tmp)
-        if args.impl == "head":
-            return _baseline_mode(_load(_materialize_head(tmp), "vd_head"))
-        return _live_mode(_load(_LIVE, "vd_live"))
+        try:
+            if args.mutate:
+                return _mutate_mode(tmp)
+            if args.impl == "head":
+                return _baseline_mode(_load(_materialize_head(tmp), "vd_head"))
+            return _live_mode(_load(_LIVE, "vd_live"))
+        except OSError as exc:
+            # 环境面不可用（真源/矩阵/产物缺件、权限拒、路径不存在）≠ 断言失败。
+            # 旧写法让 OSError 一路冒到顶，解释器以 traceback 收尾、退出码 1 —— 与
+            # 「判据真的红了」同码，读码的人无从区分。这里显式收成 2（用法或环境错误）。
+            sys.stderr.write("[vd_semantic] ENV-ERROR：环境面不可读（缺件/权限/路径）"
+                             "——%s: %s\n" % (type(exc).__name__, exc))
+            return 2
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
