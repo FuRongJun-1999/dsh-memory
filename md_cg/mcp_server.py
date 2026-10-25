@@ -2377,8 +2377,13 @@ def _cg_dispatch(cg, a):
 
     if op == "route":
         intent = a.get("intent") or a.get("query") or ""
+        # E-T63a：route 面不再显式关闭记数——它同样消耗认知图（命中节点即
+        # 「被引用」），关掉会让服务器侧「谁被反复引用」永远空表。显式 True
+        # （与 read 面缺省同口径，但写死意图，避免调用方误以为召回零副作用）。
+        # 注：`k=_int_arg(a, "k", 10),` 这一行是既有巡检
+        # （test_read_face_input_gates.py M1-B5）的源码级锚点，格式保持原样。
         res, meta = cg.search(intent, k=_int_arg(a, "k", 10),
-                              context=a.get("context"), record=False,
+                              context=a.get("context"), record=True,
                               view=a.get("view"))
         knowledge, caps = [], []
         for n, s, q in res:
@@ -3011,7 +3016,7 @@ def _ingest_call(cg, a):
         max_events=a.get("max_events"))
 
 
-# 生效条件：先经 require_admin("export_{act}")（principal 非 None 时）与 check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "export")（env 未设置或 out 空时放行，越界抛 PermissionError）；act=(a.get("action") or "stat").strip().lower()；principal 非 None 时一律先 require_admin(f"export_{act}")，随后以 include_content=True if a.get("include_content") is None else bool(a.get("include_content")) 等参数调 _ex.run 并返回。
+# 生效条件：先经 require_admin("export_{act}")（principal 非 None 时）与 check_path_root(a.get("out"), "MDCG_EXPORT_ROOT", "export")（env 未设置或 out 空时放行，越界抛 PermissionError）；act=_ex.resolve_action(a.get("action"))（与库面 run 同一解析处，省略时取 _ex.DEFAULT_ACTION="stat"）；principal 非 None 时一律先 require_admin(f"export_{act}")，随后以 include_content=True if a.get("include_content") is None else bool(a.get("include_content")) 等参数调 _ex.run 并返回。
 def _export_call(cg, a):
     """全库导出（P0）：graph / nodes / slice / stat。
 
@@ -3019,7 +3024,7 @@ def _export_call(cg, a):
     """
     from . import export as _ex
     from .security import check_path_root
-    act = (a.get("action") or "stat").strip().lower()
+    act = _ex.resolve_action(a.get("action"))   # 与库面 run 同一解析处（B39）
     principal = getattr(cg, "principal", None)
     if principal is not None:
         principal.require_admin(f"export_{act}")
@@ -3799,8 +3804,12 @@ def _dispatch(cg, name, args):
         return _node_view(node, offset=int(a.get("offset") or 0))
 
     if name == "mdcg_reflect":
+        # E-T63a：reflect 也读论据（搜到的每一条都是它在用的认知），关记数
+        # 等于把「被反复引用」的来源砍掉一半；显式 record=True 与 route 同口径。
+        # 注：`k=_int_arg(a, "k", 10),` 是既有巡检（test_read_face_input_gates.py
+        # M1-B5）的源码级锚点，格式保持原样。
         res, _ = cg.search(a.get("query", ""), k=_int_arg(a, "k", 10),
-                           record=False)
+                           record=True)
         return cg.reflect(a.get("query", ""), res, a.get("feedback"))
 
     if name == "mdcg_verify":

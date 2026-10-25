@@ -24,6 +24,25 @@ from .fsutil import publish
 SCHEMA = 1
 EXPORT_ACTIONS = ("graph", "nodes", "slice", "stat")
 
+# 省略 action 时的唯一默认值（B39）。历史上两个调用面各写一份默认：
+# 库面 `run(action="graph")`（写盘，产出快照文件），MCP 面 `_export_call`
+# `a.get("action") or "stat"`（只读统计，零写盘）⇒ 同一个 op 省略 action 时，
+# MCP 面什么都不写、直接调库面却落一个整库快照，「默认值」变成了调用面属性。
+# 定在库里取 **stat**：①已经有了对外契约（MCP 面一直是 stat）；②省略参数
+# 时做零写盘更安全；③要快照就显式传 action="graph"，不让默认值带副作用。
+DEFAULT_ACTION = "stat"
+
+
+def resolve_action(action: str | None) -> str:
+    """action → 规范化动作名（唯一解析处）。
+
+    None / 空串 / 纯空白 → DEFAULT_ACTION；其余 strip + lower。
+    不认识的动作原样返回（由 `run` 抛 ValueError，错误信息里带允许清单）。
+    """
+    act = (action or "").strip().lower()
+    return act or DEFAULT_ACTION
+
+
 # 导出行的字段（顺序即 JSON 键顺序，便于 diff 与人工核对）
 _ROW_KEYS = ("id", "layer", "path", "tags", "importance", "confidence",
              "condition_space", "non_applicable_conditions", "verification_basis",
@@ -291,10 +310,10 @@ def export_stat(cg):
                      "如需密级分布请用 graph 导出后统计。")}
 
 
-# 生效条件：act = (action or "graph").strip().lower()（action 为 None/空串等假值时取 "graph"）——act 为 "graph"/"nodes"/"slice"/"stat" 时分别转调 export_graph/export_nodes/export_slice/export_stat（out、layer、limit、since、until、tag、ids 取自 kw 对应键，include_content 取 kw.get("include_content", True)），其它 act 值抛 ValueError。
-def run(cg, action: str = "graph", **kw):
-    """export op 唯一入口。"""
-    act = (action or "graph").strip().lower()
+# 生效条件：act = resolve_action(action)（action 为 None/空串/纯空白时取 DEFAULT_ACTION="stat"，**默认零写盘**）——act 为 "graph"/"nodes"/"slice"/"stat" 时分别转调 export_graph/export_nodes/export_slice/export_stat（out、layer、limit、since、until、tag、ids 取自 kw 对应键，include_content 取 kw.get("include_content", True)），其它 act 值抛 ValueError。
+def run(cg, action: str | None = None, **kw):
+    """export op 唯一入口。省略 action ⇒ DEFAULT_ACTION（stat，零写盘）。"""
+    act = resolve_action(action)
     if act == "graph":
         return export_graph(cg, out=kw.get("out"), layer=kw.get("layer"),
                             limit=kw.get("limit"),
