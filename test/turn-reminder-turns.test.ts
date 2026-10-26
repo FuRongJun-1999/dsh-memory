@@ -135,3 +135,16 @@ test('⑦ userMessage=false 时仍计轮（#658：关知识面写入不该杀死
   for (let i = 1; i <= 10; i++) userTurn('第' + i + '轮')
   assert.equal((await assemble()).length, 1, '关用户消息记忆后计轮仍应生效')
 })
+
+test('⑧ 空文本用户回合仍计轮（#659 F26-29：纯图片/附件回合不该吞掉计数）', async () => {
+  const { assemble, userTurn } = makeHarness()
+  for (let i = 1; i <= 9; i++) userTurn('第' + i + '轮')
+  userTurn('')            // 第 10 个回合：无文本
+  assert.equal((await assemble()).length, 1, '空文本回合也应计入第 10 轮')
+})
+
+test('⑨ turnReminder=0 表示关闭，不再被钳成 1（#659 F26-21）', async () => {
+  const { assemble, userTurn } = makeHarness({ turnReminder: 0 })
+  for (let i = 1; i <= 12; i++) userTurn('第' + i + '轮')
+  assert.equal((await assemble()).length, 0, '0 应等于关闭')
+})
