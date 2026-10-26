@@ -87,7 +87,27 @@ from . import protect
 # `_maintain.jsonl` 与保护下限的**单一真源**在 weights（同族留痕共用一份文件名）
 from .weights import (APPLY_DELTA, IMPORTANCE_PROTECT, MAINTAIN_LOG,
                       node_importance)
-from .whitebox_kb.aeis_core import time_core as _tc
+# issue #672：**资产包缺失时不得在 import 期崩**（分包/剪枝安装的前置条件）。
+# 核的唯一权威仍是 whitebox_kb.aeis_core.time_core.cred_factor；这里只在**整包缺失**时
+# 退到同式本地实现（e^(-gamma*dt) clamp 到 [floor, ceil]，与权威逐位同式），并把
+# _CORE_DEGRADED 置真——selfcheck()/meta 会如实报告，不静默。
+# 退化实现在**模块级恒定义**（不放在 except 里）：这样守卫能在「资产包在场」的环境
+# 也逐位比对它与权威同式，而不是只有缺包时才跑得到那段代码。
+class _FallbackCore(object):
+    """缺资产包时的**同式**退化实现（只做 e 指数核，不做别的）。"""
+
+    @staticmethod
+    def cred_factor(gamma, dt, floor=0.0, ceil=1.0):
+        import math as _m
+        return max(floor, min(ceil, _m.exp(-gamma * dt)))
+
+
+try:
+    from .whitebox_kb.aeis_core import time_core as _tc
+    _CORE_DEGRADED = False
+except ImportError:                       # 资产包被裁剪安装
+    _CORE_DEGRADED = True
+    _tc = _FallbackCore()
 
 # --------------------------------------------------------------------------
 # 参数（照抄 AEIS consolidate_cycle；出处见模块 docstring）

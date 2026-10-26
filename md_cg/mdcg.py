@@ -39,6 +39,22 @@ from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
 # 单点守卫：写入 / 发出路径的 6 处调用点统一走 _ensure_list——str 按「一个值」
 # 处理（不再逐字符展开）；None / 空串按空列表（与改动前逐位一致）；其余可迭代
 # 仍 list(x)。
+
+# 生效条件：modpath 为「.semantic.X」这类可选资产包的模块路径时，成功返回模块对象；
+# 模块（或其父包）不存在时返回 None（不抛）。其余异常一律上抛，不吞真错误。
+def _optional_asset(modpath):
+    """可选资产包导入单点（issue #672）：缺包降级。
+
+    分包/剪枝安装会缺 semantic / whitebox_kb 等资产目录，而检索链在**调用期**
+    才 import 它们；硬 import 会让「缺资产」表现为运行时 ImportError（比缺包本身
+    更难定位）。本函数把「缺包」收敛成一个可判定的 None。
+    """
+    import importlib
+    try:
+        return importlib.import_module(modpath, package=__package__)
+    except ImportError:
+        return None
+
 # 生效条件：把原始环境变量值解析成**有限浮点**门槛。缺省/空串返回 default；
 # 非数值或 nan/inf 返回 default 且状态 invalid（调用方须如实记账，不得静默）。
 # 为什么单独成单点：issue #659 F26-06 实测 MDCG_MIN_SCORE=inf 时 inf > 0 恒真，
@@ -4695,8 +4711,15 @@ class MdCG:
         # → 标准原子序列，中文段逐字原样（不再整条归一）；纯中文/无 ASCII 字母
         # 原样、归一层**缺省关**（2026-09-30 裁定，显式 MDCG_UNIFY_QUERY=1 才开）、
         # 失败静默原样。口径真源见 docs/hive/检索算法口径对照_v0.1.md
-        from .semantic.unify import unify_query
-        q = unify_query(q)
+        # issue #672：资产包 semantic 可被裁剪（分包/剪枝安装）——缺包时把归一层视为关
+        # （归一层本就缺省关，跳过与关同语义），而不是在调用期抛 ImportError。
+        # 接线形态保持 q = unify_query(q) 字面不变（防回退锚点 G4g/G4h 钉的是这行）。
+        try:
+            from .semantic.unify import unify_query
+        except ImportError:
+            unify_query = None
+        if unify_query is not None:
+            q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         self._maybe_reload_index()      # P1b-2：读面代际感知（空查询早退后、读索引前）
