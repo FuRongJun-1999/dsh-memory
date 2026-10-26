@@ -58,6 +58,12 @@ E MCP 出口端到端）：
     且 shutdown 后 rc=0 · 变异轮**注入自证**在场（fail-closed：注入失效不得被
     读成「端到端面无判别力」）
 
+    **#677 P2 后的 E 组形态（契约变更，如实登记）**：写路径的索引落盘已异步化，
+    故索引面的错误不再从**写应答**出（写应答必然 ok——节点已落盘、内存索引已同钩，
+    E3 就此断言）；错误出口搬到显式同步落盘的 `cg(op=maintain, action=flush)`
+    （E1/E2 的断言对象）。E3 同时钉住「异步不回退写入」这个反向不变量——只留
+    「写报错」的老形态会让异步退化成同步，只留「写成功」会让失败静默。
+
 ``--branch-baseline`` 定点变异自证（与 ``test_n225_nonobject_load`` 同口径）：
 逐个关掉一处判据，守卫**必须转红**且红项**恰好**落在该判据负责的组、数量等于
 表内预期；锚点漂移报 ``ANCHOR-MISS`` 并以**退出码 2** fail-closed 停手；基线源
@@ -271,6 +277,9 @@ def _case_prod() -> dict:
         ctx["cg"] = cg
         _LIVE.append(cg)
         cg.add("b4_p0", BODY, layer="knowledge")
+        # issue #677 P2：写路径不再同步 flush ⇒ 分片目录由后台线程创建。
+        # 这里显式 flush() 拿到「目录已存在」的确定状态，再走「删目录 → 再写」的自愈面。
+        cg.flush()
         log_dir = cg.index_log_dir
         ctx["log_dir"] = log_dir
         F.reset_shard_dir_stats()
@@ -279,6 +288,11 @@ def _case_prod() -> dict:
             shutil.rmtree(log_dir)
             cg.add("b4_p1", BODY, layer="knowledge")
             cg.add("b4_p2", BODY, layer="knowledge")
+            # issue #677 P2：索引落盘已异步化（写路径只保证内存索引 + 节点文件），
+            # 「append 期自愈 + 记账 + 告警」发生在 flush 里。这里显式 flush() 把那次
+            # 落盘拉回本线程与本 stderr 重定向块内——断言意图不变（自愈不抛、记账、
+            # 告警），只是不再依赖「add 内同步 flush」这个已改变的实现细节。
+            cg.flush()
         ctx["stderr"] = buf.getvalue()
         ctx["stats"] = F.shard_dir_stats()
         ctx["nodes"] = sorted(cg.index["nodes"])
@@ -430,23 +444,38 @@ def _case_stdio() -> dict:
         with open(os.path.join(root, "_index_log"), "w",
                   encoding="utf-8") as fh:
             fh.write("squat")             # 目录路径被文件占住
+        # issue #677 P2 后 E 组的形态（**契约变更，如实登记**）：写路径的索引落盘
+        # 已异步化，故「分片目录重建失败」不再从**写应答**里出来——写应答此刻
+        # 必然是 ok（节点文件已落盘、内存索引已同钩）。索引面的错误仍在 MCP 出口
+        # 结构化暴露，但出口搬到了**显式同步落盘**的 cg(op=maintain, action=flush)：
+        # id=2 证「异步写不被索引面失败回退」，id=3 证「错误不裸抛 + 带 hint」。
+        # 两条合起来才是异步化后的完整契约，抽掉任一条都会假绿。
         lines = [_rpc(1, "initialize"),
                  _rpc(2, "tools/call",
                       {"name": "mdcg_remember",
                        "arguments": {"node_id": "b4_e1", "content": BODY}}),
-                 _rpc(3, "tools/list"), _rpc(4, "shutdown")]
+                 _rpc(3, "tools/call",
+                      {"name": "cg",
+                       "arguments": {"op": "maintain", "action": "flush"}}),
+                 _rpc(4, "tools/list"), _rpc(5, "shutdown")]
         ctx["rc"], ctx["out"], ctx["err"] = _talk(lines, tmp)
         ctx["inject_ok"] = ("[b4-mut] injected" in ctx["err"]
                             if _MUTATION[0] is not None else True)
         objs = [o for _raw, o in _resp_lines(ctx["out"])]
         ctx["by_id"] = {o.get("id"): o for o in objs if isinstance(o, dict)}
-        call = ctx["by_id"].get(2) or {}
-        content = (call.get("result") or {}).get("content") or []
-        ctx["tool_text"] = content[0].get("text") if content else ""
-        try:
-            ctx["tool_obj"] = json.loads(ctx["tool_text"])
-        except Exception:                 # noqa: BLE001 —— 非 JSON 也照实记录
-            ctx["tool_obj"] = None
+        def _payload(rid):
+            call = ctx["by_id"].get(rid) or {}
+            content = (call.get("result") or {}).get("content") or []
+            txt = content[0].get("text") if content else ""
+            try:
+                return txt, (json.loads(txt) if txt else None)
+            except ValueError:            # 非 JSON 也照实记录
+                return txt, None
+
+        # 写应答（异步契约：索引面失败不得回退写入）
+        ctx["write_text"], ctx["write_obj"] = _payload(2)
+        # 显式同步落盘的出口（索引面错误必须在这里结构化暴露）
+        ctx["tool_text"], ctx["tool_obj"] = _payload(3)
     except Exception as exc:              # noqa: BLE001
         ctx["error"] = exc
     return ctx
@@ -632,10 +661,18 @@ def g_e():
              lambda: isinstance(obj, dict)
              and "重开进程" in (obj.get("hint") or ""),
              "hint=%r" % ((obj or {}).get("hint") or "")[:160])
-    check_fn("B4-E3·错误之后进程仍应答（tools/list 有 id=3 应答）且 rc=0",
-             lambda c=ctx: c["rc"] == 0 and 3 in c["by_id"],
-             "rc=%r ids=%r stderr=%r" % (ctx["rc"], sorted(ctx["by_id"]),
-                                         ctx["err"][-200:]))
+    # issue #677 P2 契约：索引面失败（分片目录重建不了）**不得回退写入**——节点
+    # 文件已落盘、内存索引已同钩，写应答必须是 ok；副作用（索引派生物落后于
+    # 盘面）由 id=3 的显式 flush 出口如实报出，由 E1/E2 断言。这一条与 E1/E2
+    # 互为反向：只留「写报错」的老形态会让异步化退化成同步，只留「写成功」
+    # 会让失败静默——两态必须同时被钉住。
+    check_fn("B4-E3·异步写不被索引面失败回退（写应答 ok）且错误后进程仍应答"
+             "（tools/list 有 id=4 应答）且 rc=0",
+             lambda c=ctx: c["rc"] == 0 and 4 in c["by_id"]
+             and (c["write_obj"] or {}).get("ok") is True,
+             "rc=%r ids=%r write=%r stderr=%r"
+             % (ctx["rc"], sorted(ctx["by_id"]),
+                (ctx["write_obj"] or {}), ctx["err"][-200:]))
     check_fn("B4-E4·变异轮注入自证在场（fail-closed：注入失效即判红）",
              lambda c=ctx: c["inject_ok"] is True,
              "inject_ok=%r stderr=%r" % (ctx["inject_ok"], ctx["err"][-200:]))

@@ -641,6 +641,13 @@ _NEG_INJECT = ('    dec = _am.decide(action)\n'
 #: 2026-10-03，与「守卫随实现同批同步」惯例一致（issue52 批同款先例）。
 _KNOWN_EXT_KEYS = ("kept", "truncated", "scope_layers")
 
+#: issue #677 P2（索引落盘异步化）批的**已知有意变更**：写提交边界
+#: `writepipe._commit_visibility` 起在写链 out 里如实标注 `index_flush`
+#: （"async" = 索引派生物未保证已落盘 / "sync" = 关闸后的同步面）。Q 组据此
+#: **定向**归一化（只剔这一个键，旧键仍逐位对拍），并另以「在场」断言钉住——
+#: 删该键让对拍变绿 ⇒ 该断言转红（与 cons200 批同款口径）。
+_KNOWN_WRITE_MARK_KEYS = ("index_flush",)
+
 #: 本批（#109 后续 · 协议形状补齐）的**已知有意变更**：`mdcos` 的 **forget 自治出口**
 #: （带 `deleted` 键的两条分支）补齐协议必需键 `committed`/`verdict`
 #: ——Q 组的 `plan_D`（plan 档出单）读数因此变动，属**有意**。据此按 `deleted` 面定向归一化，
@@ -659,6 +666,10 @@ def _norm_known_ext(item):
             cvd.pop(k, None)
     if isinstance(out, dict) and "deleted" in out:
         for k in _KNOWN_AUTONOMY_KEYS:
+            out.pop(k, None)
+    # issue #677 P2：写链 out 的落盘时机标记（有意新增，见 _KNOWN_WRITE_MARK_KEYS）
+    if isinstance(out, dict):
+        for k in _KNOWN_WRITE_MARK_KEYS:
             out.pop(k, None)
     return it
 
@@ -716,6 +727,18 @@ def g_q():
        "Q 已知扩展在场：mdcos forget 自治出口（%s）均含本批补齐的协议必需键 "
        "committed/verdict（归一化只豁免这两键，旧键仍逐位对拍）"
        % "、".join(_aut_names), _aut_names)
+    # 写动词面（含 plan 档出单）才经 `writepipe._commit_visibility`；forget 面
+    # （`deleted` 出口）走 mdcos 自己的路径，不在本标记的覆盖面内——口径按
+    # 「走没走写提交边界」分，不按「有没有 committed」分。
+    _mark_names = [n for n in names
+                   if isinstance(cur["items"][n].get("out"), dict)
+                   and "committed" in cur["items"][n]["out"]
+                   and "deleted" not in cur["items"][n]["out"]]
+    ok(bool(_mark_names) and all(
+        set(_KNOWN_WRITE_MARK_KEYS) <= set(cur["items"][n]["out"])
+        for n in _mark_names),
+       "Q 已知扩展在场：写链落盘出口（%s）均带 index_flush 标记（issue #677 P2；"
+       "归一化只豁免该键，旧键仍逐位对拍）" % "、".join(_mark_names), _mark_names)
     ok(len(names) >= 10,
        "Q 对拍项覆盖：A/E 全线（A_add/plg_A/E_weights/E_fresh）+ full 档全线"
        "（full_A/full_C/full_B/full_D/full_E_weights/full_E_fresh）+ 矩阵/缺省/"

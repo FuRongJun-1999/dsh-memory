@@ -844,7 +844,7 @@ _OP_TABLE = {
     },
     "maintain": {
         "doc_order": 30,
-        "doc": "记忆维护（action=stat|history|importance|longterm|prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine|propagate 及其 *_history；propagate = 验证态的**多跳**失效传播巡检（默认预演，apply 需 admin）；权限按 action 分档：只读放行、prefeed 写入需 can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；",
+        "doc": "记忆维护（action=stat|history|importance|longterm|prefeed|separate|rollback|backfill|cap|exempt|vision_evidence|refine|propagate 及其 *_history；flush = **显式同步**把待落盘索引写完（issue #677 P2：写路径缺省异步落索引，要「确定已落盘」或要让索引面错误在带内暴露时用它；异常原样上抛，code/hint 可机读）；reload = 显式代际探活；propagate = 验证态的**多跳**失效传播巡检（默认预演，apply 需 admin）；权限按 action 分档：只读放行、prefeed 写入需 can_write、批量改写与 rollback 需 admin；dry-run 只出报表不改盘）；",
         "impl": "_maintain_call",
         "require": "maintain",
         "params": (
