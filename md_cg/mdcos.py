@@ -28,6 +28,7 @@ import time
 import uuid
 
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, fold_accents,
+                    _optional_asset,
                     parse_min_score,
                     STATE_ACCEPT,
                    STATE_REJECT, STATE_DEFER, STATE_BLINDSPOT, TIER_BUCKET_LIKE,
@@ -1367,8 +1368,15 @@ class MdCGOS(MdCG):
         # 批次 15 统一口径（unify.py，2026-09-30 收窄作用域）：只译**英文内容**
         # → 标准原子序列，中文段逐字原样（不再整条归一）；与
         # MdCG.search/search_rrf 三入口同口径（归一层缺省关，显式 =1 才开）
-        from .semantic.unify import unify_query
-        q = unify_query(q)
+        # issue #672：资产包 semantic 可被裁剪（分包/剪枝安装）——缺包时把归一层视为关
+        # （归一层本就缺省关，跳过与关同语义），而不是在调用期抛 ImportError。
+        # 接线形态保持 q = unify_query(q) 字面不变（防回退锚点 G4g/G4h 钉的是这行）。
+        try:
+            from .semantic.unify import unify_query
+        except ImportError:
+            unify_query = None
+        if unify_query is not None:
+            q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "scanned": 0}
         self._maybe_reload_index()      # P1b-2：读面代际感知（route/read/search 链）
@@ -2194,8 +2202,15 @@ class MdCGOS(MdCG):
         # 批次 15 统一口径（unify.py，2026-09-30 收窄作用域）：只译**英文内容**
         # → 标准原子序列（中文段逐字原样）；归一后的 q 进热路径缓存键
         # （归一确定 → 缓存不串味）
-        from .semantic.unify import unify_query
-        q = unify_query(q)
+        # issue #672：资产包 semantic 可被裁剪（分包/剪枝安装）——缺包时把归一层视为关
+        # （归一层本就缺省关，跳过与关同语义），而不是在调用期抛 ImportError。
+        # 接线形态保持 q = unify_query(q) 字面不变（防回退锚点 G4g/G4h 钉的是这行）。
+        try:
+            from .semantic.unify import unify_query
+        except ImportError:
+            unify_query = None
+        if unify_query is not None:
+            q = unify_query(q)
         if not q:
             return [], {"tier": None, "reason": "empty_query", "paths": {}}
         # 相对时间锚定（MDCG_TIME_ANCHOR=1，缺省关 ⇒ 不解析、不入键、零变更）：日期从

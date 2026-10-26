@@ -145,6 +145,11 @@ REGISTRY = {
         "同族半衰期（半衰期 30 天 = links.DECAY_DAYS）：与 "
         "cred_factor(ln2/DECAY_DAYS, d) 数值等价（G2 逐点断言）；"
         "**数值行为刻意不变**（P_trust 读数零位移）。"),
+    ("md_cg/freshness.py", "exp_kernel"): (
+        ("max(floor, min(ceil, _m.exp(-gamma * dt)))",),
+        "issue #672：**缺资产包时的同式退化核**（分包/剪枝安装才走到）。核的唯一权威仍是 "
+        "whitebox_kb.aeis_core.time_core.cred_factor，且本仓有 G672 守卫逐点断言"
+        "「退化核 == 权威」逐位相等；故按 E5 的「登记 + 等价证」路径入表，不是新增第二个核。"),
     ("rust/src/freshness.rs", "exp_kernel"): (
         ("let decay = ((-gamma() * dt_days).exp()).max(floor).min(SCORE_CEIL);",
          "let f = ((-g * DECAY_DAYS).exp()).max(SCORE_FLOOR).min(SCORE_CEIL);"),
