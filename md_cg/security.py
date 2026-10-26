@@ -231,10 +231,37 @@ class Principal:
     def require_op(self, op: str):
         self._require_live()
         if not self.allows_op(op):
+            _op_n = (op or "").strip().lower()
+            # issue #678：区分两种成因——**角色本身不含**该 op，与**令牌被派生收窄**。
+            # 旧文案一律说「角色 X 无权」，于是「designer（ROLE_SPECS 里 ops_allow=["*"]）
+            # 执行 forget 被拒」会读成「designer 角色没有 forget 权限」——当事人会去改角色
+            # 定义（改错地方）或以为权限系统故障。实际原因是签发时 --ops-allow 收窄了作用域。
+            _role_ops = None
+            try:
+                from .tokens import ROLE_SPECS      # 延迟导入：tokens 依赖 security，避免环
+                _role_ops = (ROLE_SPECS.get(self.role) or {}).get("ops_allow")
+            except Exception:
+                _role_ops = None
+            _role_has = False
+            if _role_ops is not None:
+                _norm = [str(x).strip().lower() for x in _role_ops]
+                _role_has = ("*" in _norm) or (_op_n in _norm)
+            if self.role == "guest":
+                msg = (f"角色 {self.role} 无权执行 op={op}（作用域 "
+                       f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
+                raise AccessDenied(msg, hint=self._GUEST_OP_HINT)
+            if _role_has:
+                raise AccessDenied(
+                    f"本令牌的 ops 作用域不含 op={op}（角色 {self.role} 本身**含**该 op，"
+                    f"是签发时被收窄；本令牌作用域 "
+                    f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）",
+                    hint=f"这是正常闸门不是故障：派生令牌只能**收窄**不能扩权。"
+                         f"由签发者重新签发且**不要**用 --ops-allow 收窄 {op}"
+                         f"（python -m md_cg.tokens issue …），或换用未收窄的 "
+                         f"{self.role} 令牌；更新 MDCG_TOKEN 后重启宿主"
+                         f"（README「写入凭据」一节）。")
             msg = (f"角色 {self.role} 无权执行 op={op}（作用域 "
                    f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
-            if self.role == "guest":
-                raise AccessDenied(msg, hint=self._GUEST_OP_HINT)
             raise AccessDenied(
                 msg,
                 hint=f"当前令牌（actor={self.actor}，角色 {self.role}）的 ops "
