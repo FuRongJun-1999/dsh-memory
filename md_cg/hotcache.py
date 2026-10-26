@@ -85,7 +85,11 @@ _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
                  # 相对时间锚定（2026-10-14）：开关开 ⇒ 写入侧派生 temporal_anchor、查询侧
                  # 点名日期时追加 time_anchor 路并把区间交集者前置；TZ 改「哪一天」的折算
                  # ⇒ 两者都改变融合结果，同属「漏登即跨口径串味」的一类。
-                 "MDCG_TIME_ANCHOR", "MDCG_TIME_ANCHOR_TZ")
+                 "MDCG_TIME_ANCHOR", "MDCG_TIME_ANCHOR_TZ",
+                 # issue #659 F26-16（R25-12 同族第 2 例）：最低分门槛直接改变融合
+                 # 结果集（search_rrf 在资格判定之前过滤、_emit 在 T3 出口过滤），
+                 # 漏登即运行期翻转后同 query 命中另一口径缓存。
+                 "MDCG_MIN_SCORE", "MDCG_RECALL_MIN_SCORE")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。

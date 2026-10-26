@@ -640,7 +640,14 @@ def fold_accents(text: str) -> str:
     import unicodedata as _ud
     s = routing.nfkc_text(text or "")
     s = _ud.normalize("NFD", s)
-    s = "".join(ch for ch in s if not _ud.category(ch).startswith("Mn"))
+    # issue #659 F26-27：**只剥拉丁组合记号区**（U+0300–U+036F 与其扩展 U+1AB0–U+1AFF、
+    # U+1DC0–U+1DFF）。此前无条件剥全部 Mn，会把日文浊点/半浊点（が = か + U+3099）
+    # 一并剥掉 ⇒ が 与 か 在检索面被折叠成同一词（实测确认）。音标剥离的目的是拉丁
+    # 字母重音，不该动假名的浊音对立（那是不同词）。
+    _DIACRITIC_RANGES = ((0x0300, 0x036F), (0x1AB0, 0x1AFF), (0x1DC0, 0x1DFF))
+    s = "".join(ch for ch in s
+                if not (_ud.category(ch).startswith("Mn")
+                        and any(lo <= ord(ch) <= hi for lo, hi in _DIACRITIC_RANGES)))
     return _ud.normalize("NFC", s)
 
 
@@ -682,7 +689,11 @@ def normalize_en(text: str) -> str:
     # 清标点（保留中文字符和空格和数字）
     # issue #623（2026-10-22）：本函数原先直接对**原文**做字符类清理，而 [^\u4e00-\u9fff a-zA-Z0-9] 会把全角
     # 拉丁/数字（ＡＢＣ１２３，U+FF01–FF5E）整段清成空格 ⇒ 查询词直接消失，全角与半角双向不可命中。
-    # 故先过 routing.nfkc_text（本仓 NFKC 唯一单点），再做字符类清理——一处改动同时覆盖
+    # 故先过 routing.nfkc_text（本仓 NFKC 唯一单点），再做字符类清理。
+    # issue #659 F26-20：原注释称「一处改动同时覆盖三条腿」不准确。核实后：
+    #   · _like 的 query terms 确经本函数产出，正文侧经 _like_body_lower；
+    #   · 但 _score 的裸子串命中与 reach 前筛**不经**本函数，各自直接比较。
+    # 现按实测口径陈述：本函数覆盖的是「词法 bigram 面」，不是全部三条腿。
     # _like 召回 / _score 打分 / reach 前筛三条腿（它们都由本函数产出 bigram）。
     cleaned = re.sub(r'[^\u4e00-\u9fff a-zA-Z0-9]', ' ', fold_accents(text))
 # 生效条件：m.group(0) 小写后交模块级 _norm_word_mem 查词级 memo（纯函数精确键控：命中返回缓存值，未命中按 EN_STOPWORDS 剔除/strip_tense_en 同口径计算并回填）——命中值≡逐词现算值，返回串接进归一结果；

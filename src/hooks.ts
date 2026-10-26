@@ -777,13 +777,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   /** 待推送提醒（session → 文本）：用户回合计数命中时写入，assemble 时只消费一次；
    *  不做 sticky 重推（那是提醒常驻的直接原因）。 */
   const pendingReminder = new Map<string, string>()
-  /** 提醒间隔：false → 0（关闭）；数字 → clamp 1..100；未设 → 10。 */
+  /** 提醒间隔：false 或 **<= 0 → 0（关闭）**；数字 → clamp 1..100；未设/非有限 → 10。
+   *  issue #659 F26-21：旧实现把 0 钳成 1（每轮提醒一次），与「0 = 关」的直觉相反；
+   *  负数同样落 0（关），而不是变成 1。非有限（NaN/Infinity）仍回落默认 10。 */
   const reminderInterval = (() => {
     const cfg = opts.turnReminder
     if (cfg === false) return 0
-    const n = typeof cfg === 'number' ? cfg : 10
-    if (!Number.isFinite(n)) return 10
-    return Math.max(1, Math.min(100, Math.floor(n)))
+    if (typeof cfg !== 'number') return 10
+    if (!Number.isFinite(cfg)) return 10
+    const n = Math.floor(cfg)
+    if (n <= 0) return 0                  // 0 / 负数 = 关闭（#659 F26-21）
+    return Math.min(100, n)
   })()
   {
     // 本 handler **恒定注册**（#657）：提醒是独立配置（memory.turnReminder），
@@ -802,6 +806,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (pending) {
             pendingReminder.delete(sid)
             assembly.contexts.push({ name: 'lingshu:turn-reminder', text: pending })
+            // issue #659 F26-24：消费点留一条日志（旧实现完全静默——「提醒到底有没有
+            // 注入过」只能靠翻上下文猜）。
+            ctx.logger.info('dsh-memory: 逢十轮提醒已注入（消费一次，不重推）')
           }
         }
         if (opts.autoRecall && graph.isReady()) {
@@ -818,13 +825,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 用户回合上，这里只消费一次待推文本。旧实现把 assemble 当轮次 + 段内永久重推
           // ⇒ 提醒几乎常驻、agent 反复空转归档；sid 缺失时还回落共用键 __no_sid__，
           // 并行会话互相污染频率。现改为：无 sid 不提醒；提醒只在本回合第一次 assemble 出现。
-          if (sid) {
-            const pending = pendingReminder.get(sid)
-            if (pending) {
-              pendingReminder.delete(sid)
-              assembly.contexts.push({ name: 'lingshu:turn-reminder', text: pending })
-            }
-          }
+          // （提醒消费已在门控外做掉，见上；此处不再重复——重复块是 #657 修复的残留。）
           // 非永久层 → 既有「最近记忆」块；self/anchor → 独立「身份锚点」块（独立预算）。
           const identityOn = opts.autoRecallIdentity === true
           const timelinePayload = await graph.timeline(
@@ -956,7 +957,15 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const n = (userTurns.get(sid) ?? 0) + 1
       userTurns.set(sid, n)
       if (shouldRemindTurn(n, reminderInterval)) {
-        pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
+        // issue #659 F26-24：**不覆盖未消费**的提醒。旧实现直接 set：n=20 覆盖 n=10，
+        // 若 n=10 那条还没被某个 assemble 取走，就永久丢失（用户只看到「20 轮」一次）。
+        // 现在保留最早一条（它承载的「该归档了」语义更强），并在已有待推时记一条日志。
+        const existed = pendingReminder.get(sid)
+        if (existed) {
+          ctx.logger.info('dsh-memory: 逢十轮提醒已有待推条目（保留最早一条，丢弃本轮重复）')
+        } else {
+          pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
+        }
       }
     }
     if (event.type === 'user/message' && opts.userMessage) {
