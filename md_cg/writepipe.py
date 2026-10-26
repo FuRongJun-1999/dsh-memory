@@ -519,6 +519,56 @@ def _reject_hint(verdict):
             "拒绝依据见 verdict.evidence")
 
 
+
+# 生效条件：a 里 dedupe 为真（_as_flag 语义）且正文与**同层**既有节点内容指纹
+# （nodefile.content_hash，sha256 前 12）逐字相等时，短路返回 ok=True/id=既有节点/
+# committed=False/deduped=True（不落盘、不建边）；dedupe 为假或无同层同指纹节点时返回 None。
+def _gate_dedupe(ctx):
+    """内容指纹幂等闸（issue #677）——**opt-in**，缺省关。
+
+    背景：cg(op=write) 是一次完整 RPC 往返（落盘 → 冲突检测 → 建索引 → 返回）。
+    客户端超时衡量整条链，于是「已落盘但没回话」会被调用方读成失败；缺省自生成
+    node_id 时，重试就是新增一条（实测同内容三条，importance 0.86）。
+
+    本闸给调用方一个**不改既有语义**的幂等开关：写请求带 dedupe=true 时，若同层已有
+    内容指纹逐字相同的节点，直接返回既有 id 并标 deduped=True。
+      · 缺省关 ⇒ 现有调用方与全部既有契约不受影响；
+      · 只比对**同层**（跨层同文本是不同语义，不能并）；
+      · 不建边、不传播（未落盘，与短路闸语义一致）；
+      · 比对走索引条目里的 content_hash，不读盘。
+    """
+    a = ctx["a"]
+    _d = a.get("dedupe")
+    # 布尔收敛（与 mcp_server._as_flag 同口径，但不在本模块导入它——避免
+    # writepipe ← mcp_server 的反向依赖）：布尔原样、数字按 0/非 0、字符串只认 true/1/yes/on。
+    if isinstance(_d, bool):
+        _den = _d
+    elif isinstance(_d, (int, float)):
+        _den = _d != 0
+    elif _d is None:
+        _den = False
+    else:
+        _den = str(_d).strip().lower() in ("1", "true", "yes", "on")
+    if not _den:
+        return None
+    content = a.get("content")
+    if not isinstance(content, str) or not content:
+        return None
+    from . import nodefile
+    want = nodefile.content_hash(content)
+    layer_want = str(a.get("layer") or "knowledge")
+    nodes = ((getattr(ctx["cg"], "index", None) or {}).get("nodes") or {})
+    for nid, e in list(nodes.items()):
+        if str(e.get("layer") or "") != layer_want:
+            continue
+        if str(e.get("content_hash") or "") == want:
+            return {"ok": True, "id": nid, "committed": False, "deduped": True,
+                    "content_sha": want, "dedupe_of": nid, "verdict": None,
+                    "hint": ("同层已存在内容指纹相同的节点 %s（issue #677 幂等闸）："
+                             "本次未落盘、未建边。若确需另存一份，请不带 dedupe 重试，"
+                             "或显式指定不同 node_id。") % nid}
+    return None
+
 # 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：先判策略可用性（fail-closed），再按 audit.audit 四态分派。
@@ -1326,6 +1376,10 @@ def install_default_gates(pipe):
     pipe.register_before("autonomy", _gate_autonomy)
     pipe.register_after("linkref", linkref.after_hook())
     pipe.register_after("trust", _after_trust)
+    # issue #677：内容指纹幂等闸插到**链首**（最后注册 ⇒ insert 到 0，不影响既有相对次序）：
+    # 短路必须发生在解析引用/建边之前（未落盘就不该产生副作用）；opt-in（dedupe=true 才生效），
+    # 缺省路径与改动前逐位一致。
+    pipe.register_before("dedupe", _gate_dedupe, position=0)
     return pipe
 
 
