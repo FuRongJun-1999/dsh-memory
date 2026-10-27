@@ -72,6 +72,18 @@ def main():
        == ('hive', 'subagent', 'team'), 'D3 通道声明解析（去空格去重）')
     ok(w.review_channels({}) == (), 'D4 未声明通道 ⇒ 空（视为无复核能力）')
 
+    print('== F 声明≠探测（2026-10-27 误判修正）')
+    p = w.probe_channels({})
+    ok(p['declared'] == () and '声明缺失不等于能力缺失' in p['hint'],
+       'F1 未声明时只报「未声明」，并写明声明缺失≠能力缺失', p)
+    p2 = w.probe_channels({'MDCG_REVIEW_CHANNELS': 'subagent'})
+    ok(p2['declared'] == ('subagent',) and '已声明' in p2['hint'],
+       'F2 声明 subagent 后被如实回报', p2)
+    _reason = w.decide_write('knowledge', channels=(), mode='enforce')['reason']
+    ok('未声明' in _reason, 'F3 deny 文案说的是「未声明」而非「无能力」', _reason)
+    ok('无子代理' not in _reason and '无蜂巢' not in _reason,
+       'F4 deny 文案不得断言能力缺失（曾因此对外误报「无子代理」）', _reason)
+
     print('== E security.require_layer_write 接入锚点（源码判据）')
     sec = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                        'md_cg', 'security.py')

@@ -23,7 +23,12 @@ import os
 
 #: 环境开关名（off|warn|enforce；非法值按 off 处理并告警一次）。
 GATE_ENV = "MDCG_WRITE_GATE"
-#: 可用复核通道声明（逗号分隔 hive,subagent,team）。空 ⇒ 视为无复核能力。
+#: 可用复核通道**声明**（逗号分隔 hive,subagent,team）。
+#:
+#: ⚠️ 边界（2026-10-27 修正）：本变量是**部署声明**，不是能力探测——
+#: 为空只表示「没声明过」，**不等于**「没有子代理/蜂巢/团队」。曾经因为把这
+#: 个空值当成能力盘点，对外误报「无子代理」，而实际 DSH 子代理通道可用。
+#: 要判断真相请走 `probe_channels()`（只读声明）或由各端自己的探测，别用本变量的空值推断能力。
 CHANNELS_ENV = "MDCG_REVIEW_CHANNELS"
 
 #: 层级严格度：数字越大越严。
@@ -76,6 +81,26 @@ def review_channels(environ=None):
     return tuple(out)
 
 
+# 生效条件：显式调用时返回 {"declared": 声明的通道元组, "hint": 补齐指引}；纯读声明，不发起网络或进程调用。
+def probe_channels(environ=None):
+    """复核通道自检（**只读声明**，不做能力探测）。
+
+    为什么不在这里探测子代理：本模块属大脑库、跨 harness 复用；子代理能力只有
+    各端自己知道（DSH 侧有 `subagent` 工具、别的端可能是蜂巢/团队）。这里只
+    如实回报「声明了什么」，并把「怎么补」写清楚——避免再出现「声明为空 →
+    断言无能力」的错判（2026-10-27 实际发生过：对外误报「无子代理」，而
+    DSH 子代理通道实测可用，一次只读任务跑通）。
+    """
+    declared = review_channels(environ)
+    if declared:
+        hinted = "已声明：" + ",".join(declared)
+    else:
+        hinted = ("未声明任何复核通道——若本端有子代理/蜂巢/团队，请设 "
+                  "MDCG_REVIEW_CHANNELS=subagent,hive,team 后再 enforce；"
+                  "声明缺失不等于能力缺失")
+    return {"declared": declared, "hint": hinted}
+
+
 # 生效条件：layer 为假值时按 knowledge 处理；返回 LAYER_TIERS 档位，未知层按 2 保守处理。
 def tier_of(layer):
     """层 → 严格档位。未知层按 2 保守处理（宁严不松）。"""
@@ -112,7 +137,7 @@ def decide_write(layer, reviewers=None, channels=None, mode=None, environ=None):
         if tier == 0:
             return {"decision": "allow", "tier": tier, "mode": m, "missing": [], "reason": "无复核通道，情景层按裁定放宽直写"}
         return {"decision": "deny", "tier": tier, "mode": m, "missing": list(need),
-                "reason": "无复核通道（无子代理/无蜂巢/无智能体团队）：只允许写情景层；该层需 "
+                "reason": "未声明复核通道（MDCG_REVIEW_CHANNELS 为空）：按裁定只允许写情景层；该层需 "
                           + "/".join(need) + " 复核——自我人格偏移与失忆是毁灭性的，宁可拒写"}
     gap = missing_reviewers(tier, reviewers)
     if gap:
