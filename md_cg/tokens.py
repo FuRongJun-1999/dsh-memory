@@ -107,6 +107,75 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            "audit", "state_event")
 
 
+# 设计者令牌**应覆盖**的面：读面 + 裁决面（「能不能查看、能不能裁决」）。
+#
+# 由来（2026-10-27，使用者裁定）：线上曾签发一枚 designer 令牌，ops 被收窄成
+#   10 个（info/route/read/write/recent/goal/identity/whitebox/verify/task），
+#   于是 DSH 端 UI 的「自我认知」「审核与维护」两页多项被 AccessDenied ——
+#   报错自己写着「角色 designer 本身**含**该 op，是签发时被收窄」。
+#   **设计者令牌却看不了、裁不了**，是角色语义与签发现实自相矛盾。
+#
+# 边界（刻意只收「查看与裁决」）：不含 forget/scrub/consolidate/index_*/export
+#   等破坏性或管理级 op —— 按最小权限刻意不给它们**是合理用法**，
+#   不列入本判据的失败面。故本常量只用于**告警与体检**，不作为签发阻断。
+DESIGNER_COVERAGE_OPS = (
+    "info", "help", "status", "edges",          # 元信息 / 验证态 / 三元组反查
+    "read", "route", "recent",                  # 读面
+    "identity", "self_state", "metacognition",  # 自我认知
+    "review",                                   # 审核面（查看候选/记录；**裁决本身不在此**——
+    #   2026-10-27 使用者裁定：设计者只读，裁决须由反思单元与验证单元复核，
+    #   故 `verify` 刻意不列、`review` 只用于 list/records 类查看)
+    "protect", "evolution", "sustain",          # 审核与维护
+    "goal", "task",                             # 目标与任务
+)
+
+
+# 生效条件：ops_allow 为 None 或含 "*" 时返回空列表（视为全覆盖）；否则按 DESIGNER_COVERAGE_OPS 的常量顺序返回其中缺失的 op。
+def coverage_gap(ops_allow):
+    """设计者令牌的覆盖面缺口 → 缺失的读面/裁决面 op（按常量顺序）。
+
+    返回空列表＝覆盖完整。`["*"]`（角色默认全集）与 None 都视为全覆盖；
+    None 只出现在「未收窄」的调用点，语义与 "*" 等同（见 `_narrow`）。
+    """
+    if ops_allow is None or "*" in ops_allow:
+        return []
+    allow = set(ops_allow)
+    return [op for op in DESIGNER_COVERAGE_OPS if op not in allow]
+
+
+# 高风险 op：给自动驾驶/界面用的令牌**不该**带上这些面——「全权限在不可靠的情况下
+# 就是灾难」（2026-10-27 使用者裁定）。两类都算：
+#   · 不可逆/批量：forget（删）、scrub（净化）、consolidate（合并固化）、
+#     index_code/index_doc（重建派生索引）、export（全库导出）、
+#     maintain（apply 类批量改写）、link（放宽签名策略/覆写）、state_event（记账写）；
+#   · 写入与裁决：write、verify（裁决）、ccg（编译器落库）、insight、session、
+#     ingest、audit、predict、causal、theory。
+# 本表只用于**签发告警**，不做阻断：人手主令牌按需全权是合法的，
+# 但要让人看见「我刚给出去的是什么」。
+HIGH_RISK_OPS = (
+    "forget", "scrub", "consolidate", "index_code", "index_doc", "export",
+    "maintain", "link", "state_event",
+    "write", "verify", "ccg", "insight", "session", "ingest", "audit",
+    "predict", "causal", "theory",
+)
+
+
+# 生效条件：ops_allow 为 None 时返回空列表；含 "*" 时返回 ["*"]（全权单列）；否则按 HIGH_RISK_OPS 常量顺序返回其中出现的项。
+def high_risk_granted(ops_allow):
+    """设计者令牌里被放开的**高风险面** → 命中的 op（`["*"]` 原样单列）。
+
+    与 `coverage_gap` 互为两面：那个查「缺了该有的读/裁面」，这个查
+    「给了不该轻易给的面」。签发时两者都报，才不会出现「设计者看不了」
+    与「设计者能删库」这两种相反的灾难。
+    """
+    if ops_allow is None:
+        return []
+    if "*" in ops_allow:
+        return ["*"]
+    allow = set(ops_allow)
+    return [op for op in HIGH_RISK_OPS if op in allow]
+
+
 class TokenError(Exception):
     """令牌无效 / 过期 / 越权派生。"""
 
@@ -539,6 +608,32 @@ def issue(role: str, actor: str = None, clearance: str = None,
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])
     ops = _narrow(ops_allow, spec["ops_allow"])
+    # 一致性**告警**（不阻断）——注意分层：库函数只**返回** warnings，不写 stderr。
+    #
+    # 为什么不在库里打印（2026-10-27 CI 反馈）：`test_n198_tokens_corrupt_failclosed`
+    # 的判据是「合法库全流程零 stderr 告警（不误报）」——库函数往 stderr 写会让
+    # **正常签发**看起来像故障。这与 `hive/serve_start.py` 的既有口径同源：
+    # 「start() 只返回 dict 不打印——stdio 通道上多打一行即污染协议；打印只发生在
+    # CLI 入口」。故：库层进 `warnings` 字段，CLI 入口负责打印。
+    warnings = []
+    if role == "designer":
+        _risky = high_risk_granted(ops)
+        if _risky == ["*"]:
+            warnings.append(
+                "警告：本次签发的 designer 令牌是**全权**（[\"*\"]），含写入/裁决/"
+                "删除/批量维护全部面——全权限在不可靠的情况下就是灾难。若这是给界面或"
+                "自动化用的，请改用只读面令牌（见 DESIGNER_COVERAGE_OPS）或 derive 子令牌。")
+        elif _risky:
+            warnings.append(
+                "警告：本次签发的 designer 令牌含 %d 个高风险 op：%s —— 写入/裁决/"
+                "删除面已对外开放，确认这是刻意授权。" % (len(_risky), "/".join(_risky)))
+        _gap = coverage_gap(ops)
+        if _gap:
+            warnings.append(
+                "注意：本次签发的 designer 令牌 ops 被收窄，缺少 "
+                "%d 个读面/裁决面 op：%s —— 用该令牌的界面会出现 AccessDenied"
+                "（写入面不受影响）。若这不是刻意的最小权限，去掉 --ops-allow"
+                " 即可按角色默认全集（[\"*\"]）签发。" % (len(_gap), "/".join(_gap)))
     token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     now = time.time()
     rec = {
@@ -562,7 +657,8 @@ def issue(role: str, actor: str = None, clearance: str = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": clearance, "layers_allow": layers, "ops_allow": ops,
-            "expires_at": rec["expires_at"], "token_file": token_file(path)}
+            "expires_at": rec["expires_at"], "token_file": token_file(path),
+            "warnings": warnings}
 
 
 # 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）。
@@ -892,11 +988,16 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         if a.cmd == "issue":
-            _print(issue(a.role, actor=a.actor, clearance=a.clearance,
-                         tenant=a.tenant, ttl=a.ttl, label=a.label,
-                         layers_allow=_csv_list(a.layers_allow),
-                         ops_allow=_csv_list(a.ops_allow),
-                         path=a.token_file))
+            _r = issue(a.role, actor=a.actor, clearance=a.clearance,
+                       tenant=a.tenant, ttl=a.ttl, label=a.label,
+                       layers_allow=_csv_list(a.layers_allow),
+                       ops_allow=_csv_list(a.ops_allow),
+                       path=a.token_file)
+            # 覆盖面/高风险告警在**接口层**打印（库函数只返回 warnings，见 issue 注释）：
+            # stdout 保持纯 JSON（协议面），告警走 stderr（诊断面），两流不混。
+            for _w in (_r.get("warnings") or []):
+                sys.stderr.write("[tokens] %s\n" % _w)
+            _print(_r)
         elif a.cmd == "derive":
             tok = a.token
             if a.token_file_in:
@@ -929,8 +1030,13 @@ def main(argv=None):
                 with open(a.token_file_in, encoding="utf-8") as f:
                     tok = f.read().strip()
             p = verify_token(tok, path=a.token_file)
-            _print({"ok": True, "principal": p.as_dict(),
-                    "role_label": role_spec(p.role)["label"]})
+            _out = {"ok": True, "principal": p.as_dict(),
+                    "role_label": role_spec(p.role)["label"]}
+            # designer 令牌的覆盖面体检：非空即「用了设计者令牌却缺读/裁面」，
+            # 供插件启动日志与运维体检直接看见（不影响校验结论本��）。
+            if p.role == "designer":
+                _out["designer_coverage_gap"] = coverage_gap(p.ops_allow)
+            _print(_out)
         elif a.cmd == "revoke":
             _print(revoke(a.token_id, path=a.token_file))
         elif a.cmd == "list":
