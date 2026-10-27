@@ -608,27 +608,32 @@ def issue(role: str, actor: str = None, clearance: str = None,
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])
     ops = _narrow(ops_allow, spec["ops_allow"])
-    # 一致性告警（不阻断）：设计者令牌被收窄到缺「查看/裁决」面时，如实提示——
-    # 窄令牌本身是合法用法（探针/子智能体最小权限），但设计者缺读面会导致
-    # 「用了设计者令牌却看不了、裁不了」（2026-10-27 使用者现场）。
+    # 一致性**告警**（不阻断）——注意分层：库函数只**返回** warnings，不写 stderr。
+    #
+    # 为什么不在库里打印（2026-10-27 CI 反馈）：`test_n198_tokens_corrupt_failclosed`
+    # 的判据是「合法库全流程零 stderr 告警（不误报）」——库函数往 stderr 写会让
+    # **正常签发**看起来像故障。这与 `hive/serve_start.py` 的既有口径同源：
+    # 「start() 只返回 dict 不打印——stdio 通道上多打一行即污染协议；打印只发生在
+    # CLI 入口」。故：库层进 `warnings` 字段，CLI 入口负责打印。
+    warnings = []
     if role == "designer":
         _risky = high_risk_granted(ops)
         if _risky == ["*"]:
-            sys.stderr.write(
-                "[tokens] 警告：本次签发的 designer 令牌是**全权**（[\"*\"]），含写入/裁决/"
+            warnings.append(
+                "警告：本次签发的 designer 令牌是**全权**（[\"*\"]），含写入/裁决/"
                 "删除/批量维护全部面——全权限在不可靠的情况下就是灾难。若这是给界面或"
-                "自动化用的，请改用只读面令牌（见 DESIGNER_COVERAGE_OPS）或 derive 子令牌。\n")
+                "自动化用的，请改用只读面令牌（见 DESIGNER_COVERAGE_OPS）或 derive 子令牌。")
         elif _risky:
-            sys.stderr.write(
-                "[tokens] 警告：本次签发的 designer 令牌含 %d 个高风险 op：%s —— 写入/裁决/"
-                "删除面已对外开放，确认这是刻意授权。\n" % (len(_risky), "/".join(_risky)))
+            warnings.append(
+                "警告：本次签发的 designer 令牌含 %d 个高风险 op：%s —— 写入/裁决/"
+                "删除面已对外开放，确认这是刻意授权。" % (len(_risky), "/".join(_risky)))
         _gap = coverage_gap(ops)
         if _gap:
-            sys.stderr.write(
-                "[tokens] 注意：本次签发的 designer 令牌 ops 被收窄，缺少 "
+            warnings.append(
+                "注意：本次签发的 designer 令牌 ops 被收窄，缺少 "
                 "%d 个读面/裁决面 op：%s —— 用该令牌的界面会出现 AccessDenied"
                 "（写入面不受影响）。若这不是刻意的最小权限，去掉 --ops-allow"
-                " 即可按角色默认全集（[\"*\"]）签发。\n" % (len(_gap), "/".join(_gap)))
+                " 即可按角色默认全集（[\"*\"]）签发。" % (len(_gap), "/".join(_gap)))
     token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     now = time.time()
     rec = {
@@ -652,7 +657,8 @@ def issue(role: str, actor: str = None, clearance: str = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": clearance, "layers_allow": layers, "ops_allow": ops,
-            "expires_at": rec["expires_at"], "token_file": token_file(path)}
+            "expires_at": rec["expires_at"], "token_file": token_file(path),
+            "warnings": warnings}
 
 
 # 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）。
@@ -982,11 +988,16 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         if a.cmd == "issue":
-            _print(issue(a.role, actor=a.actor, clearance=a.clearance,
-                         tenant=a.tenant, ttl=a.ttl, label=a.label,
-                         layers_allow=_csv_list(a.layers_allow),
-                         ops_allow=_csv_list(a.ops_allow),
-                         path=a.token_file))
+            _r = issue(a.role, actor=a.actor, clearance=a.clearance,
+                       tenant=a.tenant, ttl=a.ttl, label=a.label,
+                       layers_allow=_csv_list(a.layers_allow),
+                       ops_allow=_csv_list(a.ops_allow),
+                       path=a.token_file)
+            # 覆盖面/高风险告警在**接口层**打印（库函数只返回 warnings，见 issue 注释）：
+            # stdout 保持纯 JSON（协议面），告警走 stderr（诊断面），两流不混。
+            for _w in (_r.get("warnings") or []):
+                sys.stderr.write("[tokens] %s\n" % _w)
+            _print(_r)
         elif a.cmd == "derive":
             tok = a.token
             if a.token_file_in:

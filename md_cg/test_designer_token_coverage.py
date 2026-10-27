@@ -49,6 +49,26 @@ def _tmp_store():
 
 
 def main():
+    print("== A0 库层分层：issue() 只返回 warnings、**不写 stderr**（n198 判据）")
+    import contextlib
+    import io
+    _p0 = _tmp_store()
+    _buf = io.StringIO()
+    with contextlib.redirect_stderr(_buf):
+        _r0 = tokens.issue("designer", actor="t-quiet", path=_p0,
+                           ops_allow=["info", "read"])
+    ok("warnings" in _r0 and _r0["warnings"],
+       "A0a 收窄签发的告警进 warnings 字段", _r0.get("warnings"))
+    ok(_buf.getvalue() == "", "A0b 库函数零 stderr 输出（不污染调用方）",
+       _buf.getvalue()[:120])
+    _p0b = _tmp_store()
+    _buf2 = io.StringIO()
+    with contextlib.redirect_stderr(_buf2):
+        _r0b = tokens.issue("designer", actor="t-quiet-wide", path=_p0b)
+    ok(bool(_r0b.get("warnings")) and any("全权" in w for w in _r0b["warnings"]),
+       "A0c 全权签发同样只进 warnings（含「全权」）", _r0b.get("warnings"))
+    ok(_buf2.getvalue() == "", "A0d 全权场景同样零 stderr", _buf2.getvalue()[:120])
+
     print("== A 角色默认必须是全集（防默认被改窄）")
     spec = tokens.role_spec("designer")
     ok(spec["ops_allow"] == ["*"], "A1 designer 角色默认 ops_allow == [\"*\"]", spec["ops_allow"])
