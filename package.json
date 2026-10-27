@@ -33,7 +33,8 @@
     "docs/规范/AI编程通用规范_自检清单.md",
     "docs/discipline",
     "docs/工作纪律_认知图条目_v1.1.json",
-    "scripts/workspace_index.py"
+    "scripts/workspace_index.py",
+    "ui"
   ],
   "keywords": [
     "deepseek",
