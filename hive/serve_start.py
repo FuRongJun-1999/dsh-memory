@@ -283,14 +283,45 @@ def emit(obj):
     return 0 if obj.get("ok") else 1
 
 
-# 生效条件：v 为 str 时原样返回（空串也返回空串）；v 为含 "env" 键的 dict 时返回 os.environ.get(该名, "") 去空白后的值、空串则回落 None；v 为 dict 且无 "env" 键但有 "file" 键时读该路径去空白、空则 None、抛 OSError 则 None（非 UTF-8 内容抛出的 UnicodeDecodeError 未被捕获）；其余 dict 及非 str/dict 一律返回 None。
+# 生效条件：name 为假值时返回 None；Windows 且 name 未在进程 env 中时，读 HKLM 的
+# Session Manager\Environment 下同名机器级变量；其余平台或读不到返回 None。
+def _machine_env(name):
+    """Windows **机器级**环境变量回落（2026-10-27 根治）。
+
+    为什么需要：`config.local.json` 里 `HIVE_API_KEY` 常写成 `{"env":
+    "DEEPSEEK_API_KEY"}`，读的是**调用进程**的 env。而 DSH 主进程可能在
+    变量设置之前就已启动，其子进程（插件/MCP）继承不到 → `serve_start.py`
+    直接 fail fast 报「配置项解析失败（来源 env 未设）」，调用方据此误判
+    「蜂巢不可用」。实测本机正是如此：进程 env 无、机器级有（35 字符）。
+
+    口径：只在**进程 env 未设**时回落，不改动已显式设置的进程 env（显式优先，
+    便于临时覆盖）；只读、不写回、不缓存。
+    """
+    if not name or os.name != "nt":
+        return None
+    try:
+        import winreg
+        with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as k:
+            val, _kind = winreg.QueryValueEx(k, name)
+        return str(val)
+    except (OSError, ImportError, ValueError):
+        return None
+
+
+# 生效条件：v 为 str 时原样返回（空串也返回空串）；v 为含 "env" 键的 dict 时先取进程 env（去空白），为空再经 _machine_env 回落机器级同名变量，两者皆空则回落 None；v 为 dict 且无 "env" 键但有 "file" 键时读该路径去空白、空则 None、抛 OSError 则 None（非 UTF-8 内容抛出的 UnicodeDecodeError 未被捕获）；其余 dict 及非 str/dict 一律返回 None。
 def resolve(v):
     """配置值三形态解析：str 直值 / {"env": name} / {"file": path}。失败返回 None。"""
     if isinstance(v, str):
         return v
     if isinstance(v, dict):
         if "env" in v:
-            return os.environ.get(v["env"], "").strip() or None
+            name = v["env"]
+            val = (os.environ.get(name) or "").strip()
+            if not val:
+                val = (_machine_env(name) or "").strip()
+            return val or None
         if "file" in v:
             try:
                 with open(v["file"], "r", encoding="utf-8") as f:
