@@ -1,3 +1,5 @@
+// @ts-ignore UI helper is copied by build-ui.mjs
+import { installConsoleWeb } from './lib/console_web.mjs'
 /**
  * @furongjun1999/dsh-memory —— 灵枢 DeepSeek Harness 插件
  * （大脑唯一真源 = md_cg 认知图；aeis 能力库已下线）
@@ -468,6 +470,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 角色扮演网页（同源挂载 /roleplay）：生成能力走可选「身体」后端（capability），
     // 转录/历史/翻译/落图走大脑（mdcg）。capability=null 时生成接口 fail-closed。
     await installRoleplayWeb(ctx, capability, config, disposers, mdcg)
+    installConsoleWeb(ctx, config, disposers, mdcg)
 
     // 白箱 LLM provider 已下线（2026-09-10）：功能尚不完善，不再注册
     // 'lingshu-whitebox' provider。适配器保留为 LIB 本地库
