@@ -619,6 +619,37 @@ def _redteam_required():
         in ("1", "true", "yes")
 
 
+# 生效条件：无 required 形参；当 os.environ 中 MDCG_REVIEW_DUAL_CHECK 去空白小写后属 1/true/yes/on 时返回 True，否则 False（缺省关，避免升级即阻断既有裁决流程）。
+def _dual_check_required():
+    """裁决是否强制「反思单元 + 验证单元」双复核（2026-10-27 使用者裁定）。
+
+    裁定原话：「裁决需要用反思单元和验证单元复核。」缺省**关**——与
+    `MDCG_REDTEAM_REQUIRED` 同款：既有脚本/蜂巢流程不该因升级而中断，
+    由部署方显式开启（DSH 端建议开）。
+    """
+    return os.environ.get("MDCG_REVIEW_DUAL_CHECK", "").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
+#: 复核单元名的中英文同义归一（判据只认两类 + 人工）。
+REVIEW_UNIT_ALIASES = {
+    "reflect": "reflect", "reflection": "reflect", "反思单元": "reflect",
+    "反思": "reflect", "reflect_unit": "reflect",
+    "verify": "verify", "verifier": "verify", "验证单元": "verify",
+    "验证": "verify", "verify_unit": "verify",
+    "human": "human", "user": "human", "使用者": "human", "人工": "human",
+}
+
+
+# 生效条件：name 为假值时返回空串；否则 strip/lower 后查 REVIEW_UNIT_ALIASES，命中返回归一名，未命中原样返回小写值。
+def _norm_review_unit(name):
+    """复核单元名归一 → reflect / verify / human（未知名原样返回，便于报错点名）。"""
+    raw = str(name or "").strip().lower()
+    if not raw:
+        return ""
+    return REVIEW_UNIT_ALIASES.get(raw, raw)
+
+
 # ---- 审核队列裁决动作（治理层）· 2026-09-19 阶段一 ----------------------------
 # **命名空间隔离**：`noop` 一词在 lifecycle.py / trust.py 中已被占用为**状态迁移
 # 结果码**（`check`/`stamp` 返回的 code，语义「同状态、不写盘」）；这里的 noop 是
@@ -3766,11 +3797,56 @@ class MdCGOS(MdCG):
             after_hash=_after_hash)
         return {"ok": True, "node_id": node_id, "mutation": mpay}
 
+# 生效条件：item 为 inbox 记录、decision 属 DECISION_ACTIONS；reviewed_by 可为字符串或 {unit:…} 映射的可迭代，decided_by 为假值时回落到 item 的 proposer/compiled_by/actor；返回 {"ok":True,"reviewed_units":[...]} 或 {"ok":False,"error":...}（dual_check_required / self_review_forbidden / unknown_review_unit）。
+    def _dual_review_verdict(self, item, decision, decided_by=None, reviewed_by=None):
+        """裁决前双单元复核判定（反思单元 + 验证单元；**裁决者不得自证**）。
+
+        归一口径见 `_norm_review_unit`（reflect/verify/human 三类）。两条判据：
+          1. `reviewed_by` 必须**同时**含 reflect 与 verify（同一类重复不算——
+             两个反思单元仍然没有验证，正是「同侧互证」的盲区）；
+          2. 裁决者不得是提案者本人（与 ccg 的 E041「编译者不得自证」同源）。
+
+        只在 `MDCG_REVIEW_DUAL_CHECK=1` 时被调用；关闭时本方法不参与任何路径。
+        """
+        units = []
+        for raw in (reviewed_by or ()):
+            if isinstance(raw, dict):
+                name = raw.get("unit") or raw.get("role") or raw.get("name") or ""
+            else:
+                name = raw
+            unit = _norm_review_unit(name)
+            if unit:
+                units.append(unit)
+        have = set(units)
+        missing = [u for u in ("reflect", "verify") if u not in have]
+        if missing:
+            return {"ok": False, "error": "dual_check_required",
+                    "pid": item.get("pid"), "decision": decision,
+                    "missing": missing, "reviewed_units": sorted(have),
+                    "detail": ("裁决须经反思单元与验证单元复核（2026-10-27 裁定）："
+                               "缺 %s。请带上 reviewed_by 重试，例如 "
+                               "reviewed_by=[\"反思单元\", \"验证单元\"]。"
+                               % "/".join(missing))}
+        unknown = sorted(u for u in have if u not in ("reflect", "verify", "human"))
+        if unknown:
+            return {"ok": False, "error": "unknown_review_unit",
+                    "pid": item.get("pid"), "unknown": unknown,
+                    "detail": "复核单元只认 reflect/verify/human（含中文同义）"}
+        proposer = (item.get("proposer") or item.get("compiled_by")
+                    or item.get("actor") or "")
+        who = decided_by or getattr(self, "actor", None) or ""
+        if proposer and who and str(proposer).strip() == str(who).strip():
+            return {"ok": False, "error": "self_review_forbidden",
+                    "pid": item.get("pid"), "decided_by": str(who),
+                    "detail": "裁决者不得是提案者本人（同侧互证不构成复核）"}
+        return {"ok": True, "reviewed_units": sorted(have)}
+
 # 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None,
-                      override: bool = False):
+                      override: bool = False,
+                      reviewed_by=None, decided_by: str = None):
         """审核裁决：accept / reject / edit / merge / noop。
 
         accept  → 按 inbox 原样写入
@@ -3847,6 +3923,14 @@ class MdCGOS(MdCG):
         if decision == "accept" and not rt_v and _redteam_required():
             return {"ok": False, "error": "redteam_required",
                     "detail": "MDCG_REDTEAM_REQUIRED=1：accept 必须带红队 pass"}
+
+        # 双单元复核闸（可选，MDCG_REVIEW_DUAL_CHECK=1）：**裁决须经反思单元与
+        # 验证单元复核**（2026-10-27 使用者裁定）。与上面的红队闸正交——红队是
+        # 「打回/再审批」，本闸是「谁复核过」。缺省关，开启后缺任一方即拒。
+        if _dual_check_required():
+            _chk = self._dual_review_verdict(item, decision, decided_by, reviewed_by)
+            if _chk.get("ok") is not True:
+                return _chk
 
         # 三档自治批次②（设计 §四）：**变更单**（kind=mutation）走**独立执行桥**
         # ——在既有前置闸（已判/verify_readonly/再审批/红队门控）之后、既有

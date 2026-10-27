@@ -2909,7 +2909,9 @@ def _cg_dispatch(cg, a):
                                 edits=a.get("edits"), merge_into=a.get("merge_into"),
                                 reason=a.get("reason", ""),
                                 redteam=a.get("redteam"), issues=a.get("issues"),
-                                override=bool(a.get("override")))
+                                override=bool(a.get("override")),
+                                reviewed_by=a.get("reviewed_by"),
+                                decided_by=a.get("decided_by"))
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
@@ -4556,7 +4558,9 @@ def _dispatch(cg, name, args):
                                 edits=a.get("edits"), merge_into=a.get("merge_into"),
                                 reason=a.get("reason", ""),
                                 redteam=a.get("redteam"), issues=a.get("issues"),
-                                override=bool(a.get("override")))
+                                override=bool(a.get("override")),
+                                reviewed_by=a.get("reviewed_by"),
+                                decided_by=a.get("decided_by"))
 
     if name == "mdcg_review_records":
         nid = a.get("node_id")
