@@ -24,6 +24,7 @@
     "data/policy.json",
     "hive/id_charset_blocks.txt",
     "skills",
+    "CHANGELOG.md",
     "README.md",
     "dsh",
     "codebuddy",
