@@ -51,6 +51,20 @@ def main():
     for item in ("ui", "web", "CHANGELOG.md"):
         ok(item in files, "B1 files 含 " + item, files[-6:])
 
+    print("== B2 跨面一致性（2026-10-27 双单元复核指出的系统性漏项）")
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import workspace_index
+    root_files = set(getattr(workspace_index, "ROOT_FILES", {}) or {})
+    top_level = [f for f in files if "/" not in str(f) and not str(f).startswith(".")]
+    top_files = [f for f in top_level
+                 if os.path.isfile(os.path.join(ROOT, str(f)))]   # 只查文件；目录归 DIR_ROLES
+    missing_reg = [f for f in top_files if f not in root_files]
+    ok(not missing_reg,
+       "B2a package.json::files 的根级项都在 workspace_index.ROOT_FILES 登记",
+       ("未登记：", missing_reg))
+    ok("CHANGELOG.md" in root_files,
+       "B2b CHANGELOG.md 已登记工作区结构面（本 PR 曾因此双红）")
+
     print("== C 构建面（产物由脚本生成，构建链自动带）")
     scr = pkg.get("scripts") or {}
     ok("build_ui.py" in str(scr.get("build", "")),

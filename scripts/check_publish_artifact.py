@@ -47,7 +47,19 @@ TEXT_EXTS = {
     ".txt", ".example", ".sh", ".bat", ".html", ".ps1", ".toml", ".cfg", ".ini",
 }
 TEXT_SIZE_LIMIT = 3 * 1024 * 1024
-ALLOW_NONTRACKED = ("lib/",)
+#: R4 的**允许面**（前缀白名单）：包内允许出现哪些「非追踪件」。
+#:
+#: 判据＝「该文件能否由**仓库内的脚本/源**确定性复现」。当前两类构建产物：
+#:   · `lib/`                     —— `tsc` 编译产物（lib/index.js 等）
+#:   · `web/` · `build-ui.mjs`    —— `scripts/build_ui.py` 从 `ui/minimal/payload/` 铺出的
+#:                                  UI 产物（0.9.15 起接线入库，产物仍不入库——见 .gitignore）
+#:   · `src/lib/`                 —— 同上脚本铺出的 `console_web.mjs` 源侧副本
+#:     （`src/index.ts` 的 `import ... from './lib/console_web.mjs'` 需要它在盘上才能编译）
+#:
+#: 2026-10-27 补：此前只有 `lib/`，UI 产物一入 files 就有 6 件落进 bad（R4 红）。
+#: 注意「允许=32」那类数字是**实测量**（len(untracked)-len(bad)），不是可调阈值；
+#: 本元组才是唯一的政策常量。
+ALLOW_NONTRACKED = ("lib/", "web/", "build-ui.mjs", "src/lib/")
 BATCH_MAX = 400
 
 #: N251（2026-10-05，high）：清单内**文本件**却未被扫描的成因——「未扫」不得等价于
