@@ -92,7 +92,7 @@ def main():
     print("== C stats() 与「逐节点 cg 口径」五字段逐位相同")
     got = protect.stats(cg)
     by_layer, ids, auto, immutable = {}, [], 0, []
-    for nid, e in cg.index["nodes"].items():
+    for nid, e in list(cg.index["nodes"].items()):   # H-4：共享 nodes 迭代先取快照
         pr, why = protect.is_protected(cg, nid)
         if pr:
             ids.append(nid)

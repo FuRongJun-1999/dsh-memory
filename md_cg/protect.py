@@ -657,10 +657,12 @@ def stats(cg):
     语义不变：两个判定函数本就是「取 fm → 调 *_entry」的同一构造（见各函数注释），
     条目与 frontmatter 的字段同源（`_node_entry` 从 fm 派生）；等价性由守卫
     `md_cg/test_protect_stats_parity.py` 用真实库抽样 + 合成库逐位比对钉住。
+    并发面：迭代仍**先取快照**（`list(nodes.items())`，H-4 判据：共享 dict 迭代
+    期间若有同进程写入会 `dictionary changed size during iteration`）。
     """
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     by_layer, ids, auto, immutable = {}, [], 0, []
-    for nid, e in nodes.items():
+    for nid, e in list(nodes.items()):   # H-4：共享 nodes 字典迭代先取快照
         prot, why = is_protected_entry(e)
         if prot:
             ids.append(nid)

@@ -443,8 +443,13 @@ def g_e():
 
 
 # ---------------------------------------------------------------- F 调用方枚举与逐类读数
+# 2026-10-27 同步（perf: protect.stats 改条目口径）：`stats()` 不再直接调
+# `is_protected(cg, nid)`，改调同源的 `is_protected_entry(entry)`（读索引免读盘），
+# 故 protect.py 的 `is_protected(` 调用点 3 → 2、总数 7 → 6。**守卫语义不变**：
+# 任何**新增**的 `is_protected(` 直接调用方仍会因本表未同步而转红。条目口径与
+# 逐节点口径的等价性另由 `md_cg/test_protect_stats_parity.py` 钉住（含性能护栏）。
 _CALLSITES = {
-    "protect.py": (3, "guard_forget:262 / guard_move:274 / stats:408"),
+    "protect.py": (2, "guard_forget:455 / guard_move:467"),
     "mcp_server.py": (1, "_protect_call action=check:1216"),
     "scrub.py": (2, "apply skip_protected:665 / _apply_offset skip:728"),
     "self_state.py": (1, "check 8 保护一致:865"),
@@ -465,8 +470,9 @@ def g_f():
         ok(len(lines) == want,
            "F1 %s 的 is_protected( 调用点 == %d（%s）" % (fn, want, label),
            lines)
-    ok(total == 7,
-       "F1+ 全部非测试调用点恰 7 处（枚举完备性——新增调用方须同步本表）",
+    ok(total == 6,
+       "F1+ 全部非测试调用点恰 6 处（枚举完备性——新增调用方须同步本表；"
+       "stats 已改条目口径，见 _CALLSITES 顶部注）",
        total)
     with _cg("a_heur") as cg:
         row_a = (protect.is_protected(cg, "a_heur"),
