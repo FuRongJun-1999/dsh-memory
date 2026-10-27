@@ -170,11 +170,16 @@ powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <你
 powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <你的灵枢插件目录> -Uninstall
 ```
 
-| 安装器改什么 | 安装器**不**动什么 |
+> **0.9.15 起：接线随仓库与 npm 包自带**——`dsh.client` / `exports["./client"]`（`package.json`）与
+> `installConsoleWeb(...)` 调用（`src/index.ts`）都在仓库里；静态产物由 `scripts/build_ui.py` 生成
+> （`build` 与 `prepublishOnly` 自动执行，`--check` 只校验）。所以**改插件清单不再需要重装 UI**。
+> 从 npm 包装到本机插件目录时，`install.ps1` 只需铺静态产物；对**无接线的旧插件包**它仍会自动补齐清单。
+
+| 安装器铺什么 | 安装器**不**动什么 |
 |---|---|
 | payload 9 个文件（`web/` · `lib/client.js` · `console_web.mjs` · `build-ui.mjs`） | DSH profile / 插件 root / 记忆库 |
-| 插件清单两处注入：`dsh.client`（侧栏注入点）、`exports["./client"]` | 凭据、令牌、自动记忆开关 |
-| `lib/index.js` 一行接线：`installConsoleWeb(ctx, config, disposers, mdcg)` | 你的既有节点数据 |
+| （仅对无接线的旧包）补 `dsh.client`、`exports["./client"]` 与 `lib/index.js` 接线 | 凭据、令牌、自动记忆开关 |
+| — | 你的既有节点数据 |
 
 **生效方式**：client bundle 与 `/plugins/lingshu/*` 路由在 DSH **启动时**注册 ⇒ 装完需**重启 DSH**（安装器自己也会这么提示）。
 

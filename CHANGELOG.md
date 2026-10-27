@@ -25,7 +25,11 @@
 
 - `ui/minimal/`：一行安装、逐文件可回滚、复用本机大脑桥（数据不出机）；
   七页面板（概览 / 记忆 / 目标与任务 / 自我认知 / 时空关系 / 审核与维护 / 工具台）。
-- `package.json` 的 `files` 白名单加入 `ui`，**随 npm 包分发**安装器与 payload。
+- `package.json` 的 `files` 白名单加入 `ui` 与 `web`，**随 npm 包分发**安装器、payload 与静态资源。
+- **接线入库**：`dsh.client` / `exports["./client"]` 写进 `package.json`、`installConsoleWeb(...)` 写进 `src/index.ts`；
+  产物由新增的 `scripts/build_ui.py` 生成（幂等；`--check` 只校验、缺文件 fail-closed；`build` 与 `prepublishOnly` 均自动执行）。
+  于是**改插件清单不再需要重装 UI**；`install.ps1` 转为面向「从 npm 包装到本机插件目录」的最终用户，
+  对无接线的旧插件包仍会自动补齐。守卫 `md_cg/test_ui_wiring_in_repo.py`（18 条）钉住声明/分发/构建三面不漂移。
 
 ### 性能
 
