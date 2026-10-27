@@ -235,7 +235,19 @@ def is_immutable(cg, node_id):
     但它仍然 is_protected（不可遗忘），这是「不可遗忘 ≠ 不可覆盖」的延伸。
     身份锚点不设此豁免，依旧两者皆禁。
     """
-    fm = _fm(cg, node_id)
+    return is_immutable_entry(_fm(cg, node_id))
+
+
+# 生效条件：fm 为假值时返回 (False, "")；否则先判自我状态豁免（self_state is True ⇒ 返回 (False, "")），再 layer∈PROTECTED_LAYERS ⇒ (True, 层保护)，再 immutable is True ⇒ (True, protection_reason 或 '显式不可覆盖标记')，其余 (False, "")——与 is_protected_entry 对称的**条目口径**单点。
+def is_immutable_entry(fm):
+    """**条目口径**的「不可覆盖」判定单点（与 `is_immutable` 同源、构造上唯一）。
+
+    为什么需要：`is_immutable(cg, node_id)` 每次都 `_fm()` **读盘取 frontmatter**，
+    而 `protect.stats()` 要对全库逐节点判两次（#XXX 实测 32398 节点 310 秒，
+    经 `cg(op=info)` 的 `protection` 段放大成 UI 首屏 5 分钟）；判定本身只需
+    self_state / layer / immutable / protection_reason 四个字段——索引条目全都带。
+    与 `is_protected_entry` 同一理由与同一构造：口径唯一，不是两份实现靠腿互证。
+    """
     if fm is None:
         return False, ""
     if fm.get("self_state") is True:
@@ -636,18 +648,29 @@ def mark(cg, node_id, reason):
 
 # 生效条件：遍历 cg.index.nodes（或其假值时的空字典）的每个键，对 is_protected 为真的节点计入 ids 并按 layer（缺失/假值记为 '?'）累加 by_layer，其中原因串含 "importance=" 或以 "重要性保护" 开头的计入 auto_by_importance，对 is_immutable 为真的计入 immutable_ids，返回含 protected_count/immutable_count/by_layer/auto_by_importance/ids/immutable_ids 的字典。
 def stats(cg):
-    """保护面盘点：不可遗忘数 / 不可覆盖数 / 分层分布 / 自动保护命中数。"""
+    """保护面盘点：不可遗忘数 / 不可覆盖数 / 分层分布 / 自动保护命中数。
+
+    性能（#XXX · 2026-10-27）：改用**条目口径**（`is_protected_entry` /
+    `is_immutable_entry`）遍历索引，**不再逐节点 `_fm()` 读盘**。
+    实测（32398 节点在役库）：旧实现 310 秒，新实现 ~0.01 秒——相差四个数量级；
+    这条路径经 `cg(op=info)` 的 `protection` 段把 UI 概览页首屏拖到 5 分钟（用户现场）。
+    语义不变：两个判定函数本就是「取 fm → 调 *_entry」的同一构造（见各函数注释），
+    条目与 frontmatter 的字段同源（`_node_entry` 从 fm 派生）；等价性由守卫
+    `md_cg/test_protect_stats_parity.py` 用真实库抽样 + 合成库逐位比对钉住。
+    并发面：迭代仍**先取快照**（`list(nodes.items())`，H-4 判据：共享 dict 迭代
+    期间若有同进程写入会 `dictionary changed size during iteration`）。
+    """
     nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
     by_layer, ids, auto, immutable = {}, [], 0, []
-    for nid in list(nodes):
-        prot, why = is_protected(cg, nid)
+    for nid, e in list(nodes.items()):   # H-4：共享 nodes 字典迭代先取快照
+        prot, why = is_protected_entry(e)
         if prot:
             ids.append(nid)
-            layer = str(nodes[nid].get("layer") or "?")
+            layer = str(e.get("layer") or "?")
             by_layer[layer] = by_layer.get(layer, 0) + 1
             if "importance=" in why or why.startswith("重要性保护"):
                 auto += 1
-        imm, _ = is_immutable(cg, nid)
+        imm, _ = is_immutable_entry(e)
         if imm:
             immutable.append(nid)
     return {"protected_count": len(ids), "immutable_count": len(immutable),
