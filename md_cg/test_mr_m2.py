@@ -40,14 +40,16 @@ PASS = FAIL = SKIP = 0
 FAILS = []
 
 
-def ok(cond, label):
+def ok(cond, label, detail=""):
     global PASS, FAIL
     if cond:
         PASS += 1
     else:
         FAIL += 1
         FAILS.append(label)
-        print("  FAIL %s" % label)
+        # detail 只在失败时打（判据红必须说出「哪个文件变了」——
+        # 指纹类断言的诊断由本文件已有的 _diff 提供，此前定义却漏接）。
+        print("  FAIL %s%s" % (label, ("  <- " + str(detail)[:400]) if detail else ""))
 
 
 def skip(label):
@@ -92,14 +94,24 @@ def mkroot(root, nodes, *, access=(), write_files=True):
 
 
 VOLATILE_DIRS = ("_index_log",)
+#: 索引派生**瞬时件**（文件形态）：FileLock(_index.json) 的锁文件在 flush /
+#: compact 窗口内存在，属「索引派生物」而非认知图内容——与上面把 _index_log
+#: 目录整体排除同一口径。#677 P2 把 flush 移到后台线程后，锁文件出现的时刻
+#: 可能落进指纹采样窗口（实测：async 开 6 轮里 4 轮 D7 红，diff 恒为
+#: 改=[] / 增=[_index.json.lock] / 删=[] ⇒ 零内容写入，只有锁件在场；
+#: async 关时不复现）。故按易变面排除，判据意图（worker 不写节点/快照/意见）不变。
+VOLATILE_FILES = ("_index.json.lock",)
 
 
-def snapshot(root, *, exclude_dirs=()):
+def snapshot(root, *, exclude_dirs=(), exclude_files=VOLATILE_FILES):
     ex = set(exclude_dirs)
+    exf = set(exclude_files)
     out = {}
     for dp, dns, fns in os.walk(root):
         dns[:] = [d for d in dns if d not in ex]
         for fn in fns:
+            if fn in exf:
+                continue
             p = os.path.join(dp, fn)
             with open(p, "rb") as f:
                 out[os.path.relpath(p, root)] = hashlib.md5(f.read()).hexdigest()
@@ -321,8 +333,9 @@ def phase_c(tmp):
     ok(bool(r1.get("refused")) and r1.get("reason") == "self_verify_disallowed",
        "C1 评审者==落库者 → 自验违例拒绝（实得 %s）" % r1.get("reason"))
     ok(not r1.get("committed"), "C2 自验违例未落库")
-    ok(snapshot(root, exclude_dirs=VOLATILE_DIRS) == before,
-       "C3 自验违例零写入（认知图指纹不变）")
+    _a3 = snapshot(root, exclude_dirs=VOLATILE_DIRS)
+    ok(_a3 == before,
+       "C3 自验违例零写入（认知图指纹不变）", _diff(before, _a3))
 
     # C4-C6 正常落库（verify 令牌 → writepipe 六道闸 → contextual）
     r2 = PL.apply_opinions(cg, pkg, _ops(), reviewer="mreview-worker",
@@ -403,7 +416,8 @@ def phase_c(tmp):
     r6 = PL.apply_opinions(cg, pkg, _ops(), reviewer="w", applier="a",
                            dry_run=True)
     ok(r6.get("dry_run") and not r6.get("committed"), "C16 dry_run 返回标记")
-    ok(snapshot(root, exclude_dirs=VOLATILE_DIRS) == before2, "C17 dry_run 零写入")
+    _a17 = snapshot(root, exclude_dirs=VOLATILE_DIRS)
+    ok(_a17 == before2, "C17 dry_run 零写入", _diff(before2, _a17))
 
 
 # ---------------------------- D 组：真蜂巢端到端 ----------------------------
@@ -497,8 +511,10 @@ def phase_d(tmp, exe):
            % (rep["pass_rate"], rep["invalid"]))
         ok(rep["opinions"] == 500,
            "D6 意见条数 == 10×50（实得 %s）" % rep["opinions"])
-        ok(snapshot(root, exclude_dirs=VOLATILE_DIRS) == before,
-           "D7 worker 零直写：dry_run 批量后认知图指纹逐字节不变")
+        _a7 = snapshot(root, exclude_dirs=VOLATILE_DIRS)
+        ok(_a7 == before,
+           "D7 worker 零直写：dry_run 批量后认知图指纹逐字节不变",
+           _diff(before, _a7))
 
         # D8 实际落库：仅新增意见节点
         _ctxdir = os.path.join(root, "contextual")
