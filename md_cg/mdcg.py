@@ -1994,6 +1994,25 @@ class MdCG:
         # 近期事件滚动窗口（白箱第 5 篇第 3 章「近期事件」）
         self.recent_log = os.path.join(self.root, "_recent.jsonl")
         self.autoflush = autoflush
+        # issue #677 P2：后台索引落盘的状态（锁 / 事件 / 线程 / 停止标志）。
+        # 锁在 __init__ 就绪——flush 可能在写路径、后台线程、close 三处被调。
+        self._flush_lock = threading.RLock()
+        self._flush_evt = None
+        self._flush_thread = None
+        self._flush_stop = False
+        self._flush_warned = False
+        # issue #677 P2：后台落盘失败的可读面（容忍 ≠ 静默——N225 判据）。
+        # 后台线程的异常不会冒到任何调用方，故必须留下可检痕迹：
+        #   · flush_state()["last_error"]（经 maintain action=flush / cg(op=info) 可读）
+        #   · 下一次显式 flush()/close() 仍会把同一个错真抛出来（逃生门不静默）
+        self._flush_error = None
+        # issue #677 P2 缺陷修（套件实测 RuntimeError: dictionary changed size during
+        # iteration）：flush 移到后台线程后，脏集出现**双线程**读写——写路径
+        # `_stage` 标脏、后台线程 `_flush_locked` 遍历+清空。`_flush_lock` 只管 flush
+        # 之间互斥，管不住「遍历 vs 插入」。故给脏集单独一把**只护字典**的锁
+        # （临界区只有 dict 拷贝/清空，**不含任何 IO**——否则写路径会被后台落盘
+        # 堵住，等于把异步改回同步）。
+        self._dirty_lock = threading.RLock()
         self._dirty = _DirtyDict()
         # N230：把数据根交给脏集——标脏时按 entry["path"] 落「逐字见证」
         # （见 _DirtyDict._note_witness / MdCG._dirty_entry_superseded）。
@@ -2304,7 +2323,13 @@ class MdCG:
         except (OSError, ValueError):
             return False                # 重载失败不阻塞读：沿用旧内存态
         superseded = 0
-        for nid, e in self._dirty.items():
+        # issue #677 P2：**快照在脏集锁内、陈旧判定与重放在锁外**——后台落盘线程
+        # 会并发清空脏集，直接遍历同一 dict 会抛 dictionary changed size during
+        # iteration；而 `_dirty_entry_superseded` 要 stat 盘面（IO），不能揣在锁里
+        # 挡住写路径标脏。`superseded_ids` 的写入同样入锁（后台线程在锁内拷它）。
+        with self._dirty_lock:
+            _pending = list(self._dirty.items())
+        for nid, e in _pending:
             if e is None:
                 idx["nodes"].pop(nid, None)
                 continue
@@ -2317,7 +2342,8 @@ class MdCG:
                 superseded += 1
                 # issue #80 残留面（C 案）：跳过重放**且打标记**——否则本条会随
                 # 随后的 flush 落进分片日志，compact 再固化进 _index.json（旧盖新）。
-                self._dirty.superseded_ids.add(nid)
+                with self._dirty_lock:
+                    self._dirty.superseded_ids.add(nid)
                 continue
             idx["nodes"][nid] = e
         self._dirty_replay_superseded = superseded
@@ -2541,13 +2567,119 @@ class MdCG:
         self._index_sig = self._index_signature()
         return idx
 
+# 生效条件：读 env MDCG_ASYNC_FLUSH（缺省开；=0 关）——关闭时 _request_flush 退回同步 flush。
+    def _async_flush_on(self):
+        return (os.environ.get("MDCG_ASYNC_FLUSH", "1") or "1").strip() != "0"
+
+# 生效条件：请求一次后台落盘——异步开时置事件并确保守护线程在跑（首次创建），重复请求合并为一次；
+# 异步关时直接同步 flush()。返回 None。
+    def _request_flush(self):
+        if not self._async_flush_on():
+            self.flush()
+            return
+        ev = self._flush_evt
+        if ev is None:
+            self._flush_evt = ev = threading.Event()
+        ev.set()
+        th = self._flush_thread
+        if th is None or not th.is_alive():
+            self._flush_thread = threading.Thread(
+                target=self._flush_loop, name="mdcg-index-flush", daemon=True)
+            self._flush_thread.start()
+
+# 生效条件：循环等事件（0.2s 超时以便响应 stop），被唤起则清事件并在 _flush_lock 内 flush()；
+# flush 抛错只记一次 stderr 警告并继续（节点文件已在盘上，索引派生物可重放，不让线程静默死亡）。
+    def _flush_loop(self):
+        while not self._flush_stop:
+            ev = self._flush_evt
+            if ev is None:
+                return
+            if not ev.wait(0.2):
+                continue
+            ev.clear()
+            if self._flush_stop:
+                return
+            try:
+                with self._flush_lock:
+                    self.flush()
+                self._flush_error = None
+            except Exception as exc:                      # noqa: BLE001
+                # 每次都记（不只第一次）：_flush_error 是「最近一次」的快照，
+                # 读面据此判「索引派生物现在是否落后于盘面」。
+                self._flush_error = "%s: %s" % (type(exc).__name__, exc)
+                if not self._flush_warned:
+                    self._flush_warned = True
+                    try:
+                        import sys as _sys
+                        print("mdcg: 后台索引落盘失败（%s: %s）——节点文件已落盘，索引可重放"
+                              % (type(exc).__name__, exc), file=_sys.stderr)
+                    except Exception:
+                        pass
+
+# 生效条件：停后台线程并同步落盘一次（close 用）：置 stop、set 事件唤醒、join(2s)，再在锁内 flush()。
+    def _stop_async_flush(self):
+        self._flush_stop = True
+        ev = self._flush_evt
+        if ev is not None:
+            ev.set()
+        th = self._flush_thread
+        if th is not None and th.is_alive():
+            th.join(2.0)
+        self._flush_thread = None
+        with self._flush_lock:
+            self.flush()
+
+# 生效条件：无入参、只读——返回异步落盘是否生效（env MDCG_ASYNC_FLUSH 缺省真、置 0 假）；供写提交边界判定「本次请求会不会真异步」（决定返回体 index_flush 标记），禁在内部按环境变量各判一遍（口径单点）；
+    def async_flush_enabled(self):
+        return bool(self._async_flush_on())
+
+# 生效条件：无入参。异步开（缺省，env MDCG_ASYNC_FLUSH≠0）时置事件并确保后台线程在跑后**立即返回**（不在调用方线程落盘）；异步关时等价于同步 flush()（异常照抛）；阈值触发与写提交边界（writepipe._commit_visibility）共用这一条「读回确认」通道——它是 #677 P2 把落盘移出返回路径的**单点**；
+    def request_flush(self):
+        self._request_flush()
+
+# 生效条件：无入参、只读（不 flush、不建线程、不改任何状态）——返回 {async: 缺省是否异步（env MDCG_ASYNC_FLUSH）、pending_dirty: 尚未落盘的脏索引条数、worker_alive: 后台线程是否活着、last_error: 最近一次后台落盘失败（无则 None）}；供 maintain action=flush / cg(op=info) 把「索引派生物是否落后于盘面」变成可读读数（容忍 ≠ 静默）；
+    def flush_state(self):
+        th = self._flush_thread
+        return {"async": self.async_flush_enabled(),
+                "pending_dirty": len(self._dirty),
+                "worker_alive": bool(th is not None and th.is_alive()),
+                "last_error": self._flush_error}
+
 # 生效条件：self._dirty 非空时才在 FileLock(index_path) 下（必要时新建 ShardedLog）逐条 append、清空 _dirty 并关闭分片句柄；self._dirty 为空时立即返回、不写任何记录；**不动 self.index、不失效第 3 层结构索引**——flush 只落索引派生物（分片日志），内存快照与其划分表本就不变（「flush 后表与快照一致」由守卫钉住）；
     def flush(self):
+        # issue #677 P2：flush 现在可能被后台线程调用 ⇒ 与调用方线程互斥
+        # （_flush_lock 是 RLock：close/_stop_async_flush 在同线程可重入）。
+        with self._flush_lock:
+            return self._flush_locked()
+
+    def _flush_locked(self):
         # 第 3 层结构索引（stgidx）：flush **不失效**——它不改内存索引（记录早在
         # `_stage` 时就已同钩进表），若每次 flush 都丢表，惰性重建会在写读交替
         # 负载下每轮重扫（与 readcache「写谁失效谁」同款纪律）。
-        if not self._dirty:
-            return
+        # issue #677 P2 缺陷修：**快照在锁内、IO 在锁外**。原实现直接遍历脏集并在
+        # 末尾 clear()——flush 移到后台线程后，遍历期间写路径插入新键即抛
+        # RuntimeError: dictionary changed size during iteration（套件实测：
+        # test_p27_docindex 因后台落盘整轮失败）。改成「锁内取走一批并清空 → 锁外
+        # append」，写路径零阻塞；append 失败则把本批**回填**（新版本优先，不覆盖），
+        # 保住「失败可重试」的既有语义（分片日志落后不影响节点真源）。
+        with self._dirty_lock:
+            if not self._dirty:
+                return
+            batch = list(self._dirty.items())
+            superseded = set(self._dirty.superseded_ids)
+            # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
+            self._dirty.clear()
+        try:
+            self._flush_batch(batch, superseded)
+        except BaseException:
+            with self._dirty_lock:
+                for _nid, _e in batch:
+                    if _nid not in self._dirty:
+                        self._dirty[_nid] = _e
+            raise
+
+# 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
+    def _flush_batch(self, batch, superseded):
         # 世代/互斥防线（批次9，M3.3 落地）：append 必须与 compact/rebuild 的
         # 「read 日志 → clear 分片」临界区互斥（同一把 index_path 锁）——
         # 否则 B 实例的 append 落在 A 实例 read_all 之后、clear 之前时，
@@ -2561,13 +2693,12 @@ class MdCG:
             # 否则「分片文件已存在但 _own_shard 未登记」的窗口里，本进程自己的
             # 追加会被自家探活当成他进程变化（多线程下白重载一次）。
             self._own_shard = self._log.path
-            for nid, e in self._dirty.items():
+            for nid, e in batch:
                 # issue #80 残留面（C 案）：被判定陈旧（重放时已放行盘面）的条目
                 # **不得**落分片日志——落了就成『索引侧旧盖新』且跨重启存活。
-                if nid in self._dirty.superseded_ids:
+                if nid in superseded:
                     continue
                 self._log.append({"id": nid, "e": e})
-            self._dirty.clear()   # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
             # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
             # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
             # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已
@@ -2576,6 +2707,12 @@ class MdCG:
 
 # 生效条件：随认知图对象生命周期结束调用、可重复；先 flush() 落未达 autoflush 阈值的脏索引（否则尾部写入虽在盘上但不可见），随后自动落快照（issue #33：快照存在 → compact_index 增量并入并清日志；快照不存在且 index["nodes"] 非空 → rebuild_index 全量建快照；空库不写快照；OSError/ValueError 静默吞掉——失败时增量日志仍在、重开可重放，close 是兜底路径不该再抛），最后关闭并置空日志句柄（句柄为假值时跳过关闭）；
     def close(self):
+        # issue #677 P2：停后台刷盘线程并**同步**落一次盘（异步只是把阈值那次挪走，
+        # 关闭语义不变：close 返回即已落盘）。
+        try:
+            self._stop_async_flush()
+        except Exception:                                  # noqa: BLE001
+            pass
         # 先落脏索引再关句柄：否则未达 autoflush 阈值的尾部写入会永久丢失，
         # 已有 _index.json 的根重开时不会重扫目录，节点将「在盘上但不可见」。
         self.flush()
@@ -4068,10 +4205,22 @@ class MdCG:
 
 # 生效条件：无条件把 entry 记进 _dirty[node_id] 并经 _set_index_entry 写进 index["nodes"][node_id]（桶计数与 stg 结构索引同钩，见该函数）；当 len(self._dirty) >= self.autoflush 时调 flush()（autoflush 为 0 时每次标脏都立即 flush）；
     def _stage(self, node_id, entry):
-        self._dirty[node_id] = entry
+        # issue #677 P2：标脏与后台线程的「快照 + 清空」互斥（只护 dict 这一步，
+        # IO 在锁外——写路径不得被后台落盘堵住）。
+        with self._dirty_lock:
+            self._dirty[node_id] = entry
         self._set_index_entry(node_id, entry)
+        # issue #677 P2：**索引重建/落盘异步化**——写路径只做「落节点文件 +
+        # 更新内存索引」（故「写完立刻能检索」的语义不变，读面读的就是内存索引），
+        # 索引派生物（_index_log 分片）的追加交给后台刷盘线程。
+        #   · 为什么现在做：flush 要在 FileLock 下逐条 append 并开关分片句柄，
+        #     批量写时这段是 RPC 返回路径上的主要耗时；客户端 60s 超时衡量整条链，
+        #     于是「已落盘但没回话」被读成失败，重试就产生重复条目（#677 三实证）。
+        #   · 语义不降级：close() / atexit / 显式 flush() 仍**同步**落盘；
+        #     后台线程只是把「阈值触发的那次 flush」挪出返回路径。
+        #   · 关掉异步：MDCG_ASYNC_FLUSH=0 → 回到「阈值即同步 flush」（逐位旧行为）。
         if len(self._dirty) >= self.autoflush:
-            self.flush()
+            self._request_flush()
 
 # 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；桶计数只在该 id 的桶归属**变化**时调整（经 _bucket_shift 撤旧加新，同归属零动作）；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
     def _set_index_entry(self, node_id, entry):

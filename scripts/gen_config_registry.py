@@ -107,6 +107,8 @@ CURATED_ENV_NAMES = [
     # 会话/写入限流族
     "MDCG_WRITELIMIT", "MDCG_RECONCILE", "MDCG_REACH", "MDCG_REACH_DIFFUSE",
     "MDCG_REACH_TTL", "MDCG_POOLING",
+    # 索引落盘时机族（issue #677 P2：写后落索引盘异步化，置 0 回同步）
+    "MDCG_ASYNC_FLUSH",
     # 自治/预算族
     "MDCG_PROPOSAL_EMOTION", "MDCG_EXPLORE_BUDGET_MAX", "MDCG_EXPLORE_BUDGET_WINDOW",
     # 反思/闸门阈值族（issue #278，task-15）

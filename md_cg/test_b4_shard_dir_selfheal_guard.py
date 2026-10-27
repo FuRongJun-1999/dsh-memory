@@ -68,13 +68,18 @@ def main():
         # ================= A 自愈端到端（派单 ①） =================
         print("== A 自愈端到端：删掉库根 _index_log/ 后再写三条 ==")
         root = os.path.join(_SANDBOX, "lib_a")
-        cg = mdcg.MdCG(root, autoflush=1)         # autoflush=1 ⇒ 每写必 flush
+        # issue #677 P2 后：autoflush 阈值那次 flush 已移到后台线程，写返回时
+        # 分片目录**未必已建出**。本守卫要判的是「append 期自愈 / 记账 / 告警 /
+        # 路径照常」，故每处都要在显式 flush() 之后取确定态（异步只是把时机挪走，
+        # 判据面不降级）。
+        cg = mdcg.MdCG(root, autoflush=1)
         log_dir = os.path.join(root, "_index_log")
 
         fsutil.reset_shard_dir_stats()
         err1 = None
         try:
             cg.add("b4g_n1", "B4G 第一条（删目录前）", layer="knowledge")
+            cg.flush()            # #677 P2：显式取得「首建已落盘」的确定态
         except Exception as exc:                              # noqa: BLE001
             err1 = "%s: %s" % (type(exc).__name__, exc)
         _check("B4G-A1 首建：写第一条成功且分片目录由 __init__ 建出",
@@ -106,6 +111,12 @@ def main():
                            layer="knowledge")
                 except Exception as exc:                      # noqa: BLE001
                     errs.append("%s → %s: %s" % (nid, type(exc).__name__, exc))
+            # #677 P2：自愈/记账/告警都发生在 flush 里，显式在本线程与本次
+            # stderr 重定向块内触发（断言意图不变，只是不再依赖「add 内同步 flush」）。
+            try:
+                cg.flush()
+            except Exception as exc:                      # noqa: BLE001
+                errs.append("flush → %s: %s" % (type(exc).__name__, exc))
         _check("B4G-A5 删目录后再写三条：全部成功（无异常）",
                not errs, "; ".join(errs))
         _check("B4G-A6 分片目录被重建",

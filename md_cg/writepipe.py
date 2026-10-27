@@ -182,9 +182,9 @@ def attempt_history(cg, limit=100):
 
 
 
-# 生效条件：调用即对 cg 执行 flush()（无脏数据时为 no-op），且仅当该调用抛异常而 out 是 dict 时在 out 写入 "flush_error"，异常本身不外抛；
+# 生效条件：cg 有 request_flush 时走**异步**通道（置事件即返回，不在返回路径上等落盘；env MDCG_ASYNC_FLUSH=0 时该方法自身退化为同步 flush），无该能力时回落同步 flush()；两条路径在无脏数据时都是 no-op；同步路径抛异常而 out 是 dict 时在 out 写入 "flush_error"（异常本身不外抛），异步路径在 out 写入 "index_flush"="async" 如实标记「索引派生物尚未保证落盘」；
 def _commit_visibility(cg, out):
-    """写提交边界（2026-09-16）：把内存脏索引落分片日志，使本次写入对其他进程立即可见。
+    """写提交边界（2026-09-16 起同步；**issue #677 P2 起改为异步**）。
 
     根因（第4条取证）：写入只经 `_stage` 入内存 + `_dirty`，须达 `autoflush`
     （默认 64）或 `close()` 才 `flush()` 落 `_index_log/`；MCP server 常驻、
@@ -193,13 +193,37 @@ def _commit_visibility(cg, out):
     症状即第16条「写入后读回确认」在跨进程读面上系统性误报（写入返回
     committed=true，读回却检索不到）。
 
-    边界（如实）：无脏数据时 `flush()` 是 no-op，成本只在「确有落盘」时产生；
-    失败**不抛异常**——写入内容已落盘，抛出去会让调用方误判「写入失败」而
-    重试（两段式账本已记 committed，重试即重复写入）。改为在响应里如实标记
-    `flush_error`，不静默。
+    **#677 P2（2026-10-26）：这条「读回确认」同步执行时正是超时的病灶**——
+    它在 `FileLock(index_path)` 下逐条 append 分片日志并开关句柄，客户端 60s
+    超时衡量整条链，卡在这里就把「已落盘但没回话」读成失败，重试即新增重复
+    条目（#677 三条实证）。故改为走 `cg.request_flush()`：**后台线程落盘，
+    返回值不再等它**。
+
+    语义代价（如实）：本笔写入对其他进程的可见性从「返回即已落盘」变为
+    「后台尽快落盘」。要「确定已落盘」的调用方走 `cg(op=maintain,
+    action="flush")`（同步落盘并带回执）；批量/跨进程读之前也可先 `route`
+    查一次（#677 的「先查后写」用法）。`MDCG_ASYNC_FLUSH=0` 回逐位旧行为。
+
+    边界（如实）：无脏数据时两条路径都是 no-op，成本只在「确有落盘」时产生；
+    同步路径失败**不抛异常**——写入内容已落盘，抛出去会让调用方误判「写入
+    失败」而重试（两段式账本已记 committed，重试即重复写入），故在响应里如实
+    标记 `flush_error`；异步路径的失败由 `cg.flush_state()["last_error"]` +
+    一次 stderr 告警留痕（不静默，见 `MdCG._flush_loop`）。
     """
+    req = getattr(cg, "request_flush", None)
+    _enabled = getattr(cg, "async_flush_enabled", None)
+    _async = bool(_enabled()) if callable(_enabled) else callable(req)
     try:
-        cg.flush()
+        if _async and callable(req):
+            req()
+            if isinstance(out, dict):
+                # 如实标记：索引派生物此刻**未保证已落盘**（跨进程可见性为
+                # 「后台尽快」）。要与响应面区分同步/异步时看这个键。
+                out["index_flush"] = "async"
+        else:
+            cg.flush()
+            if isinstance(out, dict):
+                out["index_flush"] = "sync"
     except Exception as exc:  # noqa: BLE001 —— 索引可见性故障不得改写写入语义
         if isinstance(out, dict):
             out["flush_error"] = "%s: %s" % (type(exc).__name__, exc)

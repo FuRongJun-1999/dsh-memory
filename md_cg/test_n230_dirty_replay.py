@@ -40,8 +40,9 @@ tombstone / 无 path / stat 失败三种情形**仍照旧放行**（不变量不
   G3 tombstone 语义一字不改——`_dirty[nid]=None` 在重载时仍 pop 掉该条目。
   G4 见证判据的判别力（正/负对照）——`_dirty_entry_superseded` 的边界逐一断言；
       G4g/G4h 为 #80 补的「等长改写 + mtime 还原」正/负对照（修前 G4g 必红）。
-  G5 单点结构（静态）——`for nid, e in self._dirty.items():` 的重放体内**必须**
-     经过 `_dirty_entry_superseded`（副本回归/裸赋值回归即红）。
+  G5 单点结构（静态）——重放体（`for nid, e in _pending:`，快照取自
+      `_dirty_lock` 内，issue #677 P2 起）**必须**经过 `_dirty_entry_superseded`
+      （副本回归/裸赋值回归即红），且快照与后台落盘线程互斥（G5d）。
 
 运行：python -X utf8 -m md_cg.test_n230_dirty_replay
       python -X utf8 -m md_cg.test_n230_dirty_replay --head-baseline  # 红基线自证
@@ -276,7 +277,9 @@ def g4():
 def g5():
     print("== G5 单点结构（静态：重放体必须过判据）==")
     src = _rel_text("md_cg/mdcg.py")
-    i = src.index("for nid, e in self._dirty.items():")
+    # issue #677 P2 后：重放体遍历的是**锁内快照**（后台落盘线程会并发清空脏集，
+    # 直接遍历 self._dirty 会抛 dictionary changed size during iteration）。
+    i = src.index("for nid, e in _pending:")
     body = src[i:i + 900]
     ok("self._dirty_entry_superseded(nid)" in body,
        "G5 重放循环体内经过 `_dirty_entry_superseded`（副本回归即红）")
@@ -289,6 +292,13 @@ def g5():
        "G5b 重放体里 `idx[\"nodes\"][nid] = e` 恰一处（在判据之后）")
     ok("self._dirty_replay_superseded = superseded" in src,
        "G5c 跳过条数落在可判读数 `_dirty_replay_superseded` 上")
+    # issue #677 P2（后台线程并发清空脏集）：快照必须取在脏集锁内，否则
+    # `list(self._dirty.items())` 与写路径标脏/后台清空撞车（实测
+    # RuntimeError: dictionary changed size during iteration）。
+    _snap = src.index("_pending = list(self._dirty.items())")
+    _guard = src.rindex("with self._dirty_lock:", 0, _snap)
+    ok(_snap - _guard < 200 and "with self._dirty_lock:" in src[_guard:_snap],
+       "G5d 重放快照取在 `_dirty_lock` 内（后台落盘线程并发清空时不撞车）")
 
 
 _GROUPS = (g0, g1, g2, g3, g4, g5)
@@ -315,9 +325,12 @@ def _run_groups() -> int:
 #   M4 见证第三元恒 None（哈希拿不到）→ G4g 红（退化为「证不出即放行」）
 _MUTATIONS = (
     ("重放体恢复无条件覆盖（改动前形态）", "md_cg/mdcg.py",
+     # issue #677 P2 后：判据块与 continue 之间夹了「锁内打陈旧标记」与注释，
+     # 故锚点只取「判据行 + 累加行」——把它换成 if False 即恢复无条件覆盖。
      "            if self._dirty_entry_superseded(nid):\n"
-     "                superseded += 1\n                continue",
-     "            if False:\n                superseded += 1\n                continue"),
+     "                superseded += 1\n",
+     "            if False:\n"
+     "                superseded += 1\n"),
     ("内容哈希比较失效（#80 面失明）", "md_cg/mdcg.py",
      "        return cur_digest != old       # ④ 字节相同 ⇒ 盘面确未变",
      "        return False                   # 变异：哈希比较失效"),

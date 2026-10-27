@@ -4750,6 +4750,22 @@ class MdCGOS(MdCG):
             # 探活/显式刷新：无副作用面（签名未变时是零开销 stat + False）。
             return {"ok": True, "op": "maintain", "action": "reload",
                     "reloaded": bool(self._maybe_reload_index())}
+        if act == "flush":
+            # issue #677 P2：写路径的「索引落盘」已异步化——阈值触发的那次 flush
+            # 移出了 RPC 返回路径（否则客户端 60s 超时会把「已落盘但没回话」读成
+            # 失败，重试即产生重复条目，见 #677 三条实证）。
+            # 异步的对价是「写完那一刻索引派生物未必已在盘上」，故这里给一个
+            # **显式同步逃生门**：要「确定已落盘」、或要让索引面的错误在带内暴露
+            # （如分片目录重建失败 E_SHARD_DIR_UNREBUILDABLE）时，调它即可。
+            # 语义边界：只落索引派生物（脏条目 append 进分片日志，再关句柄），
+            # **不改内存索引**——「写完立刻可检索」由 _stage 同钩内存索引保证，
+            # 与本 action 无关（异步化不降级检索可见性）。
+            # 异常**不吞**：原样上抛，由 MCP 出口的 getattr(exc,"hint") 渲染成
+            # 结构化 error（code / hint / path 可机读，与 #677 P2 前的写面出口同形）。
+            self.flush()
+            st = self.flush_state()
+            st.update({"ok": True, "op": "maintain", "action": "flush"})
+            return st
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
@@ -5225,6 +5241,10 @@ class MdCGOS(MdCG):
             "self_state": self_state.summary(self),
             # 演化账本（md 载体：每一次修改 = 补一条缺失条件，记录规律与状态）
             "evolution": evolution.summary(self),
+            # issue #677 P2：索引落盘的**异步可读面**（脏条数 / 后台线程是否活着 /
+            # 最近一次后台失败）。后台失败冒不到任何调用方，体检面是它的唯一出口
+            # ——「容忍 ≠ 静默」（N225）在异步化后的落点。
+            "index_flush": self.flush_state(),
         }
         return h
 
