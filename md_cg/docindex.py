@@ -446,7 +446,15 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
                 stats["skipped_dirs"].append(child)
                 continue
             keep.append(d)
-        dirnames[:] = keep
+        # H-4/2026-10-27：目录也**排序**再遍历——原来只 `sorted(filenames)`、`dirnames`
+        # 保持 os.scandir 的原始顺序。而 readdir 顺序在 Windows/NTFS 按名、在
+        # Linux（ext4/overlayfs/tmpfs）**不保证**，于是「先遍历到哪个子目录」随平台变：
+        # 兄弟目录 `private/`（应 fail-closed）与 `public/`（正常落库）谁先，会决定
+        # 「摄取被拒时库里有没有已落的节点」。这既是平台相关的非确定性，也让
+        # `test_issue452_ingest_root_sensitivity` 的 A3（要求整批零落库）在 Linux 偶发红。
+        # 排序不改变任何判定语义，只把遍历变成确定序（private < public ⇒ 先撞拒绝、
+        # 落库前中断），于是「拒绝时留下部分写入」不再被平台的 readdir 顺序随机暴露。
+        dirnames[:] = sorted(keep)
         for fn in sorted(filenames):
             ext = os.path.splitext(fn)[1].lower()
             seen_suffix.add(ext)

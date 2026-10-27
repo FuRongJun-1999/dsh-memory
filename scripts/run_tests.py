@@ -211,7 +211,7 @@ def _run_one(name, argvs, timeout, parallel=False):
         r = subprocess.CompletedProcess(argv, _proc.returncode, _out, _err)
         if not (r.returncode != 0 and "No module named" in (r.stderr or "")
                 and len(argvs) > 1):
-            tail = ((r.stdout or "") + (r.stderr or ""))[-800:]
+            tail = ((r.stdout or "") + (r.stderr or ""))[-4000:]   # 4000：至少容得下前部 FAIL 行（见下游打印逻辑）
             # issue #284（量具失效）：**模块内 SKIP 不得冒充 PASS**。修前判据只有
             # `rc == 0`，而守卫在缺依赖时「打印 SKIP + return 0」⇒ 汇总记 PASS、
             # SKIP 行不进日志（`:368` 只在 not ok 时打印尾部）⇒ CI 假绿。本仓自己的
@@ -445,8 +445,20 @@ def main():
             print(("PASS  " if ok else "FAIL  ") + name, flush=True)
             if not ok:
                 bad.append(name)
-                for ln in tail.splitlines()[-6:]:
+                # 诊断面（2026-10-27）：原来只打 `tail` 的**末 6 行**，而 `tail` 本身只有末 800 字符——
+                # 一个测试若在**前部**断言失败（如 A/B/D 组）、尾部还打印了 PASS 明细，
+                # 真正的 `FAIL <项>` 行会被这两层截断**双双吞掉**，CI 日志只剩「1 失败」却看不到是哪条。
+                # 实测代价：PR #692 因此白查一轮（只能看到 C 组 PASS）。
+                # 现在：①tail 扩到末 4000 字符 ②失败时**优先**打印含 FAIL 的行，再附末 6 行上下文。
+                _lines = tail.splitlines()
+                _fails = [ln for ln in _lines if ln.strip().startswith(("FAIL ", "ANCHOR-MISS"))]
+                _shown = set()
+                for ln in _fails[:8]:
                     print("      " + ln, flush=True)
+                    _shown.add(ln)
+                for ln in _lines[-6:]:
+                    if ln not in _shown:
+                        print("      " + ln, flush=True)
 
     if mod_skips:
         print("模块内跳过（**不计入通过数**，issue #284）：", flush=True)

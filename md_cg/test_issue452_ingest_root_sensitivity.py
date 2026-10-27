@@ -170,6 +170,8 @@ _check("C03 摄取链不再直接以 item['path'] 调 refindex.add_items（两�
         _SRC_S.count("add_items_with_source_sensitivity(")))
 _check("C04 item['path'] 仍保持相对 root（不改 id / doc_ref 稳定标识）",
        "rel = os.path.relpath(fp, root).replace" in _SRC_D)
+_check("C05 目录遍历确定序：dirnames 必须 sorted（否则 Linux readdir 乱序 ⇒ 拒绝时留下部分写入 ⇒ A3 偶发红，2026-10-27）",
+       "dirnames[:] = sorted(keep)" in _SRC_D)
 
 if _MISSING and "--mutate" not in sys.argv:
     print("锚点自检失败：关键判据字面量缺失 %s" % _MISSING)

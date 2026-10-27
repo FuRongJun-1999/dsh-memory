@@ -5,7 +5,7 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `ff32c028` · 追踪 **3016** 件 · 生成于 2026-10-23 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `2b4c59b4` · 追踪 **3052** 件 · 生成于 2026-10-27 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
@@ -13,11 +13,11 @@
 |---|---|---|---|
 | `ui/` | 灵枢极简前端增量包（可选：给已装插件补可视化侧栏；不随 npm 包分发） | 15 | `minimal/install.ps1` · `minimal/payload/web/app.js` |
 | `receipts/` | 收据（可复现命令输出的证据面）—— scripts/receipt.py 的 --write/--check/--list 落盘目录 | 1 | `.gitkeep` |
-| `md_cg/` | 灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server | 1233 | `mcp_server.py` · `mdcg.py` · `mdcos.py` |
+| `md_cg/` | 灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server | 1253 | `mcp_server.py` · `mdcg.py` · `mdcos.py` |
 | `rust/` | Rust 检索引擎——只读侧检索内核（零第三方依赖，库内嵌 / --serve / 评测器三形态） | 16 | `README.md` · `Cargo.toml` · `src/lib.rs` |
 | `swarm/` | 蜂群运行时——.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 | 40 | `swarm_cli.py` · `rust_swarm.py` |
 | `compiler/` | 中文（术数）编译器——词法→语法→名实校验→白名单代码生成→验证终裁 + 结构性沙箱 | 45 | `api.py` · `SEMANTICS.md` |
-| `hive/` | 蜂巢并发引擎——worker 池调度（原子领取/心跳/超时强杀/崩溃恢复），文件协议即接口 | 162 | `README.md` · `exec_cmd.py` · `exec.py` |
+| `hive/` | 蜂巢并发引擎——worker 池调度（原子领取/心跳/超时强杀/崩溃恢复），文件协议即接口 | 163 | `README.md` · `exec_cmd.py` · `exec.py` |
 | `skills/` | 灵枢自我认知技能包（管线生成的条件单元投影，随插件分发） | 705 | `README.md` · `plugin.json` |
 | `src/` | DSH 插件 TypeScript 源码（构建产物落 lib/） | 16 | `index.ts` · `tools.ts` · `bridge.ts` |
 | `dsh/` | DSH profile 配置样例与插件启停脚本 | 9 | `cordis.yml.example` · `dsh-web-start.bat` |
@@ -25,11 +25,11 @@
 | `zcode/` | ZCode 端纪律注入件（full 变体） | 2 | `AGENTS.md` |
 | `codex/` | Codex CLI 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `AGENTS.md` · `lingshu-memory` |
 | `claude/` | Claude Code 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `CLAUDE.md` · `lingshu-memory` |
-| `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 161 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
-| `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 84 | `mock_mcp.py` · `hive_exec_test.py` |
-| `tests/` | 悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证） | 21 | `test_chain_best_first.py` |
+| `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 167 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
+| `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 85 | `mock_mcp.py` · `hive_exec_test.py` |
+| `tests/` | 悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证） | 22 | `test_chain_best_first.py` |
 | `data/` | 公开评测数据与裁决留痕 | 18 | `memory-bench-1000.jsonl` · `policy.json` |
-| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 448 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
+| `docs/` | 文档（按工程域分目录，索引见 docs/README.md） | 454 | `README.md` · `工作纪律_认知图条目_v1.1.json` |
 | `.github/` | CI 门禁（纪律/认知图/蜂巢/conformance/安装/发布件/python 测试） | 9 | `workflows` |
 | `.codebuddy/` | CodeBuddy 宿主规则注入面（RULE.mdc 渲染落点，纪律第 18 条压缩锚点所在，随仓库分发） | 1 | `rules` |
 | `.claude-plugin/` | Claude 插件市场清单（/plugin marketplace add 入口） | 1 | `marketplace.json` |
@@ -48,6 +48,7 @@
 | `discussion-post.md` | 对外讨论帖留档 |
 | `.gitignore` | 忽略面（本地数据面 / 实验产物 / 构建产物） |
 | `.gitattributes` | 换行归一（pre-commit 钩子等须 LF 的文件） |
+| `CHANGELOG.md` | 变更日志（自 0.9.15 起维护；与 package.json 的 files 同属登记面——新增根级文件时两处都要登记） |
 | `utf8_boot.py` | 入口自保证 UTF-8 的单点助手（纯 stdlib、零 md_cg 依赖；七个进程入口在任何 I/O 之前调用） |
 
 ## 三、定位提示
