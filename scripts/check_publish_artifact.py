@@ -722,6 +722,35 @@ def local_mode(root: str, report: CheckReport) -> int:
     r4_detail = "；非追踪=%d，允许=%d" % (len(untracked), allowed_count)
     report.rule("R4 非追踪件面", not bad, bad, detail=r4_detail)
 
+    # R8 声明面产物在位（2026-10-27 补，**实证驱动**）：`exports` / `files` 里声明了的产物，
+    # 必须真在包里。R1~R7 全是「清单里不该有的东西」这类**负向**判据，缺一条正向判据：
+    # 实测事故——`prepare` 钩子会 `rmSync('lib')` 再跑 `tsc`（不含 `build_ui`），而 `npm pack`
+    # 会触发 `prepare`，于是 `lib/client.js` 与 `lib/lib/console_web.mjs` 在打包瞬间被删；
+    # `files` 里 `lib`/`web` 仍在、R4 只查「非追踪件是否越界」⇒ **全绿**，但发出去的包里
+    # `exports["./client"]` 指向不存在的文件（装上后 UI 侧栏直接失效）。本条把它挡住。
+    _decl, _decl_note = [], []
+    try:
+        with open(os.path.join(root, "package.json"), encoding="utf-8") as _pf:
+            _pkg = json.load(_pf)
+        _cli = ((_pkg.get("exports") or {}).get("./client"))
+        if isinstance(_cli, str) and _cli.strip():
+            _decl.append(("exports[\"./client\"]", _cli.strip().lstrip("./")))
+        _files_decl = _pkg.get("files") or []
+        if "lib" in _files_decl:
+            _decl.append(("files 含 lib", "lib/index.js"))
+        if "web" in _files_decl:
+            _decl.append(("files 含 web", "web/index.html"))
+        if "ui" in _files_decl:
+            _decl.append(("files 含 ui", "ui/minimal/install.ps1"))
+    except (OSError, ValueError) as _exc:
+        _decl_note.append("[R8] 跳过：package.json 不可读（%s）" % _exc)
+    if _decl_note:
+        report.note(_decl_note)
+    _miss = [("%s → %s" % (k, p)) for k, p in _decl if p not in pkg_set]
+    report.rule("R8 声明面产物在位；exports/files 声明的产物必须真在包里",
+                not _miss, _miss,
+                detail="；声明 %d 项" % len(_decl))
+
     # N216：清单来源与路径两条独立判据——四档内容规则只扫「清单里的件」，
     # 清单本身被冒充/越根时四档全绿也不代表发布件干净（发版门禁的最后一道）。
     report.rule(
