@@ -107,6 +107,40 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            "audit", "state_event")
 
 
+# 设计者令牌**应覆盖**的面：读面 + 裁决面（「能不能查看、能不能裁决」）。
+#
+# 由来（2026-10-27，使用者裁定）：线上曾签发一枚 designer 令牌，ops 被收窄成
+#   10 个（info/route/read/write/recent/goal/identity/whitebox/verify/task），
+#   于是 DSH 端 UI 的「自我认知」「审核与维护」两页多项被 AccessDenied ——
+#   报错自己写着「角色 designer 本身**含**该 op，是签发时被收窄」。
+#   **设计者令牌却看不了、裁不了**，是角色语义与签发现实自相矛盾。
+#
+# 边界（刻意只收「查看与裁决」）：不含 forget/scrub/consolidate/index_*/export
+#   等破坏性或管理级 op —— 按最小权限刻意不给它们**是合理用法**，
+#   不列入本判据的失败面。故本常量只用于**告警与体检**，不作为签发阻断。
+DESIGNER_COVERAGE_OPS = (
+    "info", "help", "status", "edges",          # 元信息 / 验证态 / 三元组反查
+    "read", "route", "recent",                  # 读面
+    "identity", "self_state", "metacognition",  # 自我认知
+    "review", "verify",                         # 裁决面
+    "protect", "evolution", "sustain",          # 审核与维护
+    "goal", "task",                             # 目标与任务
+)
+
+
+# 生效条件：ops_allow 为 None 或含 "*" 时返回空列表（视为全覆盖）；否则按 DESIGNER_COVERAGE_OPS 的常量顺序返回其中缺失的 op。
+def coverage_gap(ops_allow):
+    """设计者令牌的覆盖面缺口 → 缺失的读面/裁决面 op（按常量顺序）。
+
+    返回空列表＝覆盖完整。`["*"]`（角色默认全集）与 None 都视为全覆盖；
+    None 只出现在「未收窄」的调用点，语义与 "*" 等同（见 `_narrow`）。
+    """
+    if ops_allow is None or "*" in ops_allow:
+        return []
+    allow = set(ops_allow)
+    return [op for op in DESIGNER_COVERAGE_OPS if op not in allow]
+
+
 class TokenError(Exception):
     """令牌无效 / 过期 / 越权派生。"""
 
@@ -539,6 +573,17 @@ def issue(role: str, actor: str = None, clearance: str = None,
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])
     ops = _narrow(ops_allow, spec["ops_allow"])
+    # 一致性告警（不阻断）：设计者令牌被收窄到缺「查看/裁决」面时，如实提示——
+    # 窄令牌本身是合法用法（探针/子智能体最小权限），但设计者缺读面会导致
+    # 「用了设计者令牌却看不了、裁不了」（2026-10-27 使用者现场）。
+    if role == "designer":
+        _gap = coverage_gap(ops)
+        if _gap:
+            sys.stderr.write(
+                "[tokens] 注意：本次签发的 designer 令牌 ops 被收窄，缺少 "
+                "%d 个读面/裁决面 op：%s —— 用该令牌的界面会出现 AccessDenied"
+                "（写入面不受影响）。若这不是刻意的最小权限，去掉 --ops-allow"
+                " 即可按角色默认全集（[\"*\"]）签发。\n" % (len(_gap), "/".join(_gap)))
     token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     now = time.time()
     rec = {
@@ -929,8 +974,13 @@ def main(argv=None):
                 with open(a.token_file_in, encoding="utf-8") as f:
                     tok = f.read().strip()
             p = verify_token(tok, path=a.token_file)
-            _print({"ok": True, "principal": p.as_dict(),
-                    "role_label": role_spec(p.role)["label"]})
+            _out = {"ok": True, "principal": p.as_dict(),
+                    "role_label": role_spec(p.role)["label"]}
+            # designer 令牌的覆盖面体检：非空即「用了设计者令牌却缺读/裁面」，
+            # 供插件启动日志与运维体检直接看见（不影响校验结论本��）。
+            if p.role == "designer":
+                _out["designer_coverage_gap"] = coverage_gap(p.ops_allow)
+            _print(_out)
         elif a.cmd == "revoke":
             _print(revoke(a.token_id, path=a.token_file))
         elif a.cmd == "list":
