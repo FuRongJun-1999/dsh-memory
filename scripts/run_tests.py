@@ -451,7 +451,11 @@ def main():
                 # 实测代价：PR #692 因此白查一轮（只能看到 C 组 PASS）。
                 # 现在：①tail 扩到末 4000 字符 ②失败时**优先**打印含 FAIL 的行，再附末 6 行上下文。
                 _lines = tail.splitlines()
-                _fails = [ln for ln in _lines if ln.strip().startswith(("FAIL ", "ANCHOR-MISS"))]
+                # 明细行有两种形态：模块级 `FAIL <name>` 与测试内自定义 `[FAIL] <项>`（后者常见于
+                # scripts/test_*_coverage 这类自检脚本）。首修只认前者，导致
+                # `test_check_publish_artifact_coverage` 的 2 条 `[FAIL]` 仍看不到——一并补上。
+                _fails = [ln for ln in _lines
+                          if ln.strip().startswith(("FAIL ", "ANCHOR-MISS", "[FAIL]"))]
                 _shown = set()
                 for ln in _fails[:8]:
                     print("      " + ln, flush=True)
