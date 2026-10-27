@@ -268,7 +268,10 @@ def e2e_local():
         clean = os.path.join(tmp, "clean")
         _make_repo(clean, {"name": "n251-clean", "version": "1.0.0",
                            "private": True, "files": ["lib"]},
-                   {"lib/keep.txt": "普通正文\n"})
+                   # R8（2026-10-27）后夹具必须**自洽**：`files` 声明了 `lib` 就得真的提供
+                   # `lib/index.js`——否则这本身就是一个「声明了却不给」的包，R8 判红是对的。
+                   {"lib/keep.txt": "普通正文\n",
+                    "lib/index.js": "module.exports = {}\n"})
         got = _run_gate(clean)
         out = got.stdout or ""
         check("L3 反向腿 exit 0", got.returncode == 0,
