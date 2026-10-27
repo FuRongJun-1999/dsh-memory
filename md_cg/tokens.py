@@ -122,7 +122,9 @@ DESIGNER_COVERAGE_OPS = (
     "info", "help", "status", "edges",          # 元信息 / 验证态 / 三元组反查
     "read", "route", "recent",                  # 读面
     "identity", "self_state", "metacognition",  # 自我认知
-    "review", "verify",                         # 裁决面
+    "review",                                   # 审核面（查看候选/记录；**裁决本身不在此**——
+    #   2026-10-27 使用者裁定：设计者只读，裁决须由反思单元与验证单元复核，
+    #   故 `verify` 刻意不列、`review` 只用于 list/records 类查看)
     "protect", "evolution", "sustain",          # 审核与维护
     "goal", "task",                             # 目标与任务
 )
@@ -139,6 +141,39 @@ def coverage_gap(ops_allow):
         return []
     allow = set(ops_allow)
     return [op for op in DESIGNER_COVERAGE_OPS if op not in allow]
+
+
+# 高风险 op：给自动驾驶/界面用的令牌**不该**带上这些面——「全权限在不可靠的情况下
+# 就是灾难」（2026-10-27 使用者裁定）。两类都算：
+#   · 不可逆/批量：forget（删）、scrub（净化）、consolidate（合并固化）、
+#     index_code/index_doc（重建派生索引）、export（全库导出）、
+#     maintain（apply 类批量改写）、link（放宽签名策略/覆写）、state_event（记账写）；
+#   · 写入与裁决：write、verify（裁决）、ccg（编译器落库）、insight、session、
+#     ingest、audit、predict、causal、theory。
+# 本表只用于**签发告警**，不做阻断：人手主令牌按需全权是合法的，
+# 但要让人看见「我刚给出去的是什么」。
+HIGH_RISK_OPS = (
+    "forget", "scrub", "consolidate", "index_code", "index_doc", "export",
+    "maintain", "link", "state_event",
+    "write", "verify", "ccg", "insight", "session", "ingest", "audit",
+    "predict", "causal", "theory",
+)
+
+
+# 生效条件：ops_allow 为 None 时返回空列表；含 "*" 时返回 ["*"]（全权单列）；否则按 HIGH_RISK_OPS 常量顺序返回其中出现的项。
+def high_risk_granted(ops_allow):
+    """设计者令牌里被放开的**高风险面** → 命中的 op（`["*"]` 原样单列）。
+
+    与 `coverage_gap` 互为两面：那个查「缺了该有的读/裁面」，这个查
+    「给了不该轻易给的面」。签发时两者都报，才不会出现「设计者看不了」
+    与「设计者能删库」这两种相反的灾难。
+    """
+    if ops_allow is None:
+        return []
+    if "*" in ops_allow:
+        return ["*"]
+    allow = set(ops_allow)
+    return [op for op in HIGH_RISK_OPS if op in allow]
 
 
 class TokenError(Exception):
@@ -577,6 +612,16 @@ def issue(role: str, actor: str = None, clearance: str = None,
     # 窄令牌本身是合法用法（探针/子智能体最小权限），但设计者缺读面会导致
     # 「用了设计者令牌却看不了、裁不了」（2026-10-27 使用者现场）。
     if role == "designer":
+        _risky = high_risk_granted(ops)
+        if _risky == ["*"]:
+            sys.stderr.write(
+                "[tokens] 警告：本次签发的 designer 令牌是**全权**（[\"*\"]），含写入/裁决/"
+                "删除/批量维护全部面——全权限在不可靠的情况下就是灾难。若这是给界面或"
+                "自动化用的，请改用只读面令牌（见 DESIGNER_COVERAGE_OPS）或 derive 子令牌。\n")
+        elif _risky:
+            sys.stderr.write(
+                "[tokens] 警告：本次签发的 designer 令牌含 %d 个高风险 op：%s —— 写入/裁决/"
+                "删除面已对外开放，确认这是刻意授权。\n" % (len(_risky), "/".join(_risky)))
         _gap = coverage_gap(ops)
         if _gap:
             sys.stderr.write(

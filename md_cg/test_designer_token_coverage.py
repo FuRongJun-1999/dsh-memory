@@ -36,6 +36,11 @@ _NARROW = ["info", "route", "read", "write", "recent", "goal", "identity",
 #: 该窄集相对「读面+裁决面」的缺口（本常量即用户现场撞墙的面）
 _EXPECT_GAP = ["help", "status", "edges", "self_state", "metacognition", "review",
                "protect", "evolution", "sustain"]
+#: 界面/自动化应持的**只读面**（2026-10-27 使用者裁定：设计者只读、写需谨慎、
+#: 裁决须反思+验证单元复核）—— 17 项，无 write/verify/破坏性 op。
+_READONLY = ["info", "help", "status", "edges", "read", "route", "recent", "identity",
+             "self_state", "metacognition", "review", "protect", "evolution",
+             "sustain", "goal", "task", "whitebox"]
 
 
 def _tmp_store():
@@ -126,6 +131,26 @@ def main():
         d2 = {}
     ok(d2.get("designer_coverage_gap") == [],
        "G2 verify 对宽令牌输出空缺口", d2.get("designer_coverage_gap"))
+
+    print("== H 高风险面告警（全权限在不可靠的情况下就是灾难）")
+    ok(tokens.high_risk_granted(["*"]) == ["*"], "H1 全权签发被识别")
+    ok(tokens.high_risk_granted(_READONLY) == [],
+       "H2 只读面令牌不含任何高风险 op（可安全给界面/自动化）",
+       tokens.high_risk_granted(_READONLY))
+    ok(set(tokens.high_risk_granted(["read", "write", "forget"])) == {"write", "forget"},
+       "H3 写入/删除面被逐个点名")
+    ok("verify" not in tokens.DESIGNER_COVERAGE_OPS,
+       "H4 设计者应有面**不含** verify（裁决属验证单元复核通道，非设计者本职）")
+    ok(tokens.coverage_gap(_READONLY) == [],
+       "H5 只读 17 面即视为覆盖完整（去 verify 后无缺口）",
+       tokens.coverage_gap(_READONLY))
+    p9 = _tmp_store()
+    c3 = subprocess.run(cli(p9, "issue", "--role", "designer", "--actor", "t-full-warn"),
+                        cwd=repo, capture_output=True, text=True,
+                        encoding="utf-8", errors="replace", env=env, timeout=180)
+    ok("全权" in (c3.stderr or "") and "灾难" in (c3.stderr or ""),
+       "H6 全权签发时 stderr 明确警告「全权限在不可靠的情况下就是灾难」",
+       (c3.stderr or "")[-200:])
 
     print()
     print("设计者令牌覆盖面守卫：%d 通过 / %d 失败" % (len(_PASS), len(_FAIL)))
