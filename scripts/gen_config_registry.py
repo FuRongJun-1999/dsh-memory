@@ -109,6 +109,8 @@ CURATED_ENV_NAMES = [
     "MDCG_REACH_TTL", "MDCG_POOLING",
     # 索引落盘时机族（issue #677 P2：写后落索引盘异步化，置 0 回同步）
     "MDCG_ASYNC_FLUSH",
+    # 写入/裁决复核族（2026-10-27 使用者裁定：设计者只读、写分层复核、裁决双单元复核）
+    "MDCG_WRITE_GATE", "MDCG_REVIEW_CHANNELS", "MDCG_REVIEW_DUAL_CHECK",
     # 自治/预算族
     "MDCG_PROPOSAL_EMOTION", "MDCG_EXPLORE_BUDGET_MAX", "MDCG_EXPLORE_BUDGET_WINDOW",
     # 反思/闸门阈值族（issue #278，task-15）
