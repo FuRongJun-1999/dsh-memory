@@ -156,127 +156,33 @@ DeepSeek Harness (cordis)
 
 ## 🖥️ 图形界面（可选增量包 · 面向 DSH）
 
-灵枢本体是 MCP/插件，本身不带界面。`ui/minimal/` 是一个**可选增量包**：装到灵枢插件目录后，
-DSH 左侧会出现「灵枢」面板，也可直接访问 `http://127.0.0.1:<DSH端口>/lingshu`。
+灵枢本体不带界面。`ui/minimal/` 是**可选增量包**：装到插件目录后 DSH 左侧出现「灵枢」面板（也可直接开 `http://127.0.0.1:<DSH端口>/lingshu`）。
 
 ```powershell
-# 先只检查（不写任何文件，可随时跑）
-powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <你的灵枢插件目录> -CheckOnly
-
-# 安装（就地上屏；只改 UI 代码与插件清单）
-powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <你的灵枢插件目录>
-
-# 卸载（逐文件恢复安装前内容）
-powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <你的灵枢插件目录> -Uninstall
+powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <灵枢插件目录> -CheckOnly   # 只检查，不写文件
+powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <灵枢插件目录>             # 安装（可逐文件回滚）
+powershell -ExecutionPolicy Bypass -File ui/minimal/install.ps1 -PluginPath <灵枢插件目录> -Uninstall   # 卸载
 ```
 
-> **0.9.15 起：接线随仓库与 npm 包自带**——`dsh.client` / `exports["./client"]`（`package.json`）与
-> `installConsoleWeb(...)` 调用（`src/index.ts`）都在仓库里；静态产物由 `scripts/build_ui.py` 生成
-> （`build` 与 `prepublishOnly` 自动执行，`--check` 只校验）。所以**改插件清单不再需要重装 UI**。
-> 从 npm 包装到本机插件目录时，`install.ps1` 只需铺静态产物；对**无接线的旧插件包**它仍会自动补齐清单。
-
-| 安装器铺什么 | 安装器**不**动什么 |
-|---|---|
-| payload 9 个文件（`web/` · `lib/client.js` · `console_web.mjs` · `build-ui.mjs`） | DSH profile / 插件 root / 记忆库 |
-| （仅对无接线的旧包）补 `dsh.client`、`exports["./client"]` 与 `lib/index.js` 接线 | 凭据、令牌、自动记忆开关 |
-| — | 你的既有节点数据 |
-
-**生效方式**：client bundle 与 `/plugins/lingshu/*` 路由在 DSH **启动时**注册 ⇒ 装完需**重启 DSH**（安装器自己也会这么提示）。
-
-### 七个页面与「命令面板」语义
-
-| 页面 | 内容 |
-|---|---|
-| 概览 / 记忆 | 打开即加载（最近记忆、检索、写入入口） |
-| 目标与任务 · 自我认知 · 时空关系 · 审核与维护 | **命令面板**：打开是空的，先点操作项，再点「执行查询」 |
-| 工具台 | 实时读取灵枢真实工具目录，可填表或直接写 JSON 调用 |
-
-> 写操作与裁决在界面上**需二次确认**（请求带 `confirm:true`，否则服务端返回 409）；只读查询不需要。
-
-### 排障（三条实测过的坑）
-
-| 现象 | 原因 | 处置 |
-|---|---|---|
-| `分享包文件缺失或损坏：web/index.html`（文件明明在） | payload 被 CRLF 检出，与 `integrity.json`（按 LF 记 sha256）失配 | 0.9.15 起已用 `.gitattributes` 钉 `eol=lf`；旧版可让 git 重新检出该目录（`git rm --cached -r ui/minimal/payload && git checkout -- ui/minimal/payload`） |
-| `之前安装的文件发生改变` / 卸载时报同样话 | 插件目录残留旧版 `.lingshu-ui-backup-v1/state.json`（记着过期 hash） | 把该目录整体移出插件目录（保留备份）后重跑安装器 |
-| 装完左侧没有「灵枢」 | ①没重启 DSH ②`package.json` 缺 `dsh.client` ③浏览器缓存旧前端 | ①重启 ②重跑安装器 ③硬刷新（Ctrl+Shift+R） |
-
-> 数据不出本机：UI 复用你原有灵枢的本机大脑桥；`/plugins/lingshu/call` 走同源校验 + CSRF + DSH 登录态，未登录一律 401。
-> 面向最终用户的逐步说明见 [`ui/minimal/使用说明.md`](ui/minimal/使用说明.md)。
-
+装完需**重启 DSH**（client bundle 在启动时注册）。0.9.15 起接线随包自带，改插件清单不必重装 UI。
+页面语义、三条实测坑（hash 失配 / 备份残留 / 左侧无图标）与排障 → [图形界面：安装与排障](docs/ops/图形界面_安装与排障.md) · 逐步说明 [使用说明](ui/minimal/使用说明.md)。
 ## 🔐 权限：读 / 写 / 裁 三层，各自可收窄
 
-灵枢默认以**只读 guest** 运行（读得到、写不进）。写与裁需要令牌，并且按 2026-10-27 的三条裁定执行：
-
-> **设计者只读 · 写需谨慎 · 裁决须反思与验证单元复核。**
-> 理由是：自我人格的偏移与失忆是毁灭性的，全权限在不可靠的情况下就是灾难。
-
-### 1）令牌：签发、收窄、体检
+默认以**只读 guest** 运行（读得到、写不进）。三条裁定：**设计者只读 · 写需谨慎 · 裁决须反思与验证单元复核**——自我人格的偏移与失忆是毁灭性的，全权限在不可靠的情况下就是灾难。
 
 ```bash
-# 签发（不传 --ops-allow 即角色默认；designer 的默认是 ["*"] 全集）
-python -m md_cg.tokens issue --role designer --actor my-agent
-
-# 收窄成「只读面」——给界面、自动化、子智能体用这个（只能收窄，不能放大）
-python -m md_cg.tokens issue --role designer --actor ui-panel \
-  --ops-allow info,help,status,edges,read,route,recent,identity,self_state,\
-metacognition,review,protect,evolution,sustain,goal,task,whitebox
-
-# 体检（含 designer 覆盖面缺口报告）
-python -m md_cg.tokens verify --token-file-in <令牌文件>
+python -m md_cg.tokens issue --role designer --actor my-agent     # 签发（designer 默认全集）
+python -m md_cg.tokens verify --token-file-in <令牌文件>           # 体检（含覆盖面缺口报告）
 ```
 
-| 面 | 建议给谁 | op 边界 |
+| 面 | 给谁 | op 边界 |
 |---|---|---|
-| **只读面**（17 个） | 界面面板、子智能体、只读巡检 | 上表；**不含** `write` / `verify` / `forget` / `scrub` / `consolidate` / `index_*` / `export` / `maintain` / `link` |
-| 写面 | 记录单元 | 追加 `write`（+ 按需 `session` / `ingest` / `ccg`） |
-| 裁决面 | 验证单元 | 追加 `verify`；`redteam` 门控与再审批仍然生效 |
+| 只读面 | 界面面板 · 子智能体 · 巡检 | 17 个（**不含** `write`/`verify`/`forget`/`scrub`/`consolidate`/`index_*`/`export`/`maintain`/`link`） |
+| 写面 | 记录单元 | 追加 `write` |
+| 裁决面 | 验证单元 | 追加 `verify` |
 
-签发后注入宿主：`config.env.MDCG_TOKEN`（如 DSH 的 profile 配置），或写密钥环 `~/.mdcg/token`；
-令牌库默认 `~/.mdcg/_tokens.json`（可用 `MDCG_TOKEN_FILE` 覆盖）。
-
-### 2）分层写入：一层比一层严
-
-`MDCG_WRITE_GATE` 控制这张表是否生效（`off` 缺省 / `warn` 只记录 / `enforce` 真阻断）：
-
-| 档 | 层 | 有复核通道时需 | **无任何复核通道时** |
-|---|---|---|---|
-| 0 | `contextual` · `goals` · `unresolved` · `rejected` | 无要求 | ✅ 允许直写（放宽通道） |
-| 1 | `knowledge` | 反思单元 | ❌ 拒写 |
-| 2 | `structural` | 反思 + 验证单元 | ❌ 拒写 |
-| 3 | `self` · `anchor` | 反思 + 验证 + **人工裁定** | ❌ 拒写 |
-
-复核通道用 `MDCG_REVIEW_CHANNELS` **声明**（`hive,subagent,team` 任选）。注意：该变量是**部署声明**，
-为空只表示「没声明过」，**不等于**本机没有子代理/蜂巢/团队。
-
-### 3）裁决：双单元复核 + 不得自证
-
-`MDCG_REVIEW_DUAL_CHECK=1` 开启后，裁决必须带齐两类复核单元：
-
-```python
-cg(op="review", action="decide", pid="…", decision="accept",
-   reviewed_by=["反思单元", "验证单元"])   # 中英文同义均可：reflect / verify / human
-```
-
-| 判据 | 行为 |
-|---|---|
-| 缺反思或验证 | `dual_check_required`（点名缺哪方） |
-| 同类重复（两个反思） | 仍算缺验证——**同侧互证不构成复核** |
-| 裁决者 == 提案者 | `self_review_forbidden` |
-| 未知单元 | `unknown_review_unit`（不静默计入） |
-
-与既有闸门**正交**：`redteam` + `needs_reapproval` 管打回与再审批；`verify_readonly` 管「判据由 propose 声明、裁决阶段不可改」；本闸只回答「谁复核过」。
-
-### 4）一眼对照报错
-
-| 报错 | 含义 | 处置 |
-|---|---|---|
-| `AccessDenied: 本令牌的 ops 作用域不含 op=xxx` | 令牌 ops 被收窄，缺该 op | 重签并补 `--ops-allow`，或换有权限的令牌 |
-| `designer_coverage_gap`（`verify` 输出） | 设计者令牌缺「查看/裁决」面 | 补 op 重签；缺项会列出来 |
-| `write_gate ... deny` | 目标层需要复核而当前无通道/证据 | 声明 `MDCG_REVIEW_CHANNELS` 或补复核单元；或先切 `warn` 观察 |
-| `dual_check_required` / `self_review_forbidden` | 见上表 | 补单元 / 换裁决者 |
-| `redteam_required` / `reapproval_required` | 红队门控与再审批 | 带 `redteam.verdict=pass`（轮次递增） |
-
+写入按层收紧：`contextual` 可直写 → `knowledge` 需反思单元 → `structural` 需反思+验证 → `self`/`anchor` 需人工裁定（`MDCG_WRITE_GATE` 三态：`off`/`warn`/`enforce`）。裁决需**双单元复核且不得自证**（`MDCG_REVIEW_DUAL_CHECK=1`）。
+完整规则、开关与报错对照 → [权限与复核模型](docs/ops/权限与复核模型.md)。
 ## 📚 文档地图
 
 | 去哪里 | 看什么 |
