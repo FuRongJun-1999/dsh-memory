@@ -390,6 +390,17 @@ HEAVY_GUARDS = {
 }
 
 
+# 生效条件：把 `--module` 的三种写法（`md_cg/test_x` · `md_cg.test_x` · `test_x`）统一成点号形态后再做前缀/子串匹配；
+# 任一侧为空时返回 False。1_ai 会话报告的假绿缺陷（跨仓 #1910）：不归一化会让文档里的斜杠示例零选中（假绿）。
+def _module_match(selector, name):
+    """`--module` 匹配：斜杠与点号等价、忽略 `.py` 后缀、允许子串/前缀。"""
+    s = str(selector or "").replace("/", ".").replace(".py", "").strip(".")
+    n = str(name or "").replace("/", ".").replace(".py", "").strip(".")
+    if not s or not n:
+        return False
+    return n.startswith(s) or s in n or n.endswith("." + s)
+
+
 # 生效条件：name 命中 HEAVY_GUARDS，或命中 check_guard_coverage 登记的定点变异守卫（MUTATE_GUARDS，整份改名）时返回原因串；否则返回空串。import 失败（脚本被单独拷走）时只认本地清单，不抛错。
 def _heavy_reason(name):
     """该守卫是否属「重质检」→ 原因串（空串＝不是）。
@@ -449,7 +460,25 @@ def main():
     groups = set(args.group or ()) or set(_known)
     targets = [(g, n, a) for g, n, a in _discover()
                if g in groups and (not args.k or args.k in n)
-               and (not args.module or n.startswith(args.module) or args.module in n)]
+               and (not args.module or _module_match(args.module, n))]
+    # 1_ai 会话报告的假绿缺陷（跨仓 #1910） 假绿（2026-10-28，1_ai 会话复现）：`--module` 的 help 教的是**斜杠**写法
+    # （`md_cg/test_issue4`），而实际目标名是**点号**（`md_cg.test_issue4`）。旧实现直接
+    # `n.startswith(args.module) or args.module in n` ⇒ 斜杠写法**选中零个目标**，
+    # 但入口仍 `SUMMARY 0/0 通过` + `rc=0`——**零选中的假绿**，比单个测试失败危险得多
+    # （失败的会喊，零选中只会沉默地说"通过"；CI 只看退出码时整条流水线可能是假的）。
+    # 两处一起修：①归一化（`/` 与 `.` 等价，去结尾 `.py`）；②**零选中不得返回 0**。
+    _norm_mod = str(args.module or "").replace("/", ".").replace(".py", "").strip(".")
+    if _norm_mod:
+        targets = [t for t in targets if _module_match(_norm_mod, t[1])]
+
+    if not targets:
+        print("无匹配目标：group=%s -k=%r --module=%r —— 拒绝以 0/0「通过」收场（1_ai 会话报告的假绿缺陷（跨仓 #1910））"
+              % (sorted(groups), args.k, args.module), flush=True)
+        print("提示：模块名是**点号**形态（md_cg.test_x）；斜杠写法已归一化，但拼错/不存在的名字仍会零选中。",
+              flush=True)
+        # --list 是"查看有什么"，零选中给 0 但已打印明确原因；**执行路径必须非零**。
+        return 0 if args.list else 2
+
     if args.list:
         for g, n, _a in targets:
             print(f"{g:<9}{n}")
