@@ -28,14 +28,21 @@ async function readBody(req) {
   try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
   catch { throw Object.assign(new Error('请求必须是有效 JSON'), { status: 400 }); }
 }
-export function createConsoleHandler(mdcg, config, assets, connection) {
+// issue #699（2026-10-28）：第 4 参改为**取值函数**。原实现由挂载点 `ctx.get('connection')` 取值，
+// 而 cordis 的 `Context.get(name, strict=true)` 在服务 fiber 未就绪时返回 undefined ⇒
+// 空值被闭包固化，此后每次请求都命中 503「宿主鉴权不可用」，宿主就绪也不会自愈。
+// 现在改为**每次请求实时取**：服务晚到也能自愈。
+// 兼容：传的不是函数（旧调用方式/直接给实例）时按常量包裹，行为与旧版一致。
+export function createConsoleHandler(mdcg, config, assets, getConnection) {
+  const connectionOf = typeof getConnection === 'function' ? getConnection : () => getConnection
   const csrf = randomBytes(32).toString('hex');
   let catalog = null;
   const tools = async () => catalog ?? (catalog = await mdcg.bridge.listTools());
   return async (req, res) => {
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
-      if (!connection || typeof connection.admit !== 'function') return reply(res, 503, { error: '宿主鉴权不可用' });
+      const connection = connectionOf()
+      if (!connection || typeof connection.admit !== 'function') return reply(res, 503, { error: '宿主鉴权服务尚未就绪，请稍后重试' });
       const admission = connection.admit(req);
       if ('rejection' in admission) return reply(res, admission.rejection, { error: admission.rejection === 401 ? '未登录，请返回 DSH 登录' : '请求来源不可信' });
       if (req.method === 'GET' && assets[path]) {
@@ -88,7 +95,8 @@ export function installConsoleWeb(ctx, config, disposers, mdcg) {
       '/plugins/lingshu/style.css': [asset('style.css'), 'text/css; charset=utf-8'],
       '/plugins/lingshu/entry.js': [asset('entry.js'), 'application/javascript; charset=utf-8'],
     };
-    const handler = createConsoleHandler(mdcg, config, assets, ctx.get('connection'));
+    // issue #699：传**取值函数**（每次请求实时取），不再把挂载瞬间的值闭包固化。
+    const handler = createConsoleHandler(mdcg, config, assets, () => ctx.get('connection'));
     for (const path of ['/lingshu', '/lingshu/', '/plugins/lingshu']) disposers.push(web.register({ kind: path === '/plugins/lingshu' ? 'prefix' : 'exact', path, handler }));
     disposers.push(web.tapIndex(html => html.includes('data-lingshu-entry') ? html : html.replace('</body>', '<script data-lingshu-entry src="/plugins/lingshu/entry.js"></script></body>')));
     ctx.logger.info('dsh-memory: 极简灵枢控制台已挂载 /lingshu（复用唯一大脑桥）');

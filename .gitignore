@@ -3,7 +3,9 @@ node_modules/
 *.tsbuildinfo
 
 # UI 产物（由 scripts/build_ui.py 从 ui/minimal/payload 生成；0.9.15 起接线入库，产物仍不入库）
-# 注意：/web/ 虽被忽略，但 package.json 的 files 含 web ⇒ npm pack 仍会打包（files 优先于 gitignore）
+# 注意：# build_ui 铺出的源侧副本（真正的源在 ui/minimal/payload/src/lib/）
+/src/lib/console_web.mjs
+/web/ 虽被忽略，但 package.json 的 files 含 web ⇒ npm pack 仍会打包（files 优先于 gitignore）
 /web/
 /build-ui.mjs
 
