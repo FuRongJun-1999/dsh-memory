@@ -656,6 +656,39 @@ def build_env_entries(params):
 # 主
 # ---------------------------------------------------------------------------
 
+# 生效条件：path 存在且可被 ast.parse 时，返回 CONST_ROWS / ENV_ROWS / ENV_CATEGORY_ROWS 三表**第一列的字符串**集合；
+# 文件不存在 / 解析失败（含语法错）一律返回空集——调用方据此不会误报「有行会丢」（宁可漏报也不误伤首次生成）。
+def _entry_names_from_file(path):
+    """从已生成的模块里取三个 ROWS 表的第一列（用 AST，不 import、不执行）。"""
+    import ast as _ast
+    if not os.path.isfile(path):
+        return set()
+    try:
+        tree = _ast.parse(open(path, encoding="utf-8").read())
+    except (OSError, SyntaxError):
+        return set()
+    names = set()
+    for node in tree.body:
+        if not isinstance(node, _ast.Assign) or not isinstance(node.value, _ast.List):
+            continue
+        ids = {t.id for t in node.targets if isinstance(t, _ast.Name)}
+        if not ids & {"CONST_ROWS", "ENV_ROWS", "ENV_CATEGORY_ROWS"}:
+            continue
+        for el in node.value.elts:
+            if isinstance(el, _ast.Tuple) and el.elts and isinstance(el.elts[0], _ast.Constant):
+                v = el.elts[0].value
+                if isinstance(v, str):
+                    names.add(v)
+    return names
+
+
+# 生效条件：返回「旧文件里有、新内容里没有」的条目名（排序）。旧文件不存在 ⇒ 空列表（首次生成放行）。
+def _lost_entries(path, new_names):
+    """只增不改判据：本次生成会删掉哪些已登记条目。"""
+    old = _entry_names_from_file(path)
+    return sorted(old - set(new_names or ()))
+
+
 def main(argv):
     dry = "--dry-run" in argv
     inv = DEFAULT_INVENTORY
@@ -750,6 +783,24 @@ def main(argv):
         "}",
         "",
     ]
+    # F26-17 守护（2026-10-28）：本脚本是**整文件重写**——它会把「手工补的行」一并抹掉。
+    # 实测事故：为登记 3 个新 env 整体重跑后，`MDCG_WARM_SEARCH` / `MDCG_VISION_ROOT` 两行消失
+    # （已回滚）。文件头本就写着「不要为加一个 env 而整体重跑本脚本」，但没有机制兜住。
+    # 判据：**只增不改**——新内容必须包含旧文件里已有的全部条目名，少一条就拒绝写盘。
+    _new_names = set()
+    _new_names.update(e["name"] for e in const_entries)
+    _new_names.update(e["name"] for e in env_entries)
+    _new_names.update((r[0] if isinstance(r, (tuple, list)) and r else str(r))
+                      for r in env_category)
+    _lost = _lost_entries(OUT_MODULE, _new_names)
+    if _lost and "--force" not in argv:
+        print("拒绝写入：本次生成会删除 %d 条已登记条目（判据：只增不改）" % len(_lost))
+        for _n in _lost[:20]:
+            print("   -", _n)
+        print("处置：①按文件头说明**手工补两处**（推荐：改源码点 + CURATED_ENV_NAMES + ROW 行）；")
+        print("      ②确需整表重写请加 --force，并在提交信息里说明为什么这些条目可以消失。")
+        return 3
+
     os.makedirs(os.path.dirname(OUT_MODULE), exist_ok=True)
     with open(OUT_MODULE, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(lines))
