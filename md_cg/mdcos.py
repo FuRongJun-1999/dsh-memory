@@ -3943,8 +3943,10 @@ class MdCGOS(MdCG):
         # accept/edit/merge/noop 链之前。proposal（含存量无 kind 条目）一律不
         # 进此支，下面整条链对它逐位不变。
         if autonomy_modes.order_kind(item) == autonomy_modes.KIND_MUTATION:
+            # issue #709 连带：变更单桥也要把本次裁决的复核单元带下去（审计节点用它过闸）
             return self._decide_mutation(pid, item, decision, reason, override,
-                                        round_no, rt_v, rt_issues, expect)
+                                        round_no, rt_v, rt_issues, expect,
+                                        reviewers=reviewed_by)
 
         result = {"pid": pid, "decision": decision, "round": round_no,
                   "redteam": rt_v or "absent"}
@@ -4170,7 +4172,7 @@ class MdCGOS(MdCG):
 
 # 生效条件：item 为 kind=mutation 的队列记录——decision 为 accept 时经 _mutation_execute 执行对应动作（返回 ok=False 时**原样返回该错误**、不落裁决、提案保持 pending），为 reject 时只置 ok=True 留痕；decision 非此二者时返回 {"ok": False, "error": "mutation_decision_unsupported", ...} 带 hint（fail-closed，不落裁决）；通过者交 _finish_decision 收尾后返回其结果；
     def _decide_mutation(self, pid, item, decision, reason, override, round_no,
-                         rt_v, rt_issues, expect):
+                         rt_v, rt_issues, expect, reviewers=None):
         """变更单的裁决分派（三档自治批次② · 设计 §四）：accept 执行 / reject 留痕。
 
         本批只定义 accept/reject 两态；其余裁决（edit/merge/noop）**fail-closed
@@ -4201,7 +4203,7 @@ class MdCGOS(MdCG):
             result["ok"] = True
         return self._finish_decision(pid, item, decision, reason, round_no,
                                      rt_v, rt_issues, expect, result,
-                                     reviewers=reviewed_by)
+                                     reviewers=reviewers)
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.decisions_log))，记录内容取决于 decisions_log 可读结果；
     def decisions(self):
@@ -6800,13 +6802,15 @@ class MdCGSecure(MdCGOS):
         with node_write_lock(self, node_id):
             sens = self._write_sensitivity(node_id, sensitivity)
             _rank(sens)
-            # issue #708（2026-10-28）：把调用方已经取得的复核单元透传给闸。
+            # issue #708/#709（2026-10-28）：把调用方已经取得的复核单元透传给闸。
             # 此前这里只传 (layer, sens)，`reviewed_by` 虽在 **kw 里却从未被消费 ⇒
-            # `_write_review_record` 即便带了 reviewers，enforce 档下审计节点仍被
-            # 同一个闸挡住（jsonl 还在、可复核的 md 节点没了）。
-            # 从 kw 里**弹出副本**读取，不删除原键（下游 super().add 可能还要它）。
-            self.principal.require_layer_write(layer, sens,
-                                              reviewers=kw.get("reviewed_by"))
+            # 审计节点与 accept 落盘都被同一个闸挡住。
+            #
+            # **必须 pop 而不是 kw.get**：`reviewed_by` 是**写入闸的输入参数**，不是记忆
+            # 的元数据。若留在 kw 里，它会经 super().add(**kw) 落进 frontmatter
+            # （实测：`test_i50c` 的 B1 逐键对拍报出 `reviewed_by: null` 的白名单外差异）。
+            _reviewers = kw.pop("reviewed_by", None)
+            self.principal.require_layer_write(layer, sens, reviewers=_reviewers)
             self._attribution(kw, sens)
             # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
             # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`

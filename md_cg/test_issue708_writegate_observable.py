@@ -107,8 +107,10 @@ def main():
         ok("def _write_review_record(self, rec, reviewers=None)" in src,
            "D1 _write_review_record 接 reviewers")
         ok("reviewed_by=reviewers" in src, "D2 add(...) 透传 reviewed_by")
-        ok("reviewers=kw.get(\"reviewed_by\")" in src,
-           "D3 MdCGSecure.add 把 reviewed_by 交给 require_layer_write")
+        # 2026-10-28 改：`reviewed_by` 必须 **pop** 掉（它是闸的输入参数，不是记忆元数据），
+        # 否则会经 super().add(**kw) 落进 frontmatter（test_i50c 的 B1 曾因此报白名单外差异）。
+        ok('kw.pop("reviewed_by", None)' in src and "reviewers=_reviewers" in src,
+           "D3 MdCGSecure.add 用 pop 取出 reviewed_by 交给 require_layer_write（不下传 fm）")
         ok("def _record_decision(self, pid, item, decision, status, reason, round_no," in src,
            "D4 _record_decision 存在")
         ok("_write_review_record(rec, reviewers=reviewers)" in src,

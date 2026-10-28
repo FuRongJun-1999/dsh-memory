@@ -445,7 +445,7 @@ _NEG_UNION = ('                neg = list(fm.get("non_applicable_conditions") or
               '                        neg.append(x)\n'
               '                fm["non_applicable_conditions"] = neg')
 _TAGS_MAP = '            tags = list(item.get("tags") or [])'
-_CS_MAP = '                           condition_space=item.get("condition_space"), **extra)'
+_CS_MAP = '                               condition_space=item.get("condition_space"),\n                               reviewed_by=reviewed_by, **extra)'
 
 _MUTATIONS = (
     # ① 契约指定：DEFER 出口**不再透传 meta**（退回 issue50-b 的只传 sensitivity）。
@@ -503,7 +503,7 @@ _MUTATIONS = (
     # A3[bucket_zh]（route_key 读 cs ⇒ 桶别名变）+ B1 + B2 + B3。
     ("accept 不再映射 condition_space（削弱既有映射）",
      MdCGOS, "review_decide", _CS_MAP,
-     '                           condition_space=None, **extra)',
+     '                               condition_space=None,\n                               reviewed_by=reviewed_by, **extra)',
      5),
     # ⑧ 去掉幂等对账（既有职责）。预期：D2 = 1。
     ("去掉幂等对账 already_decided（既有职责）",
@@ -534,7 +534,7 @@ _ANCHORS_REQUIRED = (
     (MdCGOS, "remember_gated", '**kw, defer_reason=_why)'),
     (MdCGOS, "remember_gated", 'elif v == "DEFER":'),
     (MdCGOS, "remember_gated", 'forgetting._prefeed_id(content)'),
-    (MdCGOS, "review_decide", 'condition_space=item.get("condition_space"), **extra)'),
+    (MdCGOS, "review_decide", '                               condition_space=item.get("condition_space"),\n                               reviewed_by=reviewed_by, **extra)'),
     (MdCGOS, "review_decide", 'if pid in self._closed_pids():'),
 )
 
