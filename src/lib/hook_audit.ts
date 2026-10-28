@@ -67,6 +67,12 @@ export interface HookAuditState {
   }
   /** 进入消息级处理的 `source.kind` 分布（缺字段/空串/非字符串记 "undefined"）。 */
   kinds: Record<string, number>
+  /** `source` 的**键名集合**分布（issue #695：只记键名，绝不记值）。
+   *  为什么需要：`kind` 只说明「以什么形式提交」，不说明「谁提交的」。
+   *  外部桥接经 `sessions.prompt()` 注入的控制提示同样以 kind="user" 通过，
+   *  只看 kind 无法区分；而**键名集合**（如 `kind` / `form+kind` / `kind+origin`）
+   *  能直接回答「这条事件的 source 到底带哪些字段」，是排查来源归因缺口的第一读数。 */
+  source_shapes: Record<string, number>
   /** 最近 ≤MAX_LAST 条摘要。 */
   last: HookAuditEntry[]
   updated_at: string
@@ -105,6 +111,15 @@ export function kindOf(source: unknown): string {
   return typeof k === 'string' && k.length > 0 ? k : 'undefined'
 }
 
+/** `source` 的键名集合（排序后 join '+'）：空对象记 "empty"，非对象记 "not-object"。
+ *  只取 `Object.keys`——**绝不读值**，因此不含任何内容/凭据。 */
+export function sourceShapeOf(source: unknown): string {
+  if (source === null || source === undefined) return 'undefined'
+  if (typeof source !== 'object') return 'not-object'
+  const keys = Object.keys(source as Record<string, unknown>).sort()
+  return keys.length ? keys.join('+') : 'empty'
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -117,6 +132,7 @@ function emptyState(): HookAuditState {
       skipped: { sanitized: 0, not_ready: 0, failed: 0 },
     },
     kinds: {},
+    source_shapes: {},
     last: [],
     updated_at: nowIso(),
   }
@@ -144,7 +160,7 @@ function sumCounts(bucket: unknown, keys: readonly string[]): number | null {
 function mergeState(raw: unknown): HookAuditState {
   const s = emptyState()
   if (!raw || typeof raw !== 'object') return s
-  const r = raw as { counts?: unknown; kinds?: unknown; last?: unknown }
+  const r = raw as { counts?: unknown; kinds?: unknown; source_shapes?: unknown; last?: unknown }
   if (r.counts && typeof r.counts === 'object') {
     const c = r.counts as { filtered?: unknown; written?: unknown; skipped?: unknown }
     const buckets: Array<[Record<string, number>, string[], unknown]> = [
@@ -160,6 +176,11 @@ function mergeState(raw: unknown): HookAuditState {
   if (r.kinds && typeof r.kinds === 'object') {
     for (const [k, v] of Object.entries(r.kinds as Record<string, unknown>)) {
       if (typeof v === 'number' && Number.isFinite(v) && v > 0) s.kinds[k] = Math.floor(v)
+    }
+  }
+  if (r.source_shapes && typeof r.source_shapes === 'object') {
+    for (const [k, v] of Object.entries(r.source_shapes as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) s.source_shapes[k] = Math.floor(v)
     }
   }
   if (Array.isArray(r.last)) {
@@ -227,6 +248,18 @@ export class HookAuditRecorder {
     this.#mutate((s) => {
       const key = this.#boundedKindKey(s, kind)
       s.kinds[key] = (s.kinds[key] ?? 0) + 1
+    })
+  }
+
+  /** `source` 的键名集合分布（issue #695）：只记**键名**，不记任何值。
+   *
+   *  与 `observeKind` 的分工：kind 回答「以什么形式提交」，本方法回答「source 带哪些字段」。
+   *  两者都不参与写入判定（本模块是诊断面，红线不动）。
+   */
+  observeSourceShape(source: unknown): void {
+    const shape = sourceShapeOf(source)
+    this.#mutate((s) => {
+      s.source_shapes[shape] = (s.source_shapes[shape] ?? 0) + 1
     })
   }
 
