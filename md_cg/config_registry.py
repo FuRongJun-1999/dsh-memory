@@ -195,6 +195,26 @@ CURATED_ENTRIES = _table_entries()
 _ENTRY_CACHE = None
 
 
+#: F26-17（2026-10-28）：`ast.literal_eval` 解析失败的登记项——**不再是静默回落**。
+#: 形状：[(name, value_repr)]，进程内累积；`literal_failures()` 供守卫/诊断读取。
+#: 为什么只做「可观测」而不动 `value_type`：把 `or "str"` 改成按值推断会改变既有条目字段，
+#: 而 `config_registry_guard` 要比对「registry 缺省 == 分区表实际值」，属另一批改动，需单独评估影响面。
+_LITERAL_FAILURES = []
+
+#: F26-17 第二条潜在沉默：`value_type` 缺失（会被 `or "str"` 静默回落）。
+_MISSING_VALUE_TYPE = []
+
+
+def literal_failures():
+    """生效条件：返回本进程内 `entry_from_row` 累积的解析失败项副本（[(name, value_repr)]）。"""
+    return list(_LITERAL_FAILURES)
+
+
+def missing_value_types():
+    """生效条件：返回 `value_type` 缺失（会被回落成 str）的登记项副本。"""
+    return list(_MISSING_VALUE_TYPE)
+
+
 def entry_from_row(row, fields=None):
     """生成件的元组行 → 条目 dict（字段序 = `config_registry_bulk.ROW_FIELDS`）。"""
     fields = fields or _bulk.ROW_FIELDS
@@ -204,7 +224,15 @@ def entry_from_row(row, fields=None):
         try:
             val = ast.literal_eval(d["value_repr"])
         except Exception:
+            # 保持既有行为（值原样保留、value_type 仍回落 str），但**留痕**：
+            # 此前这里完全静默，「登记值写错了字面量」在 registry 里看不出来。
             val = d["value_repr"]
+            _LITERAL_FAILURES.append((d.get("name"), d.get("value_repr")))
+    _vt = d.get("value_type")
+    if not _vt:
+        # F26-17 第二条潜在沉默：`value_type` 缺失时下面会回落成 "str"，
+        # 于是一个**数值型**登记会被静默当成字符串（当前数据里 0 命中，属防御性留痕）。
+        _MISSING_VALUE_TYPE.append((d.get("name"), d.get("value_repr")))
     files = None
     if d.get("kind") == "env" and d.get("anchor_file"):
         files = [f for f in d["anchor_file"].split(";") if f]
