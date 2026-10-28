@@ -4033,8 +4033,13 @@ class MdCGOS(MdCG):
                                     "原写入者身份裁决。"}
             self._seal_override = ((item["id"],) + _seal_as) if _seal_as else None
             try:
+                # issue #709 连带发现（2026-10-28）：accept 落业务节点时，把**本次裁决已取得的**
+                # reviewed_by 一并带入。此前只在审计节点传了、这里没传 ⇒ enforce 下裁决本身
+                # 能过 dual_check，落盘却被同一个闸拒（「批了但写不进去」）。
+                # 层白名单与密级检查照常；dual_check 仍在 accept 之前，复核不被削弱。
                 nid = self.add(item["id"], content, layer=layer, tags=tags,
-                               condition_space=item.get("condition_space"), **extra)
+                               condition_space=item.get("condition_space"),
+                               reviewed_by=reviewed_by, **extra)
             finally:
                 self._seal_override = None
             # 索引增量收尾（2026-09-16 取证）：add 只把条目放进本进程内存 _dirty，
@@ -6850,7 +6855,12 @@ class MdCGSecure(MdCGOS):
 # 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**——缺省 confirm 档下提案记录若在入队时就已降成 internal，accept 只会照抄该值，故继承必须发生在这里、不能只补落盘面），再 principal.require_layer_write(kw.get("layer", "knowledge"), sens)（缺省与基类 MdCGOS.propose 的 layer="knowledge" 一致——此前误用 or "contextual" 导致校验层与落盘层错位：knowledge-only 身份被误拒 / contextual-only 身份入队成死提案，2026-09-25 缺陷 #5），再按**既有节点真层真密级**调 protect.require_layer（#346：提案者自己落不了盘的覆写不入队），最后转 super().propose(node_id, content, sensitivity=sens) 并返回其结果。
     def propose(self, node_id: str, content: str, sensitivity: str = None, **kw):
         sens = self._write_sensitivity(node_id, sensitivity)
-        self.principal.require_layer_write(kw.get("layer", "knowledge"), sens)
+        # issue #709 连带发现（2026-10-28）：propose **不落记忆盘**（只把候选写进 inbox），
+        # 却按目标层要求复核单元 ⇒ enforce 下死锁：要写 knowledge 需 reflect、要 reflect
+        # 需裁决、要裁决需有提案、提案又要 reflect。故此处跳过 write_gate。
+        # 注意：层白名单与密级检查照常；accept 落盘时仍走 add() 的同一道闸，复核不被削弱。
+        self.principal.require_layer_write(kw.get("layer", "knowledge"), sens,
+                                         skip_gate=True)
         # issue #346（2026-10-17 U05a）：入队面此前只比**声明值**（上面那行是拿
         # `sens`——显式声明时原样返回——去比写入者自己的 clearance），不比对既有
         # 节点的真层真密级 ⇒ 低权身份能把「自己落不了盘的覆写」塞进审核队列，再由
