@@ -263,6 +263,11 @@ pub fn strip_tense_en(w: &str) -> String {
 ///      （单字母段不处理，保留原样）；
 ///   3. 空白压缩（Unicode 空白 → 单空格）并去首尾。
 pub fn normalize_en(text: &str) -> String {
+    // issue #659 F26-25（2026-10-28）：先做拉丁重音折叠，再走下面的字符过滤。
+    // 原实现把非 ASCII 非中文一律变空格 ⇒ `café` → `caf`，而 Python 侧给 `cafe`，
+    // 两侧互不可命中。折叠口径见 `text_fold` 模块头（零第三方依赖的近似路线）。
+    let folded = super::text_fold::fold_accents(text);
+    let text: &str = &folded;
     let cleaned: String = text
         .chars()
         .map(|c| {
