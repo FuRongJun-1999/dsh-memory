@@ -22,5 +22,6 @@ pub mod retrieval;
 pub mod serve;
 pub mod store;
 pub mod text;
+mod text_fold;
 
 pub use engine::{EngineConfig, SearchEngine, SearchHit};
