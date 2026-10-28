@@ -328,9 +328,15 @@ class Principal:
             reviewers = tuple(x.strip().lower() for x in raw.split(",") if x.strip())
         verdict = _wg.decide_write(layer, reviewers=reviewers, mode=mode)
         if mode == "warn" and verdict.get("decision") in ("deny", "require_review"):
+            # issue #708：既要 stderr（宿主愿意转发时实时可见），更要**进程内计数**
+            # ——后者经 `cg(op=info).write_gate` 可查，不依赖 DSH 是否转发子进程 stderr。
             import sys as _sys
-            _sys.stderr.write("[writegate] warn：%s（未阻断，仅记录）"
+            _sys.stderr.write("[writegate] warn：%s（未阻断，仅记录；计数见 cg(op=info).write_gate）"
                               % verdict.get("reason"))
+            try:
+                _wg.warn_record(layer, verdict.get("tier"), verdict.get("reason"))
+            except Exception:            # noqa: BLE001  诊断面不得冒泡进写入路径
+                pass
         return verdict
 
 # 生效条件：要求 self._require_live() 未抛异常、self.theory_ok 为 True、self.can_admin 为 True 时通过；否则抛 AccessDenied（消息用形参 op 标记操作）。

@@ -2573,6 +2573,15 @@ def _cg_dispatch(cg, a):
             h["write_policy"] = audit.policy_report()
         except Exception as _pe:                  # noqa: BLE001
             h["write_policy"] = audit.unavailable_report(_pe)
+        # issue #708：分层写入闸的**可观测性**（warn 档此前只写子进程 stderr，
+        # DSH 不转发 ⇒ 用户看不到）。此处透出进程内计数，不依赖 stderr。
+        # 诊断面不得把 op=info 拖崩：异常收口成不可用形状。
+        try:
+            from . import writegate as _wg2
+            h["write_gate"] = _wg2.warn_report()
+        except Exception as _wge:            # noqa: BLE001
+            h["write_gate"] = {"mode": None, "total": None,
+                               "hint": "write_gate 不可用：%s: %s" % (type(_wge).__name__, _wge)}
         h["theory"] = _th.check()
         h["links"] = _lk.ls()
         # 代校验（纯增量，2026-09-30）：长驻进程可被问「你现在这一代是不是盘面那一代」。

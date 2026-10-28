@@ -3427,7 +3427,7 @@ class MdCGOS(MdCG):
         return f"rev_{pid.split('_')[-1]}_r{int(round_no)}"
 
 # 生效条件：当 rec 提供 record_node_id/record_hash/pid/round/decision/status/redteam_verdict 等键时（缺键会 KeyError），构造审核裁决 body，并调用 self.add 以 layer="self"、override=True、role=AUDIT_ROLE、sensitivity=DEFAULT_SENSITIVITY（issue #522：审计件保护级由件类型固定，不随裁决者 clearance 漂移）等写入，返回 nid；
-    def _write_review_record(self, rec):
+    def _write_review_record(self, rec, reviewers=None):
         """把一轮裁决写成 md 记忆节点（**structural 层**）——外部来源可读、可复核。
 
         2026-10-18 改（方案 A）：此前硬编码 layer="self"，后果实测为——
@@ -3472,7 +3472,13 @@ class MdCGOS(MdCG):
         # 769 条是这类裁决审计记录（98.6%），把真正的自我锚点挤到只剩 11 条。
         # 审计痕迹的语义是「结构事件」，不属「扮演依据」。
         # 同时打 audit_trace 标签——它是 self_surface 过滤的判据单点。
+        # issue #708（2026-10-28）：裁决审计节点写 structural 层，而 structural 属 2 档
+        # （需 reflect + verify）。此前这里**不传 reviewers** ⇒ enforce 档下审计节点被
+        # 同一个闸挡住（jsonl 还在、可复核的 md 节点没了）。
+        # 修法（报告人建议 3）：把**本次裁决已经取得的** reviewed_by 一并带进写入——
+        # 它本来就是「本次裁决的复核单元」，不是凭空自证。
         self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
+                 reviewed_by=reviewers,
                  tags=["audit", "audit_trace", self.AUDIT_TAG, f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
@@ -3486,7 +3492,7 @@ class MdCGOS(MdCG):
 
 # 生效条件：当 pid/item/decision/status/reason/round_no/rt_verdict/issues/vhash/result 传入时，构造 rec 并写 record_hash，把 result 中 ok/node_id/error/state 保留（result.mutation 为 dict 时另落 rec["mutation"]＝变更单执行时点载荷，proposal 链无此键、rec 形状逐位不变）；在 strict 锁内追加 decisions_log；随后尝试写 md 审核记录，成功补 record_node_id/record_hash，异常则补 record_error 并 audit review_record_failed；最后 audit review_decide 并返回 result；
     def _record_decision(self, pid, item, decision, status, reason, round_no,
-                         rt_verdict, issues, vhash, result):
+                         rt_verdict, issues, vhash, result, reviewers=None):
         """落盘一轮裁决：jsonl（权威）+ md 审计节点（可复核、供外部审计）。"""
         t = time.time()
         rec = {"t": t, "pid": pid, "decision": decision, "status": status,
@@ -3511,7 +3517,7 @@ class MdCGOS(MdCG):
             append_jsonl(self.decisions_log, rec, strict=True)
         # md 审计节点写失败不影响裁决（jsonl 仍是权威来源）
         try:
-            self._write_review_record(rec)
+            self._write_review_record(rec, reviewers=reviewers)
             result["record_node_id"] = rec["record_node_id"]
             result["record_hash"] = rec["record_hash"]
         except Exception as exc:  # noqa: BLE001
@@ -4124,11 +4130,12 @@ class MdCGOS(MdCG):
                 result.update(ok=True, node_id=target)
 
         return self._finish_decision(pid, item, decision, reason, round_no,
-                                     rt_v, rt_issues, expect, result)
+                                     rt_v, rt_issues, expect, result,
+                                     reviewers=reviewed_by)
 
 # 生效条件：result 为已定好的裁决返回体时，按其 pid/item/decision/reason/round_no/rt_v/rt_issues/expect 调 _record_decision（status 映射统一出口：reject→"rejected"、noop→"noop"、其余→"accepted"）落盘 jsonl + 审计节点，再按 item 的 payload_hash（缺失时 _sig(content)）调 _cascade_dedup 级联出清（有 closed 时写 result["cascade_closed"]），最后 flush 并返回 result；
     def _finish_decision(self, pid, item, decision, reason, round_no, rt_v,
-                         rt_issues, expect, result):
+                         rt_issues, expect, result, reviewers=None):
         """裁决**统一收尾**（单点）：proposal 链与变更单执行桥共用同一收尾。
 
         为何抽出来：三档自治批次② 的变更单走独立执行桥（`_decide_mutation`），
@@ -4141,7 +4148,7 @@ class MdCGOS(MdCG):
             pid, item, decision,
             {DECISION_REJECT: "rejected", DECISION_NOOP: DECISION_NOOP}
             .get(decision, "accepted"),
-            reason, round_no, rt_v, rt_issues, expect, result)
+            reason, round_no, rt_v, rt_issues, expect, result, reviewers=reviewers)
         # 级联出清：主提案已终态，同内容兄弟提案（重复入队产物）自动关闭
         casc = self._cascade_dedup(
             pid, item.get("payload_hash") or _sig(item.get("content") or ""),
@@ -4188,7 +4195,8 @@ class MdCGOS(MdCG):
         else:
             result["ok"] = True
         return self._finish_decision(pid, item, decision, reason, round_no,
-                                     rt_v, rt_issues, expect, result)
+                                     rt_v, rt_issues, expect, result,
+                                     reviewers=reviewed_by)
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.decisions_log))，记录内容取决于 decisions_log 可读结果；
     def decisions(self):
@@ -6787,7 +6795,13 @@ class MdCGSecure(MdCGOS):
         with node_write_lock(self, node_id):
             sens = self._write_sensitivity(node_id, sensitivity)
             _rank(sens)
-            self.principal.require_layer_write(layer, sens)
+            # issue #708（2026-10-28）：把调用方已经取得的复核单元透传给闸。
+            # 此前这里只传 (layer, sens)，`reviewed_by` 虽在 **kw 里却从未被消费 ⇒
+            # `_write_review_record` 即便带了 reviewers，enforce 档下审计节点仍被
+            # 同一个闸挡住（jsonl 还在、可复核的 md 节点没了）。
+            # 从 kw 里**弹出副本**读取，不删除原键（下游 super().add 可能还要它）。
+            self.principal.require_layer_write(layer, sens,
+                                              reviewers=kw.get("reviewed_by"))
             self._attribution(kw, sens)
             # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
             # 的**原始声明**（None=未声明）。两者必须分别下传——库层 `_write_node`

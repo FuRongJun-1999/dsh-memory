@@ -118,6 +118,43 @@ def missing_reviewers(tier, reviewers):
 
 
 # 生效条件：layer/reviewers 传入，channels 与 mode 缺省从环境读取；产出 decision=allow|require_review|deny 及 tier/mode/missing/reason；mode=off 时恒 allow。
+
+#: issue #708（2026-10-28）：warn 档的**可观测性**。
+#:
+#: 病灶（报告人 Starrain08 实测）：`warn` 档只往子进程 stderr 写一行，而 DSH 不把子进程
+#: stderr 转发进 `desktop-next.log` ⇒ 用户「完全看不到任何东西」，等于没有观察期，
+#: 只能盲选要不要切 enforce。
+#:
+#: 修法（报告人建议 2）：**进程内计数 + 最近条目摘要**，经 `cg(op=info).write_gate` 可查。
+#: 不依赖 stderr 转发，也不写盘（诊断面，零副作用）。
+#: 有界：最多保留 WARN_RECENT_MAX 条，防长驻进程无限增长。
+WARN_RECENT_MAX = 20
+_warn_counts = {}      # {(layer, mode): 次数}
+_warn_recent = []      # [(layer, tier, reason)]  最近若干条，无内容、无节点 id
+
+
+def warn_record(layer, tier, reason):
+    """记录一次「本该复核却按 warn 放行」——供 `cg(op=info)` 读出。"""
+    key = (layer or "", tier)
+    _warn_counts[key] = _warn_counts.get(key, 0) + 1
+    _warn_recent.append((layer or "", tier, (reason or "")[:160]))
+    if len(_warn_recent) > WARN_RECENT_MAX:
+        del _warn_recent[:-WARN_RECENT_MAX]
+
+
+def warn_report():
+    """生效条件：恒返回可序列化 dict——`{mode, total, by_layer, recent}`。"""
+    total = sum(_warn_counts.values())
+    by_layer = {"%s@L%s" % k: v for k, v in sorted(_warn_counts.items())}
+    return {"mode": gate_mode(),
+            "total": total,
+            "by_layer": by_layer,
+            "recent": [{"layer": a, "tier": b, "reason": c}
+                         for a, b, c in _warn_recent[-5:]],
+            "hint": ("warn 档只记录不阻断；本计数为进程内累计，重启归零。"
+                       if total else "尚无 warn 记录（要么没触发，要么闸为 off）。")}
+
+
 def decide_write(layer, reviewers=None, channels=None, mode=None, environ=None):
     """写入前判定：allow | require_review | deny。
 
