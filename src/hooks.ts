@@ -972,6 +972,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       // 落盘审计（issue #56）：source.kind 分布——先于两级判据记录**完整**输入分布
       // （含被滤与放行），「宿主到底给这条消息标了什么 kind」是排障第一问。
       audit.observeKind(kindOf(event.data.source))
+      // issue #695 诊断面：记录 source 的**键名集合**（不含任何值）。
+      // kind 只说「以什么形式提交」，键名集合才能回答「source 带哪些字段」——
+      // 外部桥接经 sessions.prompt() 注入的控制提示同样走 kind="user"，
+      // 靠这一维才有可核验的盘面读数（绝不记内容）。
+      audit.observeSourceShape(event.data.source)
       // H1 **消息级**判据：委派/中继消息（`form: 'relay'` 语义＝「另一个 agent
       // 发给本 agent 的消息」）不写。先于 kind 判据，理由见 isRelayedMessage 注释。
       if (isRelayedMessage(event.data.source)) {
