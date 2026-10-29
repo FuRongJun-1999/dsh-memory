@@ -4,6 +4,47 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.17] - 2026-10-28
+
+### 修复
+
+- **`warn` 档对用户完全不可见（#708 ①）**：`security._write_gate_verdict` 只做 `sys.stderr.write`，而 DSH 不把这条
+  转发进 `desktop-next.log` ⇒ 观察期等于没有。现在 `writegate` 维护**进程内计数**并经 `cg(op=info).write_gate` 透出：
+
+  ```python
+  cg(op="info")["write_gate"]
+  # {mode, total, by_layer: {"knowledge@L1": 3}, recent: [{layer,tier,reason}…], hint}
+  ```
+
+  不依赖 stderr 转发、不写盘；`recent` 只留 `layer/tier/reason`（**无内容、无节点 id**），有界 20 条。
+  stderr 那行保留（宿主愿转发时仍实时可见）。
+
+- **`enforce` 下裁决审计节点被同一闸挡住（#708 ② / #709）**：`_write_review_record` 写 `structural`（2 档：需 reflect+verify），
+  却不传复核单元 ⇒ `decisions.jsonl` 还在、**可复核的 md 审计节点没了**。现在把本次裁决已取得的 `reviewed_by`
+  一路带进写入：`review_decide → _finish_decision → _record_decision → _write_review_record → add(reviewed_by=…)`。
+
+- **同一个漏洞的两个更靠前落点（查 #709 时发现，一并修）**：
+  - **`propose` 死锁**：候选入 inbox 本不落记忆盘，却按**目标层**要求复核单元 ⇒ `enforce` 下
+    「要写 knowledge 需 reflect → 要 reflect 需裁决 → 要裁决需提案 → 提案又要 reflect」。
+    现在 `require_layer_write(..., skip_gate=False)` 新增该参数，**只** `propose` 传 `True`；
+    层白名单与密级检查**照常执行**（跳过的只有 write_gate 一档），`accept` 落盘仍走同一道闸。
+  - **`accept` 落业务节点**不传 `reviewed_by` ⇒ 「裁决过了、落盘被拦」。现在一并透传。
+
+- **`reviewed_by` 不再污染 frontmatter**：它是**写入闸的输入参数，不是记忆元数据**。此前沿用 `kw.get()` 只读不删，
+  会经 `super().add(**kw)` 落进节点 fm（实测 `test_i50c` 的 B1 逐键对拍报出 `reviewed_by: null`）。现在改为 `kw.pop()`。
+
+### 内部
+
+- `test/chaos_injection/test_fi_m09_guest_write_denied.py` 的读码锚点从「完整调用串」放宽为「`layer, sens` 两参在位」
+  （`require_layer_write` 现在多了 `reviewers=` 实参）；同时去掉两处硬编码行号——行号会随改动漂移。
+- `test_generation_guard.py` 的 `NEW_INFO_KEYS` 登记 `write_gate`（`op=info` 的新增诊断键，与 `code_generation` 同类）。
+
+### 升级须知
+
+- 本版**无破坏性变更**：`skip_gate` 缺省 `False`；`--gate` 缺省仍是 `strict`；`op=info` 只**新增**一个 `write_gate` 键。
+- 若你在 #708 / #709 里遇到过问题：升级后 `cg(op="info")["write_gate"]` 可看 warn 计数，
+  `review accept` 的返回体里 **`record_error` 应为空**。
+- 计数是**进程内累计、重启归零**（不落盘），建议观察一个完整工作日再决定是否切 `enforce`。
 ## [0.9.16] - 2026-10-28
 
 ### 修复
