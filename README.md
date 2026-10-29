@@ -10,7 +10,7 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.14）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.17）**
 
 📖 **[第三方上手教程](https://znsvdekx.vibedrop.site/)** —— 《灵枢 dsh-memory 初学者上手研究报告》（由第三方独立编写，非本项目官方文档）
 
@@ -181,7 +181,7 @@ python -m md_cg.tokens verify --token-file-in <令牌文件>           # 体检�
 | 写面 | 记录单元 | 追加 `write` |
 | 裁决面 | 验证单元 | 追加 `verify` |
 
-写入按层收紧：`contextual` 可直写 → `knowledge` 需反思单元 → `structural` 需反思+验证 → `self`/`anchor` 需人工裁定（`MDCG_WRITE_GATE` 三态：`off`/`warn`/`enforce`）。裁决需**双单元复核且不得自证**（`MDCG_REVIEW_DUAL_CHECK=1`）。
+写入按层收紧：`contextual` 可直写 → `knowledge` 需反思单元 → `structural` 需反思+验证 → `self`/`anchor` 需人工裁定（`MDCG_WRITE_GATE` 三态：`off`/`warn`/`enforce`）。裁决需**双单元复核且不得自证**（`MDCG_REVIEW_DUAL_CHECK=1`）。`warn` 档判定用 **`cg(op=info).write_gate`** 查（进程内计数，不依赖宿主转发 stderr）——先观察再切 `enforce`。
 完整规则、开关与报错对照 → [权限与复核模型](docs/ops/权限与复核模型.md)。
 ## 📚 文档地图
 
