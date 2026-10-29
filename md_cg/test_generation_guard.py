@@ -54,7 +54,8 @@ PINNED_INFO_KEYS = frozenset({
 })
 
 NEW_INFO_KEYS = ("code_generation", "disk_generation", "stale_on_disk",
-                 "restart_required", "hint")
+                 "restart_required", "hint",
+                 "write_gate")  # issue #708：分层写入闸的进程内计数（warn 观察期）
 
 _FAILED = []
 
