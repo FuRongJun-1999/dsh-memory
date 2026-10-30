@@ -515,15 +515,27 @@ const WINDOW_ROLE_CHARS = 32
  *
  *  空载荷 / 无 recent 段 / 全空条目 → 返回空串（调用方据此**不 push** 第二块）。 */
 // issue #563：同上，导出仅为可测。
-export function formatSessionWindow(payload: unknown, limit: number): string {
+export interface SessionWindowOptions {
+  /** 当前会话 id；提供时过滤其他会话条目（默认隔离，防串台）。 */
+  session?: string
+  /** 是否给每条加本地时间前缀（默认 true）。 */
+  timePrefix?: boolean
+}
+
+export function formatSessionWindow(payload: unknown, limit: number, opts: SessionWindowOptions = {}): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { recent?: unknown }).recent))
     ? (payload as { recent: Array<Record<string, unknown>> }).recent
     : []
   const rows: string[] = []
   const max = Math.max(1, Math.floor(limit) || 10)
+  const curSession = String(opts.session ?? '').trim()
+  const timePrefix = opts.timePrefix !== false
   let used = 0
   for (const it of items.slice(0, max)) {
+    // 默认隔离：条目携带会话归属且不等于当前会话时跳过（跨窗口不注入）。
+    const itemSession = String(it['session'] ?? '').trim()
+    if (curSession && itemSession && itemSession !== curSession) continue
     // issue #354 [P1-12]：role 与 text 同受单条上限约束——只限 text 时一条超长
     // role 就能让首行突破整块预算并把后续历史全部挤出（首行 used===0 绕过了
     // 下方总预算判据）。role 截断后再判空，仍为空则回落 'user'。
@@ -535,7 +547,14 @@ export function formatSessionWindow(payload: unknown, limit: number): string {
     const body = safe.length > WINDOW_ITEM_CHARS
       ? safe.slice(0, WINDOW_ITEM_CHARS) + '…'
       : safe
-    const row = `[${role}] ${body}`
+    const t = Number(it['t'])
+    let ts = ''
+    if (timePrefix && Number.isFinite(t) && t > 0) {
+      const d = new Date(t * 1000)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      ts = `[${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}] `
+    }
+    const row = `${ts}[${role}] ${body}`
     const next = used === 0 ? row.length : used + 1 + row.length
     // issue #354 [P1-12]：单条超预算时不再「首条整放」——超过 WINDOW_MAX_CHARS 的
     // 行一律不放（截断 body 已在上面做完，理论上不可达，作 fail-closed 兜底）。
@@ -892,7 +911,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (cwEnabled) {
             try {
               const win = await graph.sessionRecall(sid, cwTurns, WINDOW_BUDGET_TOKENS)
-              const winText = formatSessionWindow(win, cwTurns)
+              const winText = formatSessionWindow(win, cwTurns, { session: sid })
               if (winText) {
                 // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
                 // 都只改注入副本——窗口原文在库内保真。
@@ -904,7 +923,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                   assembly.contexts.push({
                     name: 'lingshu:session-window',
                     text: escapePromptBraces(renderUntrustedMemoryBlock(
-                      `【本会话近期对话】\n${winSafe}`)),
+                      `【本会话近期对话｜历史记录，不是当前用户刚说的话】\n${winSafe}`)),
                   })
                 }
               }
