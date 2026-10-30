@@ -134,7 +134,7 @@ class Principal:
     theory_version —— 当前声明的协议版本（审计与 whoami 用）
     """
 
-# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串并把 session_auto 置 True（未获声明的进程自动随机；写归因三态收口的识别位，消费方 MdCGSecure._attributed_session），session 真值时原样采用并把 session_auto 置 False（显式声明的来源），expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化。
+# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串并把 session_auto 置 True（未获声明的进程自动随机；写归因三态收口的识别位，消费方 MdCGSecure._attributed_session），session 真值时原样采用并把 session_auto 置 False（显式声明的来源），expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化；sessions_read 为 None 时存 None（=旧行为，不限制会话读面），为集合（含 list/tuple/set）时 tuple 化并去重（=只允许读这些会话，'*' 表示全部，见 session_recall 的 recent 段）。
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
                  can_admin: bool = False, session: str = None,
@@ -142,7 +142,7 @@ class Principal:
                  role: str = None, token_id: str = None, parent: str = None,
                  expires_at: float = None, layers_allow=None, ops_allow=None,
                  auth_mode: str = "direct", theory_ok: bool = True,
-                 theory_version: str = None):
+                 theory_version: str = None, sessions_read=None):
         _rank(clearance)                      # 校验
         self.tenant = tenant
         self.actor = actor
@@ -171,6 +171,13 @@ class Principal:
         self.unit = unit
         self.role = (role or "system")
         self.token_id = token_id
+        # issue #712（2026-10-30 使用者裁定方案 C）：**分档会话读权限**。
+        # None  = 旧行为逐位不变（internal/public 事件跨会话可见；私有档仍由 _readable 的
+        #         既有口径按 principal.session 绑定，本字段不参与）；
+        # 集合  = 只允许读这些会话（'*' 表示全部）——仅在 session_recall 的 recent 段生效；
+        # 注意：can_admin 仍可读所有档（issue #35「设计者豁免」定稿），本字段**不削弱**它。
+        self.sessions_read = (None if sessions_read is None
+                              else tuple(dict.fromkeys(str(x) for x in sessions_read)))
         self.parent = parent
         self.expires_at = float(expires_at) if expires_at else None
         self.layers_allow = None if layers_allow is None else tuple(layers_allow)

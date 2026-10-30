@@ -22,7 +22,7 @@
  *      一律不写（与自动记忆同口径）；
  *   W3 注入侧：两块齐（既有块 + 独立第二块）、取数参数面（session=sid /
  *      recent_limit=turns / budget_tokens）、条数 = min(turns, 返回数)、
- *      单条截断 ≤120、总长 ≤800、裁剪保最新且输出正序；
+ *      单条截断 ≤120、总长 ≤900、裁剪保最新且输出正序；
  *   W4 开关：`contextWindow.enabled=false` → 写侧零调用、注入侧无第二块
  *      （既有块不受影响）；
  *   W5 fail-soft：`sessionRecall` 抛错 → assemble 不抛、无第二块、既有块照常；
@@ -239,16 +239,20 @@ test('W3 注入侧：两块齐 + 取数参数面 + 条数/单条截断', async (
   const rows = windowRows(a.contexts[1]!.text)
   assert.equal(rows.length, 10, '条数 = min(turns=10, 返回数 12) = 10')
   for (const row of rows) {
-    assert.match(row, /^\[(user|assistant)\] /, `行格式须为 [role] 预览：${row.slice(0, 40)}`)
+    // issue #712：归因前缀（[MM-DD HH:mm|会话|密级]）成为行首，故正则放宽为「可选前缀 + [role] 」。
+  // 判据语义不变：仍然要求行含 [role] 预览段。
+  assert.match(row, /^(\[[^\]]+\] )?\[(user|assistant)\] /, `行格式须为 [role] 预览（可带归因前缀）：${row.slice(0, 40)}`)
   }
   // 单条截断：300 字 → 120 字 + 省略号
   const newest = last(rows)
-  assert.ok(newest.startsWith('[assistant] 长'), '最新条目仍在（正序输出 → 末行）')
-  const body = newest.slice('[assistant] '.length)
+  // issue #712：行首可能带归因前缀，故按「[role] 之后」切分，而不是固定下标切片。
+  const marker = '[assistant] '
+  assert.ok(newest.includes(marker + '长'), `最新条目仍在（正序输出 → 末行）；实际 ${newest.slice(0, 60)}`)
+  const body = newest.slice(newest.indexOf(marker) + marker.length)
   assert.ok(body.length <= 121, '单条 ≤120 字（+省略号）')
   assert.ok(body.endsWith('…'), '超长条目被截断（带省略号）')
-  // 总长 ≤800
-  assert.ok(rows.join('\n').length <= 800, '窗口载荷总长 ≤800')
+  // 总长 ≤900
+  assert.ok(rows.join('\n').length <= 900, '窗口载荷总长 ≤900')
 })
 
 test('W3b 限幅保最新 + turns 透传：放不下的旧条目整条不放入、最新必须保留', async () => {
@@ -264,7 +268,7 @@ test('W3b 限幅保最新 + turns 透传：放不下的旧条目整条不放入�
 
   const rows = windowRows(a.contexts[1]!.text)
   assert.ok(rows.length <= 4, '条数 ≤ turns')
-  assert.ok(rows.join('\n').length <= 800, '总长 ≤800')
+  assert.ok(rows.join('\n').length <= 900, '总长 ≤900')
   assert.ok(last(rows).includes('第1条：'), '最新条目保留且在最后（正序、保最新）')
 })
 
@@ -277,7 +281,7 @@ test('W3c 裁剪保最新（>turns 且超长场景）：丢的是最旧条目', 
   const a = await assemble({ agent: { session: { id: 'sess_A' } } })
   const rows = windowRows(a.contexts[1]!.text)
   assert.ok(rows.length < 10, '总长超限 → 条数被裁剪（保最新）')
-  assert.ok(rows.join('\n').length <= 800, '总长 ≤800')
+  assert.ok(rows.join('\n').length <= 900, '总长 ≤900')
   assert.ok(last(rows).includes('第1条：'), '最新条目保留')
   assert.ok(!rows.some((r) => r.includes(`第${items.length}条：`)),
     '最旧条目被丢弃（裁剪保最新，而非保最旧）')

@@ -201,6 +201,12 @@ NEG_COVERAGE_MAX = 3
 
 
 # 生效条件：card 为 dict 且 card["negative_coverage"] 为真值时返回 True，否则 False（非 dict 一律 False）。
+# 生效条件：恒返回 6 位十六进制串（sha1(text) 前 6 位）——issue #712 事件稳定键的后半段；
+# 确定性派生（同一 text 恒得同一串），故存量无 id 的事件每次读到同一个 id，不需要写盘。
+def _event_suffix(text) -> str:
+    return hashlib.sha1((text or "").encode("utf-8", "replace")).hexdigest()[:6]
+
+
 def _is_neg_coverage(card) -> bool:
     """「该结果条目是负覆盖提示、不是候选答案」的判据单点（H10①③）。
 
@@ -4158,9 +4164,22 @@ class MdCG:
                        window: int = DEFAULT_RECENT_WINDOW):
         """追加一条近期事件（原始、未结构化），并按窗口滚动截断。"""
         check_recent_event(role, text, window)
-        rec = {"t": time.time(), "role": role or "user",
+        # issue #712（2026-10-30）：事件补**稳定键** `id`——归因展示用（让模型能引用
+        # 「哪一条」），**不是幂等键**：`remember_event` 的语义是事件流 append，用户连说
+        # 两遍同一句话是**两条真实事件**，去重会丢真事件；且 `append_jsonl` 在锁外
+        # （`roll_recent` 才加 FileLock），"读盘判重 + 写"之间有竞态，去重本身无法幂等。
+        # ⇒ 因此：**允许撞键**，且该键**不得**用于权限判定或去重定位。
+        # `t` 先算到变量再拼 id（不要 `time.time()` 调两次，否则 id 与 t 不一致）。
+        _t = time.time()
+        rec = {"t": _t, "role": role or "user",
                "text": text or "", "tags": list(tags or []),
                "meta": dict(meta or {})}
+        rec["id"] = "re_%d_%s" % (int(_t * 1000), _event_suffix(rec["text"]))
+        # issue #712：`actor` 落 **meta.actor**（不加顶层键——顶层形状已被事件对拍守卫
+        # 与 `recent_record_ok` 的口径钉住，加顶层键会波及存量读面）。
+        # 恒保证该键存在（值可为 None＝未声明）：注入面统一从 meta.actor 取，
+        # 若键时有时无，取值方就得写两套分支（本仓教训：同一判据两份迟早各漏一次）。
+        rec["meta"].setdefault("actor", None)
         append_jsonl(self.recent_log, rec)
         dropped = self.roll_recent(window)
         return {"event": rec, "dropped": dropped}
@@ -4193,6 +4212,12 @@ class MdCG:
         if since is not None:
             recs = [r for r in recs if float(r.get("t") or 0) >= float(since)]
         out = recs[-limit:] if limit else recs
+        # issue #712：读侧为**存量无 id 的行**派生同口径稳定键（确定性派生，不用随机——
+        # 同一条事件每次读到必须得到同一个 id）。**不写盘**：只在返回副本上补，
+        # 盘面 `_recent.jsonl` 保持原样（重写盘面会让存量行形状变化，属重大回归面）。
+        out = [dict(r, id=r.get("id") or "re_%d_%s" % (int(float(r.get("t") or 0) * 1000),
+                                                     _event_suffix(r.get("text") or "")))
+               for r in out]
         return list(reversed(out)) if newest_first else out
 
 # 生效条件：无条件读取全部记录并在 FileLock 下把 recent_log 原子写空，返回被清条数（无记录时为 0）；
