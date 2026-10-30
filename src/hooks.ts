@@ -873,8 +873,25 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           // 非永久层 → 既有「最近记忆」块；self/anchor → 独立「身份锚点」块（独立预算）。
           const identityOn = opts.autoRecallIdentity === true
           const timelinePayload = await graph.timeline(
-            identityOn ? recallLimit + IDENTITY_MAX_ITEMS : recallLimit,
+            recallLimit,
             sid ? { session: sid } : {})
+          // issue #715（2026-10-30 外部报告，逐行复现）：**身份块必须单独取数**。
+          //
+          // 病灶：此前身份块复用上面这份**带会话过滤**的 payload（还把 limit 加 3 试图
+          // 「多取 3 条」），但 `self`/`anchor` 节点的 `session` **恒为 `unattributed`**
+          // ——身份锚点在语义上就注定跨会话（`identity` 写入不带 session_id 时即如此，
+          // 状态卡与关系节点同理）。两者叠加 ⇒ 永久层被会话过滤全部滤掉 ⇒
+          // `renderIdentityAnchors` 拿到空集 ⇒ **块从不出现且无任何报错**（静默失效）。
+          //
+          // 这正是《身份与人格》理论的 R3：**人格的可见性不该由会话决定**。
+          // 用会话过滤去筛人格节点是**类别错误**，不是参数没调好。
+          //
+          // 故身份块改为**不带会话过滤**取数（不传 session ⇒ 跨会话视图），
+          // 再由 `renderIdentityAnchors` 只挑 self/anchor（其余层照样被它跳过）。
+          // 「最近记忆」块保持会话隔离不变——那是工作记忆，本就该跟会话走。
+          const identityPayload = identityOn
+            ? await graph.timeline(IDENTITY_MAX_ITEMS * 3, {})
+            : null
           const text = formatTimelineDecayed(timelinePayload)
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
@@ -910,13 +927,21 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           }
           if (identityOn) {
             try {
-              const idText = renderIdentityAnchors(timelinePayload)
+              // issue #715：用**独立取数**的 payload（不带会话过滤），不再复用已滤会话的那份。
+              const idText = renderIdentityAnchors(identityPayload)
               if (idText) {
                 assembly.contexts.push({
                   name: 'lingshu:identity-anchor',
                   text: escapePromptBraces(renderUntrustedMemoryBlock(
                     '【灵枢身份锚点】（self/anchor 层，独立预算）\n' + idText)),
                 })
+              } else {
+                // issue #715（静默失效）：此前「开关开了但块从不出现」与「库里确实没有
+                // self/anchor 节点」**完全不可分辨**——catch 不触发（没抛错），也没有任何
+                // 提示。开着的功能不生效却无声，比报错更难查。故此处显式留痕。
+                ctx.logger.info(
+                  'dsh-memory: autoRecallIdentity 已开启但无可注入的身份节点'
+                  + '（self/anchor 层为空——请用 cg(op=identity, action=anchor) 建立锚点）')
               }
             } catch (err) {
               // issue #128 同款纪律：fail-soft 但不静默——空 catch 会被
