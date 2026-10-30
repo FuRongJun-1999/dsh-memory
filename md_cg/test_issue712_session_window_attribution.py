@@ -186,6 +186,29 @@ def main():
                "H3 sensitivity 非 None（经安全档写入时必落）", rech[0].get("sensitivity"))
         cgh.close()
 
+
+        print("== I 身份三维（理论《身份与人格》R2 最小归因四元组）")
+        cgi = MdCGSecure(os.path.join(T, "braini"), principal=p, autoflush=1)
+        cgi.remember_event("user", "身份三维测试", meta={"session": "sessI"})
+        pki = cgi.session_recall("sessI", limit=1, recent_limit=3)
+        reci = pki.get("recent") or []
+        ok(reci, "I0 有条目", len(reci))
+        if reci:
+            it = reci[0]
+            # 编号口径（理论《身份与人格》补注）：令牌模式 = token_id；
+            # **直连模式（auth_mode=direct）没有令牌**，以 session 代之——
+            # 两者至少一个非空即满足「编号」要素。
+            _no = it.get("token_id") or it.get("session")
+            ok(bool(it.get("session")) and bool(it.get("id"))
+               and bool(it.get("actor")) and bool(_no),
+               "I1 **最小归因四元组齐**（会话/编号/名字/id；直连模式以 session 作编号）",
+               (it.get("session"), it.get("id"), it.get("actor"), _no))
+            ok(it.get("identity_role") is not None,
+               "I2 identity_role 非 None（职业身份）", it.get("identity_role"))
+            ok("clearance" not in it and "ops_allow" not in it and "layers_allow" not in it,
+               "I3 **不含权限快照**（理论第 7 条：权限不写入事件）", sorted(it.keys()))
+        cgi.close()
+
         cg.close()
     finally:
         shutil.rmtree(T, ignore_errors=True)

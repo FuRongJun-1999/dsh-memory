@@ -4692,7 +4692,12 @@ class MdCGOS(MdCG):
                                "id": r.get("id"),
                                "session": (r.get("meta") or {}).get("session"),
                                "sensitivity": (r.get("meta") or {}).get("sensitivity"),
-                               "actor": (r.get("meta") or {}).get("actor")}
+                               "actor": (r.get("meta") or {}).get("actor"),
+                               # 2026-10-30 理论《身份与人格》：归因三维（编号/职业身份/汇报线）。
+                               # 只透出**归因必需**的，不透权限快照（理由见 remember_event 注释）。
+                               "token_id": (r.get("meta") or {}).get("token_id"),
+                               "identity_role": (r.get("meta") or {}).get("identity_role"),
+                               "parent": (r.get("meta") or {}).get("parent")}
                               for r in evs]
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("recent")
@@ -6999,6 +7004,18 @@ class MdCGSecure(MdCGOS):
         # 「哪些是自己做的、哪些是别人做的」这一要素在库层是空的。
         # 用 setdefault：调用方显式传 meta["actor"] 时不被覆盖（与上面同款口径）。
         m.setdefault("actor", self.principal.actor)
+        # 2026-10-30 理论《身份与人格》七要素落地：仅补**归因必需**的三维，
+        # 不给事件加权限快照（clearance/layers_allow/ops_allow 一律不写——权限是
+        # 当前态不是历史事实，固化进事件会造出「假的当时有权」；权限由
+        # sensitivity（数据属性）+ 读取时判据承担）。
+        #   · token_id      = **编号**（同名不同人可区分）
+        #   · identity_role = **职业身份**（干什么；与 role 参数的 user/assistant 不同层，
+        #                     故用不同键名，避免与消息角色混淆）
+        #   · parent        = **汇报线**（有上级时才落）
+        m.setdefault("token_id", getattr(self.principal, "token_id", None))
+        m.setdefault("identity_role", getattr(self.principal, "role", None))
+        if getattr(self.principal, "parent", None):
+            m.setdefault("parent", self.principal.parent)
         if getattr(self.principal, "harness", None):
             m.setdefault("harness", self.principal.harness)
         if getattr(self.principal, "unit", None):
