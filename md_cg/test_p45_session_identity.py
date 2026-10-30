@@ -357,10 +357,12 @@ def _r65_group():
 # 每条变异声明**期望转红的断言项**；实跑红项与期望必须**恰好相等**——多红=断言语义
 # 纠缠，少红=该判据空转（本仓教训：test_neg_condition_hits 的「整条命中档」曾 31 条
 # 断言全绿而分支已删）。锚点漂移（命中次数 ≠1）→ ANCHOR-MISS + 退出码 2（fail-closed）。
+# issue #712（2026-10-30）：会话过滤改为「先算 _sess_arg、再具名判定」，锚点随之更新。
+# **变异语义不变**：删掉 if _sess_arg 与其过滤体 ⇒ recent 回到全进程窗口。
 _R65_A_BLOCK = (
-    '        if session and str(session).strip() != "*":\n'
+    '        if _sess_arg:\n'
     '            evs = [r for r in evs if (r.get("meta") or {}).get("session") == session]\n')
-_R65_A_COND = 'if session and str(session).strip() != "*":'
+_R65_A_COND = '_sess_arg = session if (session and str(session).strip() != "*") else None'
 _R65_A_STRIP = 'str(session).strip() != "*"'
 _R65_A_FILTER = ('evs = [r for r in evs '
                  'if (r.get("meta") or {}).get("session") == session]')
@@ -370,7 +372,7 @@ _R65_ANCHORS = (_R65_A_BLOCK, _R65_A_COND, _R65_A_STRIP, _R65_A_FILTER, _R65_A_D
 _R65_MUTATIONS = (
     ("①删整段会话过滤（recent 回到全进程窗口）", _R65_A_BLOCK, "",
      {"R65.1", "R65.2", "R65.3", "R65.6a", "R65.9"}),
-    ("②删 \"*\" 例外（星号也过滤）", _R65_A_COND, "if session:",
+    ("②删 \"*\" 例外（星号也过滤）", _R65_A_COND, "_sess_arg = session if session else None",
      {"R65.4a", "R65.4b"}),
     ("③去 strip（\" * \" 不再按汇总处理）", _R65_A_STRIP, 'str(session) != "*"',
      {"R65.4b"}),

@@ -4640,7 +4640,25 @@ class MdCGOS(MdCG):
             pack["degraded"].append("tasks")
         # ③ 近期事件（原始滚动窗口）
         try:
-            evs = self.recent_events(limit=max(1, int(recent_limit or 10)))
+            # issue #712（2026-10-30 使用者裁定方案 C）：**取窗顺序**修正——需要按会话
+            # 收窄时**先取全量、再过滤、最后截**。修前是先截末 N 条（本行）再由下方
+            # 4656 过滤 ⇒ 多会话并发时本会话消息被别会话挤出窗口，`session="A"` 可能
+            # 拿到**空 recent**（过滤器没错，窗口错了；false-negative，极难被现有测试
+            # 发现）。选 `limit=0`（全量）而非 `recent_limit×K`：① 本函数 ② goals 段
+            # 已是「全量取数 → 过滤 → 截断」形态（`active_goals(limit=None)` 后切
+            # `[:_PACK_ROWS]`），倍数窗会成为本文件里的第二种形态；② 外部会话条数无
+            # 上界，倍数窗只是把失败概率变小；③ `MdCGSecure.recent_events` 内部本就
+            # `super().recent_events(limit=0, …)` 再 `keep[:limit]`，故此处传 0
+            # **不新增读盘量**。
+            _win = max(1, int(recent_limit or 10))
+            _sess_arg = session if (session and str(session).strip() != "*") else None
+            # issue #712 D 项：分档会话读权限。仅当 `sessions_read` 是集合且不含
+            # "*" 时收窄（None = 与历史逐位相同）。can_admin 不在此处特殊处理——
+            # 它按 issue #35 定稿本就全读，本判据只做「减法」。
+            _sr = getattr(getattr(self, "principal", None), "sessions_read", None)
+            _sr_narrow = isinstance(_sr, tuple) and bool(_sr) and "*" not in _sr
+            _narrow = bool(_sess_arg) or _sr_narrow
+            evs = self.recent_events(limit=0 if _narrow else _win)
             # issue #65（外部报告 by ducc239，对 v0.7.5 实测，本 workflow 修前复现）：
             # 本段此前**不传会话**，而 `MdCGSecure.recent_events` 无 session 形参
             # （只有 private/secret 档做会话归属判断、默认档全放行）⇒ recent 恒为
@@ -4653,11 +4671,29 @@ class MdCGOS(MdCG):
             #     的 "*" 同款语义）；
             #   falsy（None/""）→ 退回旧行为（全局窗口，存量调用面零迁移）。
             # `strip()` 防空白包裹的 "*"（" * " 也按汇总处理）。
-            if session and str(session).strip() != "*":
+            if _sess_arg:
                 evs = [r for r in evs if (r.get("meta") or {}).get("session") == session]
+            if _sr_narrow:
+                evs = [r for r in evs if (r.get("meta") or {}).get("session") in _sr]
+            if _narrow:
+                evs = evs[:_win]
+            if not session:
+                # issue #712 C 项：falsy 会话**不再静默退回全局窗口**——把「你正在读
+                # 全局窗口」放进 degraded，让调用方/工具面看得见（只写日志等于没留痕，
+                # #708 的教训）。
+                pack["degraded"].append("recent_global_window")
+            # issue #712 B 项：注入面恢复**四要素**（会话/时间/身份/id）。
+            # 修前只留 role/text/t，模型因此无法判断「这条是哪个会话说的、私有还是
+            # 共有、谁说的」——「跨窗口串台」的用户侧困惑正源于此。
+            # 取值一律防御式（meta 可能缺失/非 dict），与上一段的既有写法同款。
             pack["recent"] = [{"role": r.get("role"),
                                "text": (r.get("text") or "")[:300],
-                               "t": r.get("t")} for r in evs]
+                               "t": r.get("t"),
+                               "id": r.get("id"),
+                               "session": (r.get("meta") or {}).get("session"),
+                               "sensitivity": (r.get("meta") or {}).get("sensitivity"),
+                               "actor": (r.get("meta") or {}).get("actor")}
+                              for r in evs]
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("recent")
         # ④ 未解问题（驱动主动补全）
