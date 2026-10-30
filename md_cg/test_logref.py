@@ -572,11 +572,11 @@ def guard_dangling(tmp: str, sroot: str) -> None:
             ck("4f[删转写] 指路离线再生（服务态不写临时目录）",
                "repair" in (rd.get("rematerialize") or ""), rd.get("rematerialize"))
             # regenerable 免清退：dry_run 里不出现，且实做后节点仍在
-            pl = refindex.prune_dangling(cg, dry_run=True, max_nodes=5000)
+            pl = refindex.prune_dangling(cg, dry_run=True, max_nodes=20000)
             ck("4g[regenerable 免清退] dry_run 候选为空且计数透出",
                pl.get("candidates") == 0 and pl.get("regenerable_skipped", 0) >= len(ns),
                (pl.get("candidates"), pl.get("regenerable_skipped"), len(ns)))
-            refindex.prune_dangling(cg, max_nodes=5000)
+            refindex.prune_dangling(cg, max_nodes=20000)
             ck("4h[regenerable 免清退] 实做后节点仍在库",
                cg.get(nid) is not None and cg.get(nid) is not None)
             # 反向对照：非 regenerable 的悬空 doc 节点**必须**被列入
@@ -587,7 +587,7 @@ def guard_dangling(tmp: str, sroot: str) -> None:
             refindex.add_items(cg, [fake], kind="doc_ref",
                                root=os.path.join(tmp, "g4", "nope"))
             fid = docindex.node_id(fake)
-            pl2 = refindex.prune_dangling(cg, dry_run=True, max_nodes=5000)
+            pl2 = refindex.prune_dangling(cg, dry_run=True, max_nodes=20000)
             ck("4i[反向对照] 非 regenerable 的悬空节点被列入（判据有判别力）",
                fid in (pl2.get("pruned") or []) or pl2.get("candidates", 0) >= 1,
                (pl2.get("candidates"), (pl2.get("pruned") or [])[:3]))
@@ -625,7 +625,7 @@ def guard_regenerable_after_rebuild(tmp: str, sroot: str) -> None:
                                 for e in after.values()), sorted(after))
         # 删转写 → 全部 dangling：但「可再生」必须仍生效（第二判据靠 doc_ref.src）
         os.remove(tr_path(tr, "ws-a", "sess-1"))
-        pl = refindex.prune_dangling(cg, dry_run=True, max_nodes=5000)
+        pl = refindex.prune_dangling(cg, dry_run=True, max_nodes=20000)
         ck("4s[heal 后] 无 regenerable 标签仍免清退（判据不依赖标签存活）",
            pl.get("candidates") == 0 and pl.get("regenerable_skipped", 0) >= len(after),
            (pl.get("candidates"), pl.get("regenerable_skipped"), len(after)))

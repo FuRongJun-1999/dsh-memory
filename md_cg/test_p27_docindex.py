@@ -579,22 +579,27 @@ def main():
         check("截断时不清退（没扫完 ≠ 剩下都过期）",
               r6.get("pruned") is None, f"truncated={r6.get('truncated')}")
 
+        # issue #718（2026-10-30）：max_nodes 原写死 5000，而索引节点数会随仓库文件数增长——
+        # 加两个文件就可能从 5000 涨到 5001，触发 truncated: True，于是 prune 只处理了
+        # 扫到的那一段、悬空清不干净（实测读数：scanned=5001, truncated=True, candidates=1）。
+        # 这不是产品 bug，是测试在给「足够预算」时把数字写死了。改 20000（远大于当前规模），
+        # 让本段测的是**清退语义**，而不是「节点数恰好没超 5000」。
         print("\n【10b】悬空清退：源文件删除 → op=ref action=prune 处置")
-        ck1 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        ck1 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 20000})
         pre = len(ck1.get("dangling") or [])
         os.remove(rn)
-        ck2 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        ck2 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 20000})
         check("删源后 check 报悬空", len(ck2.get("dangling") or []) > pre,
               f"{pre}→{len(ck2.get('dangling') or [])}")
-        dry = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000, "dry_run": True})
+        dry = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 20000, "dry_run": True})
         check("prune_dry_run 列出待清退但不删",
               dry.get("dry_run") is True and dry.get("count", 0) >= 1
               and any(cg.get(n) for n in ids4), str(dry)[:130])
-        gone = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000})
+        gone = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 20000})
         check("prune 清退悬空节点",
               gone.get("count", 0) >= 1 and not any(cg.get(n) for n in ids4),
               str(gone)[:130])
-        ck3 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        ck3 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 20000})
         check("清退后悬空归零", not (ck3.get("dangling") or []),
               str(ck3.get("dangling"))[:130])
 
@@ -610,11 +615,11 @@ def main():
         cg.index["nodes"][gid] = {"path": "knowledge/ghost_probe.md",
                                   "layer": "knowledge", "tags": ["doc"],
                                   "bucket": None, "importance": 0.5}
-        g1 = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 5000})
+        g1 = call_tool(cg, "cg", {"op": "ref", "action": "prune", "max_nodes": 20000})
         check("幽灵条目被清退（索引有、文件无）",
               len(g1.get("ghost_pruned") or []) >= 1
               and gid not in (cg.index.get("nodes") or {}), str(g1)[:130])
-        ck4 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 5000})
+        ck4 = call_tool(cg, "cg", {"op": "ref", "action": "check", "max_nodes": 20000})
         check("清幽灵后悬空仍为零", not (ck4.get("dangling") or []),
               str(ck4.get("dangling"))[:130])
 
