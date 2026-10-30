@@ -4,6 +4,88 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.18] - 2026-10-30
+
+### ⚠️ BREAKING：注入块格式变更
+
+`【本会话近期对话】` 块的行格式改为带**归因前缀**（issue #712 / PR #713）：
+
+```
+旧：[user] 内容
+新：[10-30 14:23|本|私] [user] 内容
+      └──┬──┘ └┬┘ └┬┘
+       时间   会话 密级
+```
+
+| 段 | 取值 |
+|---|---|
+| 时间 | `MM-DD HH:mm`；缺失渲染 `??-?? ??:??` |
+| 会话 | 等于当前会话 → `本`；其他 → `会话<后4位>`；缺失 → `?` |
+| 密级 | `private`/`secret` → `私`；`public`/`internal`/`restricted` → `共`；缺失 → `?` |
+
+**为什么改**：此前模型只看到 `[role] 内容`，无法判断「这是自己刚说的、还是别的会话说的、是私有还是共有」——
+实测出现过「把另一个窗口的话当成当前用户刚说的」的误引（#712）。
+
+块总长上限随之 `800 → 900` 字符（前缀约 20 字符/行）。
+**若你有依赖旧格式的解析/断言，请同步。**
+
+### 新增
+
+- **`cg(op=info).write_gate`**（#708）：分层写入闸的**进程内计数**——`{mode, total, by_layer, recent, hint}`。
+  此前 `warn` 档只写子进程 stderr，而 DSH 不转发 ⇒ 观察期等于没有。
+  现在不依赖 stderr 转发、不写盘；`recent` 只留 `layer/tier/reason`（**无内容、无节点 id**），有界 20 条。
+  计数**重启归零**，建议观察一个完整工作日再决定是否切 `enforce`。
+- **`Principal.sessions_read`**（#712 / 方案 C 分档隔离）：`None` = 旧行为逐位不变；集合 = 只读这些会话；
+  `{"*"}` = 全读。**`can_admin` 不削弱**（issue #35「设计者豁免」定稿）。
+- **事件归因四要素**：`pack["recent"]` 条目现含 `session`/`t`/`id`/`sensitivity`/`actor`/`token_id`/`identity_role`/`parent`。
+  事件新增稳定键 `id`（`re_<ms>_<6hex>`，**归因展示用，不得用于权限判定或去重定位**）。
+- **理论文档**：《身份与人格：职业身份的可变性 vs 人格的一致性》
+  （`docs/theory/身份与人格_职业身份可变性与人格一致性_v0.1.md`）——
+  区分**人格**（跨会话恒定，`self`/`anchor` 层）与**职业身份**（会话级，工作层 + 事件归因）。
+
+### 修复
+
+- **`enforce` 档下裁决审计节点被同一闸挡住**（#708 ② / #709）：`_write_review_record` 写 `structural`（2 档），
+  却不传复核单元 ⇒ `decisions.jsonl` 还在、**可复核的 md 审计节点没了**。
+  现在把本次裁决已取得的 `reviewed_by` 一路带进写入。
+- **同一条链上两个更靠前的缺口**（查 #709 时发现）：
+  - **`propose` 死锁**：候选入 inbox 本不落记忆盘，却按目标层要求复核单元 ⇒
+    enforce 下「要写 knowledge 需 reflect → 要 reflect 需裁决 → 要裁决需提案 → 提案又要 reflect」。
+    现在 `require_layer_write(..., skip_gate=False)` 新增该参数，**只** `propose` 传 `True`；
+    层白名单与密级检查**照常执行**，`accept` 落盘仍走同一道闸。
+  - **`accept` 落业务节点**不传 `reviewed_by` ⇒ 「裁决过了、落盘被拦」。
+- **`reviewed_by` 不再污染 frontmatter**：它是**写入闸的输入参数，不是记忆元数据**。
+  此前用 `kw.get()` 只读不删，会经 `super().add(**kw)` 落进节点 fm（实测 `test_i50c` 的 B1 逐键对拍报出 `reviewed_by: null`）。
+  现在改为 `kw.pop()`。
+- **`actor` 恒为 None**（身份归属空心）：`MdCGSecure.remember_event` 里 `tenant`/`session`/`harness`/`unit`/`sensitivity`
+  **都从 principal 落值**，唯独 `actor`（「谁说的」）没落 ⇒ 注入面拿到的 `actor` 恒为 None。已补。
+- **取窗顺序 bug ×2**（#712 / #715）：`session_recall` 与 `session_compact` 都**先截末 N 条、再按会话过滤**
+  ⇒ 多会话并发时本会话消息被挤出窗口，`session="A"` 可能拿到**空 recent**（false-negative，极难被发现）。
+  `session_compact` 更重——它会压出「共 0 条事件」并**写入会话节点**（写错一条记忆）。
+  修法：需要收窄时先取全量、再过滤、最后截回。
+- **`session` 为 falsy 时静默退回全局窗口**（#712）：现在会在 `degraded` 里加 `recent_global_window`，调用方看得见。
+- **身份块恒为空**（#715）：`【灵枢身份锚点】` 复用了**带会话过滤**的 timeline payload，
+  而 `self`/`anchor` 节点的 `session` **恒为 `unattributed`** ⇒ 永久层被全部滤掉 ⇒ **块从不出现且无报错**。
+  现在身份块**独立取数、不带会话过滤**；「最近记忆」块保持会话隔离。
+  这正是理论 R3 的实案：**人格的可见性不该由会话决定**。
+  另加 `else` 分支 `logger.info`——开关开了但无身份节点时显式提示，不再静默。
+- **会话 id 为空时静默退回全局窗口**（PR #714 by LeeRolling）：现在 `logger.warn` 一次（不刷屏）。
+
+### 内部
+
+- `test/chaos_injection/test_fi_m09_guest_write_denied.py` 的读码锚点从「完整调用串」放宽为「`layer, sens` 两参在位」，
+  并去掉两处硬编码行号。
+- `test_generation_guard.py` 的 `NEW_INFO_KEYS` 登记 `write_gate`。
+- `test_p45_session_identity.py` 的变异锚点同步新形态（**变异语义不变**）。
+- 新增守卫：`test_issue712_session_window_attribution`（29 条，含取窗顺序/四要素/身份三维/分权）、
+  `test/issue715`（W715）、`test/issue714`（W714 / W714b）。
+
+### 升级须知
+
+- **`--gate` 缺省仍是 `strict`**；`op=info` 只**新增**键；`sessions_read` 缺省 `None` = 旧行为逐位不变。
+- 若你在 #708 / #709 遇到过问题：升级后 `cg(op="info")["write_gate"]` 可看 warn 计数，
+  `review accept` 的返回体里 **`record_error` 应为空**。
+- 若你在 #712 / #715 遇到过问题：升级后注入块应带归因前缀，`autoRecallIdentity: true` 时身份块应出现。
 ## [0.9.17] - 2026-10-28
 
 ### 修复
