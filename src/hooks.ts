@@ -755,6 +755,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *  **逐位等价**（差异窗口「本实例未观测 ∧ 模块单点非空」单实例下不可达；
    *  HMR 重载时新实例回落 '' 属更保守行为）。 */
   let observedSession = false
+  let warnedEmptySid = false
 
   /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。
    *  `role`=null 表示**读预热**（user-recall）——审计只统计写入路径，
@@ -844,6 +845,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         const hostCtx = (_ctx as unknown) as { agent?: { session?: unknown } } | undefined
         const sid = sessionIdOf(hostCtx?.agent?.session)
           || (observedSession ? currentSession() : '')
+        // 会话 id 为空时后端会退回全局滚动窗口（跨会话串台）。只告警一次，
+        // 避免每个 assemble step 刷日志；不改注入内容或数据路径。
+        if (!sid && !warnedEmptySid) {
+          warnedEmptySid = true
+          ctx.logger.warn('dsh-memory: 会话 id 为空，短期窗口可能退回全局滚动窗口（跨会话串台）；请检查 host.agent.session 或会话观测是否可用')
+        }
         // 逢十轮提醒的消费面（#657）：不受 autoRecall 门控。
         if (sid) {
           const pending = pendingReminder.get(sid)
