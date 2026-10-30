@@ -390,3 +390,28 @@ test('W715 身份块必须**不带会话过滤**取数（self/anchor 恒 unattri
       '「最近记忆」块不注入 self/anchor（RECALL_SKIP_LAYERS 边界仍在）')
   }
 })
+
+// ---------------------------------------------------------------- W714 sid 空值告警（PR #714）
+
+test('W714 会话 id 为空时告警一次（不刷屏）', async () => {
+  const { graph } = makeGraph()
+  const { assemble, warns } = makeHarness(graph)
+
+  // 不传 agent.session ⇒ sid 为空（observedSession 初始 false）
+  await assemble({})
+  await assemble({})
+  await assemble({})
+
+  const hits = warns.filter((w) => w.includes('会话 id 为空'))
+  assert.equal(hits.length, 1,
+    `sid 为空应**只告警一次**（每步 assemble 都刷会淹没日志）；实际 ${hits.length} 次`)
+  assert.ok(hits[0]!.includes('跨会话串台'), '告警须点明后果（串台），否则用户不知道为何要管')
+})
+
+test('W714b sid 正常时不告警（不误报）', async () => {
+  const { graph } = makeGraph()
+  const { assemble, warns } = makeHarness(graph)
+  await assemble({ agent: { session: { id: 'sess_A' } } })
+  const hits = warns.filter((w) => w.includes('会话 id 为空'))
+  assert.equal(hits.length, 0, '有 sid 时不该告警')
+})
