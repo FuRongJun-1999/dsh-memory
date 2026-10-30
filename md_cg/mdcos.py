@@ -4761,13 +4761,20 @@ class MdCGOS(MdCG):
         零依赖启发式（无嵌入 / 无 LLM）：按行去重 + 角色配比 + 截断。
         返回体显式声明 heuristic=True，不冒充语义摘要（语义归纳见 consolidate）。
         """
+        # issue #712（2026-10-30 验证单元复核发现）：**与 session_recall 同型的取窗 bug**——
+        # 修前先截末 N 条、后按会话过滤 ⇒ 多会话并发时本会话事件被挤出窗口，
+        # `session_compact(session=A, note=True)` 可能压出「共 0 条事件」并**写入会话节点**
+        # （比 session_recall 更严重：那只是少看到，这会**写错**一条记忆）。
+        # 修法同 session_recall：需要收窄时先取全量、再过滤、最后再截回 limit。
+        _lc = max(1, int(limit or 40))
+        _narrow_c = bool(session)
         try:
-            evs = self.recent_events(limit=max(1, int(limit or 40)))
+            evs = self.recent_events(limit=0 if _narrow_c else _lc)
         except Exception:                                  # noqa: BLE001
             evs = []
-        if session:
+        if _narrow_c:
             evs = [r for r in evs
-                   if (r.get("meta") or {}).get("session") == session]
+                   if (r.get("meta") or {}).get("session") == session][:_lc]
         roles, seen, points = {}, set(), []
         for r in evs:
             role = r.get("role") or "user"
@@ -6986,6 +6993,12 @@ class MdCGSecure(MdCGOS):
         # 归因不可辨认；且请求声明对事件面静默失效）；现与节点/入队同一单点
         # 解析——事件面与写面同口径（显式 meta["session"] 仍不可覆盖）。
         m.setdefault("session", self._attributed_session(sens))
+        # issue #712（2026-10-30 验证单元复核发现）：**身份归属此前漏落**——
+        # 同函数里 tenant/session/harness/unit/sensitivity 都从 principal 落值，
+        # 唯独 `actor`（「谁说的」）没落 ⇒ 注入面拿到的 actor 恒为 None，
+        # 「哪些是自己做的、哪些是别人做的」这一要素在库层是空的。
+        # 用 setdefault：调用方显式传 meta["actor"] 时不被覆盖（与上面同款口径）。
+        m.setdefault("actor", self.principal.actor)
         if getattr(self.principal, "harness", None):
             m.setdefault("harness", self.principal.harness)
         if getattr(self.principal, "unit", None):

@@ -135,6 +135,57 @@ def main():
            len(pk5.get("recent") or []))
         cg5.close()
 
+        print("== F 窗口上限（验证单元指出的零守卫项）")
+        # 若把 `evs = evs[:_win]` 整行删掉（回到「收窄后全量返回」= 另一种回归），
+        # 下面是唯一能抓到它的断言：收窄后条数**不得超过** recent_limit。
+        cgf = MdCGSecure(os.path.join(T, "brainf"), principal=p, autoflush=1)
+        for i in range(15):
+            cgf.remember_event("user", "FA-%d" % i, meta={"session": "sessFA"})
+        for i in range(15):
+            cgf.remember_event("user", "FB-%d" % i, meta={"session": "sessFB"})
+        pkf = cgf.session_recall("sessFA", limit=1, recent_limit=4)
+        recf = pkf.get("recent") or []
+        ok(len(recf) == 4,
+           "F1 收窄后**必须截回** recent_limit（删 evs[:_win] 即红：会返回 15 条）", len(recf))
+        ok(all((x.get("session") == "sessFA") for x in recf),
+           "F2 且全部属于本会话", [x.get("session") for x in recf][:4])
+        # 确定性：同一会话连着取两次，id 序列必须一致（读侧派生不得随机）
+        a1 = [x.get("id") for x in recf]
+        a2 = [x.get("id") for x in (cgf.session_recall("sessFA", limit=1, recent_limit=4).get("recent") or [])]
+        ok(a1 == a2, "F3 两次读取的 id 序列一致（派生确定性）", (a1[:2], a2[:2]))
+        cgf.close()
+
+        print("== G session_compact 的同型取窗 bug（验证单元发现）")
+        cgc = MdCGSecure(os.path.join(T, "brainc"), principal=p, autoflush=1)
+        for i in range(25):
+            cgc.remember_event("user", "CB-%d 这是一条足够长的测试消息内容" % i,
+                               meta={"session": "sessCB"})
+        cgc.remember_event("user", "CA-only 本会话唯一的一条足够长的消息内容",
+                           meta={"session": "sessCA"})
+        for i in range(25):
+            cgc.remember_event("user", "CC-%d 另一条足够长的测试消息内容" % i,
+                               meta={"session": "sessCC"})
+        cpk = cgc.session_compact(session="sessCA", limit=5)
+        ok((cpk.get("events") or 0) >= 1,
+           "G1 session_compact 在「本会话仅 1 条、被 50 条夹住」时**不空**",
+           cpk.get("events"))
+        cgc.close()
+
+        print("== H 身份归属（actor 不得恒为 None）")
+        cgh = MdCGSecure(os.path.join(T, "brainh"), principal=p, autoflush=1)
+        cgh.remember_event("user", "谁说的？", meta={"session": "sessH"})
+        pkh = cgh.session_recall("sessH", limit=1, recent_limit=3)
+        rech = pkh.get("recent") or []
+        ok(rech, "H0 有条目", len(rech))
+        if rech:
+            ok(rech[0].get("actor") is not None,
+               "H1 **actor 非 None**（修前恒 None——「谁说的」要素空心）", rech[0].get("actor"))
+            ok(rech[0].get("actor") == p.actor or rech[0].get("actor") == "designer",
+               "H2 actor 取自 principal.actor", (rech[0].get("actor"), p.actor))
+            ok(rech[0].get("sensitivity") is not None,
+               "H3 sensitivity 非 None（经安全档写入时必落）", rech[0].get("sensitivity"))
+        cgh.close()
+
         cg.close()
     finally:
         shutil.rmtree(T, ignore_errors=True)
