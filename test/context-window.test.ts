@@ -67,6 +67,9 @@ function makeGraph(opts: {
   recentAddThrows?: boolean
   omitRecentAdd?: boolean
   recentItems?: Array<Record<string, unknown>>
+  /** issue #715：timeline 返回项（缺省一条 contextual）。用于构造 self/anchor 节点，
+   *  验「身份块能取到永久层」——修前因复用带会话过滤的 payload 而恒空。 */
+  timelineItems?: Array<Record<string, unknown>>
 } = {}) {
   const timelineCalls: Array<Record<string, unknown>> = []
   const recentAddCalls: RecentAddCall[] = []
@@ -76,8 +79,8 @@ function makeGraph(opts: {
     async timeline(limit?: number, extra: Record<string, unknown> = {}) {
       timelineCalls.push({ limit, extra })
       return {
-        count: 1, limit: limit ?? 4,
-        items: [{ id: 'n1', layer: 'contextual', start: 1, end: 2, preview: '会话记忆预览' }],
+        count: opts.timelineItems?.length ?? 1, limit: limit ?? 4,
+        items: opts.timelineItems ?? [{ id: 'n1', layer: 'contextual', start: 1, end: 2, preview: '会话记忆预览' }],
       }
     },
     async sessionRecall(session: string, recentLimit: number, budgetTokens: number) {
@@ -348,4 +351,42 @@ test('W6 每步 push：同会话连续两步两块逐字节相同（与既有 �
   assert.equal(first.contexts[0]!.text, second.contexts[0]!.text, '既有块逐字节相同')
   assert.equal(first.contexts[1]!.text, second.contexts[1]!.text,
     '窗口块逐字节相同 → 宿主不追加新快照')
+})
+
+// ---------------------------------------------------------------- W715 身份块取数（issue #715）
+
+test('W715 身份块必须**不带会话过滤**取数（self/anchor 恒 unattributed）', async () => {
+  // 造 1 条 anchor + 1 条 self（永久层，语义上跨会话）+ 1 条 contextual。
+  const items = [
+    { id: 'id_user_t', layer: 'anchor', start: 1, end: 2, preview: '身份锚点：测试使用者' },
+    { id: 'self_state_1', layer: 'self', start: 1, end: 2, preview: '自我状态卡' },
+    { id: 'n_ctx', layer: 'contextual', start: 1, end: 2, preview: '本会话一条工作记忆' },
+  ]
+  const { graph, timelineCalls } = makeGraph({ timelineItems: items })
+  const { assemble } = makeHarness(graph, { autoRecallIdentity: true })
+
+  const a = await assemble({ agent: { session: { id: 'sess_A' } } })
+
+  // 判据 ①：两次取数——最近记忆块带 session，身份块**不带**。
+  assert.equal(timelineCalls.length, 2, 'autoRecallIdentity 开启后应有两次 timeline 取数')
+  const hasSid = (c: Record<string, unknown>): boolean =>
+    Boolean((c['extra'] as Record<string, unknown> | undefined)?.['session'])
+  const withSid = timelineCalls.filter(hasSid)
+  const withoutSid = timelineCalls.filter((c) => !hasSid(c))
+  assert.equal(withSid.length, 1, '「最近记忆」块带会话隔离（工作记忆跟会话走）')
+  assert.equal(withoutSid.length, 1,
+    '**「身份锚点」块不带会话过滤**——self/anchor 的 session 恒为 unattributed，带过滤会全被滤掉（#715 病灶）')
+
+  // 判据 ②：身份块**真的出现**了（修前：payload 里没有永久层 ⇒ idText 空 ⇒ 静默无块）。
+  const idBlock = a.contexts.find((c) => c.name === 'lingshu:identity-anchor')
+  assert.ok(idBlock, `身份块应出现；实际块名 ${a.contexts.map((c) => c.name).join(', ')}`)
+  assert.ok(idBlock!.text.includes('【灵枢身份锚点】'))
+  assert.ok(idBlock!.text.includes('身份锚点：测试使用者'), '锚点正文应在块内')
+
+  // 判据 ③：「最近记忆」块不得混入永久层（分层边界不变）。
+  const recallBlock = a.contexts.find((c) => c.name === 'lingshu:auto-recall')
+  if (recallBlock) {
+    assert.ok(!recallBlock.text.includes('自我状态卡'),
+      '「最近记忆」块不注入 self/anchor（RECALL_SKIP_LAYERS 边界仍在）')
+  }
 })
