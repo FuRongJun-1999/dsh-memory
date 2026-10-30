@@ -493,8 +493,12 @@ export function renderIdentityAnchors(payload: unknown): string {
 const WINDOW_BUDGET_TOKENS = 600
 /** 单条窗口条目预览上限（字符）。 */
 const WINDOW_ITEM_CHARS = 120
-/** 窗口块总长上限（字符）。 */
-const WINDOW_MAX_CHARS = 800
+/** 窗口块总长上限（字符）。
+ *
+ *  issue #712（2026-10-30）：归因前缀（`[MM-DD HH:mm|会话|密级] `，约 20 字符/行）
+ *  会占预算，故由 800 上调到 **900**（10 行 × 20 = 200，实测内容量持平）。
+ *  该块定位仍是「存在性锚点 / 接续提示」——宁可少注入几条，不挤占宿主上下文。 */
+const WINDOW_MAX_CHARS = 900
 /** 单条窗口条目的 role 字段上限（字符，issue #354 [P1-12]）。
  *
  *  缺陷：`text` 有 120 字上限，`role` 却**完全不限长**——一条 3000 字的恶意
@@ -515,7 +519,18 @@ const WINDOW_ROLE_CHARS = 32
  *
  *  空载荷 / 无 recent 段 / 全空条目 → 返回空串（调用方据此**不 push** 第二块）。 */
 // issue #563：同上，导出仅为可测。
-export function formatSessionWindow(payload: unknown, limit: number): string {
+export interface SessionWindowOptions {
+  /** 当前会话 id；提供时用于标注「本会话」还是「其他会话」（不用于过滤——
+   *  过滤由服务端 `session_recall` 按 `meta.session` 完成，前端再滤一次
+   *  会与服务端判据分裂成两份，本仓已多次栽在这上面）。 */
+  session?: string
+  /** 是否渲染归因前缀（默认 true）。设 false 可得旧格式（仅测试/回退用）。 */
+  attribution?: boolean
+}
+
+export function formatSessionWindow(
+  payload: unknown, limit: number, opts: SessionWindowOptions = {},
+): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { recent?: unknown }).recent))
     ? (payload as { recent: Array<Record<string, unknown>> }).recent
@@ -523,6 +538,32 @@ export function formatSessionWindow(payload: unknown, limit: number): string {
   const rows: string[] = []
   const max = Math.max(1, Math.floor(limit) || 10)
   let used = 0
+  const curSid = String(opts.session ?? '').trim()
+  const wantAttr = opts.attribution !== false
+  // issue #712（2026-10-30）：归因前缀——让模型能区分「本会话/其他会话」「私有/共有」
+  // 「刚刚/过去」。库层与注入面已带齐四要素（md_cg/mdcos.py 的 recent 段），此处负责
+  // **渲染出来**；不渲染等于模型永远看不到，等于没做（这正是 PR #712 的原病灶）。
+  // ⚠️ 本改动**变更输出格式**（BREAKING）：原 `[role] text` → `[MM-DD HH:mm|会话|密级] [role] text`。
+  // 前缀会占预算，故 WINDOW_MAX_CHARS 同步上调（见该常量注释）。
+  const stamp = (t: unknown): string => {
+    const n = Number(t)
+    if (!Number.isFinite(n) || n <= 0) return '??-?? ??:??'
+    const d = new Date(n * 1000)
+    const p = (x: number): string => String(x).padStart(2, '0')
+    return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
+  }
+  const sessTag = (s: unknown): string => {
+    const v = String(s ?? '').trim()
+    if (!v) return '?'
+    if (curSid && v === curSid) return '本'
+    return `会话${v.slice(-4)}`
+  }
+  const sensTag = (s: unknown): string => {
+    const v = String(s ?? '').trim().toLowerCase()
+    if (v === 'private' || v === 'secret') return '私'
+    if (v === 'public' || v === 'internal' || v === 'restricted') return '共'
+    return '?'
+  }
   for (const it of items.slice(0, max)) {
     // issue #354 [P1-12]：role 与 text 同受单条上限约束——只限 text 时一条超长
     // role 就能让首行突破整块预算并把后续历史全部挤出（首行 used===0 绕过了
@@ -535,7 +576,10 @@ export function formatSessionWindow(payload: unknown, limit: number): string {
     const body = safe.length > WINDOW_ITEM_CHARS
       ? safe.slice(0, WINDOW_ITEM_CHARS) + '…'
       : safe
-    const row = `[${role}] ${body}`
+    const attr = wantAttr
+      ? `[${stamp(it['t'])}|${sessTag(it['session'])}|${sensTag(it['sensitivity'])}] `
+      : ''
+    const row = `${attr}[${role}] ${body}`
     const next = used === 0 ? row.length : used + 1 + row.length
     // issue #354 [P1-12]：单条超预算时不再「首条整放」——超过 WINDOW_MAX_CHARS 的
     // 行一律不放（截断 body 已在上面做完，理论上不可达，作 fail-closed 兜底）。
@@ -892,7 +936,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (cwEnabled) {
             try {
               const win = await graph.sessionRecall(sid, cwTurns, WINDOW_BUDGET_TOKENS)
-              const winText = formatSessionWindow(win, cwTurns)
+              // issue #712：传 sid 用于**标注**（本会话/其他会话），不用于过滤。
+              const winText = formatSessionWindow(win, cwTurns, { session: sid })
               if (winText) {
                 // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
                 // 都只改注入副本——窗口原文在库内保真。
