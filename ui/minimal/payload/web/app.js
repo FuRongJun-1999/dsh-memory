@@ -60,7 +60,7 @@
     try { renderResult(await call(tool,args,true)); } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
     finally { button.disabled=false; button.textContent=original; }
   }
-  function permissionNote(op) { const allowed=info?.whoami?.principal?.ops_allow; return allowed && !allowed.includes(op) ? `<div class="notice">当前令牌未声明 ${esc(op)} 权限。入口保留，调用仍由灵枢权限系统裁定；本界面不会自动扩权。</div>`:''; }
+  function permissionNote(op) { const allowed=info?.whoami?.principal?.ops_allow; return allowed && !allowed.includes('*') && !allowed.includes(op) ? `<div class="notice">当前令牌未声明 ${esc(op)} 权限。入口保留，调用仍由灵枢权限系统裁定；本界面不会自动扩权。</div>`:''; }
   async function overview(token) {
     $('main').innerHTML=title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')+loading();
     $('new-memory').onclick=()=>navigate('memory',true);
