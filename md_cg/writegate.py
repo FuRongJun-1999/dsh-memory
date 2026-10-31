@@ -181,3 +181,71 @@ def decide_write(layer, reviewers=None, channels=None, mode=None, environ=None):
         return {"decision": "require_review", "tier": tier, "mode": m, "missing": gap,
                 "reason": "该层需 " + "/".join(need) + " 复核，仍缺 " + "/".join(gap)}
     return {"decision": "allow", "tier": tier, "mode": m, "missing": [], "reason": "复核齐备"}
+
+# ── issue #722 / 规范 v0.5：生效条件是否在描述「元数据」而非「什么时候该用」──
+#
+# ⚠️ 判据演进（2026-10-31，四次实测修正留痕，勿重蹈）：
+#   ① 正向「所有词项都含元数据特征」→ 失败：含「源文档 a/b/c.md」时被 / 切成路径片段，all() 恒 False，
+#      120 抽样元数据判出 0 条。
+#   ② 反向「不含任何场景标志词」→ 失败：单字标志词「时」被「全时窗」误触发。
+#   ⇒ **放弃自然语言启发式**，改用**结构化判据**：看槽标签。
+#
+# 结构化判据的依据：CCG「生效条件」若由 `condition_space` 四槽合成，必然带槽标签；
+# 实测 14/20 的条件形如「载体/位置：…；时间：…；方法：…；约束：…」。
+# 真正的"触发场景"（如 #722 报告人改写的「当他说"不想你被换掉"时」）**不会**带这些标签。
+_SLOT_LABELS = ("载体/位置：", "载体/位置:", "载体=", "时间：", "时间:", "方法：", "方法:", "约束：", "约束:")
+
+
+# 生效条件：cond_text 为假值时返回 False（无条件是另一类问题，不由本函数判）；
+# 否则：若同时含**载体/位置**类槽标签与**约束/方法**类槽标签 ⇒ 判为元数据（四槽合成形态）。
+# 只用于写入把关，**不参与判定**——实测证明"跳元数据词项"不能改善判定。
+def cond_is_metadata(cond_text) -> bool:
+    """生效条件是否在描述「元数据」（载体/路径/方法/约束），而非「什么时候该用」。
+
+    实测背景（2026-10-31，全库 32842 抽样）：约 14/20 的条件是四槽合成形态
+    `载体/位置：本地文档仓（大域=xxx）；时间：全时窗；方法：md…；约束：源文档 a/b.md`，
+    **0 条**是「用户会怎么说」。
+
+    判据（结构化，非词义猜测）：**同时**出现 `载体/位置` 类标签与 `约束`/`方法` 类标签。
+    这样「当他说"不想你被换掉"时」这类真场景条件不会被误判（它没有槽标签）。
+    """
+    text = str(cond_text or "")
+    if not text.strip():
+        return False
+    has_carrier = ("载体/位置：" in text or "载体/位置:" in text or "载体=" in text)
+    has_other = any(k in text for k in ("时间：", "时间:", "方法：", "方法:", "约束：", "约束:"))
+    return bool(has_carrier and has_other)
+
+
+# ── issue #722 / 规范 v0.5 第四节：写入把关（warn 优先，不阻断）─────────
+# 生效条件：content 为节点正文（str 或 None）时，取「# 生效条件」行判其是否为元数据；
+# 无该行时返回 ok=True（无条件是另一类问题，见规范 v0.5「不适用条件 1」）。
+# **不抛异常**：任何内部错误都返回 ok=True + error 字段（写入把关绝不阻断写入）。
+def check_condition_quality(content) -> dict:
+    """检查节点的「生效条件」是否为元数据（载体/路径/方法），而非触发场景。
+
+    返回 {"ok": bool, "is_metadata": bool, "cond": str, "hint": str}。
+    `ok=False` 仅表示"条件质量可疑"，**不表示写入应被拒绝**——
+    按 v0.5 第四节，默认档是 `warn`（计数 + 提示），不是 enforce。
+    """
+    try:
+        text = str(content or "")
+        cond = ""
+        for line in text.splitlines():
+            s = line.strip()
+            if s.startswith("#") and "生效条件" in s:
+                if "：" in s:
+                    cond = s.split("：", 1)[1].strip()
+                elif ":" in s:
+                    cond = s.split(":", 1)[1].strip()
+                break
+        if not cond:
+            return {"ok": True, "is_metadata": False, "cond": "", "hint": "无生效条件行"}
+        meta = cond_is_metadata(cond)
+        return {"ok": not meta, "is_metadata": meta, "cond": cond,
+                "hint": ("生效条件在描述载体/路径/方法（元数据），不是在描述"
+                         "「什么时候该用」——检索时它几乎不可能被自然问法命中"
+                         "（实测库内 76.5% 节点如此）") if meta else ""}
+    except Exception as exc:                       # noqa: BLE001 —— 把关绝不阻断
+        return {"ok": True, "is_metadata": False, "cond": "",
+                "hint": "检查失败（不影响写入）：%s: %s" % (type(exc).__name__, exc)}
