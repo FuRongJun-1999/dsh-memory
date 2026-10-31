@@ -249,3 +249,35 @@ def check_condition_quality(content) -> dict:
     except Exception as exc:                       # noqa: BLE001 —— 把关绝不阻断
         return {"ok": True, "is_metadata": False, "cond": "",
                 "hint": "检查失败（不影响写入）：%s: %s" % (type(exc).__name__, exc)}
+
+
+# ── 规范 v0.6 第 2.3 节：别名是否"薄"（写入把关用）───────────────────
+# 生效条件：fm 为节点 frontmatter（dict 或 None）、content 为正文（str 或 None）时——
+# 无 aliases（缺失/非 list/空 list）⇒ True；否则若**每个**别名都能在 content 里原样
+# 找到 ⇒ True（只重复已有词、没扩召回首）；只要有一个别名在正文里找不到 ⇒ False（有扩展）。
+# **不判数量**——3 个精准别名可能胜过 10 个噪声别名。不抛异常。
+def aliases_is_thin(fm, content) -> bool:
+    """别名是否"薄"（无别名，或只重复正文里已有的词）。
+
+    实测依据（2026-10-31）：issue #722 的条件 `聊交接、换会话、压缩…`
+    与查询 `我不想你被换掉` —— 整词 / 二元组 / 查询扩展 / 现有同义词表**四条路全废**，
+    只有 `aliases=[换掉, 被换, 别消失, 舍不得, …]` 能让 `_like` 从不命中变为命中。
+    而库内 aliases 覆盖率为 **0/120 = 0%** ⇒ 这是最大的一次性改进空间。
+    """
+    try:
+        f = fm if isinstance(fm, dict) else {}
+        al = f.get("aliases")
+        if not isinstance(al, list) or not al:
+            return True
+        body = str(content or "")
+        if not body:
+            return False                      # 无正文可判，保守认为有扩展
+        for a in al:
+            s = str(a or "").strip()
+            if not s:
+                continue
+            if s not in body:
+                return False                  # 找到扩召回词
+        return True                            # 全部重复正文已有词 ⇒ 薄
+    except Exception:                          # noqa: BLE001 —— 把关绝不抛
+        return True
