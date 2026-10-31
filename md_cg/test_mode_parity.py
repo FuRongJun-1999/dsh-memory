@@ -408,6 +408,17 @@ from md_cg import mcp_server                                              # noqa
 from md_cg.mdcos import MdCGOS                                            # noqa: E402
 
 ENV = am.AUTONOMY_ENV_KEYS["mode"]
+
+# fix（full_D 跨分钟时间泄漏，2026-10-31）：`aggregate_line` 默认把**墙钟分钟**写进
+# 聚合行（`- 【聚合 MM-DD HH:MM】…`）。`full_B` 比正文 ⇒ `_AGG_RE.sub("【聚合 <ts>】")`
+# 掩码生效；但 `full_D` 比的是 `tombstone = _sig(content, 16)`——**哈希在掩码之前算好**，
+# 掩码对它无能为力。两个子进程（cur/head）只要跨过分钟边界，就必然 14 SAME / 1 DIFF，
+# 且只有 `full_D` 红。这里注入固定 stamp 消除泄漏；先例：`test_b3_merge_keeps_content.py`
+# 同用 `setattr(forgetting, aggregate_line, ...)`。
+_agg_orig = forgetting.aggregate_line
+def _agg_fixed(body, content, stamp=None):
+    return _agg_orig(body, content, stamp="01-01 00:00")
+forgetting.aggregate_line = _agg_fixed
 VOL = ("t", "created_at", "last_access", "time_window", "last_merge_at",
        "batch", "note", "elapsed_ms", "updated_at")
 AGG = re.compile(r"【聚合 [^】]*】")
