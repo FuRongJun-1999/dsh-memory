@@ -4,6 +4,28 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.20] - 2026-10-31
+
+### 修复：规范文档的可见性（0.9.19 的疏漏）
+
+0.9.19 的 CHANGELOG 里写了「规范全文：`docs/mdcg/写入别名aliases规范_v0.6.md`」，
+**但 `docs/mdcg/` 从来不在 npm 包的 `files` 白名单里** ⇒ 那是个**包内死链**，用户装了包也找不到。
+
+**本版修复**：
+
+| 面 | 改动 |
+|---|---|
+| `README.md` · 文档地图 | 新增一行「**写入规范**」，用 **GitHub 绝对 URL** 链到「写入别名 aliases」「CCG 六要素编译」「护栏宪章」，并**明确标注「这几个不在 npm 包里」** |
+| `CHANGELOG.md` · 0.9.19 节 | 死链改成 GitHub URL，并标注「不在 npm 包里，需在仓库看」 |
+
+⚠️ **为什么不用相对路径**：README 里既有链接都是相对路径（`docs/ops/README.md` 等），
+在 npm 包页面上**同样点不开**——本次新加的一律用绝对 URL。
+
+> 这是「打包白名单」与「文档指引」之间的老问题：`docs/mdcg/` 有 47 个 .md，
+> 其中既有用户该遵守的规范（`写入别名aliases`、`CCG六要素编译`、`guardrail-charter`），
+> 也有内部记录（`release_v0.3.0`、`CSRE_索引与负条件修复`、各 `plans`）。
+> **整目录打包会把内部记录也发出去**，所以本次选择「不打包 + README 给绝对链接」。
+
 ## [0.9.19] - 2026-10-31
 
 ### 新增：`aliases`（写入别名）——自然问法召不回的解法
@@ -35,7 +57,7 @@ cg(op="write", node_id="...", content="""# 功能名：会话交接前的记忆�
 | 现有同义词表（10 组，全技术词） | ❌ |
 | **加 `aliases`** | ✅ **命中** |
 
-规范全文：`docs/mdcg/写入别名aliases规范_v0.6.md`。
+规范全文（**不在 npm 包里，需在仓库看**）：[docs/mdcg/写入别名aliases规范_v0.6.md](https://github.com/FuRongJun-1999/dsh-memory/blob/main/docs/mdcg/写入别名aliases规范_v0.6.md)
 
 ### 修复
 
