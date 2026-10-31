@@ -4,6 +4,38 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.21] - 2026-10-31
+
+### 修复：规范文档**随包分发**（0.9.20 只给了外链）
+
+0.9.20 的做法是「README 给 GitHub 绝对链接」——解决了「知道有」，**没解决「装完能读到」**。
+
+**本版把 7 个用户该遵守/该查的规范放进 `files` 白名单**：
+
+| 文件 | 用途 |
+|---|---|
+| `docs/mdcg/写入别名aliases规范_v0.6.md` | **写记忆时怎么补 `aliases`**（0.9.19 新增能力） |
+| `docs/mdcg/CCG六要素编译.md` | 六要素怎么写 |
+| `docs/mdcg/guardrail-charter.md` | 护栏宪章（对外公开法案） |
+| `docs/mdcg/MCP工具名口径_v1.0.md` | 工具名口径 |
+| `docs/mdcg/recall_metadata.md` | 召回元数据 |
+| `docs/mdcg/世界模型功能端_使用与运维_v1.0.md` | 世界模型面使用与运维 |
+| `docs/mdcg/cogmap_ops.md` | cogmap 操作 |
+
+⇒ 装完包后，这 7 个文件在 `node_modules/@furongjun1999/dsh-memory/docs/mdcg/` 下可直接读。README 文档地图的链接也改回**包内相对路径**。
+
+### 为什么不整目录打包
+
+`docs/mdcg/` 共 **47 个 .md**，其中混着内部记录（`release_v0.3.0.md`、`CSRE_索引与负条件修复_20261012.md`、各 `plans_*`、`D_meta_工程化方案` 等）。
+**整目录打包会把内部记录也发出去**，所以按文件挑 7 个。
+
+### 仍未打包（明确边界）
+
+- `docs/theory/`（19 个，内部理论）
+- `docs/eval/`（136 个，内部评测）
+- `docs/plans/`（25 个，内部计划）
+- `docs/ops/`（8 个，安装运维——README 里既有相对链接，**在 npm 页面上仍点不开**，属存量问题）
+
 ## [0.9.20] - 2026-10-31
 
 ### 修复：规范文档的可见性（0.9.19 的疏漏）

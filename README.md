@@ -192,7 +192,7 @@ python -m md_cg.tokens verify --token-file-in <令牌文件>           # 体检�
 | [评测总览](docs/eval/评测总览.md) | 六家横评 / 弱证据与证据防火墙 / 中英双语差距 / 公开数据集 / 七维标尺 / 第三方验证 |
 | [开发与编码约定](docs/dev/README.md) | 测试约定 / UTF-8 与 id 契约 / 开关矩阵 / Linux 双栈验证 |
 | [多 harness 接入](docs/mdcg/多harness接入.md) | 五端纪律注入差异 / 出货面 vs 源码树分界 |
-| **写入规范**（⚠️ 下面几个不在 npm 包里，用 GitHub 链接） | [写入别名 aliases](https://github.com/FuRongJun-1999/dsh-memory/blob/main/docs/mdcg/写入别名aliases规范_v0.6.md) · [CCG 六要素编译](https://github.com/FuRongJun-1999/dsh-memory/blob/main/docs/mdcg/CCG六要素编译.md) · [护栏宪章](https://github.com/FuRongJun-1999/dsh-memory/blob/main/docs/mdcg/guardrail-charter.md) |
+| **写入规范**（0.9.21 起**随包分发**，装在 `docs/mdcg/`） | [写入别名 aliases](docs/mdcg/写入别名aliases规范_v0.6.md) · [CCG 六要素编译](docs/mdcg/CCG六要素编译.md) · [护栏宪章](docs/mdcg/guardrail-charter.md) · [MCP 工具名口径](docs/mdcg/MCP工具名口径_v1.0.md) · [召回元数据](docs/mdcg/recall_metadata.md) · [世界模型功能端](docs/mdcg/世界模型功能端_使用与运维_v1.0.md) · [cogmap 操作](docs/mdcg/cogmap_ops.md) |
 | [Releases](https://github.com/FuRongJun-1999/dsh-memory/releases) | 逐版本变更（本 README 不再维护发布日志）· [理论四篇](docs/theory/) |
 
 ## 🔌 多 harness 接入（按端分目录）
