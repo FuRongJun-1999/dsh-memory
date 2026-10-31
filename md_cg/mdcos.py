@@ -4686,6 +4686,12 @@ class MdCGOS(MdCG):
             # 修前只留 role/text/t，模型因此无法判断「这条是哪个会话说的、私有还是
             # 共有、谁说的」——「跨窗口串台」的用户侧困惑正源于此。
             # 取值一律防御式（meta 可能缺失/非 dict），与上一段的既有写法同款。
+            # 宪章第十五条（复读污染）· 注入过滤：给重复事件**加标注**（不折叠、不删条目——
+            # 用户可能真的把同一句话说两遍，实测库里就有一条 x7 的是真发的）。
+            # 只标不折：条数不变，模型能看到「这条重复了 N 次」。（history 去重
+            # `repeat_guard.dedupe` 留给显式要求折叠的调用方，本段不用它。）
+            from . import repeat_guard as _rg
+            evs = _rg.annotate(evs)
             pack["recent"] = [{"role": r.get("role"),
                                "text": (r.get("text") or "")[:300],
                                "t": r.get("t"),
@@ -4697,7 +4703,9 @@ class MdCGOS(MdCG):
                                # 只透出**归因必需**的，不透权限快照（理由见 remember_event 注释）。
                                "token_id": (r.get("meta") or {}).get("token_id"),
                                "identity_role": (r.get("meta") or {}).get("identity_role"),
-                               "parent": (r.get("meta") or {}).get("parent")}
+                               "parent": (r.get("meta") or {}).get("parent"),
+                               # 宪章第十五条：复读标注（只在命中时有键，未命中不占位）
+                               **(dict(repeat=r["repeat"]) if isinstance(r.get("repeat"), dict) else {})}
                               for r in evs]
         except Exception:                                  # noqa: BLE001
             pack["degraded"].append("recent")
