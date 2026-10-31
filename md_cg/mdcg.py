@@ -5412,7 +5412,13 @@ class MdCG:
         # 正是为了让旧调用方零改动（钩子由调用点显式传入，不靠 self 解析）。
         if index_keys and index_keys.get("hit"):
             return True
-        tags = " ".join(str(t) for t in (fm.get("tags") or []))
+        # 命名与检索规范 R2（2026-10-30）：`aliases` 是**名称别名表**，与 `tags` 物理分离——
+        # 只参与检索召回，**不参与**身份/路由判据（tasks 的「是不是任务卡」、predict 的
+        # 「能不能当锚点」都只读 tags，别名不得混入，否则会翻转那些判据）。
+        # 容错：aliases 非 list 时按空处理（脏 frontmatter 不抛）。
+        _aliases = fm.get("aliases")
+        _aliases = _aliases if isinstance(_aliases, list) else []
+        tags = " ".join(str(t) for t in ((fm.get("tags") or []) + _aliases))
         if body_lower is not None:
             body_l = body_lower(entry, content)
         else:
