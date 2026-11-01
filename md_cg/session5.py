@@ -23,6 +23,23 @@ env 传递。用于治两个已知根因：
   · 不得用 sess_    ：security.py 的进程级随机回落桶用它，语义冲突。
   · s5. 走 _normalize_session 的「非 DSH 形态原样采用」分支，无需改主路径即可
     启用；本模块额外提供可复算校验（防编造），供写入侧/审计侧使用。
+
+**依赖（只影响「读会话文件」这条链路：`read_session_file` / `session5_resolve`）**：
+  `session5_resolve()` 需读 DSH 会话文件（`session.v4.jsonl.zstd`，多 frame zstd），
+  **需自备 `pip install zstandard`** —— 本仓库不声明该依赖，**CI 也不代装**。
+  · 未装 ⇒ `read_session_file()` 返回 `zstandard_missing`，`session5_resolve()` 返回 None
+    并写入 `reason_out["reason"]`；调用方**拿不到稳定会话身份**——同一会话在不同进程
+    可能算出不同 id ⇒ **跨会话写入错标、召回串会话**。
+  · **不崩 ≠ 能用**：进程照跑、记忆照写，但**会话隔离这项能力不可用**。
+    不要把「不崩」读成「能用」——前者是健壮性，后者是功能可用性，是两件事。
+  · **装上也不保证成功**：同一个 None 还有 `not_uuid_form` / `sessions_root_not_found` /
+    `session_file_not_found` / `ambiguous_N` / `no_session_header` / `header_incomplete` /
+    `no_real_user_message` / `decompress_failed` 等 reason；排查先读 `reason`。
+  · **只认 `session.v4.jsonl.zstd`**：纯文本 `session.jsonl` 走不到本链路（不是缺依赖，是同属解不出）。
+  · **仅 DSH 端**：其他 harness 无此文件布局，需各自实现适配（`sources.py` 另收 `session.jsonl*`）。
+  · ⚠ 「不依赖第三方」这句靠**惰性 import** 撑着：`zstandard` 只在 `read_session_file()`
+    函数体内 import，模块级只用标准库（`glob/hashlib/json/os/re`）。若将来把它提到
+    模块级，`make/parse/is/verify_session5` 的「仅用标准库」会**静默变假**。
 """
 from __future__ import annotations
 

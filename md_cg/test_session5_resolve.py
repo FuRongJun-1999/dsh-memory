@@ -103,17 +103,15 @@ def a_root_resolve(tmp):
 
 def b_locate(tmp):
     print("\n== B uuid 定位（怎么让它红：把 uuid 校验去掉 -> B2 红）")
-    # 本组用 _make_session_file 造 fixture ⇒ **依赖 zstandard**。
-    # CI 裸环境没装它（实测 CI 就红在这里：AttributeError on None.ZstdCompressor）。
-    # 与 C/D 组同口径：缺依赖就 SKIP，不假红。
-    if _zstd() is None:
-        skip("B 缺 zstandard，跳过 uuid 定位断言（本组需造会话文件 fixture）")
-        return
+    # 本组**不需要 zstandard**：B1/B4 走 `locate_session_file`，它只 glob **路径**、
+    # 从不读内容 ⇒ fixture 用**空文件**即可（验证单元指出）。
+    # 这样裸 clone / CI 上也能真跑，而不是 SKIP——比"补 SKIP"更优。
     uuid = "11111111-2222-3333-4444-555555555555"
-    hdr = {"type": "session", "version": 4, "id": "session-" + uuid,
-           "createdAt": 1700000000000, "cwd": "D:\\proj\\demo"}
-    p = _make_session_file(tmp, "--D-proj-demo--", uuid, hdr,
-                           [_user_msg(1, "第一句话")])
+    d = os.path.join(tmp, "--D-proj-demo--", "session-" + uuid)
+    os.makedirs(d, exist_ok=True)
+    p = os.path.join(d, "session.v4.jsonl.zstd")
+    with open(p, "wb") as f:
+        f.write(b"")                      # 空文件：只验定位，不验解压
     got, why = s5.locate_session_file("session-" + uuid, sessions_root=tmp)
     ok(got and os.path.abspath(got) == os.path.abspath(p),
        "B1 合法 uuid 能定位到文件", (got, why))
