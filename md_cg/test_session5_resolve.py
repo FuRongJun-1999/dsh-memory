@@ -103,6 +103,12 @@ def a_root_resolve(tmp):
 
 def b_locate(tmp):
     print("\n== B uuid 定位（怎么让它红：把 uuid 校验去掉 -> B2 红）")
+    # 本组用 _make_session_file 造 fixture ⇒ **依赖 zstandard**。
+    # CI 裸环境没装它（实测 CI 就红在这里：AttributeError on None.ZstdCompressor）。
+    # 与 C/D 组同口径：缺依赖就 SKIP，不假红。
+    if _zstd() is None:
+        skip("B 缺 zstandard，跳过 uuid 定位断言（本组需造会话文件 fixture）")
+        return
     uuid = "11111111-2222-3333-4444-555555555555"
     hdr = {"type": "session", "version": 4, "id": "session-" + uuid,
            "createdAt": 1700000000000, "cwd": "D:\\proj\\demo"}
