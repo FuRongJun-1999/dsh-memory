@@ -1,3 +1,5 @@
+> **Languages:** 中文 · [English](README.en.md)
+
 <div align="center">
 
 # 灵枢 LINGSHU

@@ -1,0 +1,170 @@
+{
+  "schema": 1,
+  "source_language": "zh-CN",
+  "target_language": "en",
+  "generated_note": "docs/en/mdcg/generated-docs.md",
+  "pairs": [
+    {
+      "source": "README.md",
+      "target": "README.en.md"
+    },
+    {
+      "source": "CHANGELOG.md",
+      "target": "CHANGELOG.en.md"
+    },
+    {
+      "source": "docs/README.md",
+      "target": "docs/en/README.md"
+    },
+    {
+      "source": "docs/ops/README.md",
+      "target": "docs/en/ops/README.md"
+    },
+    {
+      "source": "docs/ops/发布与治理.md",
+      "target": "docs/en/ops/release-governance.md"
+    },
+    {
+      "source": "docs/ops/图形界面_安装与排障.md",
+      "target": "docs/en/ops/ui-install-troubleshooting.md"
+    },
+    {
+      "source": "docs/ops/安装与前置.md",
+      "target": "docs/en/ops/install.md"
+    },
+    {
+      "source": "docs/ops/工具名迁移_0.9.9.md",
+      "target": "docs/en/ops/tool-name-migration.md"
+    },
+    {
+      "source": "docs/ops/权限与复核模型.md",
+      "target": "docs/en/ops/permissions-review.md"
+    },
+    {
+      "source": "docs/ops/环境与已知问题.md",
+      "target": "docs/en/ops/environment-known-issues.md"
+    },
+    {
+      "source": "docs/ops/运维与排障.md",
+      "target": "docs/en/ops/operations-troubleshooting.md"
+    },
+    {
+      "source": "docs/dev/README.md",
+      "target": "docs/en/dev/README.md"
+    },
+    {
+      "source": "docs/dev/开关矩阵.md",
+      "target": "docs/en/dev/switch-matrix.md"
+    },
+    {
+      "source": "docs/dev/编码与测试约定.md",
+      "target": "docs/en/dev/coding-testing.md"
+    },
+    {
+      "source": "docs/mdcg/guardrail-charter.md",
+      "target": "docs/en/mdcg/guardrail-charter.md"
+    },
+    {
+      "source": "docs/mdcg/CCG六要素编译.md",
+      "target": "docs/en/mdcg/ccg.md"
+    },
+    {
+      "source": "docs/mdcg/MCP工具名口径_v1.0.md",
+      "target": "docs/en/mdcg/mcp-tool-names.md"
+    },
+    {
+      "source": "docs/mdcg/recall_metadata.md",
+      "target": "docs/en/mdcg/recall-metadata.md"
+    },
+    {
+      "source": "docs/mdcg/写入别名aliases规范_v0.6.md",
+      "target": "docs/en/mdcg/write-aliases.md"
+    },
+    {
+      "source": "docs/mdcg/世界模型功能端_使用与运维_v1.0.md",
+      "target": "docs/en/mdcg/world-model-endpoint.md"
+    },
+    {
+      "source": "docs/mdcg/多harness接入.md",
+      "target": "docs/en/mdcg/multi-harness.md"
+    },
+    {
+      "source": "dsh/README.md",
+      "target": "docs/en/harnesses/dsh.md"
+    },
+    {
+      "source": "codebuddy/README.md",
+      "target": "docs/en/harnesses/codebuddy.md"
+    },
+    {
+      "source": "zcode/README.md",
+      "target": "docs/en/harnesses/zcode.md"
+    },
+    {
+      "source": "codex/README.md",
+      "target": "docs/en/harnesses/codex.md"
+    },
+    {
+      "source": "claude/README.md",
+      "target": "docs/en/harnesses/claude.md"
+    },
+    {
+      "source": "ui/minimal/使用说明.md",
+      "target": "docs/en/ui/minimal.md"
+    },
+    {
+      "source": "docs/规范/AI编程通用规范.md",
+      "target": "docs/en/standards/ai-coding-standard.md"
+    },
+    {
+      "source": "docs/规范/AI编程通用规范_灵枢适配.md",
+      "target": "docs/en/standards/ai-coding-standard-lingshu.md"
+    },
+    {
+      "source": "docs/规范/AI编程通用规范_自检清单.md",
+      "target": "docs/en/standards/ai-coding-standard-checklist.md"
+    }
+  ],
+  "scope": [
+    "README.md",
+    "CHANGELOG.md",
+    "docs/README.md",
+    "docs/ops/README.md",
+    "docs/ops/发布与治理.md",
+    "docs/ops/图形界面_安装与排障.md",
+    "docs/ops/安装与前置.md",
+    "docs/ops/工具名迁移_0.9.9.md",
+    "docs/ops/权限与复核模型.md",
+    "docs/ops/环境与已知问题.md",
+    "docs/ops/运维与排障.md",
+    "docs/dev/README.md",
+    "docs/dev/开关矩阵.md",
+    "docs/dev/编码与测试约定.md",
+    "docs/mdcg/guardrail-charter.md",
+    "docs/mdcg/CCG六要素编译.md",
+    "docs/mdcg/MCP工具名口径_v1.0.md",
+    "docs/mdcg/recall_metadata.md",
+    "docs/mdcg/写入别名aliases规范_v0.6.md",
+    "docs/mdcg/世界模型功能端_使用与运维_v1.0.md",
+    "docs/mdcg/多harness接入.md",
+    "dsh/README.md",
+    "codebuddy/README.md",
+    "zcode/README.md",
+    "codex/README.md",
+    "claude/README.md",
+    "ui/minimal/使用说明.md",
+    "docs/规范/AI编程通用规范.md",
+    "docs/规范/AI编程通用规范_灵枢适配.md",
+    "docs/规范/AI编程通用规范_自检清单.md",
+    "docs/mdcg/cogmap_ops.md",
+    "docs/mdcg/功能调用映射表_v0.1.md"
+  ],
+  "exclude": [
+    "docs/mdcg/cogmap_ops.md",
+    "docs/mdcg/功能调用映射表_v0.1.md"
+  ],
+  "generated": [
+    "docs/mdcg/cogmap_ops.md",
+    "docs/mdcg/功能调用映射表_v0.1.md"
+  ]
+}

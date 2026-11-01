@@ -96,6 +96,7 @@ DIR_ROLES = {
 # 根级文件（同上：未登记即亮红）
 ROOT_FILES = {
     "README.md": "对外主入口（定位 / 核心亮点 / 平台全景 / 接入 / 评测 / 纪律）",
+    "README.en.md": "English README（docs/en 翻译入口）",
     "LICENSE": "许可",
     "package.json": "npm 包清单（@furongjun1999/dsh-memory，bin 入口与脚本）",
     "package-lock.json": "npm 锁文件（npm ci 可复现）",
@@ -105,6 +106,7 @@ ROOT_FILES = {
     ".gitignore": "忽略面（本地数据面 / 实验产物 / 构建产物）",
     ".gitattributes": "换行归一（pre-commit 钩子等须 LF 的文件）",
     "CHANGELOG.md": "变更日志（自 0.9.15 起维护；与 package.json 的 files 同属登记面——新增根级文件时两处都要登记）",
+    "CHANGELOG.en.md": "English changelog（docs/en 翻译入口）",
     "utf8_boot.py": "入口自保证 UTF-8 的单点助手（纯 stdlib、零 md_cg 依赖；"
                     "七个进程入口在任何 I/O 之前调用）",
 }
