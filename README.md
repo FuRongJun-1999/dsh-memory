@@ -152,6 +152,13 @@ DeepSeek Harness (cordis)
 | 重要性评分 · 预算装包 · 分层注入 · 记忆自净 · 自维持巡检 | `cg(op=session)` `cg(op=scrub)` `cg(op=consolidate)` `cg(op=maintain)` `cg(op=sustain)` |
 | 会话隔离 · 时效过滤 · 审计留痕 · 可靠性闸 | `mdcg_remember(session=…)` `validity=true` `cg(op=audit)` `cg(op=ccg)` · [护栏宪章](docs/mdcg/guardrail-charter.md) · [CCG 编译](docs/mdcg/CCG六要素编译.md) |
 
+> **会话隔离的可选依赖**：稳定会话身份（`s5.*`）由 `session5_resolve()` 从 **DSH** 会话文件推导（**仅 DSH 端**），
+> **需自备 `pip install zstandard`**（本仓库不声明、CI 不代装）。未装 ⇒ 该函数返回 None 并把原因写进 `reason`，
+> 调用方拿不到稳定身份（同一会话不同进程可能算出不同 id ⇒ 跨会话写入错标）。
+>
+> ⚠ **不崩 ≠ 能用**：进程照跑、记忆照写，但**会话隔离这项能力不可用**。装了也不保证成功——
+> 另有 8 种 reason（`not_uuid_form` / `sessions_root_not_found` / `session_file_not_found` / 等），排查先读 `reason`。
+
 **`tools` 模式**：`'core'`（默认 · 2 个）｜ `'brain'` / `'all'`（30 个）。风险工具 `mdcg_forget` / `mdcg_restore` / `mdcg_review_decide` 需 `can_admin`。逐 op 映射见 [功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md) 与 [op 全表](docs/mdcg/cogmap_ops.md)（自动生成，`cogmap_sync.py check` 守漂移）。
 
 ## 🖥️ 图形界面（可选增量包 · 面向 DSH）
