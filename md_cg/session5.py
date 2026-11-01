@@ -138,7 +138,8 @@ def verify_session5(s, first_message):
 #    用户主要在 dsh 端，其他 harness 由使用者按各自实现改适配；**不能让 dsh 端改**。
 #    格式升级时本函数会**降级返回 None**（调用方退回 sess_xxxx），且必须记账原因。
 #
-_SESSIONS_ENV = "MDCG_SESSIONS_ROOT"
+_SESSIONS_ENV = "MDCG_DSH_SESSIONS_ROOT"   # 复用**已登记**的变量（docs/reference/配置参数表_v0.1.md:102），
+# 不新增变量：本函数本就只服务 DSH 端（会话文件布局 DSH 专有）。
 
 #: 系统注入前缀——**必须过滤**：子代理会话首条 user/message 是 `<system-reminder>You are
 #: teammate ...`，不过滤会让「不同会话算出同一 s5」（实测：214 会话里 5 个撞车，全是这种）。
@@ -148,7 +149,7 @@ _SYS_INJECT_PREFIXES = (
 )
 
 
-# 生效条件：显式 root 非空且为目录时原样返回；否则依次试 env `MDCG_SESSIONS_ROOT`、
+# 生效条件：显式 root 非空且为目录时原样返回；否则依次试 env `MDCG_DSH_SESSIONS_ROOT`、
 # `$DSH_HOME/sessions`、`~/.dsh/sessions`、`$USERPROFILE/.dsh/sessions`；全部不存在返回 None。
 # **不硬编码任何绝对路径**——本机路径一律由环境或探测得出，换机/换盘不需改代码。
 def resolve_sessions_root(root=None):
