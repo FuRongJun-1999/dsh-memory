@@ -580,11 +580,12 @@ def _authorize_issue(role: str, spec: dict, *, path=None,
         % (role, len(existing), role))
 
 
-# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None；**先过 _authorize_issue() 授权闸**（issue #543：管理级角色在**凭据库非空**时须由既有管理级凭据委派或显式开关 MDCG_ALLOW_ROOT_ISSUE=1；空库首启允许自举），随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典。
+# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None；**先过 _authorize_issue() 授权闸**（issue #543：管理级角色在**凭据库非空**时须由既有管理级凭据委派或显式开关 MDCG_ALLOW_ROOT_ISSUE=1；空库首启允许自举），随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典；sessions_read（issue #712 签发侧接线）为 None 时 rec 落盘 None（不限读面，旧行为零变），否则 str 化 + dict.fromkeys 保序去重后以 list 落盘，返回值同步携带。
 def issue(role: str, actor: str = None, clearance: str = None,
           tenant: str = "default", ttl: float = None, label: str = "",
           issued_by: str = "root", parent: str = None, delegable: bool = None,
           layers_allow=None, ops_allow=None, path: str = None,
+          sessions_read=None,
           _authorized_by=None, _allow_bootstrap=None):
     """签发一枚令牌。明文 token 只在返回值里出现一次，不落盘。
 
@@ -642,6 +643,9 @@ def issue(role: str, actor: str = None, clearance: str = None,
         "can_write": bool(spec["can_write"]),
         "can_admin": bool(spec["can_admin"]),
         "layers_allow": layers, "ops_allow": ops,
+        # issue #712：读面随令牌落盘（None=不限，旧行为）；归一化口径与 Principal 同构。
+        "sessions_read": (None if sessions_read is None
+                          else list(dict.fromkeys(str(x) for x in sessions_read))),
         "delegable": bool(spec["delegable"] if delegable is None else delegable),
         "parent": parent, "issued_by": issued_by, "issued_at": now,
         "expires_at": (now + float(ttl)) if ttl else None,
@@ -657,11 +661,12 @@ def issue(role: str, actor: str = None, clearance: str = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": clearance, "layers_allow": layers, "ops_allow": ops,
+            "sessions_read": rec["sessions_read"],
             "expires_at": rec["expires_at"], "token_file": token_file(path),
             "warnings": warnings}
 
 
-# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）。
+# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）；重建 Principal 另传 sessions_read=rec.get("sessions_read")（issue #712 签发侧接线：存量 rec 无此键 → None → 不限读面，行为零变）。
 def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     """校验令牌 → Principal。任何异常都抛 TokenError（fail-closed）。"""
     role, token_id, secret = parse_token(token)
@@ -739,13 +744,15 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
         can_admin=bool(rec.get("can_admin")),
         role=role, token_id=token_id, parent=rec.get("parent"),
         expires_at=exp, layers_allow=rec.get("layers_allow"),
-        ops_allow=rec.get("ops_allow"), auth_mode="token")
+        ops_allow=rec.get("ops_allow"), auth_mode="token",
+        # issue #712：旧库 rec 无此键 → None = 不限读面（行为零变，同 layers 兼容口径）
+        sessions_read=rec.get("sessions_read"))
 
 
-# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功，随后在 _store_lock(path) 临界区内复核父令牌**落盘态**：父记录 delegable 为假抛 TokenError，父记录已并发吊销（revoked_at 为真，N199）同样抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时过期候选=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at，候选与父记录 expires_at 均非空时取 min（N123：派生在时间维度同样只能收窄，父无界时取候选），被父夹紧时向 clamped 追加 "expires_at"；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，_save 后返回含明文 token 与 clamped 的字典。
+# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功，随后在 _store_lock(path) 临界区内复核父令牌**落盘态**：父记录 delegable 为假抛 TokenError，父记录已并发吊销（revoked_at 为真，N199）同样抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时过期候选=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at，候选与父记录 expires_at 均非空时取 min（N123：派生在时间维度同样只能收窄，父无界时取候选），被父夹紧时向 clamped 追加 "expires_at"；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，_save 后返回含明文 token 与 clamped 的字典；sessions_read（issue #712）按「派生只能收窄」同构夹紧：子未指定=继承父界；父无界（None 或含 '*'）=子自设界生效；子请求含 '*' 而父有界=夹紧为父界并记 clamped；否则取交集（保持父界序），交集为空抛 TokenError（fail-closed，宁可拒签不发什么都读不到的凭据），部分落入记 clamped；新记录与返回均含该字段。
 def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
            label: str = "", path: str = None, clearance: str = None,
-           layers_allow=None, ops_allow=None):
+           layers_allow=None, ops_allow=None, sessions_read=None):
     """设计者令牌派生受限子令牌：权限只能收窄，子令牌默认不可再派生。"""
     parent = verify_token(parent_token, path=path)
     # N199：本函数的「读-改-写」必须与父令牌的**落盘态复核**同处一个临界区
@@ -774,6 +781,27 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
                          prec.get("layers_allow"))
         ops = _narrow(_narrow(ops_allow, spec["ops_allow"]),
                       prec.get("ops_allow"))
+        # issue #712（签发侧接线）：读面「派生只能收窄」，与 N123 过期夹紧同构。
+        p_sr = prec.get("sessions_read")
+        want_sr = (None if sessions_read is None
+                   else list(dict.fromkeys(str(x) for x in sessions_read)))
+        p_all = (p_sr is None) or ("*" in [str(x) for x in p_sr])
+        if want_sr is None:
+            final_sr = p_sr                          # 未指定 → 继承父界（不放宽）
+        elif p_all:
+            final_sr = want_sr                       # 父无界 → 子自设任意界
+        elif "*" in [str(x) for x in want_sr]:
+            final_sr = p_sr                          # 子请求「全部」而父有界 → 夹紧为父界
+            clamped.append("sessions_read")
+        else:
+            _inter = [x for x in p_sr if x in {str(y) for y in want_sr}]
+            if not _inter:
+                raise TokenError(
+                    "派生拒绝：sessions_read 与父令牌读面交集为空（fail-closed——"
+                    "宁可拒签，不签发一枚什么都读不到的凭据）")
+            if set(_inter) != {str(y) for y in want_sr}:
+                clamped.append("sessions_read")
+            final_sr = _inter
         can_write = bool(spec["can_write"]) and bool(parent.can_write)
         can_admin = bool(spec["can_admin"]) and bool(parent.can_admin)
         # N123（2026-09-25 止血）：「派生只能收窄」补上时间维度——子令牌有效期
@@ -795,6 +823,7 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
             "clearance": final_clear, "can_write": can_write,
             "can_admin": can_admin,
             "layers_allow": layers, "ops_allow": ops,
+            "sessions_read": final_sr,
             "delegable": False, "parent": parent.token_id,
             "issued_by": parent.token_id, "issued_at": now,
             "expires_at": final_exp,
@@ -805,12 +834,13 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": final_clear, "layers_allow": layers, "ops_allow": ops,
+            "sessions_read": final_sr,
             "can_write": can_write, "can_admin": can_admin,
             "parent": parent.token_id, "clamped": clamped,
             "expires_at": rec["expires_at"]}
 
 
-# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）。
+# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）；sessions_read 原样传导（issue #712 附带 bug fix：此前构造 Principal 漏传，owner 带读面限制时被收窄静默放宽为不限——fail-open，与「只能变小」矛盾）。
 def narrowed_principal(p: Principal, unit: str) -> Principal:
     """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
 
@@ -844,6 +874,9 @@ def narrowed_principal(p: Principal, unit: str) -> Principal:
         ops_allow=_narrow(spec["ops_allow"], p.ops_allow),
         token_id=p.token_id, parent=p.parent, expires_at=p.expires_at,
         auth_mode=p.auth_mode,
+        # issue #712 附带 bug fix：读面限制随身份传导——此前未传，owner 带限制时
+        # as_unit 请求级收窄静默产出 sessions_read=None（不限）的 principal，fail-open。
+        sessions_read=p.sessions_read,
         theory_ok=p.theory_ok, theory_version=p.theory_version)
     # 2026-10-07 三态：session 值被**复制**（非空）不等于「声明来源」——来源
     # 标记必须原样传导，否则写归因三态收口（MdCGSecure._attributed_session）
@@ -889,6 +922,7 @@ def list_tokens(path: str = None, include_revoked: bool = False):
                     "can_admin": r.get("can_admin"),
                     "layers_allow": r.get("layers_allow"),
                     "ops_allow": r.get("ops_allow"),
+                    "sessions_read": r.get("sessions_read"),
                     "delegable": r.get("delegable"), "parent": r.get("parent"),
                     "label": r.get("label"), "issued_at": r.get("issued_at"),
                     "expires_at": r.get("expires_at"),
@@ -949,6 +983,9 @@ def main(argv=None):
                           "见 `roles` 子命令）")
     p_i.add_argument("--layers-allow", dest="layers_allow", default=None,
                      help="收窄可写层白名单（逗号分隔；越界项被忽略）")
+    p_i.add_argument("--sessions-read", dest="sessions_read", default=None,
+                     help="收窄会话读面（逗号分隔 session id；'*'=全部；缺省=不限，"
+                          "issue #712）")
 
     p_d = sub.add_parser("derive", help="设计者令牌派生子令牌（权限只能收窄）")
     p_d.add_argument("--token", default=None, help="父令牌明文")
@@ -963,6 +1000,8 @@ def main(argv=None):
                      help="收窄可写层白名单（逗号分隔；越界项被忽略）")
     p_d.add_argument("--clearance", default=None,
                      help="收窄密级（默认取角色上限，且不超过父令牌）")
+    p_d.add_argument("--sessions-read", dest="sessions_read", default=None,
+                     help="收窄会话读面（逗号分隔；与父读面求交，只能收窄，issue #712）")
 
     p_o = sub.add_parser(
         "orch",
@@ -992,6 +1031,7 @@ def main(argv=None):
                        tenant=a.tenant, ttl=a.ttl, label=a.label,
                        layers_allow=_csv_list(a.layers_allow),
                        ops_allow=_csv_list(a.ops_allow),
+                       sessions_read=_csv_list(a.sessions_read),
                        path=a.token_file)
             # 覆盖面/高风险告警在**接口层**打印（库函数只返回 warnings，见 issue 注释）：
             # stdout 保持纯 JSON（协议面），告警走 stderr（诊断面），两流不混。
@@ -1007,7 +1047,8 @@ def main(argv=None):
                           label=a.label, path=a.token_file,
                           clearance=a.clearance,
                           layers_allow=_csv_list(a.layers_allow),
-                          ops_allow=_csv_list(a.ops_allow)))
+                          ops_allow=_csv_list(a.ops_allow),
+                          sessions_read=_csv_list(a.sessions_read)))
         elif a.cmd == "orch":
             tok = a.token
             if a.token_file_in:
