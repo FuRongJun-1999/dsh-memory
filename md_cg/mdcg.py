@@ -4660,32 +4660,58 @@ class MdCG:
                     parts = [str(v)]
         return "；".join(parts)
 
-    @staticmethod
-# 生效条件：cond_text 为假值时按空串返回空列表；仅当按槽分隔与槽内分隔切出的短语长度≥2、非纯数字且不含时间维哨兵短语时进入返回列表，重复短语只保留首次。
-    def _cond_terms(cond_text: str):
-        """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
+    # 条件空间的已知槽标签：直接取自 nodefile（唯一事实源），不另抄一份。
+    # 只有这些词出现在冒号前才当分隔；其余冒号是条件正文的一部分。
+    _SLOT_LABELS = tuple(_label for _key, _label in nodefile.CONDITION_SLOTS)
 
-        切分规则：按槽分隔「；/;」拆槽（condition_space_text 以「；」连四槽）
-        → 每槽剥「槽标签：」前缀（载体/位置、时间、方法、约束等标签是通用词，
-        参与命中必误判）→ 槽内按「，,、/（）」切短语 → 丢弃长度 <2、纯数字、
-        全时窗哨兵短语（全时窗 = 时间维无信息量，不因其未命中而降级）。
+    # 匹配面剥首尾标点（条件常以「：。」收尾，查询里不会带）。
+    # 句中冒号保留：3:1 / 9:00 / http:// 都是内容。
+    _EDGE_PUNCT = " \t\u3000，。；：、！？,.;:!?（）()【】[]「」《》\"'`·"
+
+    @staticmethod
+# 生效条件：cond_text 为假值时按空串返回空列表；否则按槽分隔与槽内分隔切出短语，仅保留长度≥2、非纯数字、非时间维哨兵的实词短语（重复只留首次）；冒号只在冒号前为已知槽标签时才作为分隔，短语首尾标点不参与比较。
+    def _cond_terms_diag(cond_text: str):
+        """条件文本 → {terms, sentinel, short, had_text}。
+
+        三个细节都是实测出来的，不是设计推演：
+
+        1. 冒号只在已知槽标签前才是分隔符。
+           `condition_space_text()` 的标签是固定四项，而条件正文里的冒号
+           是普通字符（比值 `3:1`、时间 `9:00`、URL `http://`）。旧实现
+           剥「第一个冒号之前的一切」，会把整条条件吃成空串或砍掉前半句。
+        2. 短语首尾标点不参与比较，否则「…按此处置：」带尾冒号永远比不中。
+        3. 保留 sentinel/short 计数，供调用方区分「没写条件」与「写了切不出」。
         """
+        text = str(cond_text or "")
+        labels, edge = MdCG._SLOT_LABELS, MdCG._EDGE_PUNCT
         out, seen = [], set()
-        for slot in re.split(r"[；;]", str(cond_text or "")):
-            if "：" in slot:
-                slot = slot.split("：", 1)[1]
-            elif ":" in slot:
-                slot = slot.split(":", 1)[1]
-            for seg in re.split(r"[，,、/（）()]", slot):
-                seg = seg.strip()
-                if len(seg) < 2 or seg.isdigit():
+        n_sentinel = n_short = 0
+        for slot in re.split(r"[；;]", text):
+            s = slot.strip()
+            m = re.search(r"[：:]", s)
+            if m and s[:m.start()].strip() in labels:
+                s = s[m.end():]
+            for seg in re.split(r"[，,、/（）()]", s):
+                seg = seg.strip(edge)
+                if not seg or seg.isdigit():
+                    continue
+                if len(seg) < 2:
+                    n_short += 1
                     continue
                 if "全时窗" in seg or "任意时刻" in seg:
+                    n_sentinel += 1
                     continue
                 if seg not in seen:
                     seen.add(seg)
                     out.append(seg)
-        return out
+        return {"terms": out, "sentinel": n_sentinel, "short": n_short,
+                "had_text": bool(text.strip())}
+
+    @staticmethod
+# 生效条件：cond_text 为假值时按空串返回空列表；否则返回 _cond_terms_diag 的 terms 字段（规则同上）。
+    def _cond_terms(cond_text: str):
+        """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。"""
+        return MdCG._cond_terms_diag(cond_text)["terms"]
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
@@ -4744,13 +4770,25 @@ class MdCG:
             if not cond_text and fm.get("condition_space"):
                 cond_text = nodefile.condition_space_text(fm["condition_space"])
             if cond_text and cond_text.strip() != "无条件":
-                terms_ = MdCG._cond_terms(cond_text)
-                cond_hit = next((t for t in terms_ if t in scene_str), None)
-                if cond_hit is None and terms_:
-                    return {"state": STATE_DEFER,
-                            "reason": ("生效条件未在情境确认（未命中任何声明条件："
-                                       + "、".join(terms_[:3])
-                                       + "）；可补充情境或条件词面后重判")}
+                diag = MdCG._cond_terms_diag(cond_text)
+                terms_ = diag["terms"]
+                if not terms_:
+                    # 「写了条件却切不出可用短语」≠「本来就没写条件」：
+                    # 后者跳过比对是对的，前者是条件不可用，不能静默放行。
+                    # 例外：只含时间维哨兵 —— 文档口径「不因其未命中而降级」。
+                    if not (diag["sentinel"] and diag["short"] == 0):
+                        return {"state": STATE_DEFER,
+                                "reason": ("生效条件切不出可用短语（条件文本只含标点/"
+                                           "单字/纯数字/槽标签残留）："
+                                           + cond_text.strip()[:40]
+                                           + "；请改写为 2 字以上的实词短语")}
+                else:
+                    cond_hit = next((t for t in terms_ if t in scene_str), None)
+                    if cond_hit is None:
+                        return {"state": STATE_DEFER,
+                                "reason": ("生效条件未在情境确认（未命中任何声明条件："
+                                           + "、".join(terms_[:3])
+                                           + "）；可补充情境或条件词面后重判")}
 
         # 4) DEFER：节点无 verification_basis → 信任根基不足
         if not fm.get("verification_basis"):
