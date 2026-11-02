@@ -4660,58 +4660,32 @@ class MdCG:
                     parts = [str(v)]
         return "；".join(parts)
 
-    # 条件空间的已知槽标签：直接取自 nodefile（唯一事实源），不另抄一份。
-    # 只有这些词出现在冒号前才当分隔；其余冒号是条件正文的一部分。
-    _SLOT_LABELS = tuple(_label for _key, _label in nodefile.CONDITION_SLOTS)
+    # 条件空间的已知槽标签 / 首尾标点：**别名**，真源在 nodefile。
+    # 不在这里另抄一份——两份必然漂移，而本文件的这份曾与 nodefile 那份分叉。
+    _SLOT_LABELS = nodefile.COND_SLOT_LABELS
+    _EDGE_PUNCT = nodefile.COND_EDGE_PUNCT
 
-    # 匹配面剥首尾标点（条件常以「：。」收尾，查询里不会带）。
-    # 句中冒号保留：3:1 / 9:00 / http:// 都是内容。
-    _EDGE_PUNCT = " \t\u3000，。；：、！？,.;:!?（）()【】[]「」《》\"'`·"
+    # 标签真源漂移守卫：`condition_space_text()` 渲染用 CONDITION_SLOTS 的 label 列，
+    # 切分用 COND_SLOT_LABELS。两者若不同源，渲染与切分会各说各话。
+    assert tuple(l for _k, l in nodefile.CONDITION_SLOTS) == nodefile.COND_SLOT_LABELS
 
     @staticmethod
-# 生效条件：cond_text 为假值时按空串返回空列表；否则按槽分隔与槽内分隔切出短语，仅保留长度≥2、非纯数字、非时间维哨兵的实词短语（重复只留首次）；冒号只在冒号前为已知槽标签时才作为分隔，短语首尾标点不参与比较。
+# 生效条件：cond_text 为假值时 terms 为空列表且各计数为 0；否则返回 nodefile.condition_terms_diag 的完整诊断字典（切分单点在 nodefile，本方法只是包内别名）。
     def _cond_terms_diag(cond_text: str):
-        """条件文本 → {terms, sentinel, short, had_text}。
+        """条件文本 → {terms, n_empty, n_digit, n_short,
+        n_time_sentinel, n_decl_sentinel}。
 
-        三个细节都是实测出来的，不是设计推演：
-
-        1. 冒号只在已知槽标签前才是分隔符。
-           `condition_space_text()` 的标签是固定四项，而条件正文里的冒号
-           是普通字符（比值 `3:1`、时间 `9:00`、URL `http://`）。旧实现
-           剥「第一个冒号之前的一切」，会把整条条件吃成空串或砍掉前半句。
-        2. 短语首尾标点不参与比较，否则「…按此处置：」带尾冒号永远比不中。
-        3. 保留 sentinel/short 计数，供调用方区分「没写条件」与「写了切不出」。
+        **切分单点在 `nodefile.condition_terms_diag`**，本方法只是别名 ——
+        早先 `nodefile.cond_terms` 是第二份实现、补丁后两份行为分叉，
+        属潜伏风险（零调用点，未成当下缺陷）。改为单点后不可能再分叉。
         """
-        text = str(cond_text or "")
-        labels, edge = MdCG._SLOT_LABELS, MdCG._EDGE_PUNCT
-        out, seen = [], set()
-        n_sentinel = n_short = 0
-        for slot in re.split(r"[；;]", text):
-            s = slot.strip()
-            m = re.search(r"[：:]", s)
-            if m and s[:m.start()].strip() in labels:
-                s = s[m.end():]
-            for seg in re.split(r"[，,、/（）()]", s):
-                seg = seg.strip(edge)
-                if not seg or seg.isdigit():
-                    continue
-                if len(seg) < 2:
-                    n_short += 1
-                    continue
-                if "全时窗" in seg or "任意时刻" in seg:
-                    n_sentinel += 1
-                    continue
-                if seg not in seen:
-                    seen.add(seg)
-                    out.append(seg)
-        return {"terms": out, "sentinel": n_sentinel, "short": n_short,
-                "had_text": bool(text.strip())}
+        return nodefile.condition_terms_diag(cond_text)
 
     @staticmethod
-# 生效条件：cond_text 为假值时按空串返回空列表；否则返回 _cond_terms_diag 的 terms 字段（规则同上）。
+# 生效条件：cond_text 为假值时按空串返回空列表；否则返回 nodefile.cond_terms 的短语列表（规则同 condition_terms_diag）。
     def _cond_terms(cond_text: str):
         """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。"""
-        return MdCG._cond_terms_diag(cond_text)["terms"]
+        return nodefile.cond_terms(cond_text)
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
@@ -4775,12 +4749,27 @@ class MdCG:
                 if not terms_:
                     # 「写了条件却切不出可用短语」≠「本来就没写条件」：
                     # 后者跳过比对是对的，前者是条件不可用，不能静默放行。
-                    # 例外：只含时间维哨兵 —— 文档口径「不因其未命中而降级」。
-                    if not (diag["sentinel"] and diag["short"] == 0):
+                    #
+                    # 但两类残段是**合法空值声明**，不是「切不出」：
+                    #   · 时间维哨兵（全时窗/任意时刻）—— 文档口径「不因其未命中而降级」
+                    #   · 空值语义哨兵（无/不适用）—— 「约束：无」声明的是「无约束」，
+                    #     是完整声明，不是坏条件（旧实现靠 len<2 把它静默滤掉，
+                    #     恰好得到 ACCEPT；本补丁若只用 len 判定会把它误判成 DEFER）
+                    # 判据是**析取式**：残段全部落在合法声明桶 → 豁免；
+                    # 只要有一段落在硬不可用桶（纯标点/纯数字/单字碎片）→ 不豁免。
+                    unusable = diag["n_empty"] + diag["n_digit"] + diag["n_short"]
+                    if unusable:
+                        bits = []
+                        if diag["n_empty"]:
+                            bits.append(f"纯标点 {diag['n_empty']}")
+                        if diag["n_digit"]:
+                            bits.append(f"纯数字 {diag['n_digit']}")
+                        if diag["n_short"]:
+                            bits.append(f"单字碎片 {diag['n_short']}")
                         return {"state": STATE_DEFER,
-                                "reason": ("生效条件切不出可用短语（条件文本只含标点/"
-                                           "单字/纯数字/槽标签残留）："
-                                           + cond_text.strip()[:40]
+                                "reason": ("生效条件切不出可用短语（"
+                                           + "、".join(bits)
+                                           + "）：" + cond_text.strip()[:40]
                                            + "；请改写为 2 字以上的实词短语")}
                 else:
                     cond_hit = next((t for t in terms_ if t in scene_str), None)
