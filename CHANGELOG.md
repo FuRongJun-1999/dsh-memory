@@ -4,6 +4,52 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.22] - 2026-11-03
+
+### 修复：`cg(op=write)` 静默丢弃 `aliases`（issue #722，用户实测）
+
+调用方传 `aliases=[...]` 时参数被**静默丢弃**，手动改 frontmatter 才生效。现已补三处转发面：
+`writepipe._OUTLET_PARAMS` / `op_table.write.params` / `mcp_server` 入口。
+
+> ⚠ 如果你装的是 **0.9.21**，你遇到的就是这个 —— 该修复在 0.9.21 发布**之后**才进 main，所以没随它发出。
+
+### 新功能：会话身份 **A2 路线**（灵枢自读 DSH 会话文件算 `s5`）
+
+- 新增 `resolve_sessions_root` / `locate_session_file` / `read_session_file` / `session5_resolve`；
+- 守卫 **17 条**（`test_session5_resolve.py`）；
+- 复用**已登记**的 `MDCG_DSH_SESSIONS_ROOT`（不新造环境变量）。
+
+### 修复：`test_issue376_heartbeat_failed` 的 **A09** 是结构性竞态（issue #745）
+
+A09 拿 `last_age_s`（`= time.time() - 最近成功 t`）做**跨调用** `==` 比较，而 `_st` 是测试早段算的、
+`_OK_ONLY` 的读数在 A09 现场算，中间隔着 A01–A08 共 8 个检查 ⇒ 两侧时间差**几百毫秒**，
+`last_age_s` 量化为 0.1s 桶 ⇒ **跨桶概率 ≈ Δt / 0.1s**，CI 慢一点必红。
+
+现改为**冻结时钟**（只替换 `sustain` 名字空间的 `time`，不污染全局），14 键仍**逐位比较**。
+
+> 实际影响：本版之前，`python-tests` 会**间歇性红在同一行**，与你的改动无关 —— 看到别慌，本版已修。
+
+### 文档：密级（sensitivity）章节（`docs/ops/权限与复核模型.md`）
+
+默认 `internal`、`private` 需两个前提、三档写闸实测矩阵。
+
+### 文档：写入超时 ≠ 写入失败（`docs/ops/运维与排障.md`，issue #677 P3）
+
+三条规则：① 超时后**先查**再重试；② 要幂等就**自带 `node_id`**（同 id 覆盖，实测 `1→1`）；
+③ `importance ≥ 0.7` 的重复条目**不好清**（自动 `protected`，删除需 `override`）。
+
+### 文档：`validity` 语义 + 四个易误读取舍（`README.md` + 两处 docstring，issue #672）
+
+- `validity=true` **只排「已过期」，不排「未生效」**（`meta.validity_scope = "expired_only"`）；
+- `importance` 默认 0.5，但 **≥0.7 自动硬保护**；
+- `calibration` **只给建议**，`apply=True` 才写回；
+- 会话窗口的「重叠」**是设计**，不是冗余。
+
+### 其它
+
+- `fix(op_table)`：`aliases` 从 `_GENERIC_PARAMS` 撤出（避免与 `write.params` 重复计数）；
+- `chore(cogmap)`：重挂行号（`mcp_server` 加 `aliases` 后漂移 4 行）。
+
 ## [0.9.21] - 2026-10-31
 
 ### 修复：规范文档**随包分发**（0.9.20 只给了外链）
