@@ -180,10 +180,23 @@ def main():
     ok(same, "K1 MdCG._cond_terms / nodefile.cond_terms / condition_terms_diag 同口径")
 
     # ---------- L 标签真源守卫 ----------
-    ok(tuple(l for _k, l in _nf.CONDITION_SLOTS) == _nf.COND_SLOT_LABELS,
-       "L1 CONDITION_SLOTS 的标签列与 COND_SLOT_LABELS 同源")
-    ok(MdCG._SLOT_LABELS is _nf.COND_SLOT_LABELS,
-       "L2 MdCG._SLOT_LABELS 是别名，不是另抄一份")
+    # L1 原本断言 `CONDITION_SLOTS 的标签列 == COND_SLOT_LABELS`。两者在
+    # nodefile 里都由 CONDITION_SLOTS 派生（`COND_SLOT_LABELS = tuple(label for
+    # _key, label in CONDITION_SLOTS)`），所以该断言**恒真**，且 `python -O`
+    # 会把类体里那条同名 assert 整体剥离 —— 防护力为 0（2026-11-02 review）。
+    # 换成真正会红的两条：
+    #   L1 标签列必须是「每项非空、互不相同」的四元组 —— 手滑抄重复/抄空会红；
+    #   L2 切片真源只能是 nodefile 一处 —— MdCG 不再挂同名别名（别名已删），
+    #      一旦有人把标签又抄回 mdcg.py，这条会红。
+    _labels = _nf.COND_SLOT_LABELS
+    ok(len(_labels) == len(_nf.CONDITION_SLOTS),
+       "L1a 标签列与槽数同长")
+    ok(all(isinstance(x, str) and x.strip() for x in _labels),
+       "L1b 标签列每项都是非空字符串")
+    ok(len(set(_labels)) == len(_labels),
+       "L1c 标签列无重复（抄重会红）")
+    ok(not hasattr(MdCG, "_SLOT_LABELS") and not hasattr(MdCG, "_EDGE_PUNCT"),
+       "L2 标签/标点真源只在 nodefile，MdCG 不挂可漂移的别名")
 
     # ---------- M legacy「观测位置：」单槽冒充要剥掉 ----------
     # 旧口径残留行 `观测位置：X` 是单槽冒充；`观测位置` 不在四槽标签里，
@@ -193,6 +206,76 @@ def main():
        "M5-legacy legacy 前缀被剥，不残留在 terms 里")
     ok(not any(t.startswith("观测位置") for t in legacy),
        "M6-legacy 无 terms 以「观测位置」开头")
+
+    # ---------- N 括号产生的结构性空段不得计入 n_empty ----------
+    # 2026-11-02 review 后补：维护者指出「5b 可观测性缺口」时，我按同一方向
+    # 又查出一条**本 PR 自己的回归**：`re.split(r"[，,、/（）()]", s)` 在
+    # `（…）` 处会产生**结构性空段**（括号本身被当分隔符切掉后留下的空串）。
+    # 而原实现是「先 strip 再 if not seg: n_empty += 1」，把
+    # 「split 出来的空串」与「真被剥成空的纯标点段」混为一谈，
+    # 于是 `时间：全时窗（任意时刻成立）` 多出 n_empty=1，
+    # unusable = n_empty+n_digit+n_short > 0 成立，
+    # 把**本应豁免**的时间维哨兵误判成 DEFER —— 而源码注释明写
+    # 「时间维哨兵……不因其未命中而降级」。
+    # 修法：在**剥边之前**判结构性空段（`if not seg: continue`），
+    # 剥边之后变空的才计入 n_empty。
+    _paren = MdCG._cond_terms_diag("时间：全时窗（任意时刻成立）")
+    ok(_paren["n_empty"] == 0,
+       "N1 括号产生的结构性空段不计入 n_empty")
+    ok(_paren["n_time_sentinel"] >= 1,
+       "N2 时间维哨兵被识别（不计入不可用桶）")
+    ok(_paren["terms"] == [],
+       "N3 哨兵不进 terms（本就不该参与匹配）")
+    _unusable = _paren["n_empty"] + _paren["n_digit"] + _paren["n_short"]
+    ok(_unusable == 0,
+       "N4 哨兵条件走豁免路径（unusable==0 才不会被判 DEFER）")
+
+    _seg = MdCG._cond_terms_diag("载体/位置：页面（含线条）")
+    ok(_seg["terms"] == ["页面", "含线条"],
+       "N5 括号内内容仍被正常切出（修法不吞内容）")
+    ok(_seg["n_empty"] == 0,
+       "N6 有括号但无纯标点残段时 n_empty 为 0")
+
+    # 反向：真纯标点段**必须**仍计入 n_empty，否则修法把「不可用」漏掉
+    _punct = MdCG._cond_terms_diag("：。；、")
+    ok(_punct["n_empty"] >= 1,
+       "N7 真纯标点残段仍计入 n_empty（修法不放宽不可用判据）")
+
+    # ---------- O 三种「跳过正条件比对」的原因必须可区分 ----------
+    # review 5b：`约束：无`（空值声明）/ 全时窗哨兵 / 根本没写条件
+    # 三者语义不同，但 ACCEPT 的 reason 曾完全相同 —— 日志上无法归因。
+    _TPL = (
+        "# 功能名：探测\n\n# 生效条件：{c}\n\n# 子功能：s\n\n"
+        "# 执行：e\n\n# 验证方式：v\n\n# 不适用条件：情境不匹配时\n"
+    )
+
+    def _nd(c, cs=None):
+        fm = {"non_applicable_conditions": ["情境不匹配时"],
+              "verification_basis": "test"}
+        if cs is not None:
+            fm["condition_space"] = cs
+        return {"frontmatter": fm, "content": _TPL.format(c=c)}
+
+    _cs = {"observation_position": "本机进程",
+           "time_window": [0, 9999999999],
+           "observation_tool": "代码走查",
+           "existence_constraint": "仅测试库"}
+    _r_none = MdCG.judge_qualification(_nd(""), "本机进程", None)
+    _r_decl = MdCG.judge_qualification(_nd("约束：无"), "随便", None)
+    _r_time = MdCG.judge_qualification(
+        _nd("时间：全时窗（任意时刻成立）"), "随便", None)
+    ok(_r_none["state"] == "ACCEPT" and _r_decl["state"] == "ACCEPT"
+       and _r_time["state"] == "ACCEPT",
+       "O1 三种豁免都仍 ACCEPT（修的是可观测性，不改判定）")
+    _reasons = {_r_none["reason"], _r_decl["reason"], _r_time["reason"]}
+    ok(len(_reasons) == 3,
+       "O2 三种豁免的 reason 互不相同（5b 可观测性缺口已堵）")
+    ok("未声明生效条件" in _r_none["reason"],
+       "O3 「没写条件」有显式标记")
+    ok("空值声明" in _r_decl["reason"],
+       "O4 「约束：无」有显式标记")
+    ok("全时窗" in _r_time["reason"],
+       "O5 时间维哨兵有显式标记")
 
     print(f"\ncond_terms_colon: {PASS} passed, {FAIL} failed")
     if FAILS:

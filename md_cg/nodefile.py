@@ -933,6 +933,14 @@ def condition_terms_diag(text) -> dict:
         if m and s[:m.start()].strip() in COND_SLOT_LABELS:
             s = s[m.end():]
         for seg in re.split(r"[，,、/（）()]", s):
+            # 拆出来的**结构性空段**（split 在 `（…）`、`、` 等分隔符处产生的
+            # 空串）不是残段：它一个字符都没有，谈不上「被剥成空」。
+            # 判据是「split 之后、剥边之前就非空」，必须在**剥边之前**判 ——
+            # 剥边后再 `if not seg` 会把两者混为一谈，于是
+            # `时间：全时窗（任意时刻成立）` 这类带括号的合法条件多出 n_empty=1，
+            # 进而 unusable>0，把本应豁免的时间维哨兵误判成 DEFER。
+            if not seg:
+                continue
             # 剥边要**两轮**，顺序是「标点 → 引号 → 标点」。
             # 一轮不够，因为引号包裹里常带尾标点：`"key":` 先剥冒号得 `"key"`、
             # 再剥引号才回到 `key`（与旧实现一致）；只做一轮会得到 `"key"`，
