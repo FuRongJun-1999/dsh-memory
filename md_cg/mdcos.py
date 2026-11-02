@@ -4891,7 +4891,9 @@ class MdCGOS(MdCG):
                  content=None, role=None, verification_basis=None,
                  importance_hint=None, node_id=None, write=False,
                  min_jaccard=None, ids=None, pairs=None, actor=None,
-                 sensitivity=None, **extra):
+                 sensitivity=None, tags_add=None, tags_remove=None,
+                 condition_space_patch=None, depends_on=None, dry_run=None,
+                 **extra):
         """记忆维护（P1）：importance / longterm / prefeed / separate / stat。
 
         只读 action（stat/history/longterm 预演）与写层 action（prefeed）不受
@@ -4926,6 +4928,18 @@ class MdCGOS(MdCG):
             st = self.flush_state()
             st.update({"ok": True, "op": "maintain", "action": "flush"})
             return st
+        if act == "retag":
+            # 只改元数据（tags / condition_space / depends_on），正文与证据链原样。
+            # 用于给存量节点补 domain: 标签以迁出 orphan 桶（issue #732 的配套）：
+            # 同 id 覆写 add() 曾重置 created_at/session 并丢 evidence_log/edges，
+            # 故这里走 MdCG.retag 的窄路（内部仍复用 add() 的写链，只是显式保证
+            # 「正文逐字不变」，从而命中 BODY_SAME 的继承分支）。
+            # 缺省 dry_run：沿用 maintain 的「预演优先」口径，apply=True 才落盘。
+            _dry = (not apply) if dry_run is None else bool(dry_run)
+            return self.retag(
+                node_id or "", tags_add=tags_add, tags_remove=tags_remove,
+                condition_space_patch=condition_space_patch,
+                depends_on=depends_on, dry_run=_dry)
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
@@ -6963,9 +6977,11 @@ class MdCGSecure(MdCGOS):
 
 # 生效条件：verdict（转 str 去空白 lower）属于 {"confirmed","weakened","falsified"} 三态**任一**时**先做索引代际探活重载**（N196：索引缺条目 ≡ 本进程陈旧，不得据以跳过层写闸），随后自索引条目（含 _dirty 未刷条目，口径同 MdCG.get）取该条目 layer 与 sensitivity（缺省回落 DEFAULT_SENSITIVITY）调 protect.require_layer→principal.require_layer_write（N209：三态全覆盖——confirmed/weakened 同样重写被验证节点本体 frontmatter，verify 角色 layers_allow 本就只含 rejected/contextual，tokens.py verify spec forbidden 显式列明「不得改被验证内容」），与 add/add_rejected 同一闸口；随后把 override 原样转 super().verify（受保护节点的 guard_forget 快照留痕在基类 falsified 分支内）。verdict 非法（如空串）时不加闸直接把原值转 super().verify（ValueError 语义由基类维持）；目标节点在重载后索引中仍无条目时同样不加闸（not_found 语义由基类维持，且基类 get 取不到即不写盘）。
     def verify(self, node_id: str, evidence: str, verdict: str,
-               override: bool = False):
+               override: bool = False, superseded_by: str = None):
         v = str(verdict or "").strip().lower()
-        if v in ("confirmed", "weakened", "falsified"):
+        # superseded 同属「对被验证内容的写」（改 fm + 推进 lifecycle），与三态
+        # 共用同一道层写闸；漏进来就会重演 N209 的「零闸分支」形态。
+        if v in ("confirmed", "weakened", "falsified", "superseded"):
             # N196（2026-09-28）：此前直读本进程内存索引且「缺条目 = 放行」——
             # 他进程刚写入并 compact 的节点在本进程索引中不存在时，N130 的
             # 层写闸被整段跳过：verifier（layers_allow=rejected/contextual）
@@ -6987,7 +7003,8 @@ class MdCGSecure(MdCGOS):
                 protect.require_layer(
                     self, node_id, layer=e.get("layer"),
                     sensitivity=e.get("sensitivity"))
-        return super().verify(node_id, evidence, verdict, override=override)
+        return super().verify(node_id, evidence, verdict, override=override,
+                              superseded_by=superseded_by)
 
 # 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY，经 _rank(sens) 与 principal.require_write(sens) 后把 m 基于 meta 复制并 setdefault tenant 与 _attributed_session(sens)（写归因三态：env/请求声明→原值；未声明的进程自动随机→unattributed，私有档豁免见该函数）、harness 与 unit 为真值时补入，再强制 m["sensitivity"]=sens，text 经 _seal_content("_recent", text, sens) 后连 tags=tags 一起转 super().remember_event（window 为 None 时不传该参，否则带上 window）。
     def remember_event(self, role: str, text: str, tags=None, meta=None,

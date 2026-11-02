@@ -436,8 +436,11 @@ def main():
           < win_mv.index("self._write_node(")
           and "layer=to_layer" in win_mv and "layer=from_layer" in win_mv,
           "n=%d" % win_mv.count("protect.require_layer("))
-    check("5c MdCGSecure.verify 的闸已从「仅 falsified」放宽到三态全覆盖",
-          'v in ("confirmed", "weakened", "falsified")' in win_v
+    # 2026-11-02：新增 superseded（#732 配套）也是「对被验证内容的写」，与三态
+    # 共用同一道层写闸——判据字符串同步为四态，覆盖面只增不减（只看三个旧态
+    # 会让第四个又变成「零闸分支」，正是 N209 的形态）。
+    check("5c MdCGSecure.verify 的闸已从「仅 falsified」放宽到三态全覆盖（+superseded）",
+          'v in ("confirmed", "weakened", "falsified", "superseded")' in win_v
           and "protect.require_layer(" in win_v
           and '== "falsified"' not in win_v,
           "win_len=%d" % len(win_v))
