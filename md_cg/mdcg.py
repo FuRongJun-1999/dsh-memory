@@ -4861,6 +4861,11 @@ class MdCG:
                end_operator=None, time_axis=None, view=None):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
+        validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
+            双时间轴四态 unknown / not_yet / active / expired 中，本参数只过滤 expired；
+            要排「未来才生效」的条目请用 start_time / end_time 时间算子。
+            meta["validity_scope"] 会显式给出当前口径（"expired_only" / "off"）。
+
         meta 含 tier（性能层级）、scanned（读取节点数）、bucket（路由桶）、candidates。
         qualification 是独立的 {state, reason}，与 tier 正交：
           - tier = 怎么找到的（性能）

@@ -2167,6 +2167,11 @@ class MdCGOS(MdCG):
                    end_operator=None, time_axis=None, view=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
+        validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
+            双时间轴四态 unknown / not_yet / active / expired 中，本参数只过滤 expired；
+            要排「未来才生效」的条目请用 start_time / end_time 时间算子。
+            meta["validity_scope"] 会显式给出当前口径（"expired_only" / "off"）。
+
         每路各自排序 → Reciprocal Rank Fusion：
             score(d) = Σ_path w_path / (RRF_K + rank_path(d))
         多路共同确认的记忆排在单路命中之前（对齐 noema 的 Fusion Recall）。
