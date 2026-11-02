@@ -4479,12 +4479,21 @@ class MdCG:
         }
         if dry_run:
             return plan
-        # 复用 add()：正文原样传回 ⇒ 命中 BODY_SAME 继承分支 ⇒ edges/importance
-        # 保住；换桶、旧文件清理、索引 _stage、保护与密级闸全部由既有单点负责。
-        self.add(node_id, content, layer=layer, tags=new_tags,
-                 condition_space=cs,
-                 depends_on=deps if deps is not None
-                 else fm.get(trust.DEPS_FIELD))
+        # 走**同一条写链**（与 cg(op=write) 的元数据补丁路径同一实现）：置
+        # `_meta_patch` 后，正文闸/冲突闸/档位闸按「正文没变」放行，而层闸、
+        # 写保护闸、换桶清理、索引 _stage 仍由既有单点负责。这样 admin 面的
+        # maintain retag 与 token 面的 write 补丁行为一致，不会两条路两种结果。
+        from .writepipe import default_pipeline
+        _a = {"op": "write", "node_id": node_id, "layer": layer,
+              "content": content, "tags": new_tags, "condition_space": cs,
+              "_meta_patch": True}
+        if deps is not None:
+            _a["depends_on"] = deps
+        _out = default_pipeline().execute(self, _a)
+        plan["committed"] = bool((_out or {}).get("committed"))
+        if not plan["committed"]:
+            plan["ok"] = False
+            plan["write_out"] = _out
         return plan
 
     def backfill_big_domain(self, dry_run: bool = False, limit: int = None) -> dict:
@@ -6409,7 +6418,7 @@ class MdCG:
             # 搬过去的内容与回执同源（顺序依据见交付汇报）。
             _land_fm()
             demoted = self._move_layer(
-                node_id, "contextual",
+                node_id, "contextual", override=override,
                 reason=f"confidence {fm['confidence']} < {DEMOTE_CONFIDENCE}")
             # 层降级 = 生命周期降级（②）：knowledge→contextual 即 state→demoted。
             # 受保护节点已被 `guard_move` 拦在上一层（走不到这里）；此处仍按负路由
