@@ -349,6 +349,30 @@ VERIFICATION_BASIS = nodefile.VERIFICATION_BASIS
 # 检验强度（多主体世界模型对齐 v0.1 §2 L1；真源 nodefile.CHECK_STRENGTHS）
 CHECK_STRENGTHS = nodefile.CHECK_STRENGTHS
 
+#: 覆写（同 node_id 再写）时应**继承**而非重置的元数据列（issue #732）。
+#: `add()` 是全量重建 fm：除 lifecycle_state / verification_state / depends_on /
+#: check_strength 已各有显式继承逻辑外，其余键一律按缺省值或重算值落盘。于是
+#: 「同 id 覆写正文」会顺手把 created_at 改成现在、session 变成 unattributed、
+#: evidence_log / protected 直接消失。下列字段表达的是「这条记忆的历史与证据」，
+#: 不是「这次写什么」，故覆写时继承；调用方**显式**给出同名键才覆盖。
+#: 注：importance 不在此列——它是 recalc 派生物，正文变了本就该重算；但保护位
+#: （protected）在此列内，故「重要性重算跌破 0.70」不会连带撤销既有保护
+#: （保护是单向的：打上就不再自动取消）。
+INHERIT_ON_OVERWRITE = (
+    "session", "writer",
+    "evidence_count", "positive_evidence", "negative_evidence", "evidence_log",
+    "verified_at", "verification_history",
+    "access_count", "last_access",
+    "protected", "protection_reason", "immutable",
+    "untrusted", "untrusted_markers",
+)
+
+#: 正文**逐字未变**时才继承的列：它们描述的是「这份正文」的属性，正文没动就没理由
+#: 重算或丢弃。edges 尤其重要——写入侧 auto:linkref 只在正文含 @<id> 时派生一次，
+#: 覆写既不继承也不重派生，等于把自动血缘一并抹掉（实测 mem_1793461027725_714001
+#: 改写前 edges 有 1 条 auto:linkref，改写后 edges 变为空）。
+INHERIT_ON_OVERWRITE_BODY_SAME = ("edges",)
+
 
 # 英→中语素召回中的代词黑名单（超泛词，进召回词只添噪声）
 _EN_ZH_PRONOUNS = {"我", "你", "他", "她", "它", "我们", "你们", "他们"}
@@ -3021,7 +3045,7 @@ class MdCG:
 
 # 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None；判 BLINDSPOT（comparable==0，检测前提不存在）时**恒放行**（与 writepipe._gate_consistency 的 issue #26 同口径，落盘并把 vd 并进 extra["consistency"]）；其余情形完成写盘/入索引后返回 node_id；consistency_out 为 dict 时把本次判定回填 consistency_out["consistency"]（#361：三条出口都可追溯）。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
-            tags=None, condition_space=None, importance: float = 0.5,
+            tags=None, condition_space=None, importance=None,
             confidence: float = 0.6, edges=None, verification_basis: str = None,
             non_applicable_conditions=None, override: bool = False,
             consistency: bool = False, on_conflict: str = "reject",
@@ -3165,6 +3189,22 @@ class MdCG:
         # 故 MdCGOS 的既有语义（非法值回落文档缺省）一字不变。
         # 判据单点在模块级 `_require_unit_number`（同仓单点判据纪律：判据只写
         # 一份，写侧读侧共用；守卫可对其做定点变异自证）。
+        # importance 缺省 None = 「调用方没声明」⇒ 覆写时继承旧值，新节点回落 0.5。
+        # 必须在**写侧数值闸（#151②）之前**解析：那道闸对 None 是 fail-closed，
+        # 解析晚一步就变成「合法调用被判非法落盘」。与同函数里 check_strength 的
+        # 「传入优先；否则取旧值」同一口径——不能拿 0.5 当缺省，否则一次普通覆写
+        # 就把 0.8 的节点打回 0.5（#732 的另一面）。
+        _prev_fm = {}
+        _prev_body = None
+        if (self.index.get("nodes") or {}).get(node_id) is not None:
+            try:
+                _pn = self.get(node_id) or {}
+                _prev_fm = dict(_pn.get("frontmatter") or {})
+                _prev_body = _pn.get("content")
+            except Exception:
+                _prev_fm, _prev_body = {}, None
+        if importance is None:
+            importance = _prev_fm.get("importance", 0.5)
         _require_unit_number("importance", importance)
         _require_unit_number("confidence", confidence)
         if verification_basis is not None and verification_basis not in VERIFICATION_BASIS:
@@ -3336,7 +3376,10 @@ class MdCG:
         # （`MdCGSecure.add` 的 `sensitivity or DEFAULT_SENSITIVITY` 把两者
         # 归一成同一个值，闸便看不见差异）。本键只是判据载体，**不落 fm**。
         _declared_sens = extra.pop("declared_sensitivity", None)
+        _created_given = "created_at" in extra
         created_at = extra.pop("created_at", time.time())
+        if not _created_given and _prev_fm.get("created_at"):
+            created_at = _prev_fm["created_at"]      # 出生时间只写一次
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
         # 调用方未提供 time_window 时，以写入时刻为锚、默认窗口 OBSERVATION_WINDOW_SEC。
         cs = dict(condition_space or {})
@@ -3356,6 +3399,22 @@ class MdCG:
             "evidence_count": 0, "positive_evidence": 0, "negative_evidence": 0,
         }
         fm.update(extra)
+        # 覆写继承（issue #732）：调用方显式给出的键才覆盖，否则沿用旧值。
+        # 位置在 update(extra) 之后、各闸之前——既有闸（保护/密级/生命周期）
+        # 读的就是这份 fm，故继承值必须在此之前就位。
+        for _k in INHERIT_ON_OVERWRITE:
+            if _k not in extra and _k in _prev_fm:
+                fm[_k] = _prev_fm[_k]
+        # 正文逐字未变（retag / 纯元数据改写）⇒ 自动血缘不必重算。
+        # **只在调用方没给 edges 时继承**：`edges` 是形参不是 extra，若无条件继承
+        # 会把调用方刚算好的新边覆盖回旧值（实测 p17_predict 的「命中 → 因果边
+        # 置信度 +0.05」正是这样被吃掉的）。同理 importance 已改为「传 None 才继承」
+        # 的缺省口径（见上方 S1），不再走本白名单。
+        if edges is None and _prev_body is not None and _prev_fm:
+            _same_body = (str(_prev_body).rstrip("\n")
+                          == str(content).rstrip("\n"))
+            if _same_body and _prev_fm.get("edges"):
+                fm["edges"] = _prev_fm["edges"]
         # 写入面信任标记（使用者裁定 2026-10-21：「未验证、未信任的信息本来就不应该执行」）：
         # 文本里出现伪装系统消息/指令式短语 ⇒ 落 untrusted 标记 + 命中词，供检索面与
         # 上层（注入前）据此把它当**数据**而不是指令；不改正文（数据无损）。
@@ -4363,6 +4422,71 @@ class MdCG:
 # 生效条件：dry_run 为真时只统计不改盘；否则遍历 index["nodes"]，get(nid) 取不到（无密钥/文件缺失）计入 unreadable，
 # fm 已有 big_domain 计入 already，content 为 None 计入 unreadable，routing.classify_text(content) 为 None 计入 no_signal，
 # 其余写 fm["big_domain"] → _write_node → 同步索引 entry["big_domain"]；limit 为真值时 written 达 limit 即停；写完 flush()；返回统计 dict。
+    def retag(self, node_id: str, tags_add=None, tags_remove=None,
+              condition_space_patch=None, depends_on=None,
+              dry_run: bool = False) -> dict:
+        """**只改元数据**（tags / condition_space / depends_on），正文与证据链原样。
+
+        为何需要它：给存量节点补 `domain:` 标签以迁出 `knowledge/orphan/`
+        （`routing.route_key` 只认 tags 的 `domain:` 前缀，其次
+        `condition_space.observation_position`），此前唯一通道是同 id 覆写
+        `add()`——而 `add()` 是全量重建 fm，会重置 created_at / session 并丢
+        evidence_log / edges（见 issue #732 与 INHERIT_ON_OVERWRITE）。
+
+        本函数不改判据、不新造写盘点：它**复用 add() 的既有写链**（换桶清理、
+        索引 _stage、密级与保护闸全部照旧），只是把「正文逐字不变」这件事显式
+        保证下来，从而命中 `INHERIT_ON_OVERWRITE_BODY_SAME` 的继承分支——
+        edges 与 importance 也一并保住。
+
+        dry_run=True 只算不写，返回将要落到的桶与路径，供调用方先确认。
+        """
+        node = self.get(node_id)
+        if not node:
+            return {"ok": False, "error": "node_not_found", "node_id": node_id}
+        fm = dict(node.get("frontmatter") or {})
+        content = node.get("content") or ""
+        layer = str(fm.get("layer") or "knowledge")
+        old_rel = node.get("path") or ""
+        tags = [str(t) for t in (fm.get("tags") or []) if str(t).strip()]
+        rem = {str(t).strip() for t in _ensure_list(tags_remove)
+               if str(t).strip()}
+        new_tags = [t for t in tags if t not in rem]
+        for t in _ensure_list(tags_add):
+            t = str(t).strip()
+            if t and t not in new_tags:
+                new_tags.append(t)
+        cs = dict(fm.get("condition_space") or {})
+        if isinstance(condition_space_patch, dict):
+            cs.update(condition_space_patch)
+        deps = trust.as_deps(depends_on) if depends_on is not None else None
+        bucket = None
+        if layer in BUCKETED_LAYERS:
+            bucket = routing.bucket_dir(routing.route_key(cs, new_tags))
+            ahead = os.path.join(self.root, layer, bucket)
+        else:
+            ahead = os.path.dirname(os.path.join(self.root, old_rel))
+        new_rel = os.path.relpath(os.path.join(ahead, "%s.md" % node_id),
+                                  self.root).replace("\\", "/")
+        plan = {
+            "ok": True, "dry_run": bool(dry_run), "node_id": node_id,
+            "layer": layer, "tags": new_tags, "condition_space": cs,
+            "depends_on": deps, "bucket": bucket,
+            "from_path": old_rel, "to_path": new_rel,
+            "moved": os.path.abspath(os.path.join(self.root, new_rel))
+            != os.path.abspath(os.path.join(self.root, old_rel)),
+            "tags_changed": new_tags != tags,
+            "cs_changed": cs != dict(fm.get("condition_space") or {}),
+        }
+        if dry_run:
+            return plan
+        # 复用 add()：正文原样传回 ⇒ 命中 BODY_SAME 继承分支 ⇒ edges/importance
+        # 保住；换桶、旧文件清理、索引 _stage、保护与密级闸全部由既有单点负责。
+        self.add(node_id, content, layer=layer, tags=new_tags,
+                 condition_space=cs,
+                 depends_on=deps if deps is not None
+                 else fm.get(trust.DEPS_FIELD))
+        return plan
+
     def backfill_big_domain(self, dry_run: bool = False, limit: int = None) -> dict:
         """为缺 `big_domain` 的节点补域标签（S1 大域收敛的前置元数据；幂等）。
 
@@ -6104,22 +6228,81 @@ class MdCG:
                 "path": rel, "reason": reason}
 
 # 生效条件：verdict 不在 {confirmed,weakened,falsified} 时抛 ValueError；node_id 取不到节点返回 None；verdict=="falsified" 时先经 protect.guard_forget（受保护节点需显式 override=True——旧版本自动快照+留痕；拒绝抛 ProtectionError 且无任何副作用），通过后以 content[:200] 为假设写入 rejected 层、删除原文件并 _unstage，返回 {"action":"falsified","new_id":None,"evidence_count":None,"demoted":None}；confirmed/weakened 时 confidence 分别 +0.05 / -0.15（夹到 [0,0.99] 并 round 2）、evidence_count 与 positive_evidence/negative_evidence 各 +1、追加 evidence_log，且仅当 weakened 后 confidence < DEMOTE_CONFIDENCE 且 layer=="knowledge" 时调 _move_layer 到 contextual 并 set_state("demoted")，否则 _write_node 回写并同步索引 evidence_count；
+    def _verify_superseded(self, node_id: str, node: dict, evidence: str,
+                           superseded_by: str = None) -> dict:
+        """把节点标记为「已被新版本取代」（`lifecycle.superseded`）。
+
+        与 `falsified` 的关键区别：**不删除、不进 trash、不动 verification_state**。
+        「它现在成不成立」与「它是否还是当前版本」是正交的两件事——前者归
+        `trust.verification_state`，后者归 `lifecycle.lifecycle_state`。`superseded`
+        早在 2026-10-18 就进了 lifecycle 状态机（`active/converged/demoted →
+        superseded`，且 `superseded → active` 可回滚），并经 `is_retired()`
+        退出默认检索面。缺的只是**工具面入口**，本函数补的就是这一环——不新增
+        状态、不改判据、不复制第二份迁移表。
+
+        为何 superseded_by 必填而非用 override：护栏的目的不是「多按一次确认」，
+        而是「取代关系要能指名替代者」。裸 override 允许随手退役；指名替代者
+        则同时产出血缘与可追溯依据。
+        """
+        by = str(superseded_by or "").strip()
+        if not by:
+            raise ValueError(
+                "superseded 必须给 superseded_by=<取代它的节点 id>："
+                "取代关系要能指名替代者，空值等于「随手退役」")
+        if by == node_id:
+            raise ValueError("superseded_by 不能是节点自身")
+        fm = dict(node.get("frontmatter") or {})
+        fm["superseded_by"] = by
+        fm["superseded_at"] = time.time()
+        # 先把「被谁取代」写进 fm，再走 lifecycle 的唯一推进入口（它会重读盘面
+        # 再写一次，故顺序不能倒——先 set_state 后写 fm 会被覆盖回去）。
+        self._write_node(node_id, os.path.join(self.root, node["path"]), fm,
+                         node.get("content") or "")
+        # 保护位同样会拦「降级出去」（active→superseded 在 lifecycle._RANK 上加 3 档，
+        # 被 is_downgrade 判为降级）。这里**自动带 override**，理由与 superseded_by
+        # 必填是同一件事：护栏要防的是「随手丢弃」，不是「有序退役」——本操作不删
+        # 数据、不改验证态、且 superseded→active 可回滚，同时必须指名替代者。
+        # 强制情况回填进返回体（forced_protected），审计面看得见这一次是按保护位破的。
+        _prot = bool(fm.get("protected") or fm.get("immutable"))
+        lc = lifecycle.set_state(
+            self, node_id, "superseded",
+            reason=f"被 {by} 取代：{str(evidence)[:80]}",
+            actor=getattr(self, "actor", None) or "verify:superseded",
+            override=_prot)
+        if not (lc or {}).get("ok"):
+            return {"action": "superseded", "ok": False,
+                    "superseded_by": by, "lifecycle": lc}
+        try:
+            propagation = trust.mark_dependents(
+                self, node_id,
+                reason=f"上游 {node_id} 已被 {by} 取代——引用方需复核是否仍以旧版为准",
+                actor="verify:superseded", trigger="verify_superseded")
+        except Exception:                # noqa: BLE001 —— 传播失败不推翻已完成的退役
+            propagation = {"ok": False, "changed": 0,
+                           "reason": "propagation_failed"}
+        return {"action": "superseded", "ok": True, "superseded_by": by,
+                "forced_protected": _prot, "lifecycle": lc,
+                "propagation": propagation, "demoted": None}
+
     def verify(self, node_id: str, evidence: str, verdict: str,
-               override: bool = False):
+               override: bool = False, superseded_by: str = None):
         """验证单元（白箱第 3 篇第 13 章）：对节点做一次外部验证裁决。
 
-        verdict ∈ {"confirmed", "weakened", "falsified"}
+        verdict ∈ {"confirmed", "weakened", "falsified", "superseded"}
         - confirmed：positive_evidence+1，confidence 上调 +0.05
         - weakened：negative_evidence+1，confidence 下调 -0.15（反例权重更大）
         - falsified：节点移入 rejected/（幂等：相同 hypothesis 不重复）；
           受保护节点（self/anchor 层、protected 标记、importance≥0.7）
           不可一键证伪删除——需显式 override=True（先快照+留痕）
+        - superseded：**被新版本取代**（需 superseded_by=<替代者 id>）。与
+          falsified 的区别是「不删除、不进 trash、不动 verification_state」：
+          「还成不成立」归 trust，「是否还是当前版本」归 lifecycle，两者正交。
 
         每次裁决累加 evidence_count（白箱第 5 篇第 4 章）。
         weakened 后 confidence 跌破 DEMOTE_CONFIDENCE 且原属 knowledge 层 →
         降级为 contextual（假设层），返回 demoted 审计记录。
         """
-        if verdict not in ("confirmed", "weakened", "falsified"):
+        if verdict not in ("confirmed", "weakened", "falsified", "superseded"):
             raise ValueError(f"未知裁决：{verdict}")
         node = self.get(node_id)
         if not node:
@@ -6179,6 +6362,9 @@ class MdCG:
             return {"action": "falsified", "new_id": None,
                     "evidence_count": None, "demoted": None,
                     "propagation": propagation}
+        if verdict == "superseded":
+            return self._verify_superseded(node_id, node, evidence,
+                                           superseded_by)
         # confirmed/weakened：调整 confidence（白箱第 5 篇：
         # 反例的权重应该比正例大——这里用非对称步长实现）
         fm = node["frontmatter"]
@@ -6238,17 +6424,24 @@ class MdCG:
         #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）
         # 受保护节点不接受降级——负路由 ok=False 只说明「不可降」，不回滚已完成的
         # 证据计数（与上方 lifecycle 降级同风格：不假装成功，也不推翻既成事实）。
+        # override 必须**原样透传**（issue #733）：此前 weakened 分支漏传，
+        # 导致受保护节点即使显式给 override=True 也被 trust.check 判 protected，
+        # 于是「受保护 = 只能确认、不能存疑」，doubted 在受保护节点上不可达。
+        # confirmed 分支传 override 无副作用（升级方向不进降级判据），但三分支
+        # 同形，避免下次再加出口时又漏一个。
         if verdict == "confirmed":
             ver = self.set_verification(
                 node_id, "verified",
                 reason=f"外部裁决 confirmed：{str(evidence)[:80]}",
                 actor="verify:confirmed", evidence=evidence,
-                method=fm.get("verification_basis"), trigger="verify")
+                method=fm.get("verification_basis"), trigger="verify",
+                override=override)
         else:
             ver = self.set_verification(
                 node_id, "doubted",
                 reason=f"外部裁决 weakened：{str(evidence)[:80]}",
-                actor="verify:weakened", evidence=evidence, trigger="verify")
+                actor="verify:weakened", evidence=evidence, trigger="verify",
+                override=override)
         # 结论已变 ⇒ 下游的「地基动了」：同步一跳传播（永不抛，降级不阻断）
         propagation = trust.mark_dependents(
             self, node_id, reason=f"上游验证结论变为 {verdict}",

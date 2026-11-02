@@ -805,8 +805,16 @@ KERNEL_TOOLS = [
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
                                  "回指原文/轮次）"),
-            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
+            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified"
+                                 "|superseded（superseded=被新版本取代：不删除、"
+                                 "不动验证态，需同时给 superseded_by）；"
                                  "insight verify：verified|falsified"),
+            superseded_by=_p("string", "verify verdict=superseded 时必填："
+                                      "取代它的节点 id"),
+            tags_add=_p("array", "maintain retag：要新增的标签（含 domain:<域>）"),
+            tags_remove=_p("array", "maintain retag：要移除的标签"),
+            condition_space_patch=_p("object", "maintain retag：条件空间补丁"
+                                              "（浅合并，如 observation_position）"),
             question=_p("string", "whitebox：ask/verify 的问题"),
             message=_p("string", "whitebox ask：问题（question 的别名）"),
             session_id=_p("string", "whitebox：会话 id（默认 md_cg-whitebox-verify）"),
@@ -915,7 +923,8 @@ KERNEL_TOOLS = [
                                       "（仅重要性重算；固化需 LLM 仍交人工。默认否）"),
             allow_evolve=_p("boolean", "sustain heal：放行演化类修复"
                                       "（确定性动作才执行；默认否）"),
-            dry_run=_p("boolean", "sustain heal / scrub：只列动作不落盘"),
+            dry_run=_p("boolean", "sustain heal / scrub：只列动作不落盘；"
+                            "maintain retag：只算不写（缺省沿用 apply 口径）"),
             ids=_p("array", "scrub：节点 id 列表（缺省全库）"),
             kinds=_p("string", "scrub：限定污染类型，逗号分隔"),
             strategy=_p("string", "scrub sample：stratified|risk|random"),
@@ -2889,7 +2898,8 @@ def _cg_dispatch(cg, a):
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
                          a.get("verdict", ""),
-                         override=bool(a.get("override")))
+                         override=bool(a.get("override")),
+                         superseded_by=a.get("superseded_by"))
 
     if op == "review":
         act = (a.get("action") or "list").strip().lower()
@@ -3517,7 +3527,11 @@ def _maintain_call(cg, a):
         min_conf=a.get("min_conf"), basis_text=a.get("basis_text"),
         prefixes=a.get("prefixes"), aeis_root=a.get("aeis_root"),
         sample_n=a.get("sample_n"), prefix=a.get("prefix"),
-        verdicts=a.get("verdicts"), reason=a.get("reason"))
+        verdicts=a.get("verdicts"), reason=a.get("reason"),
+        # action=retag 的形参（只改元数据，正文与证据链原样）：
+        tags_add=a.get("tags_add"), tags_remove=a.get("tags_remove"),
+        condition_space_patch=a.get("condition_space_patch"),
+        depends_on=a.get("depends_on"), dry_run=a.get("dry_run"))
 
 
 # 生效条件：act=(a.get("action") or "promote").strip().lower()；principal 非 None 时一律先 require_admin(f"consolidate_{act}")；imp=a.get("min_importance")，为 None 时回落为 a.get("importance")，随后以 imp 等参数调 cg.consolidate_run 并返回。
