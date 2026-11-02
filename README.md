@@ -142,6 +142,31 @@ DeepSeek Harness (cordis)
 
 **记忆只有一个真源**：`md_cg/` 认知图（纯 md 文档，随包自带）；「身体」能力为可选后端，不再存记忆、默认不启动。其它 MCP 宿主同构：宿主工具面 ↔ stdio MCP ↔ `md_cg`，差异只在**纪律注入方式**。
 
+## ⚖️ 四个容易误读的设计取舍
+
+### 1. `validity=true` = **只排「已过期」，不排「未生效」**
+
+双时间轴有四种状态（`unknown` / `not_yet` / `active` / `expired`），但检索参数 `validity` **只过滤 `expired`**。
+`meta.validity_scope` 会显式告诉你当前口径（`"expired_only"` 或 `"off"`）。
+⇒ 要排除「未来才生效」的条目，请用 `start_time` / `end_time` 时间算子，不要指望 `validity`。
+
+### 2. `importance` 默认 0.5，但 **0.7 起会自动硬保护**
+
+`protect.AUTO_PROTECT_IMPORTANCE = 0.70`：写入时 `importance ≥ 0.7` 的节点**自动打 `protected` 标记**，
+此后删除/降级需要显式 `override=True`（并走保护快照与审计留痕）。
+⚠ 且 `importance_source` 为 `None` 或 `"hint"` 时**也**触发保护 —— 「是我估的高」不算豁免。
+
+### 3. `calibration` **只给建议，不自动写回**
+
+`scrub.calibrate()` 默认 `apply=False`，只返回 `suggested_offset`；
+真写回需要显式 `apply=True`（`applied` 与 `suggested_offset` 在返回体里**分列**，不会混淆）。
+
+### 4. 会话窗口的「重叠」是设计，不是冗余
+
+`contextWindow` 注入的是**最近 N 轮**，轮与轮之间必然大量重叠。
+这是「本会话近期对话」的语义要求（要的是完整上下文，不是"新增了什么"）。
+⇒ 若你观察到重复内容，见 [issue #739](https://github.com/FuRongJun-1999/dsh-memory/issues/739)（注入面复述的五臂实测）。
+
 ## 🧰 工具面
 
 | 能力 | MCP 入口 |
