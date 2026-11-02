@@ -97,6 +97,27 @@ _check("G1-4 两次裁决的证据都记进 evidence_log（负路由不回滚证
 _cg1.flush()
 _cg1.close()
 
+print(chr(10) + "== G1b：连续 weakened 触发降级迁层时，override 也要透传到 _move_layer ==")
+_root1b, _cg1b = _new("g1b", nid="t_dm", importance=0.8)
+_ok = True
+_err = None
+for _i in range(3):                     # 0.6 → 0.45 → 0.30 → 0.15（< DEMOTE 0.2）
+    try:
+        _cg1b.verify("t_dm", "连续负证据 #%d" % _i, "weakened", override=True)
+    except Exception as _e:             # noqa: BLE001
+        _ok = False
+        _err = "%s: %s" % (type(_e).__name__, _e)
+        break
+_check("G1b-1 受保护节点连续 weakened 不抛 ProtectionError（修前第三轮抛）",
+       _ok, _err)
+_check("G1b-2 第三轮确实降级迁出到 contextual（按既有 confidence<0.2 规则）",
+       ((_cg1b.get("t_dm") or {}).get("frontmatter") or {}).get("layer")
+       == "contextual",
+       ((_cg1b.get("t_dm") or {}).get("frontmatter") or {}).get("layer"))
+_cg1b.flush()
+_cg1b.close()
+
+
 print("\n== G2：覆写继承「历史与证据」列（#732） ==")
 _root2, _cg2 = _new("g2")
 _cg2.verify("t_ev", "首次验证", "confirmed")
@@ -223,6 +244,68 @@ _check("G5-3 分派未把正文写坏（仍可读且正文未变）",
        == _CCG.rstrip(chr(10)))
 _cg5.flush()
 _cg5.close()
+
+print(chr(10) + "== G6：write 元数据补丁（只给 tags，不给 content） ==")
+_root6, _cg6 = _new("g6", nid="t_wp", importance=0.8)
+_cg6.add("t_wp_ref", _CCG2, layer="knowledge", importance=0.5)
+_cg6.verify("t_wp", "先验证一次", "confirmed")
+_f6 = _fm(_cg6, "t_wp")
+_b6 = (_cg6.get("t_wp") or {}).get("content")
+from md_cg.mcp_server import _cg_dispatch          # noqa: E402
+_r6 = _cg_dispatch(_cg6, {"op": "write", "node_id": "t_wp",
+                          "tags": ["domain:测试域"]})
+_check("G6-1 直接落盘（不再出变更单）：committed=True 且 moved_to 为空",
+       bool(_r6.get("committed")) and not _r6.get("moved_to"),
+       {k: _r6.get(k) for k in ("committed", "moved_to", "pid")})
+_f6b = _fm(_cg6, "t_wp")
+_check("G6-2 tags 打上了 domain:测试域",
+       "domain:测试域" in (_f6b.get("tags") or []), _f6b.get("tags"))
+_check("G6-3 正文逐字节未变（补丁不动正文）",
+       str((_cg6.get("t_wp") or {}).get("content") or "").rstrip(chr(10))
+       == str(_b6 or "").rstrip(chr(10)))
+_check("G6-4 created_at 未被重置",
+       _f6b.get("created_at") == _f6.get("created_at"),
+       (_f6.get("created_at"), _f6b.get("created_at")))
+_check("G6-5 evidence_log / protected 未丢",
+       len(_f6b.get("evidence_log") or []) == len(_f6.get("evidence_log") or [])
+       and bool(_f6b.get("protected")))
+_check("G6-6b importance 不被压回 0.5（_write_values 不得替调用方回落）",
+       float(_f6b.get("importance") or 0) == float(_f6.get("importance") or 0),
+       (_f6.get("importance"), _f6b.get("importance")))
+_check("G6-6 换桶：路径落到 cond_ 前缀",
+       str((_cg6.get("t_wp") or {}).get("path") or "").find("cond_") > 0,
+       (_cg6.get("t_wp") or {}).get("path"))
+_check("G6-7 正文真变了的覆写仍然出单（对照腿：换一段正文）",
+       bool(_cg_dispatch(_cg6, {"op": "write", "node_id": "t_wp",
+                                "content": _CCG2,
+                                "tags": ["domain:测试域"]}).get("moved_to")),
+       "对照腿：改了正文应回 review_queue")
+_cg6.flush()
+_cg6.close()
+
+
+print(chr(10) + "== G7：旧格式正文（无 # 要素行）也能做元数据补丁 ==")
+_root7, _cg7 = _new("g7", nid="t_legacy")
+_LEGACY = "\n".join(["功能名：旧格式节点", "生效条件：当年合法、现在不合新规",
+                     "子功能：无", "执行：无", "验证方式：test",
+                     "不适用条件：无"])
+import os as _os                                    # noqa: E402
+_os.remove(_os.path.join(_root7, (_cg7.get("t_legacy") or {}).get("path")))
+_cg7.add("t_legacy", _LEGACY, layer="knowledge", importance=0.8)
+_b7 = (_cg7.get("t_legacy") or {}).get("content")
+_r7 = _cg_dispatch(_cg7, {"op": "write", "node_id": "t_legacy",
+                          "tags": ["domain:测试域"]})
+_check("G7-1 旧格式正文的元数据补丁不被内容闸拒收（正文没变，不该重判合规）",
+       bool(_r7.get("committed")),
+       {k: _r7.get(k) for k in ("committed", "error", "moved_to")})
+_check("G7-2 正文原样保留",
+       str((_cg7.get("t_legacy") or {}).get("content") or "").rstrip(chr(10))
+       == str(_b7 or "").rstrip(chr(10)))
+_check("G7-3 domain 标签已打上",
+       "domain:测试域" in ((_fm(_cg7, "t_legacy").get("tags")) or []))
+_cg7.flush()
+_cg7.close()
+
 
 print("\n== 结果 ==")
 if FAILS:

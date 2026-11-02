@@ -2809,6 +2809,36 @@ def _cg_dispatch(cg, a):
         # 本文件；新增闸门 = register_before 一行，即插即拔。
         # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
         from .writepipe import default_pipeline
+        # **元数据补丁**（issue #732 的实用形态）：只给 node_id + tags /
+        # condition_space / depends_on 而不给 content ⇒ 视为「改元数据、不动
+        # 正文」，正文按原样从盘面取回再走同一条写链。这样「给存量节点补
+        # domain: 标签以迁出 orphan 桶」不必再用同 id 覆写——覆写是全量重建
+        # fm，历史上会重置 created_at/session 并丢 evidence_log/edges。
+        # 为何挂在 write 下而不是新造 op：它本质是**单节点写**（与 verify 同类），
+        # 不是批量维护；也不给令牌 face 引入新 op 词（派生收窄面零改动）。
+        if not str(a.get("content") or "").strip() and a.get("node_id"):
+            _cur = cg.get(a.get("node_id"))
+            if not _cur:
+                return {"ok": False, "error": "node_not_found",
+                        "node_id": a.get("node_id"),
+                        "hint": "content 为空时按「元数据补丁」处理，此时 node_id "
+                                "必须指向既有节点（新建节点必须给 content）"}
+            a = dict(a)
+            a["content"] = _cur.get("content") or ""
+            # 内容类型必须补齐：写入闸按 content_kind 选规则，缺省会判
+            # 「未知内容类型 ''」→ BLINDSPOT → 入审核队列（实测）。补丁的
+            # 正文是原来那条，故类型也沿用原节点的（modality 是既有落盘列）。
+            _pfm = _cur.get("frontmatter") or {}
+            if not a.get("content_kind"):
+                a["content_kind"] = (_pfm.get("content_kind")
+                                     or _pfm.get("modality") or "text")
+            # 显式标记：写链据此放行内容闸与档位闸（见 writepipe.execute 的注释）。
+            # 只有**这条**路径会置位——普通 write 即便正文一样也走全套闸。
+            a["_meta_patch"] = True
+            # importance 继承：写链 direct 出口对未声明值回落 0.5（那是两出口的
+            # 既有不变量，不动），故补丁要保原值必须在这里把旧值显式填进去。
+            if a.get("importance") is None and _pfm.get("importance") is not None:
+                a["importance"] = _pfm["importance"]
         return default_pipeline().execute(cg, a)
 
     if op == "goal":
