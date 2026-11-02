@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import unittest.mock as _mock
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -68,6 +69,23 @@ _ROWS = (
 _BASE_KEYS = ("n", "threshold_s", "shards", "file", "span_s", "span_iso",
               "last_iso", "last_age_s", "segments", "longest_s", "longest_iso",
               "count_in_longest", "breaks", "breaks_top")
+
+# issue #745：**只冻结 sustain 名字空间里的 time**，不碰全局 time 模块
+# （`sustain.py` 里还有 37 处 time.time / 2 处 strftime / 1 处 localtime / 1 处 sleep 在用）。
+_FROZEN_T = 1000.0
+
+class _FrozenTime:
+    """替换 `sustain.time`：`time()` 返回冻结值，其余属性转发真 time 模块。"""
+
+    def __init__(self, frozen):
+        object.__setattr__(self, "_frozen", frozen)
+
+    def time(self):
+        return object.__getattribute__(self, "_frozen")
+
+    def __getattr__(self, name):
+        import time as _t
+        return getattr(_t, name)
 
 
 def _mk(tag, rows):
@@ -109,10 +127,17 @@ _rf = S.heartbeat_ledger_stats(_ROOT, name="reflect")
 _check("A08 按 reflect 档查询：absent=False, n=0, failed=1（修前 absent=True 且无失败读数）",
        _rf["absent"] is False and _rf["n"] == 0 and _rf["failed"] == 1
        and len(_rf["failures"]) == 1, (_rf["absent"], _rf["n"], _rf["failed"]))
-_check("A09 失败行不进时间序列：原有时序读数与「只有 3 条成功」的台账逐位一致",
-       all(_st[k] == S.heartbeat_ledger_stats(_OK_ONLY)[k] for k in _BASE_KEYS),
-       [(k, _st[k], S.heartbeat_ledger_stats(_OK_ONLY)[k]) for k in _BASE_KEYS
-        if _st[k] != S.heartbeat_ledger_stats(_OK_ONLY)[k]])
+# issue #745：**冻结时钟**再比。原写法拿 `last_age_s`（= time.time() - 最近成功 t）做跨调用 `==`，
+# 而 `_st` 是 A01 之前算的、`_OK_ONLY` 的读数在 A09 现场算，中间隔着 A01–A08 共 8 个检查 ——
+# 两侧时间差是**几百毫秒级**，`last_age_s` 又量化到 0.1s 桶 ⇒ 跨桶概率 ≈ Δt/0.1s，CI 慢一点必红
+# （实测 PR #743 attempt 2 重跑仍红在同一行）。
+# 修法：同一冻结时刻下重算两侧，让 last_age_s 变成**确定量**，14 键仍**逐位比较**（不开容差口子）。
+with _mock.patch.object(S, "time", _FrozenTime(_FROZEN_T)):
+    _st_f = S.heartbeat_ledger_stats(_ROOT)
+    _ok_f = S.heartbeat_ledger_stats(_OK_ONLY)
+_d09 = [(k, _st_f[k], _ok_f[k]) for k in _BASE_KEYS if _st_f[k] != _ok_f[k]]
+_check("A09 失败行不进时间序列：时钟冻结后，原有时序读数与「只有 3 条成功」的台账 14 键逐位一致",
+       _d09 == [], _d09)
 _nb = S.heartbeat_ledger_stats(_NAME_ONLY, name="beat")
 _check("A10 同一档成/败混合：n=1、failed=1（两读数各归其位）",
        _nb["n"] == 1 and _nb["failed"] == 1, (_nb["n"], _nb["failed"]))
