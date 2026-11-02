@@ -1,3 +1,6 @@
+> [!NOTE]
+> **This is a reference translation.** The English docs may lag behind or omit content; **the Chinese documentation is the single source of truth**. When they disagree, the Chinese version wins. Every page here has a Chinese source pair in [TRANSLATION_MANIFEST.json](TRANSLATION_MANIFEST.json), and its language header links back to that source. See [TRANSLATION.md](TRANSLATION.md) for the policy.
+
 > **Languages:** [中文](../README.md) · English
 
 # docs/ directory index

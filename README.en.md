@@ -1,3 +1,6 @@
+> [!NOTE]
+> **This is a reference translation.** The English docs may lag behind or omit content; **the Chinese documentation is the single source of truth**. When they disagree, the Chinese version wins. See [docs/en/TRANSLATION.md](docs/en/TRANSLATION.md) for the translation policy.
+
 > **Languages:** [中文](README.md) · English
 
 <div align="center">

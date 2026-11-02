@@ -27,7 +27,15 @@ Generated documents are produced from source code by scripts/cogmap_sync.py. Edi
 
 ## Source of truth
 
-Each translated page starts with a language header that links back to its Chinese source. If a translation and its source disagree, the Chinese source wins and the translation must be fixed in the same pull request.
+The Chinese files are the single source of truth. The English pages are a reference translation. They may lag behind, omit content, or use different wording. When a translation and its source disagree, the Chinese source wins, and the English page is corrected in a follow-up. A Chinese-only change does not need to wait for an English update.
+
+Each translated page carries a language header near the top that links back to its Chinese source. The two entry pages put the reference-translation note first. The manifest pair is the machine-readable version of the same relationship.
+
+## Staleness policy
+
+English documentation can legitimately lag behind the Chinese source. Staleness is reported, not treated as a reason to weaken or revert the Chinese source.
+
+scripts/audit_translation.py is a local reporting and review tool. It is not a required CI merge gate. Its findings describe structural drift or untranslated prose; they do not override the Chinese source of truth. If the audit is wired into CI later, run it in report-only mode or treat its output as advisory, so a Chinese-only change is never blocked by translation debt.
 
 ## Structural fidelity
 
