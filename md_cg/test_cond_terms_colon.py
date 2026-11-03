@@ -277,6 +277,66 @@ def main():
     ok("全时窗" in _r_time["reason"],
        "O5 时间维哨兵有显式标记")
 
+    # ---------- P ASCII 词边界：路径碎片不得咬住无关英文词 ----------
+    # PR #735 把切分修好之后，`backend/app/core/...`、`/api/uzi/...` 这类路径
+    # 被切成 `app` / `core` / `api` 三个碎片进入匹配面。旧判据是裸子串
+    # `t in scene_str`，于是：
+    #     "capital".find("api")  == 1
+    #     "mapping".find("app")  == 1
+    #     "score".find("core")   == 4
+    # 三条都会在**条件完全没被确认**的情况下误判成「已确认」→ 假 ACCEPT。
+    # 本段锁的是「纯 ASCII 字母词按词边界，其余保持子串」这一口径。
+    ok(MdCG._term_in_scene("api", "capital 结构是否合理") is False,
+       "P1 api 不得命中 capital")
+    ok(MdCG._term_in_scene("app", "这个 mapping 对不对") is False,
+       "P2 app 不得命中 mapping")
+    ok(MdCG._term_in_scene("core", "计算 score 的方式") is False,
+       "P3 core 不得命中 score")
+    ok(MdCG._term_in_scene("api", "后端 /api/uzi/peers 有没有问题") is True,
+       "P4 api 在真路径里仍命中（不能为了收紧而漏掉）")
+    ok(MdCG._term_in_scene("core", "backend/app/core/uxi") is True,
+       "P5 core 在真路径里仍命中")
+    ok(MdCG._term_in_scene("UTC", "时区是 UTC 还是本地") is True,
+       "P6a UTC 独立成词命中")
+    ok(MdCG._term_in_scene("UTC", "时区是 UTCX 还是本地") is False,
+       "P6b UTC 右侧紧邻字母则不命中")
+    ok(MdCG._term_in_scene("本机进程", "载体/位置：本机进程；时间：全时窗") is True,
+       "P7 中文仍走子串（不收紧）")
+    ok(MdCG._term_in_scene("9:00", "到了上午 9:00 开始开会") is True,
+       "P8 非字母 ASCII（时间）仍走子串")
+    ok(MdCG._term_in_scene("3:1", "需按 WCAG 判 ≥3:1") is True,
+       "P9 非字母 ASCII（比值）仍走子串")
+    ok(MdCG._term_in_scene(None, "任意") is False
+       and MdCG._term_in_scene("", "任意") is False,
+       "P10 None / 空串按不命中")
+
+    # P14~P16 锁的是「收紧范围不能外溢」。三条都是把词边界写宽/写窄的
+    # 典型错法：写宽（对所有词都用 \b）会把中文整条判死；写窄（只认空白/标点）
+    # 会让中文紧邻英文时漏命中；把非字母 ASCII 也纳入收紧会连 `9:00` 一起废掉。
+    ok(MdCG._term_in_scene("本机进程", "cpu本机进程是否可用") is True,
+       "P14 中文短语紧邻拉丁字母时仍命中（收紧不得外溢到中文）")
+    ok(MdCG._term_in_scene("本机进程", "本机进程x 是否可用") is True,
+       "P15 中文短语右侧紧邻拉丁字母仍命中")
+    ok(MdCG._term_in_scene("api", "调用api接口时") is True,
+       "P16a ASCII 词紧邻中文仍命中（中文不是 ASCII 字母，不算越界）")
+    ok(MdCG._term_in_scene("api", "/api1/x") is True,
+       "P16b ASCII 词紧邻数字仍命中（只挡字母，不挡数字）")
+    ok(MdCG._term_in_scene("9:00", "x9:00开始") is True,
+       "P17 非字母 ASCII 不纳入收紧（9:00 左侧拉丁字母也照旧命中）")
+
+    # 端到端：同一条条件，三条问句必须分开判
+    _api_node = _node("端点 /api/uzi/peers 与 backend/app/core 两个入口")
+    _r_bad = MdCG.judge_qualification(_api_node, "请帮我看看 capital 结构是否合理")
+    ok(_r_bad["state"] == STATE_DEFER,
+       "P11 条件讲 /api/…，问句讲 capital ⇒ DEFER（不再假 ACCEPT）")
+    _r_good = MdCG.judge_qualification(_api_node, "后端 api 有没有问题")
+    ok(_r_good["state"] == STATE_ACCEPT
+       and "生效条件已确认" in _r_good["reason"],
+       "P12 同一条条件，问句真讲 api ⇒ 仍 ACCEPT（未过度收紧）")
+    _r_map = MdCG.judge_qualification(_api_node, "这个 mapping 对不对")
+    ok(_r_map["state"] == STATE_DEFER,
+       "P13 问句讲 mapping ⇒ DEFER（app 不得咬住 mapping）")
+
     print(f"\ncond_terms_colon: {PASS} passed, {FAIL} failed")
     if FAILS:
         for f in FAILS:

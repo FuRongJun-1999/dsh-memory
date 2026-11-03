@@ -4695,6 +4695,35 @@ class MdCG:
         return nodefile.cond_terms(cond_text)
 
     @staticmethod
+# 生效条件：term 为任意值、scene 为字符串；当 term 是「纯 ASCII 字母词」（api/app/core/UTC 这类）时按词边界匹配（左右不得紧邻其他 ASCII 字母），其余形态保持子串匹配；任一路径命中即返回 True。
+    def _term_in_scene(term, scene: str) -> bool:
+        """条件短语是否在情境串里成立 —— ASCII 词按词边界，中文按子串。
+
+        为什么纯 ASCII 字母词必须走词边界（PR #735 head 实测）：
+
+            "capital".find("api")  == 1   ⇒ 子串命中，但问句讲的是「capital 结构」
+            "mapping".find("app")  == 1   ⇒ 子串命中，但问句讲的是「mapping 对不对」
+            "score".find("core")   == 4   ⇒ 子串命中，但问句讲的是「计算 score 的方式」
+
+        条件文本里 `app`/`api`/`core` 来自 `backend/app/core/...`、
+        `/api/uzi/...` 这类路径切开后的碎片；用子串匹配时，任何含这几个
+        字母的词都会误命中，于是「条件未确认」被误判成「已确认」，节点被
+        错误放行（PR #735 已把切分修好，这一类碎片因此才真正暴露出来）。
+
+        只对**纯 ASCII 字母词**收紧，中文仍走子串：中文没有词边界概念，
+        且短语本身已是切分结果，再收紧会大面积漏命中；非字母 ASCII
+        （`9:00` / `3:1` / `dsh-memory` 的连字符）也不收紧 —— 那不是
+        「短词误咬」的形态。
+        """
+        t = "" if term is None else str(term)
+        if not t:
+            return False
+        if t.isascii() and t.isalpha():
+            return re.search(r"(?<![A-Za-z])" + re.escape(t) + r"(?![A-Za-z])",
+                             scene or "") is not None
+        return t in (scene or "")
+
+    @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
     def judge_qualification(node_dict, query: str, context=None):
         """四态判定（白箱第 1/2 篇）。
@@ -4793,7 +4822,11 @@ class MdCG:
                                            + "）：" + cond_text.strip()[:40]
                                            + "；请改写为 2 字以上的实词短语")}
                 else:
-                    cond_hit = next((t for t in terms_ if t in scene_str), None)
+                    # 命中判据统一走 _term_in_scene：纯 ASCII 字母词按词边界，
+                    # 其余按子串。直接 `t in scene_str` 会让 `api` 咬住
+                    # `capital`、`app` 咬住 `mapping`、`core` 咬住 `score`。
+                    cond_hit = next((t for t in terms_
+                                     if MdCG._term_in_scene(t, scene_str)), None)
                     if cond_hit is None:
                         return {"state": STATE_DEFER,
                                 "reason": ("生效条件未在情境确认（未命中任何声明条件："
