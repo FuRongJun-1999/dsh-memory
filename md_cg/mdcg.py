@@ -4715,13 +4715,44 @@ class MdCG:
         （`9:00` / `3:1` / `dsh-memory` 的连字符）也不收紧 —— 那不是
         「短词误咬」的形态。
         """
+        return MdCG._term_in_scene_norm(term, MdCG._cond_scene_norm(scene))
+
+    @staticmethod
+# 生效条件：scene 为任意值（None 按空串）时返回二元组 (紧凑归一串, 保空白归一串)；归一口径与 neg_condition_hits 同源（fold_accents → routing.fold_variants → 去空白）。
+    def _cond_scene_norm(scene):
+        """场景串 → (紧凑归一串, 保空白归一串)。**一次归一，多处复用**。
+
+        为什么要拆出来：判据在一个节点的 5~6 个词项上**共用同一个场景串**，
+        不拆就等于同一份归一连算 6 遍（实测单节点 13.9 µs → 1042 µs）。
+        不做 memo —— `routing.set_trad_to_simp()` 运行时可改繁简表，
+        缓存会返回改表前的旧值。
+        """
+        keep = fold_accents(routing.fold_variants(scene or ""))
+        return re.sub(r"\s+", "", keep), keep
+
+    @staticmethod
+# 生效条件：term 为任意值、norm_scene 为 _cond_scene_norm 的返回值时，纯 ASCII 字母词按词边界（判在保空白串上）匹配、其余按紧凑串子串匹配；任一路径命中即 True。
+    def _term_in_scene_norm(term, norm_scene) -> bool:
+        """条件短语是否在**已归一**的场景里成立（口径见 `_term_in_scene`）。"""
         t = "" if term is None else str(term)
         if not t:
             return False
-        if t.isascii() and t.isalpha():
-            return re.search(r"(?<![A-Za-z])" + re.escape(t) + r"(?![A-Za-z])",
-                             scene or "") is not None
-        return t in (scene or "")
+        # 与负条件面（neg_condition_hits）**同口径归一**：此前这里两侧都是裸原文，
+        # 于是「条件写 PE、问句打 pe」永不命中，而同一个词在负条件面却能命中 ——
+        # 同一份判据的两个面口径分裂。
+        t_keep = fold_accents(routing.fold_variants(t))
+        t_fold = re.sub(r"\s+", "", t_keep)
+        if not t_fold:
+            return False
+        if t_fold.isascii() and t_fold.isalpha():
+            # 词边界必须判在**保空白**的归一串上：紧凑串把
+            # `"fdata financials"` 拼成 `"fdatafinancials"`，再判「左右不得紧邻
+            # ASCII 字母」就会把合法的 `fdata` 误杀。
+            pat = (r"(?<![A-Za-z])"
+                   + r"\s*".join(re.escape(p) for p in t_keep.split())
+                   + r"(?![A-Za-z])")
+            return re.search(pat, norm_scene[1]) is not None
+        return t_fold in norm_scene[0]
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
@@ -4825,8 +4856,10 @@ class MdCG:
                     # 命中判据统一走 _term_in_scene：纯 ASCII 字母词按词边界，
                     # 其余按子串。直接 `t in scene_str` 会让 `api` 咬住
                     # `capital`、`app` 咬住 `mapping`、`core` 咬住 `score`。
+                    # 场景归一**只算一次**（同一节点的所有词项共用一个场景串）
+                    _norm_scene = MdCG._cond_scene_norm(scene_str)
                     cond_hit = next((t for t in terms_
-                                     if MdCG._term_in_scene(t, scene_str)), None)
+                                     if MdCG._term_in_scene_norm(t, _norm_scene)), None)
                     if cond_hit is None:
                         return {"state": STATE_DEFER,
                                 "reason": ("生效条件未在情境确认（未命中任何声明条件："
