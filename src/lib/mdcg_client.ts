@@ -348,8 +348,11 @@ export class MdcgClient {
    *  `max(1, recent_limit or 10)` 归一（`mdcos.py:3309`）。
    *
    *  ⚠️ 两条服务端事实（决定注入侧的可达性，勿据本方法名臆测）：
-   *   ① `recent` 段取 `recent_events(limit=recent_limit)` —— **不按 session
-   *      过滤**（近期事件是运行态滚动窗口，会话归属只写在每条事件的 meta 里）；
+   *   ① `recent` 段在 `session` 为真值时由服务端**严格按会话过滤**（`meta.session`
+   *      精确相等；缺 `meta.session` 的事件被丢弃——最坏空窗口，杜绝错块）；
+   *      `session` 显式传 `'*'` 时不过滤（跨会话汇总的合法用法）；仅当 `session`
+   *      为 falsy 时才退回全局窗口，并在 `pack.degraded` 追加
+   *      `recent_global_window`（注入侧据此 fail-closed，见 src/hooks.ts）。
    *   ② budget 是**整包**预算：库内 notes/tasks/self_state 占位越多，同样
    *      budget 下 recent 段被裁得越短（实测：空库 + 10 条窗口条目，
    *      budget_tokens=600 → recent 8 条；1200 → 10 条）。

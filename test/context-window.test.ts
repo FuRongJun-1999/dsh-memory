@@ -70,6 +70,9 @@ function makeGraph(opts: {
   /** issue #715：timeline 返回项（缺省一条 contextual）。用于构造 self/anchor 节点，
    *  验「身份块能取到永久层」——修前因复用带会话过滤的 payload 而恒空。 */
   timelineItems?: Array<Record<string, unknown>>
+  /** 服务端 `session_recall` 的 `degraded` 标注（会话标识缺失 → 全局窗口）。
+   *  用于验注入侧 fail-closed：降级窗口**不得**冒充「本会话近期对话」注入。 */
+  sessionRecallDegraded?: string[]
 } = {}) {
   const timelineCalls: Array<Record<string, unknown>> = []
   const recentAddCalls: RecentAddCall[] = []
@@ -90,6 +93,7 @@ function makeGraph(opts: {
         ok: true,
         recent: opts.recentItems
           ?? [winItem('user', '近窗口条目一'), winItem('assistant', '近窗口条目二')],
+        degraded: opts.sessionRecallDegraded ?? [],
       }
     },
     async remember() { return { ok: true } },
@@ -414,4 +418,34 @@ test('W714b sid 正常时不告警（不误报）', async () => {
   await assemble({ agent: { session: { id: 'sess_A' } } })
   const hits = warns.filter((w) => w.includes('会话 id 为空'))
   assert.equal(hits.length, 0, '有 sid 时不该告警')
+})
+
+// ---------------------------------------------------------------- W7 降级保护（本次）
+
+test('W7 降级保护：服务端标注 recent_global_window 时 fail-closed，不注入会话窗口块', async () => {
+  // 场景：宿主拿不到会话标识（sid 为空，见 W714 告警）⇒ 服务端把 recent 段降级为
+  // **全局滚动窗口**并在 degraded 标注。此时若仍以【本会话近期对话】为标题注入，
+  // 多窗口并发下会把 A 窗口/历史条目当成本会话输入（issue #65 同族，注入面残口）。
+  const { graph, sessionRecallCalls } = makeGraph({
+    recentItems: [winItem('user', '别的窗口说的话')],
+    sessionRecallDegraded: ['recent_global_window'],
+  })
+  const { assemble, warns } = makeHarness(graph, { autoRecall: true })
+
+  const a = await assemble({})
+
+  assert.equal(sessionRecallCalls.length, 1, '仍应发起一次窗口取数（不因怕降级而不取）')
+  assert.equal(a.contexts.length, 1, '降级时只保留既有块，不注入第二块')
+  assert.equal(a.contexts[0]!.name, 'lingshu:auto-recall', '既有 block 不受影响')
+  assert.ok(!a.contexts.some((c) => c.name === 'lingshu:session-window'),
+    '降级窗口不得以 lingshu:session-window 注入')
+  assert.ok(warns.some((w) => w.includes('降级为全局窗口')), '降级须显式留痕（不得静默）')
+})
+
+test('W7b 正常载荷（degraded 为空）仍注入第二块（不误伤）', async () => {
+  const { graph } = makeGraph({ recentItems: [winItem('user', '本会话的话')] })
+  const { assemble } = makeHarness(graph)
+  const a = await assemble({ agent: { session: { id: 'sess_A' } } })
+  assert.equal(a.contexts.length, 2, '正常载荷仍两块齐')
+  assert.equal(a.contexts[1]!.name, 'lingshu:session-window')
 })

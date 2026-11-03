@@ -968,21 +968,36 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (cwEnabled) {
             try {
               const win = await graph.sessionRecall(sid, cwTurns, WINDOW_BUDGET_TOKENS)
-              // issue #712：传 sid 用于**标注**（本会话/其他会话），不用于过滤。
-              const winText = formatSessionWindow(win, cwTurns, { session: sid })
-              if (winText) {
-                // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
-                // 都只改注入副本——窗口原文在库内保真。
-                // issue #354 [P1-14] 同族：窗口块也是注入面，同样过脱敏（理由与
-                // 诚实边界见上方 auto-recall 块）——渲染文本自带 `[role] ` 前缀，
-                // 故「整条皆凭据」时该块仍会注入，但凭据原文一定被替换成占位。
-                const winSafe = desensitize(winText)
-                if (winSafe) {
-                  assembly.contexts.push({
-                    name: 'lingshu:session-window',
-                    text: escapePromptBraces(renderUntrustedMemoryBlock(
-                      `【本会话近期对话】\n${winSafe}`)),
-                  })
+              // issue #712：sid 交服务端**按会话取数**（真值时严格过滤）与行内归因；
+              // 前端不再二次过滤（两份判据会分裂，本仓已多次栽在这上面）。
+              // 2026-11-01 实测补充：服务端在**会话标识缺失**时会把 recent 段降级为
+              // **全局窗口**，并在 payload.degraded 标注 'recent_global_window'
+              // （md_cg/mdcos.py 的 session_recall）。本块语义是「本会话近期对话」——
+              // 降级时原样注入等于用块标题误导模型（多窗口下会把其他会话/历史条目
+              // 当成本会话输入；本仓 #65 同族事故的注入面残口）。fail-closed：降级时
+              // 不注入本块（timeline 块不受影响），并显式留痕——宁可少注入，不错块。
+              const winDegraded: unknown[] = Array.isArray((win as { degraded?: unknown })?.degraded)
+                ? (win as { degraded: unknown[] }).degraded
+                : []
+              if (winDegraded.some((d) => String(d) === 'recent_global_window')) {
+                ctx.logger.warn('dsh-memory: 会话窗口取数已降级为全局窗口（缺会话标识），'
+                  + '为避免跨会话注入已跳过本会话窗口块')
+              } else {
+                const winText = formatSessionWindow(win, cwTurns, { session: sid })
+                if (winText) {
+                  // 注入边界同规（文件头硬约束）：不可信内容边界 + `{{` 转义，
+                  // 都只改注入副本——窗口原文在库内保真。
+                  // issue #354 [P1-14] 同族：窗口块也是注入面，同样过脱敏（理由与
+                  // 诚实边界见上方 auto-recall 块）——渲染文本自带 `[role] ` 前缀，
+                  // 故「整条皆凭据」时该块仍会注入，但凭据原文一定被替换成占位。
+                  const winSafe = desensitize(winText)
+                  if (winSafe) {
+                    assembly.contexts.push({
+                      name: 'lingshu:session-window',
+                      text: escapePromptBraces(renderUntrustedMemoryBlock(
+                        `【本会话近期对话】\n${winSafe}`)),
+                    })
+                  }
                 }
               }
             } catch (err) {
