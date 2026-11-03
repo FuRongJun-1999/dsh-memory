@@ -579,7 +579,10 @@ def _gate_dedupe(ctx):
     if not isinstance(content, str) or not content:
         return None
     from . import nodefile
-    want = nodefile.content_hash(content)
+    # #741：索引侧的 content_hash 按**落盘形态**计算（nodefile.normalize_body），
+    # 此处若按入参原串算，正文不带尾换行时两侧恒不相等 ⇒ 幂等闸静默失效
+    # （同一路径的另一份手写归一化，正是 #741 要消灭的"第二实现"）。
+    want = nodefile.content_hash(nodefile.normalize_body(content))
     layer_want = str(a.get("layer") or "knowledge")
     nodes = ((getattr(ctx["cg"], "index", None) or {}).get("nodes") or {})
     for nid, e in list(nodes.items()):

@@ -108,7 +108,11 @@ def begin(cg, node_id: str, content: str, layer: str = None,
     tok = {
         "iid": uuid.uuid4().hex[:16],
         "node_id": node_id,
-        "content_hash": nodefile.content_hash(_norm(content)),
+        # #741：指纹口径必须与**索引条目**同源——否则同一笔写入会算出两个值：
+        # 本处曾用自写的 _norm（**剥**尾换行），索引侧却是落盘形态（**补**尾换行），
+        # 两者方向相反 ⇒ 未命中的意图在对账时被判 interrupted（假阳性）。
+        # 现统一走 normalize_body 单点（与 mdcg 三处写点同一实现）。
+        "content_hash": nodefile.content_hash(nodefile.normalize_body(content)),
     }
     rec = {"t": time.time(), "phase": "intent", "iid": tok["iid"],
            "id": node_id, "content_hash": tok["content_hash"]}
@@ -271,7 +275,8 @@ def _judge(cg, intent: dict):
         if tgt:
             return STATUS_COMMITTED, "%s:%s" % (R_MERGED_INTO, tgt)
         return STATUS_INTERRUPTED, R_NODE_MISSING
-    got = nodefile.content_hash(_norm(node.get("content") or ""))
+    # #741：比对侧同源（node.get 返回的正文即盘面形态，normalize_body 幂等）
+    got = nodefile.content_hash(nodefile.normalize_body(node.get("content") or ""))
     if want and got != want:
         return STATUS_INTERRUPTED, R_MISMATCH
     return STATUS_COMMITTED, R_NODE_OK
