@@ -365,7 +365,7 @@ class Principal:
         if not self.can_admin:
             raise AccessDenied(f"actor={self.actor} 无管理权限（{op}）")
 
-# 生效条件：无 required 形参或模块级常量前置，返回包含 self 各属性（tenant/actor/clearance/can_write/can_admin/session/harness/unit/role/token_id/parent/auth_mode/expires_at/theory_ok/theory_version 及 layers_allow/ops_allow）的 dict；其中 layers_allow/ops_allow 为 None 时值为 None，否则 list 化。
+# 生效条件：无 required 形参或模块级常量前置，返回包含 self 各属性（tenant/actor/clearance/can_write/can_admin/session/harness/unit/role/token_id/parent/auth_mode/expires_at/theory_ok/theory_version 及 layers_allow/ops_allow）的 dict；其中 layers_allow/ops_allow 为 None 时值为 None，否则 list 化；sessions_read 同构（None 或 list 化，issue #712：让 verify 输出可见读面）。
     def as_dict(self):
         return {"tenant": self.tenant, "actor": self.actor,
                 "clearance": self.clearance, "can_write": self.can_write,
@@ -379,7 +379,9 @@ class Principal:
                 "layers_allow": (None if self.layers_allow is None
                                  else list(self.layers_allow)),
                 "ops_allow": (None if self.ops_allow is None
-                              else list(self.ops_allow))}
+                              else list(self.ops_allow)),
+                "sessions_read": (None if self.sessions_read is None
+                                  else list(self.sessions_read))}
 
 # 生效条件：无前置；仅返回 tenant/actor/role/clearance/write/admin 的短摘要用于日志与排障，不含 token、密钥材料与能力白名单明细；
     def __repr__(self):
