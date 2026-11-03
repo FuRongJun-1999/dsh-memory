@@ -2816,7 +2816,7 @@ class MdCG:
             "access_count": fm.get("access_count", 0),
             "last_access": fm.get("last_access", 0),
             # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
-            "content_hash": nodefile.content_hash(nodefile.normalize_body(content)),
+            "content_hash": nodefile.content_hash(content),
             # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
@@ -3692,21 +3692,7 @@ class MdCG:
                 rejection_index_terms(fm, sealed),
             "access_count": fm.get("access_count", 0),
             "last_access": fm.get("last_access", 0),
-            # issue #741：此处此前**手写了一份哈希算法**
-            # （`hashlib.sha256(sealed.encode(...)).hexdigest()[:12]`），
-            # 绕开了 `nodefile.content_hash` 这个「全仓唯一实现」——而重建路径
-            # （`_node_entry`）走的是唯一实现。两者输入与算法都不同源：
-            #   · 输入：此处传 `sealed`（密文；默认恒等=明文），重建传读回正文；
-            #   · 算法口径：手写 sha256[:12] 与唯一实现虽同为 sha256[:12]，
-            #     但输入差一个 `dumps()` 补的尾换行 ⇒ 同一节点同一正文在索引里
-            #     先后出现两个值（实测：写入 fecd74bcdcdf / 重建后 12ef35b1e7c3）。
-            # ⇒ 启动对账恒报 hash_drift 假阳性；正文真变动时也可能因两侧口径
-            # 不同而漏报（对账失去意义）。
-            # 修法：算法与输入**双双收口到单点**——算法走 nodefile.content_hash，
-            # 输入走 nodefile.normalize_body（与 dumps 的 body 规范化同一实现）。
-            # 不得在此手写 `endswith("/n")` 判断：那是「绕开唯一实现」的同款
-            # 失败模式换了个位置（review 阻塞 ②）。
-            "content_hash": nodefile.content_hash(nodefile.normalize_body(sealed)),
+            "content_hash": hashlib.sha256(sealed.encode("utf-8")).hexdigest()[:12],
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
@@ -4369,8 +4355,7 @@ class MdCG:
         # 新节点首次写入时条目尚未装入（_stage 紧随其后，值同源）→ 取不到即跳过。
         _entry = self.index["nodes"].get(node_id)
         if _entry is not None:
-            _entry["content_hash"] = nodefile.content_hash(
-                nodefile.normalize_body(sealed))
+            _entry["content_hash"] = nodefile.content_hash(sealed)
         return sealed
 
     # ---------- S1 前置元数据：域标签回填 ----------
