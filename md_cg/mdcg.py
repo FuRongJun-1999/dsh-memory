@@ -6335,17 +6335,30 @@ class MdCG:
         #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）
         # 受保护节点不接受降级——负路由 ok=False 只说明「不可降」，不回滚已完成的
         # 证据计数（与上方 lifecycle 降级同风格：不假装成功，也不推翻既成事实）。
+        #
+        # issue #733：`override` 必须透传到验证态推进。此前它只透传给了
+        # falsified 分支的 `protect.guard_forget`，两条正常裁决分支整段没带。
+        # 而它们落到的 `trust.set_state` → `stamp` 对**受保护节点**的降级迁移
+        # 会直接拒绝（`ok=False, error="protected"`），提示语正是
+        # 「确需降级请显式 override=True」——调用方照做却仍被拒 ⇒ 受保护节点的
+        # weakened 裁决**永远无法生效**：回执 ok=False、verification_state 停在
+        # 原值，而 confidence / evidence_count / evidence_log 已按 weakened 扣减
+        # 并落盘，形成「证据记了、结论没落地」的盘面不自洽态。
+        # 该面与 falsified 分支同属「verify 覆盖受保护节点」的唯一合法通路，
+        # 故 override 在两条分支同源透传（缺省 False，既有调用方行为逐位不变）。
         if verdict == "confirmed":
             ver = self.set_verification(
                 node_id, "verified",
                 reason=f"外部裁决 confirmed：{str(evidence)[:80]}",
                 actor="verify:confirmed", evidence=evidence,
-                method=fm.get("verification_basis"), trigger="verify")
+                method=fm.get("verification_basis"), trigger="verify",
+                override=override)
         else:
             ver = self.set_verification(
                 node_id, "doubted",
                 reason=f"外部裁决 weakened：{str(evidence)[:80]}",
-                actor="verify:weakened", evidence=evidence, trigger="verify")
+                actor="verify:weakened", evidence=evidence, trigger="verify",
+                override=override)
         # 结论已变 ⇒ 下游的「地基动了」：同步一跳传播（永不抛，降级不阻断）
         propagation = trust.mark_dependents(
             self, node_id, reason=f"上游验证结论变为 {verdict}",
