@@ -393,6 +393,28 @@ def content_hash(content: str) -> str:
 
 
 # 生效条件：frontmatter（任意 dict，键按 sorted 输出）与 content（任意 str）均无前置校验即生效；content 不以 "\n" 结尾时补一个换行，返回 "---" + 各键的 "{k}: {json.dumps(v, ensure_ascii=False)}" 行 + "---" 行 + 正文。
+def normalize_body(content: str) -> str:
+    """正文的**落盘形态规范化**——全仓唯一实现（issue #741）。
+
+    为什么需要这个单点：`dumps()` 会把无尾换行的正文补一个 `"\n"`（写盘形态），
+    而 `loads()` 原样保留。于是「写入时传入的原串」与「此后读回的串」在这一
+    个字节上分叉——任何跨这两侧的指纹/比对都必须先归一到同一侧，否则同一份
+    正文会算出两个值（#741 的病灶）。
+
+    修 #741 时**不得**在调用处手写 `content if content.endswith(...) else ...`：
+    那是「绕开唯一实现」的同款失败模式换了位置（与 `content_hash` /
+    `codeindex.region_hash` 同一纪律）。所有需要落盘形态的地方都调本函数：
+      · `dumps()` 的 body 段（写盘）；
+      · `MdCG._stage` / `_write_node` / `_node_entry` 取 `content_hash` 前；
+      · `twophase` intent 载荷指纹。
+
+    口径：唯一改写的形态是「补一个尾换行」；空串按 `"\n"`。不做别的裁剪
+    （`rstrip` / `\r\n` 归一是**另一条**语义，若日后要有，也只改本函数一处）。
+    """
+    content = content or ""
+    return content if content.endswith("\n") else content + "\n"
+
+
 def dumps(frontmatter: dict, content: str) -> str:
     lines = [_DELIM]
     for k in sorted(frontmatter):
@@ -400,7 +422,7 @@ def dumps(frontmatter: dict, content: str) -> str:
         # 一律 JSON 序列化：值内不会出现裸换行，切分才可靠；数字/字符串也保持可读
         lines.append(f"{k}: {json.dumps(v, ensure_ascii=False)}")
     lines.append(_DELIM)
-    body = content if content.endswith("\n") else content + "\n"
+    body = normalize_body(content)
     return "\n".join(lines) + "\n" + body
 
 

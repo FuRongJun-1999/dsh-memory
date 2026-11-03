@@ -2816,7 +2816,7 @@ class MdCG:
             "access_count": fm.get("access_count", 0),
             "last_access": fm.get("last_access", 0),
             # 内容指纹走 nodefile 的唯一实现（两段式对账依赖同一算法）
-            "content_hash": nodefile.content_hash(content),
+            "content_hash": nodefile.content_hash(nodefile.normalize_body(content)),
             # 时空字段入索引快照：STG 查询免读文件（大域/目录索引的延伸）
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
@@ -3702,10 +3702,11 @@ class MdCG:
             #     先后出现两个值（实测：写入 fecd74bcdcdf / 重建后 12ef35b1e7c3）。
             # ⇒ 启动对账恒报 hash_drift 假阳性；正文真变动时也可能因两侧口径
             # 不同而漏报（对账失去意义）。
-            # 修法：与重建路径用**同一个函数**，输入取落盘形态（sealed 经 dumps
-            # 的正文规范化），保证两条路径逐位一致。
-            "content_hash": nodefile.content_hash(
-                sealed if sealed.endswith("\n") else sealed + "\n"),
+            # 修法：算法与输入**双双收口到单点**——算法走 nodefile.content_hash，
+            # 输入走 nodefile.normalize_body（与 dumps 的 body 规范化同一实现）。
+            # 不得在此手写 `endswith("/n")` 判断：那是「绕开唯一实现」的同款
+            # 失败模式换了个位置（review 阻塞 ②）。
+            "content_hash": nodefile.content_hash(nodefile.normalize_body(sealed)),
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
@@ -4368,7 +4369,8 @@ class MdCG:
         # 新节点首次写入时条目尚未装入（_stage 紧随其后，值同源）→ 取不到即跳过。
         _entry = self.index["nodes"].get(node_id)
         if _entry is not None:
-            _entry["content_hash"] = nodefile.content_hash(sealed)
+            _entry["content_hash"] = nodefile.content_hash(
+                nodefile.normalize_body(sealed))
         return sealed
 
     # ---------- S1 前置元数据：域标签回填 ----------
@@ -6348,17 +6350,30 @@ class MdCG:
         #   weakened  → doubted（证据被削弱 ⇒ 存疑，待复核）
         # 受保护节点不接受降级——负路由 ok=False 只说明「不可降」，不回滚已完成的
         # 证据计数（与上方 lifecycle 降级同风格：不假装成功，也不推翻既成事实）。
+        #
+        # issue #733：`override` 必须透传到验证态推进。此前它只透传给了
+        # falsified 分支的 `protect.guard_forget`，两条正常裁决分支整段没带。
+        # 而它们落到的 `trust.set_state` → `stamp` 对**受保护节点**的降级迁移
+        # 会直接拒绝（`ok=False, error="protected"`），提示语正是
+        # 「确需降级请显式 override=True」——调用方照做却仍被拒 ⇒ 受保护节点的
+        # weakened 裁决**永远无法生效**：回执 ok=False、verification_state 停在
+        # 原值，而 confidence / evidence_count / evidence_log 已按 weakened 扣减
+        # 并落盘，形成「证据记了、结论没落地」的盘面不自洽态。
+        # 该面与 falsified 分支同属「verify 覆盖受保护节点」的唯一合法通路，
+        # 故 override 在两条分支同源透传（缺省 False，既有调用方行为逐位不变）。
         if verdict == "confirmed":
             ver = self.set_verification(
                 node_id, "verified",
                 reason=f"外部裁决 confirmed：{str(evidence)[:80]}",
                 actor="verify:confirmed", evidence=evidence,
-                method=fm.get("verification_basis"), trigger="verify")
+                method=fm.get("verification_basis"), trigger="verify",
+                override=override)
         else:
             ver = self.set_verification(
                 node_id, "doubted",
                 reason=f"外部裁决 weakened：{str(evidence)[:80]}",
-                actor="verify:weakened", evidence=evidence, trigger="verify")
+                actor="verify:weakened", evidence=evidence, trigger="verify",
+                override=override)
         # 结论已变 ⇒ 下游的「地基动了」：同步一跳传播（永不抛，降级不阻断）
         propagation = trust.mark_dependents(
             self, node_id, reason=f"上游验证结论变为 {verdict}",
