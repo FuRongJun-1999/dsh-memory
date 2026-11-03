@@ -4660,32 +4660,68 @@ class MdCG:
                     parts = [str(v)]
         return "；".join(parts)
 
-    @staticmethod
-# 生效条件：cond_text 为假值时按空串返回空列表；仅当按槽分隔与槽内分隔切出的短语长度≥2、非纯数字且不含时间维哨兵短语时进入返回列表，重复短语只保留首次。
-    def _cond_terms(cond_text: str):
-        """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。
+    # 条件空间的槽标签 / 首尾标点**不在这里另立名字**：真源只有 nodefile 一处，
+    # 本类通过 `nodefile.COND_SLOT_LABELS` / `nodefile.COND_EDGE_PUNCT` 直接引用。
+    #
+    # 为什么不保留 `MdCG._SLOT_LABELS` / `MdCG._EDGE_PUNCT` 这两个别名
+    # （2026-11-02 review 后收敛）：它们是**零读点**——委托化之后
+    # `_cond_terms` / `_cond_terms_diag` 都直接调 nodefile，生产路径一次也不读；
+    # `_EDGE_PUNCT` 连测试都没有。留着等于多出两个可漂移的入口名，
+    # 与「单点收口」的主张自相矛盾。测试 L2 只验 `is` 同一性，
+    # 那验的是「别名没被抄一份」，删掉别名后该断言自然失去对象，一并移除。
+    #
+    # 真源漂移守卫也不用类体 `assert`：`tuple(l for _k, l in CONDITION_SLOTS)`
+    # 与 `COND_SLOT_LABELS` 两边都由 CONDITION_SLOTS 派生（见 nodefile 的
+    # `COND_SLOT_LABELS = tuple(label for _key, label in CONDITION_SLOTS)`），
+    # 恒真；且 `python -O` 会把它整个剥离，防护力为 0。真正有守卫价值的是
+    # 「不是另抄一份」这件事，它已由 `COND_SLOT_LABELS` 的单一定义天然保证。
 
-        切分规则：按槽分隔「；/;」拆槽（condition_space_text 以「；」连四槽）
-        → 每槽剥「槽标签：」前缀（载体/位置、时间、方法、约束等标签是通用词，
-        参与命中必误判）→ 槽内按「，,、/（）」切短语 → 丢弃长度 <2、纯数字、
-        全时窗哨兵短语（全时窗 = 时间维无信息量，不因其未命中而降级）。
+    @staticmethod
+# 生效条件：cond_text 为假值时 terms 为空列表且各计数为 0；否则返回 nodefile.condition_terms_diag 的完整诊断字典（切分单点在 nodefile，本方法只是包内别名）。
+    def _cond_terms_diag(cond_text: str):
+        """条件文本 → {terms, n_empty, n_digit, n_short,
+        n_time_sentinel, n_decl_sentinel}。
+
+        **切分单点在 `nodefile.condition_terms_diag`**，本方法只是别名 ——
+        早先 `nodefile.cond_terms` 是第二份实现、补丁后两份行为分叉，
+        属潜伏风险（零调用点，未成当下缺陷）。改为单点后不可能再分叉。
         """
-        out, seen = [], set()
-        for slot in re.split(r"[；;]", str(cond_text or "")):
-            if "：" in slot:
-                slot = slot.split("：", 1)[1]
-            elif ":" in slot:
-                slot = slot.split(":", 1)[1]
-            for seg in re.split(r"[，,、/（）()]", slot):
-                seg = seg.strip()
-                if len(seg) < 2 or seg.isdigit():
-                    continue
-                if "全时窗" in seg or "任意时刻" in seg:
-                    continue
-                if seg not in seen:
-                    seen.add(seg)
-                    out.append(seg)
-        return out
+        return nodefile.condition_terms_diag(cond_text)
+
+    @staticmethod
+# 生效条件：cond_text 为假值时按空串返回空列表；否则返回 nodefile.cond_terms 的短语列表（规则同 condition_terms_diag）。
+    def _cond_terms(cond_text: str):
+        """生效条件声明 → 匹配短语列表（确定性切分，无语义猜测）。"""
+        return nodefile.cond_terms(cond_text)
+
+    @staticmethod
+# 生效条件：term 为任意值、scene 为字符串；当 term 是「纯 ASCII 字母词」（api/app/core/UTC 这类）时按词边界匹配（左右不得紧邻其他 ASCII 字母），其余形态保持子串匹配；任一路径命中即返回 True。
+    def _term_in_scene(term, scene: str) -> bool:
+        """条件短语是否在情境串里成立 —— ASCII 词按词边界，中文按子串。
+
+        为什么纯 ASCII 字母词必须走词边界（PR #735 head 实测）：
+
+            "capital".find("api")  == 1   ⇒ 子串命中，但问句讲的是「capital 结构」
+            "mapping".find("app")  == 1   ⇒ 子串命中，但问句讲的是「mapping 对不对」
+            "score".find("core")   == 4   ⇒ 子串命中，但问句讲的是「计算 score 的方式」
+
+        条件文本里 `app`/`api`/`core` 来自 `backend/app/core/...`、
+        `/api/uzi/...` 这类路径切开后的碎片；用子串匹配时，任何含这几个
+        字母的词都会误命中，于是「条件未确认」被误判成「已确认」，节点被
+        错误放行（PR #735 已把切分修好，这一类碎片因此才真正暴露出来）。
+
+        只对**纯 ASCII 字母词**收紧，中文仍走子串：中文没有词边界概念，
+        且短语本身已是切分结果，再收紧会大面积漏命中；非字母 ASCII
+        （`9:00` / `3:1` / `dsh-memory` 的连字符）也不收紧 —— 那不是
+        「短词误咬」的形态。
+        """
+        t = "" if term is None else str(term)
+        if not t:
+            return False
+        if t.isascii() and t.isalpha():
+            return re.search(r"(?<![A-Za-z])" + re.escape(t) + r"(?![A-Za-z])",
+                             scene or "") is not None
+        return t in (scene or "")
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
@@ -4739,18 +4775,63 @@ class MdCG:
         #    「无情境」不能被误判成「不适用」。
         cond_hit = None
         has_scene = bool((query or "").strip()) or bool(context)
+        # 正条件段「跳过比对」的原因（review 5b 可观测性）：不记录的话，
+        # 「没写条件」「写了空值声明」「写了全时窗哨兵」三者在日志上完全同形。
+        # 取值：None（没跳过）/ "no_condition"（没写）/ "sentinel_decl"（空值声明）/
+        #       "sentinel_time"（时间维全时窗）。
+        exempt = None
         if has_scene:
             cond_text = MdCG._ccg_line(content, "生效条件")
             if not cond_text and fm.get("condition_space"):
                 cond_text = nodefile.condition_space_text(fm["condition_space"])
-            if cond_text and cond_text.strip() != "无条件":
-                terms_ = MdCG._cond_terms(cond_text)
-                cond_hit = next((t for t in terms_ if t in scene_str), None)
-                if cond_hit is None and terms_:
-                    return {"state": STATE_DEFER,
-                            "reason": ("生效条件未在情境确认（未命中任何声明条件："
-                                       + "、".join(terms_[:3])
-                                       + "）；可补充情境或条件词面后重判")}
+            if not cond_text or cond_text.strip() == "无条件":
+                exempt = "no_condition"
+            else:
+                diag = MdCG._cond_terms_diag(cond_text)
+                terms_ = diag["terms"]
+                if not terms_:
+                    # 「写了条件却切不出可用短语」≠「本来就没写条件」：
+                    # 后者跳过比对是对的，前者是条件不可用，不能静默放行。
+                    #
+                    # 但两类残段是**合法空值声明**，不是「切不出」：
+                    #   · 时间维哨兵（全时窗/任意时刻）—— 文档口径「不因其未命中而降级」
+                    #   · 空值语义哨兵（无/不适用）—— 「约束：无」声明的是「无约束」，
+                    #     是完整声明，不是坏条件（旧实现靠 len<2 把它静默滤掉，
+                    #     恰好得到 ACCEPT；本补丁若只用 len 判定会把它误判成 DEFER）
+                    # 判据是**析取式**：残段全部落在合法声明桶 → 豁免；
+                    # 只要有一段落在硬不可用桶（纯标点/纯数字/单字碎片）→ 不豁免。
+                    unusable = diag["n_empty"] + diag["n_digit"] + diag["n_short"]
+                    if not unusable:
+                        # 残段全部落在合法声明桶 -> 豁免。再按桶分因：
+                        # 时间维哨兵与空值语义哨兵是不同口径的声明，日志里必须分开。
+                        if diag["n_time_sentinel"] and not diag["n_decl_sentinel"]:
+                            exempt = "sentinel_time"
+                        else:
+                            exempt = "sentinel_decl"
+                    if unusable:
+                        bits = []
+                        if diag["n_empty"]:
+                            bits.append(f"纯标点 {diag['n_empty']}")
+                        if diag["n_digit"]:
+                            bits.append(f"纯数字 {diag['n_digit']}")
+                        if diag["n_short"]:
+                            bits.append(f"单字碎片 {diag['n_short']}")
+                        return {"state": STATE_DEFER,
+                                "reason": ("生效条件切不出可用短语（"
+                                           + "、".join(bits)
+                                           + "）：" + cond_text.strip()[:40]
+                                           + "；请改写为 2 字以上的实词短语")}
+                else:
+                    # 命中判据统一走 _term_in_scene：纯 ASCII 字母词按词边界，
+                    # 其余按子串。直接 `t in scene_str` 会让 `api` 咬住
+                    # `capital`、`app` 咬住 `mapping`、`core` 咬住 `score`。
+                    cond_hit = next((t for t in terms_
+                                     if MdCG._term_in_scene(t, scene_str)), None)
+                    if cond_hit is None:
+                        return {"state": STATE_DEFER,
+                                "reason": ("生效条件未在情境确认（未命中任何声明条件："
+                                           + "、".join(terms_[:3])
+                                           + "）；可补充情境或条件词面后重判")}
 
         # 4) DEFER：节点无 verification_basis → 信任根基不足
         if not fm.get("verification_basis"):
@@ -4763,6 +4844,17 @@ class MdCG:
             acc = f"生效条件已确认（命中「{cond_hit}」）+ " + acc
         elif not has_scene:
             acc = "无情境可比（未做正条件确认）+ " + acc
+        else:
+            # 走到这里说明「有情境、但没命中任何短语」而仍然 ACCEPT。
+            # 以前这条与「根本没写条件」共用同一句 reason，日志上无法区分
+            # （2026-11-02 review 5b：本 PR 最该抓的可观测性缺口）。
+            # 按 `exempt` 记录的**跳过原因**逐一分因——三种语义不能合并成一句。
+            _EXEMPT_TEXT = {
+                "no_condition": "未声明生效条件（跳过正条件比对）",
+                "sentinel_decl": "生效条件为空值声明（已豁免）",
+                "sentinel_time": "生效条件为时间维全时窗（已豁免）",
+            }
+            acc = _EXEMPT_TEXT.get(exempt, "生效条件未做正条件确认") + " + " + acc
         return {"state": STATE_ACCEPT, "reason": acc}
 
     # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）；#362d 案②：抑制确实发生且未摘词面原判 REJECT 时，把该证据并入顶层 reason（键集与 state 不动）。
