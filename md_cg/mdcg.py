@@ -3692,7 +3692,20 @@ class MdCG:
                 rejection_index_terms(fm, sealed),
             "access_count": fm.get("access_count", 0),
             "last_access": fm.get("last_access", 0),
-            "content_hash": hashlib.sha256(sealed.encode("utf-8")).hexdigest()[:12],
+            # issue #741：此处此前**手写了一份哈希算法**
+            # （`hashlib.sha256(sealed.encode(...)).hexdigest()[:12]`），
+            # 绕开了 `nodefile.content_hash` 这个「全仓唯一实现」——而重建路径
+            # （`_node_entry`）走的是唯一实现。两者输入与算法都不同源：
+            #   · 输入：此处传 `sealed`（密文；默认恒等=明文），重建传读回正文；
+            #   · 算法口径：手写 sha256[:12] 与唯一实现虽同为 sha256[:12]，
+            #     但输入差一个 `dumps()` 补的尾换行 ⇒ 同一节点同一正文在索引里
+            #     先后出现两个值（实测：写入 fecd74bcdcdf / 重建后 12ef35b1e7c3）。
+            # ⇒ 启动对账恒报 hash_drift 假阳性；正文真变动时也可能因两侧口径
+            # 不同而漏报（对账失去意义）。
+            # 修法：与重建路径用**同一个函数**，输入取落盘形态（sealed 经 dumps
+            # 的正文规范化），保证两条路径逐位一致。
+            "content_hash": nodefile.content_hash(
+                sealed if sealed.endswith("\n") else sealed + "\n"),
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),
