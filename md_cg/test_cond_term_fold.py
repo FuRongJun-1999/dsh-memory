@@ -81,8 +81,13 @@ for term, scene in [("PE", "pe 为负"), ("PDF", "pdf 扫描件"),
     neg = bool(neg_condition_hits([term], scene))
     ok(pos == neg, "C term=%r scene=%r 正条件=%s 负条件=%s（归一后必须相同）"
        % (term, scene, pos, neg))
-# C4：**故意不一致**——词边界只在正条件面（#735），负条件面无词边界。
-# 钉成期望，防止后人照「两面必须一致」去统一（那要么回退 #735、要么改负侧语义）。
+# C4：**已知不对称（不是规范）**——词边界只在正条件面（#735），负条件面无词边界。
+# 事实：api 在正条件面 False、负条件面 True。
+# 理由：正条件词项来自条件空间**切分**（backend/app/core、/api/uzi 这类路径碎片），#735 收的是
+#       「碎片误咬」；负条件来自**人工声明**的排除词（通常是完整词），#362 起从未收紧，
+#       且漏拒/误拒代价不对称。
+# 追踪：若负条件面也出现同类碎片误拒的现场报告，C4 应**同步翻转**并合并为统一判据；
+#       本次不动是因为无现场证据，不是因为它正确。
 ok(MdCG._term_in_scene("api", "apiserver") is False
    and bool(neg_condition_hits(["api"], "apiserver")) is True,
    "C4 词边界面有意不一致：正条件 False / 负条件 True（禁止误统一）")
@@ -168,6 +173,8 @@ ok(MdCG._term_in_scene("が", "か") is False,
    "H5 假名浊点不折叠（#659：が ≠ か）")
 ok(MdCG._term_in_scene("か", "\u304b\u3099") is False,
    "H6 NFD 形态浊点仍不折叠（が=か+U+3099；#659 只剥拉丁组合记号区）")
+ok(MdCG._term_in_scene("ᾀ", "α") is True,
+   "H7 归一顺序端到端：ᾀ → α（反序会得 αι ⇒ 不命中）")
 
 print()
 print("=" * 68)

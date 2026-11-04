@@ -26,6 +26,7 @@ import atexit
 import weakref
 import hashlib
 import secrets
+import collections
 import threading
 
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
@@ -860,13 +861,20 @@ NEG_SCOPE_WINDOW = 6
 
 
 # 生效条件：text 为任意对象（None 按空串）时返回**保空白**的匹配面归一串（fold_accents → routing.fold_variants，顺序与 fold_for_match 逐字一致）；只归一去空白。
+_SceneNorm = collections.namedtuple("_SceneNorm", "compact keep")   # (紧凑归一串, 保空白归一串)
+
+
 def fold_for_match_keep(text) -> str:
     """匹配面归一（**保空白**）——`fold_for_match` 与 `_cond_scene_norm` 的公共单点。
 
+    **本函数不是独立判据**：匹配面归一必须经 `fold_for_match` 或 `_cond_scene_norm`；
+    直接调用只允许「需要保空白判词边界」的场合（`_term_in_scene_norm` 与词边界正则）。
+    text 为 str 或 None（None 按空串，沿用 main 归一链的既有处理）——不是「任意对象」。
+
     issue #753/#755：正条件面补字符归一时若自己拼 `fold_accents(routing.fold_variants(x))`，
-    就是仓内**第三份**归一链，且**顺序与原式相反**（fold_for_match 是 fold_accents →
-    fold_variants → 去空白；反序后 `İ`(U+0130) 这类字符会给出不同结果）——正是 #362 E 组
-    「单点收口、禁止两份实现」要防的漂移。故归一收进本函数：
+    就是仓内**第三份**归一链，且**顺序与原式相反**——BMP 实测有 8 个码点因此分叉
+    （希腊下加点区：`ᾀ`(U+1F80) 正序 → `α`、反序 → `αι`；casefold 会把下加点展开成 iota，
+    正序已先剥掉 Mn）。这正是 #362 E 组「单点收口、禁止两份实现」要防的漂移。故归一收进本函数：
       · `fold_for_match` = 本函数 + `compact_exact_text`（去空白）；
       · `_cond_scene_norm` = 本函数 + 去空白/保空白两态。
     顺序**不得交换**：fold_accents 先（NFKC→NFD→剥拉丁 Mn→NFC），fold_variants 后
@@ -4739,7 +4747,7 @@ class MdCG:
     @staticmethod
 # 生效条件：scene 为任意值（None 按空串）时返回二元组 (紧凑归一串, 保空白归一串)；归一口径＝fold_for_match_keep（fold_accents → routing.fold_variants）+ compact_exact_text 去空白，与 fold_for_match 同一份单点。
     def _cond_scene_norm(scene):
-        """场景串 → (紧凑归一串, 保空白归一串)。**一次归一，多处复用**。
+        """场景串 → `_SceneNorm(compact, keep)`（紧凑归一串 / 保空白归一串）。**一次归一，多处复用**。
 
         为什么要拆出来：判据在一个节点的 5~6 个词项上**共用同一个场景串**，不拆就是
         同一份归一连算 6 遍（O(词项数) 倍；具体微秒数随机器与库规模而变，本条不做数字承诺）。
@@ -4749,7 +4757,7 @@ class MdCG:
         不另拼第三份实现。
         """
         keep = fold_for_match_keep(scene or "")
-        return compact_exact_text(keep), keep
+        return _SceneNorm(compact_exact_text(keep), keep)
 
     @staticmethod
 # 生效条件：term 为任意值、norm_scene 为 _cond_scene_norm 的返回值时，纯 ASCII 字母词按词边界（判在保空白串上）匹配、其余按紧凑串子串匹配；任一路径命中即 True。
@@ -4772,8 +4780,8 @@ class MdCG:
             pat = (r"(?<![A-Za-z])"
                    + r"\s*".join(re.escape(p) for p in t_keep.split())
                    + r"(?![A-Za-z])")
-            return re.search(pat, norm_scene[1]) is not None
-        return t_fold in norm_scene[0]
+            return re.search(pat, norm_scene.keep) is not None
+        return t_fold in norm_scene.compact
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
