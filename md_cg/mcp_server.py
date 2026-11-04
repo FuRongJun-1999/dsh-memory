@@ -239,6 +239,9 @@ TOOLS = [
                           tags=_p("array", "标签"), importance=_p("number", "重要性 0-1"),
                           importance_hint=_p("number", "闸门的重要性提示（≥0.7 保护优先直接 ACCEPT）"),
                           gated=_p("boolean", "启用主动遗忘闸门（默认否；写情景层建议开）"),
+                          dedupe=_p("boolean", "写入幂等（issue #677，缺省 false）：同层已存在内容指纹"
+                                            "相同的节点时不新增，直接返回既有 id 且 deduped=true。"
+                                            "用于「调用超时但可能已落盘」的重试（自动记忆面同样适用）"),
                           override=_p("boolean", "覆盖受保护节点需显式 true"),
                           consistency=_p("boolean", "写入前节点间自动冲突检测（三级决策，默认 true）"),
                           on_conflict=_p("string", "冲突处置：reject（默认，抛错）|defer（不写）|record（记录放行）"),
@@ -873,6 +876,8 @@ KERNEL_TOOLS = [
             reason=_p("string", "原因；consolidate contextualize 的归位理由（写台账）"),
             force=_p("boolean", "restore 强制（忽略前置条件：墓碑等）"),
             overwrite_live=_p("boolean", "restore 覆写同 id 在位节点需显式确认（#426-E，默认 False）"),
+            full=_p("boolean", "info：全量诊断（健康/理论/链接/代校验/策略自描述）。缺省 false = 只回内存态快照"
+                             "（issue #677：大库上慢诊断面会让 info 本身超时）"),
             path=_p("string", "index_code/index_doc 的目录（大域）；link import 的证据包文件"),
             patterns=_p("array", "index_code/index_doc 的文件后缀，默认取各自注册表"
                                  "（代码 .py/.ts/.tsx/.js/.mjs/.cjs；文档 .md/.markdown）"),
@@ -2572,12 +2577,42 @@ def _cg_dispatch(cg, a):
         from . import nodefile
         from . import theory as _th
         from . import links as _lk
-        h = cg.health_os()
-        h.update({"surface": SURFACE,
-                  "tools": [t["name"] for t in tools_for_surface()],
-                  "audit_kinds": audit.kinds(), "whoami": cg.whoami(),
-                  # 裁定 B：CCG 六要素的契约角色（术语真源在 nodefile，此处只透出）
-                  "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES)})
+        # issue #677（B，2026-11-04）：info 的**慢面**（`health_os()`：分桶健康 + 审计规模，
+        # 全库扫描类，大库上数十秒）改为 **full=true 才跑**；其余诊断键（策略/代校验/
+        # 理论/链接/审计种类）留在缺省返回 —— 既有消费者不受影响。
+        # 为什么必须拆：MCP stdio **串行**，一个慢 info 会把后续请求（含写入应答）挡在队列里，
+        # 客户端 60s 超时（#677 现场：write 与 info 同时超时）。
+        _full = _as_flag(a.get("full"))
+        _nodes_info = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+        h = {"surface": SURFACE,
+             "tools": [t["name"] for t in tools_for_surface()],
+             # 纯 MdCG 没有 whoami（Secure 才有）——诊断面不得因它崩（#677 B）。
+             "whoami": (cg.whoami() if callable(getattr(cg, "whoami", None)) else None),
+             "node_count": len(_nodes_info),
+             "audit_kinds": audit.kinds(),
+             # 裁定 B：CCG 六要素的契约角色（术语真源在 nodefile，此处只透出）
+             "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES),
+             "full": _full}
+        _fs = getattr(cg, "flush_state", None)
+        h["flush_state"] = None            # 键**恒在**（守卫按必需键登记；值可 None）
+        if callable(_fs):
+            try:
+                h["flush_state"] = _fs()
+            except Exception:               # noqa: BLE001 —— 诊断面不得拖崩
+                h["flush_state"] = None
+        if _full:
+            # 慢面：只有显式 full=true 才跑。**慢面不得覆盖快照已有键**（#677 复核：
+            # 旧序 h.update(health_os()) 会让同名键覆盖快照值，两条腿对同一键不同值）。
+            # 异常收口，诊断面不拖崩。
+            try:
+                _hh = cg.health_os() or {}
+            except Exception as _he:            # noqa: BLE001
+                _hh = {"health_os_error": "%s: %s" % (type(_he).__name__, _he)}
+            for _k, _v in _hh.items():
+                h.setdefault(_k, _v)
+        else:
+            h["hint"] = ("快照模式（issue #677）：未包含 health_os 慢面（分桶健康/审计规模）；"
+                         "要它请加 full=true")
         # 能力外置可观测：本进程实际注入了哪些外部验证器（含失败原因）
         h["external_verifiers"] = audit.load_external_verifiers()
         # 写入策略来源（issue #43 契约④）：与启动 stderr / --show-config 同一
@@ -4271,6 +4306,15 @@ def _dispatch(cg, name, args):
         _ov212 = _oversize212(nid, a)
         if _ov212 is not None:
             return _ov212
+        # issue #677（A，2026-11-04）：**自动记忆面也支持幂等**。超时重试是既有病灶
+        # （节点已落盘但应答没回 ⇒ 重试新增一条，实测三条同内容）。`dedupe` 走与
+        # cg(op=write) **同一个闸**（writepipe._gate_dedupe：同层 + 内容指纹 ⇒ 复用既有 id），
+        # 位置也在链首（未落盘、未建边、不过闸审计）。
+        # layer 缺省按本通路口径（contextual）代入——否则闸会去 knowledge 层找而永不命中。
+        from .writepipe import _gate_dedupe as _dedupe677
+        _dup677 = _dedupe677({"a": {**a, "layer": a.get("layer") or "contextual"}, "cg": cg})
+        if _dup677 is not None:
+            return _dup677
         # issue #93（2026-10-09 DSH 端）：**这条通路此前不过 policy 的 forbidden 规则**。
         # 同样内容走 writepipe（cg(op=write)）会被判 REJECT 或打码，而 mdcg_remember
         # ——hooks 自动记忆走的正是它——直接落盘 ⇒ AKIA / ghp_ / URL 内嵌凭据 /

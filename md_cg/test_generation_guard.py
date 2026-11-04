@@ -274,32 +274,21 @@ def check_call_site_not_toplevel():
         % (len(found), ", ".join("%s:%d" % (f[2], f[0]) for f in found)))
 
 
-# 五：键集对拍——对临时 root 上真起的 MCP 服务调 cg(op=info)
-def check_info_keys(tmp):
-    print("\n== 五 键集对拍：cg(op=info) 真调（临时 root） ==")
-    env = _child_env(tmp)
-    # 本条要验的是**工作区里这套接线**（不是副本），故包来源显式钉到当前树：
-    # 记忆 root / aux / DSH_HOME 仍是临时目录（隔离），只有代码取自当前树。
-    env["PYTHONPATH"] = REPO
-    lines = [
-        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
-         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
-                    "clientInfo": {"name": "generation-guard", "version": "0"}}},
-        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
-         "params": {"name": "cg", "arguments": {"op": "info"}}},
-        {"jsonrpc": "2.0", "id": 3, "method": "shutdown", "params": {}},
-    ]
-    payload = "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n"
-    r = subprocess.run([sys.executable, "-X", "utf8", "-m", "md_cg.mcp_server"],
-                       cwd=REPO, env=env, input=payload, capture_output=True,
-                       text=True, encoding="utf-8", errors="replace",
-                       shell=False, timeout=600)
-    if r.returncode != 0:
-        _fail("五·键集", "mcp_server 退出码 %s（代校验接线可能把启动打死了）：%s"
-              % (r.returncode, (r.stderr or "")[-700:]))
-        return
-    info = None
-    for line in r.stdout.splitlines():
+# issue #677（B，2026-11-04）：`info` 拆快/慢后的新契约——
+#   缺省 = **快照**（内存态 + 轻诊断，不含 health_os 慢面）；
+#   `full=true` = 旧全集（含 PINNED_INFO_KEYS 里 health_os 的键）。
+# 本守卫从「逐字钉死 20 键」改为「两条腿」：快照键必须齐、且快照 ⊂ full；full 必须含旧 20 键。
+FAST_INFO_KEYS = set(NEW_INFO_KEYS) | {
+    "surface", "tools", "whoami", "node_count", "flush_state", "full",
+    "audit_kinds", "ccg_contract", "external_verifiers",
+    "write_policy", "write_gate", "theory", "links",
+}
+#: 快照模式**新增**的键（除 NEW_INFO_KEYS 外）——只允许这三个出现在 full 的「多出」里。
+FAST_ONLY_KEYS = {"flush_state", "full", "node_count"}
+
+
+def _parse_info(stdout, rid):
+    for line in stdout.splitlines():
         line = line.strip()
         if not line:
             continue
@@ -307,38 +296,70 @@ def check_info_keys(tmp):
             obj = json.loads(line)
         except ValueError:
             continue
-        if obj.get("id") == 2 and "result" in obj:
-            info = json.loads(obj["result"]["content"][0]["text"])
-    if info is None:
-        _fail("五·键集", "没取到 cg(op=info) 响应：stdout=%s" % (r.stdout or "")[:400])
-        return
-    keys = set(info)
-    missing = [k for k in NEW_INFO_KEYS if k not in keys]
-    if missing:
-        _fail("五·键集", "缺新键：%s" % missing)
-        return
-    extra = sorted(keys - PINNED_INFO_KEYS - set(NEW_INFO_KEYS))
-    lost = sorted(PINNED_INFO_KEYS - keys)
-    if extra or lost:
-        _fail("五·键集", "既有键集被改动：多出 %s / 丢失 %s" % (extra, lost))
-        return
-    if info["code_generation"] != info["disk_generation"]:
-        _fail("五·键集", "刚起的进程自报跨代：code=%s disk=%s"
-              % (info["code_generation"], info["disk_generation"]))
-        return
-    if info["stale_on_disk"] is not False or info["restart_required"] is not False:
-        _fail("五·键集", "刚起的进程 stale_on_disk/restart_required 应为 False，"
-                         "实得 %r/%r" % (info["stale_on_disk"],
-                                         info["restart_required"]))
-        return
-    if "重启常驻 MCP 进程" not in (info["hint"] or ""):
-        _fail("五·键集", "hint 未含处置指引：%r" % (info["hint"],))
-        return
-    _ok("五·键集", "五新键齐备、既有 20 键（18 + #53-B 扩键 bucket_scope + "
-                   "PR #54 扩键 skipped_unreadable）一字未动；"
-                   "代 %s（code==disk，restart_required=False）"
-        % info["code_generation"])
+        if obj.get("id") == rid and "result" in obj:
+            return json.loads(obj["result"]["content"][0]["text"])
+    return None
 
+
+# 五：键集对拍——对临时 root 上真起的 MCP 服务调 cg(op=info)（快照 + full 两条腿）
+def check_info_keys(tmp):
+    print("\n== 五 键集对拍：cg(op=info) 快照/full 两条腿（临时 root） ==")
+    env = _child_env(tmp)
+    env["PYTHONPATH"] = REPO
+    lines = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": "2024-11-05", "capabilities": {},
+                    "clientInfo": {"name": "generation-guard", "version": "0"}}},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+         "params": {"name": "cg", "arguments": {"op": "info"}}},
+        {"jsonrpc": "2.0", "id": 3, "method": "tools/call",
+         "params": {"name": "cg", "arguments": {"op": "info", "full": True}}},
+        {"jsonrpc": "2.0", "id": 4, "method": "shutdown", "params": {}},
+    ]
+    payload = "\n".join(json.dumps(x, ensure_ascii=False) for x in lines) + "\n"
+    r = subprocess.run([sys.executable, "-X", "utf8", "-m", "md_cg.mcp_server"],
+                       cwd=REPO, env=env, input=payload, capture_output=True,
+                       text=True, encoding="utf-8", errors="replace",
+                       shell=False, timeout=600)
+    if r.returncode != 0:
+        _fail("五·键集", "mcp_server 退出码 %s：%s" % (r.returncode, (r.stderr or "")[-700:]))
+        return
+    fast = _parse_info(r.stdout, 2)
+    full = _parse_info(r.stdout, 3)
+    if fast is None or full is None:
+        _fail("五·键集", "没取到 info 响应：stdout=%s" % (r.stdout or "")[:400])
+        return
+    missing_fast = sorted(FAST_INFO_KEYS - set(fast))
+    if missing_fast:
+        _fail("五·键集", "快照缺键：%s" % missing_fast)
+        return
+    if fast.get("full") is not False:
+        _fail("五·键集", "快照模式 full 应为 False，实得 %r" % (fast.get("full"),))
+        return
+    if "os" in fast:
+        _fail("五·键集", "快照模式不得含 health_os 慢面（os 段）")
+        return
+    if not set(fast) <= set(full):
+        _fail("五·键集", "快照键必须 ⊂ full：多出 %s" % sorted(set(fast) - set(full)))
+        return
+    lost = sorted(PINNED_INFO_KEYS - set(full))
+    if lost:
+        _fail("五·键集", "full 丢失既有 20 键：%s" % lost)
+        return
+    extra = sorted(set(full) - PINNED_INFO_KEYS - set(NEW_INFO_KEYS) - FAST_ONLY_KEYS)
+    if extra:
+        _fail("五·键集", "full 多出未登记键：%s" % extra)
+        return
+    if full["code_generation"] != full["disk_generation"]:
+        _fail("五·键集", "刚起的进程自报跨代：code=%s disk=%s"
+              % (full["code_generation"], full["disk_generation"]))
+        return
+    if full["stale_on_disk"] is not False or full["restart_required"] is not False:
+        _fail("五·键集", "stale_on_disk/restart_required 应为 False，实得 %r/%r"
+              % (full["stale_on_disk"], full["restart_required"]))
+        return
+    _ok("五·键集", "快照 %d 键 ⊂ full %d 键；full 含既有 20 键 + 五新键；快照不含 health_os 慢面"
+        % (len(fast), len(full)))
 
 def main():
     print("代校验守卫（generation guard）——临时目录内进行，不碰工作区与在役库")
