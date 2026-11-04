@@ -4935,7 +4935,9 @@ class MdCGOS(MdCG):
             # 故这里走 MdCG.retag 的窄路（内部仍复用 add() 的写链，只是显式保证
             # 「正文逐字不变」，从而命中 BODY_SAME 的继承分支）。
             # 缺省 dry_run：沿用 maintain 的「预演优先」口径，apply=True 才落盘。
-            _dry = (not apply) if dry_run is None else bool(dry_run)
+            # 双开关收敛（#742 复核）：`dry_run=False` 不得在 `apply=False` 时落盘
+            # （否则「没给 apply 也写」，工具面语义反转）。落盘条件 = apply 且非 dry。
+            _dry = (not apply) if dry_run is None else (bool(dry_run) or not apply)
             return self.retag(
                 node_id or "", tags_add=tags_add, tags_remove=tags_remove,
                 condition_space_patch=condition_space_patch,

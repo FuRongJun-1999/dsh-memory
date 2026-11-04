@@ -869,6 +869,8 @@ _OP_TABLE = {
             "tags_add",
             "tags_remove",
             "condition_space_patch",
+            "depends_on",
+            "dry_run",
         ),
         "actions": (
             "backfill",
@@ -883,6 +885,7 @@ _OP_TABLE = {
             "prefeed",
             "propagate",
             "refine",
+            "retag",
             "rollback",
             "separate",
             "stat",

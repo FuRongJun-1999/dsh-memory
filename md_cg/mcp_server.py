@@ -2386,6 +2386,8 @@ def _require_verify_for_vstate(p, a):
 
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
+    # 防御性再剥一次（`_dispatch` 已剥；内部调用方若直接调本函数，同样不许传内部标志）。
+    a = {k: v for k, v in (a or {}).items() if not str(k).startswith("_")}
     op = (a.get("op") or "read").strip().lower()
     if op == "help":
         return _help_call(cg, a)
@@ -4112,7 +4114,10 @@ def _oversize_r2(nid, a):
 
 
 def _dispatch(cg, name, args):
-    a = args or {}
+    # issue #742 复核（提权面）：`_meta_patch` 等**下划线前缀键是内部标志**，只能由
+    # 内部路径置位（见 `_cg_dispatch` 的元数据补丁分支）。外部调用方若能在 args 里
+    # 自己带上它们，就能绕过内容闸/档位闸直接落盘——故在唯一外部入口统一剥离。
+    a = {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
     # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**（见 _runtime_token_recheck）
     _re86 = _runtime_token_recheck(getattr(cg, "principal", None))
     if _re86:

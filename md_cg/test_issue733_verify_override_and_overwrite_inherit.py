@@ -200,7 +200,7 @@ _check("G4-1 dry_run 只算不写：返回将落到的桶（cond_ 前缀）",
 _check("G4-2 dry_run 时盘面没动（路径与 tags 都还是旧的）",
        _fm(_cg4, "t_rt").get("tags") == _fm4_before.get("tags"))
 _real = _cg4.retag("t_rt", tags_add=["domain:测试域"],
-                   condition_space_patch={"observation_position": "测试域"})
+                   condition_space_patch={"observation_position": "测试域"}, dry_run=False)
 _fm4 = _fm(_cg4, "t_rt")
 _check("G4-3 落盘后 bucket 变成 cond_ 前缀（真的换桶了）",
        str(_real.get("bucket") or "").startswith("cond_"),
