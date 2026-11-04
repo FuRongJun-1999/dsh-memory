@@ -210,8 +210,12 @@ def group_e():
     _check('E1 NFKC 归一实现全仓唯一（排除 test_*.py；不得长出第二份口径）',
            len(sites) == 1 and sites[0][0] == "md_cg/routing.py", sites)
     fold_src = inspect.getsource(fold_for_match)
-    _check('E2 fold_for_match 走 routing.fold_variants 单点（不新造一份全角/大小写处理）',
-           'routing.fold_variants(' in fold_src, fold_src[:160])
+    keep_src = inspect.getsource(M.fold_for_match_keep)
+    # 只看**函数体**（docstring 里引用 `routing.fold_variants(` 会假绿——变异自检实测踩到）
+    keep_body = keep_src.split('"""')[-1]
+    _check('E2 fold_for_match 走 routing.fold_variants 单点（#753/#755 后归一收进 fold_for_match_keep）',
+           'fold_for_match_keep(' in fold_src and 'routing.fold_variants(' in keep_body,
+           (fold_src[:160], keep_body[:160]))
     _check('E3 fold_variants 走 nfkc_text 单点',
            'nfkc_text(' in inspect.getsource(RT.fold_variants))
     _check('E4 judge_qualification 的负条件腿走 neg_condition_hits 单点',
@@ -332,7 +336,7 @@ _MUTATIONS = (
        '                if all(not _negated_at(scene_norm, k)'),),
      ('K5',)),
     ('M5 归一退化：fold_for_match 退回只做去空白（#362b 修前形态）', 'md_cg/mdcg.py',
-     (('    return compact_exact_text(routing.fold_variants(text))',
+     (('    return routing.fold_variants(fold_accents(text))',
        '    return compact_exact_text(text)'),),
      ('A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'C1', 'E2', 'K11')),
     ('M6 判据退化：全词命中 all → any（单个通用词即整片否决）', 'md_cg/mdcg.py',
@@ -340,7 +344,7 @@ _MUTATIONS = (
        '        if words and any(w in scene_norm for w in words):'),),
      ('K8b',)),
     ('M7 单点分裂：fold_for_match 自写一份内联 NFKC（不走 routing 单点）', 'md_cg/mdcg.py',
-     (('    return compact_exact_text(routing.fold_variants(text))',
+     (('    return routing.fold_variants(fold_accents(text))',
        '    return compact_exact_text(' + chr(10)
        + '        __import__(' + _Q + 'unicodedata' + _Q + ').normalize(' + _Q + 'NFKC' + _Q + ', str(text))).casefold()'),),
      ('C1', 'E1', 'E2')),

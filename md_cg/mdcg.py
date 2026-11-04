@@ -859,6 +859,22 @@ NEG_LINK_CHARS = frozenset("是这那该此种个些的了在为之其")
 NEG_SCOPE_WINDOW = 6
 
 
+# 生效条件：text 为任意对象（None 按空串）时返回**保空白**的匹配面归一串（fold_accents → routing.fold_variants，顺序与 fold_for_match 逐字一致）；只归一去空白。
+def fold_for_match_keep(text) -> str:
+    """匹配面归一（**保空白**）——`fold_for_match` 与 `_cond_scene_norm` 的公共单点。
+
+    issue #753/#755：正条件面补字符归一时若自己拼 `fold_accents(routing.fold_variants(x))`，
+    就是仓内**第三份**归一链，且**顺序与原式相反**（fold_for_match 是 fold_accents →
+    fold_variants → 去空白；反序后 `İ`(U+0130) 这类字符会给出不同结果）——正是 #362 E 组
+    「单点收口、禁止两份实现」要防的漂移。故归一收进本函数：
+      · `fold_for_match` = 本函数 + `compact_exact_text`（去空白）；
+      · `_cond_scene_norm` = 本函数 + 去空白/保空白两态。
+    顺序**不得交换**：fold_accents 先（NFKC→NFD→剥拉丁 Mn→NFC），fold_variants 后
+    （NFKC→casefold→繁简折叠）。
+    """
+    return routing.fold_variants(fold_accents(text))
+
+
 # 生效条件：text 为任意对象（None 按空串）时返回其匹配面归一串（去全部空白 + NFKC + casefold + 繁简折叠，繁简表当前为空）；归一口径复用 routing.fold_variants 单点。
 def fold_for_match(text) -> str:
     """匹配面归一人（#362b/c）——**复用路由面的同一份口径**，不新造第二份。
@@ -872,7 +888,7 @@ def fold_for_match(text) -> str:
     # 而召回面用的是 fold_accents（会剥）——两侧口径不一致时，
     # 声明 non_applicable_conditions: ["cafe"] 的节点对查询 "cafe" 不会被 REJECT。
     # 判据面与召回面必须同一口径，故这里补一次 Mn/Me 剥离（fold_accents 单点）。
-    return compact_exact_text(routing.fold_variants(fold_accents(text)))
+    return compact_exact_text(fold_for_match_keep(text))
 
 
 # 生效条件：text 与 term 均为 str 时，把 text 中所有「与 term 同形（去全部空白 + NFKC + casefold + 繁简折叠后相等）」的区间替换为空格并返回；term 归一后为空或未找到同形区间时原样返回。
@@ -4714,21 +4730,26 @@ class MdCG:
         且短语本身已是切分结果，再收紧会大面积漏命中；非字母 ASCII
         （`9:00` / `3:1` / `dsh-memory` 的连字符）也不收紧 —— 那不是
         「短词误咬」的形态。
+
+        归一与 `_term_in_scene_norm` 共用 `fold_for_match_keep`（#753/#755 复核）；
+        **循环内请改用 `_term_in_scene_norm` + 预归一场**，否则每个词项都会重算场景归一。
         """
         return MdCG._term_in_scene_norm(term, MdCG._cond_scene_norm(scene))
 
     @staticmethod
-# 生效条件：scene 为任意值（None 按空串）时返回二元组 (紧凑归一串, 保空白归一串)；归一口径与 neg_condition_hits 同源（fold_accents → routing.fold_variants → 去空白）。
+# 生效条件：scene 为任意值（None 按空串）时返回二元组 (紧凑归一串, 保空白归一串)；归一口径＝fold_for_match_keep（fold_accents → routing.fold_variants）+ compact_exact_text 去空白，与 fold_for_match 同一份单点。
     def _cond_scene_norm(scene):
         """场景串 → (紧凑归一串, 保空白归一串)。**一次归一，多处复用**。
 
-        为什么要拆出来：判据在一个节点的 5~6 个词项上**共用同一个场景串**，
-        不拆就等于同一份归一连算 6 遍（实测单节点 13.9 µs → 1042 µs）。
-        不做 memo —— `routing.set_trad_to_simp()` 运行时可改繁简表，
-        缓存会返回改表前的旧值。
+        为什么要拆出来：判据在一个节点的 5~6 个词项上**共用同一个场景串**，不拆就是
+        同一份归一连算 6 遍（O(词项数) 倍；具体微秒数随机器与库规模而变，本条不做数字承诺）。
+        不做 memo —— `routing.set_trad_to_simp()` 运行时可改繁简表，缓存会返回改表前的旧值。
+
+        归一链复用 `fold_for_match_keep`（#753/#755）：顺序与 fold_for_match 逐字一致，
+        不另拼第三份实现。
         """
-        keep = fold_accents(routing.fold_variants(scene or ""))
-        return re.sub(r"\s+", "", keep), keep
+        keep = fold_for_match_keep(scene or "")
+        return compact_exact_text(keep), keep
 
     @staticmethod
 # 生效条件：term 为任意值、norm_scene 为 _cond_scene_norm 的返回值时，纯 ASCII 字母词按词边界（判在保空白串上）匹配、其余按紧凑串子串匹配；任一路径命中即 True。
@@ -4740,8 +4761,8 @@ class MdCG:
         # 与负条件面（neg_condition_hits）**同口径归一**：此前这里两侧都是裸原文，
         # 于是「条件写 PE、问句打 pe」永不命中，而同一个词在负条件面却能命中 ——
         # 同一份判据的两个面口径分裂。
-        t_keep = fold_accents(routing.fold_variants(t))
-        t_fold = re.sub(r"\s+", "", t_keep)
+        t_keep = fold_for_match_keep(t)
+        t_fold = compact_exact_text(t_keep)
         if not t_fold:
             return False
         if t_fold.isascii() and t_fold.isalpha():

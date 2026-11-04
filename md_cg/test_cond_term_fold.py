@@ -66,19 +66,26 @@ for q in ("PE 为负怎么处理", "pe 为负怎么处理", "Pe 为负怎么处�
           "ＰＥ 为负怎么处理"):
     ok(MdCG._term_in_scene("PE", q) is True,
        "B 正条件 term='PE' 必须命中 %r" % q)
-    ok(MdCG.judge_qualification(_node(COND), q)["state"] == "ACCEPT",
-       "B 端到端 %r 必须 ACCEPT" % q)
+    _r = MdCG.judge_qualification(_node(COND), q)
+    ok(_r["state"] == "ACCEPT" and "命中「PE」" in (_r.get("reason") or ""),
+       "B 端到端 %r 必须 ACCEPT 且 reason 记录命中词（实际 %r）"
+       % (q, _r.get("reason")))
 
 print()
 print("=" * 68)
-print("C. 两侧口径必须一致（这是本条的核心断言）")
+print("C. 归一这一半口径必须一致（词边界是两面**有意**不同的一半，见 C4）")
 print("=" * 68)
 for term, scene in [("PE", "pe 为负"), ("PDF", "pdf 扫描件"),
                     ("4G单模", "4g单模终端")]:
     pos = MdCG._term_in_scene(term, scene)
     neg = bool(neg_condition_hits([term], scene))
-    ok(pos == neg, "C term=%r scene=%r 正条件=%s 负条件=%s（必须相同）"
+    ok(pos == neg, "C term=%r scene=%r 正条件=%s 负条件=%s（归一后必须相同）"
        % (term, scene, pos, neg))
+# C4：**故意不一致**——词边界只在正条件面（#735），负条件面无词边界。
+# 钉成期望，防止后人照「两面必须一致」去统一（那要么回退 #735、要么改负侧语义）。
+ok(MdCG._term_in_scene("api", "apiserver") is False
+   and bool(neg_condition_hits(["api"], "apiserver")) is True,
+   "C4 词边界面有意不一致：正条件 False / 负条件 True（禁止误统一）")
 
 print()
 print("=" * 68)
@@ -100,6 +107,18 @@ ok(MdCG._term_in_scene("本机进程", "cpu本机进程是否可用") is True,
    "D7 中文紧邻拉丁字母仍命中")
 ok(MdCG._term_in_scene("9:00", "到了上午 9:00 开始开会") is True,
    "D8 非字母 ASCII 仍走子串")
+
+print()
+print("D9. 收紧方向显式留痕：纯 ASCII 多词短语 / 全角 / 重音词项由「子串」搬入「词边界」")
+print("    （复核判定：多数是修对了——api 不咬 capital，data flow 也不该咬 metadata flow；但必须可见）")
+ok(MdCG._term_in_scene("data flow", "metadata flow 的说明") is False,
+   "D9 data flow 不咬 metadata flow（由子串收紧为词边界）")
+ok(MdCG._term_in_scene("A B", "XA B") is False,
+   "D10 A B 不咬 XA B（同上）")
+ok(MdCG._term_in_scene("ＰＥ", "ＰＥＴ 材料") is False,
+   "D11 全角 ＰＥ 不咬 ＰＥＴ（归一路径改变）")
+ok(MdCG._term_in_scene("Café", "CaféX 场景") is False,
+   "D12 Café 不咬 CaféX（剥重音后进入词边界路径）")
 
 print()
 print("=" * 68)
@@ -130,7 +149,7 @@ print("G. 空值/None 不得因归一而变真")
 print("=" * 68)
 ok(MdCG._term_in_scene(None, "任意") is False, "G1 None 不命中")
 ok(MdCG._term_in_scene("", "任意") is False, "G2 空串不命中")
-ok(MdCG._term_in_scene("   ", "任意") is False, "G3 全空白不命中")
+ok(MdCG._term_in_scene("   ", "任意 都有空白") is False, "G3 全空白不命中（含空白场景）")
 
 print()
 print("=" * 68)
@@ -147,6 +166,8 @@ ok(bool(neg_condition_hits(["café"], "cafe 场景"))
 # issue #659：假名浊点不得被折叠（那是不同词，不是重音）
 ok(MdCG._term_in_scene("が", "か") is False,
    "H5 假名浊点不折叠（#659：が ≠ か）")
+ok(MdCG._term_in_scene("か", "\u304b\u3099") is False,
+   "H6 NFD 形态浊点仍不折叠（が=か+U+3099；#659 只剥拉丁组合记号区）")
 
 print()
 print("=" * 68)
