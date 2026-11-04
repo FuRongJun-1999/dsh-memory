@@ -600,8 +600,8 @@ def _gate_dedupe(ctx):
             return {"ok": True, "id": nid, "committed": False, "deduped": True,
                     "content_sha": want, "dedupe_of": nid, "verdict": None,
                     "hint": ("同层已存在内容指纹相同的节点 %s（issue #677 幂等闸）："
-                             "本次未落盘、未建边。若确需另存一份，请不带 dedupe 重试，"
-                             "或显式指定不同 node_id。") % nid}
+                             "本次未落盘、未建边。**本条已在库中，重试是安全的、无需再写**；"
+                             "若确需另存一份，请不带 dedupe 重试，或显式指定不同 node_id。") % nid}
     return None
 
 # 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；

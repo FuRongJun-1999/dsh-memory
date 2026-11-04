@@ -387,10 +387,13 @@ def main():
     check("4d health 面（op=read 可达）带出的演化摘要不含私密台账行",
           ok_9 and N_PRIV not in _hr and EVO_ROW not in _hr,
           "exc=%r recent=%r" % (_e9, _hr[:160]), live=True)
-    ok_10, _e10, r_10 = _raises(mcp_server._dispatch, design, "cg", {"op": "info"})
+    # issue #677（B）：`info` 缺省改为快照（不含 health_os 慢面，含 os.evolution）——
+    # 治理面断言显式走 full=true；意图不变（设计者可读私密台账行）。
+    ok_10, _e10, r_10 = _raises(mcp_server._dispatch, design, "cg",
+                                {"op": "info", "full": True})
     _hrd = _dump(((r_10 or {}).get("os") or {}).get("evolution", {}).get("recent")
                  if ok_10 else r_10)
-    check("4e 设计者 info 面仍带私密台账行（治理面不掏空）",
+    check("4e 设计者 info 面仍带私密台账行（治理面不掏空；full=true）",
           ok_10 and EVO_ROW in _hrd, "exc=%r" % _e10, live=True)
 
     # ---------- ⑤ N228 写保护面 ----------

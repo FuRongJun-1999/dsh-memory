@@ -597,7 +597,7 @@ _OP_TABLE = {
         "doc": "身份+健康+审核体系自描述；",
         "impl": "inline",
         "require": "info",
-        "params": ("min_severity", ),
+        "params": ("min_severity", "full"),
         "actions": (),
         "default_action": None,
         "sigs": (),
