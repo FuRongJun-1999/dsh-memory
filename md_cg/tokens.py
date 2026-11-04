@@ -841,6 +841,13 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
 
 
 # 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）；sessions_read 原样传导（issue #712 附带 bug fix：此前构造 Principal 漏传，owner 带读面限制时被收窄静默放宽为不限——fail-open，与「只能变小」矛盾）。
+#: issue #730（D）：**收窄型字段**单点清单——`narrowed_principal` 必须逐项处理；
+#: 新增任一收窄维度时**同步此表与函数体**（守卫 test_issue730_narrowing_audit 钉住）。
+#: 判据：「交给请求方自选后，伪造的最坏结果是否仍 ≤ owner 权限」——是即收窄型。
+NARROWING_FIELDS = ("clearance", "can_write", "can_admin", "layers_allow",
+                    "ops_allow", "sessions_read")
+
+
 def narrowed_principal(p: Principal, unit: str) -> Principal:
     """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
 

@@ -177,6 +177,11 @@ export const Config: z<Config> = z.object({
        *  （实测也带 rpcId），宿主当前无可信来源字段 ⇒ 按会话显式排除是诚实兜底。
        *  条目：精确匹配；`*` 结尾按前缀匹配（如 `sess_bridge_*`）。 */
       excludeSessions: z.array(String).default([]),
+      /** issue #730：**会话记忆标 private**（默认 false = 既有跨会话可见）。
+       *  开启后自动写入的用户/助手/工具记忆带 `sensitivity: private`，服务端 `_readable`
+       *  按 `frontmatter.session` 只让归属会话读到——「读各归各」用的是既有密级机制。
+       *  缺省关：跨会话连续性是既有默认（#749 的跨会话召回仍是待定产品决策）。 */
+      sessionPrivate: z.boolean().default(false),
       assistantMessage: z.boolean().default(false),
       toolResult: z.boolean().default(false),
       importance: z.number().default(0.6),

@@ -118,6 +118,13 @@ export interface MemoryHooksOptions {
    *  条目语义：精确匹配；以 `*` 结尾时按前缀匹配（如 `sess_bridge_*`）。
    */
   excludeSessions?: string[]
+  /** issue #730：自动写入的记忆标 `sensitivity: private`（默认 false）。
+   *
+   *  开启后服务端 `_readable` 按 `frontmatter.session` 只让归属会话读到，
+   *  实现「读各归各」（既有密级机制，无新参数/as_session/Rust 改动）。
+   *  缺省关：跨会话连续性是既有默认行为（#749 的跨会话召回仍是待定产品决策）。
+   */
+  sessionPrivate?: boolean
   /** 落盘审计文件路径（issue #56，诊断面：哪些消息被设计滤除、source.kind 分布、
    *  写入/跳过计数）。缺省 `~/.dsh/logs/dsh-memory-hook-audit.json`（与桥探针 /
    *  apply 探针同目录同惯例），供测试与定制注入；审计自身失败静默降级，
@@ -1091,7 +1098,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       noteSession(sid)
       observedSession = true
     }
-    const sessionTag = sid ? { session: sid } : { session: UNASSIGNED_SESSION }
+    // 「有归属会话」判据单点（#730 复核）：`sid` 非空**且不等于占位哨兵**——
+    // 宿主若把 `unassigned` 当 id 传进来，旧写法会「标 private + 归属=哨兵」⇒ 写丢。
+    const sidOwned = !!sid && sid !== UNASSIGNED_SESSION
+    const sessionTag = sidOwned ? { session: sid } : { session: UNASSIGNED_SESSION }
+    // issue #730：会话记忆标 private（opt-in）——服务端 `_readable` 按 session 过滤；
+    // 无归属时不加 private（private 无归属 ⇒ 仅设计者可见，等于写丢）。
+    const sessionPrivacy = (opts.sessionPrivate && sidOwned) ? { sensitivity: 'private' } : {}
     // issue #695：**会话级排除**（opt-in）。外部桥接的控制提示与真人输入在事件形状上
     // 不可区分（同 kind=user、同带 rpcId），故按会话显式排除。**只门控知识面轨**
     // （三类 remember + 语义召回 + 逢十轮计数）；窗口写侧（windowEntry/noteRecent）
@@ -1161,7 +1174,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('user', 'user', (g) => g.remember(safe, {
         condition_space: condSpace('user'),
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
-        ...sessionTag,
+        ...sessionTag, ...sessionPrivacy,
       }))
       // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
       // 供 importance / scrub 陈旧度使用），同时预热检索路径。
@@ -1184,7 +1197,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('assistant', 'assistant', (g) => g.remember(safe, {
         condition_space: condSpace('assistant'),
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
-        ...sessionTag,
+        ...sessionTag, ...sessionPrivacy,
       }))
     } else if (event.type === 'tool/result' && opts.toolResult && !excludedSession) {
       if (event.data.error) return
@@ -1195,7 +1208,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('tool', 'tool', (g) => g.remember(safe, {
         condition_space: condSpace('tool'),
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
-        ...sessionTag,
+        ...sessionTag, ...sessionPrivacy,
       }))
     }
 
