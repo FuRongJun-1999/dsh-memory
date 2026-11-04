@@ -376,6 +376,18 @@ def declares_dependency(content) -> bool:
 
 
 # 生效条件：content 为 None 或空串时按源码的 content or "" 回落空串计算，非空时按其原值编码，一律返回 sha256(utf-8) 十六进制摘要的前 12 位（content 的 frontmatter 不计入口径由调用方保证）。
+def normalize_body(content: str) -> str:
+    """正文**落盘形态**的单点规范化（issue #741）——本函数就是从 `dumps()` 抽出的
+    那行尾换行规则。凡在**写盘前**计算 content_hash 的路径（add 内联 /
+    `_write_node` 索引同步 / `_move_layer` 经 `_node_entry`）输入都是未规范化的
+    sealed/正文，不先经它就与「读回正文」（dumps 恒补尾换行）恒差一个字节 ⇒
+    同节点同正文在索引里先后出现两个值（#741 实测 9eb1d121c59f / aaf2ffbbdd36）。
+    `dumps` 与 `content_hash` 都调本函数——规范化规则改动只许发生在这里。
+    """
+    c = content or ""
+    return c if c.endswith("\n") else c + "\n"
+
+
 def content_hash(content: str) -> str:
     """节点正文的**内容指纹**（sha256 前 12 位）——全仓唯一实现。
 
@@ -389,7 +401,13 @@ def content_hash(content: str) -> str:
     （importance / protected / 生命周期状态 / 时间戳），把它算进去则「内容没变、
     元数据变了」也会判成不匹配，对账会大面积误报 interrupted。
     """
-    return hashlib.sha256((content or "").encode("utf-8")).hexdigest()[:12]
+    # issue #741（2026-11-03）：先经 normalize_body 再哈希——指纹基准 =「落盘形态的
+    # 正文」（恒带尾换行），与重建/读回路径的输入逐位一致。修前调用方各喂各的
+    # 形态（add 内联喂原串、重建喂读回），同一节点同一正文在索引里先后出现两个
+    # 值（实测 9eb1d121c59f / aaf2ffbbdd36），对账恒报 hash_drift 假阳性。
+    # ⇒ 升级注意：存量索引条目（旧口径）首轮对账会报 hash_drift——跑一次
+    # rebuild_index() 即拉齐（幂等）。
+    return hashlib.sha256(normalize_body(content).encode("utf-8")).hexdigest()[:12]
 
 
 # 生效条件：frontmatter（任意 dict，键按 sorted 输出）与 content（任意 str）均无前置校验即生效；content 不以 "\n" 结尾时补一个换行，返回 "---" + 各键的 "{k}: {json.dumps(v, ensure_ascii=False)}" 行 + "---" 行 + 正文。
@@ -400,7 +418,7 @@ def dumps(frontmatter: dict, content: str) -> str:
         # 一律 JSON 序列化：值内不会出现裸换行，切分才可靠；数字/字符串也保持可读
         lines.append(f"{k}: {json.dumps(v, ensure_ascii=False)}")
     lines.append(_DELIM)
-    body = content if content.endswith("\n") else content + "\n"
+    body = normalize_body(content)   # issue #741：规范化单点（原为手写规则）
     return "\n".join(lines) + "\n" + body
 
 

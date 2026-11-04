@@ -273,7 +273,15 @@ def _judge(cg, intent: dict):
         return STATUS_INTERRUPTED, R_NODE_MISSING
     got = nodefile.content_hash(_norm(node.get("content") or ""))
     if want and got != want:
-        return STATUS_INTERRUPTED, R_MISMATCH
+        # issue #741 升级兼容：content_hash 的输入基准已收口为「落盘形态」（恒补
+        # 尾换行），而升级前写入的旧版 intent 指纹是「去尾换行后直接哈希」——两者
+        # 对同一正文差一个尾换行字节。此处对**旧 intent** 一次性放行，避免把已落盘
+        # 的旧单误报成 interrupted（假阳性会污染账本）；新 intent 仍是单口径。
+        import hashlib as _hashlib
+        _legacy = _hashlib.sha256(
+            _norm(node.get("content") or "").encode("utf-8")).hexdigest()[:12]
+        if want != _legacy:
+            return STATUS_INTERRUPTED, R_MISMATCH
     return STATUS_COMMITTED, R_NODE_OK
 
 
