@@ -125,6 +125,11 @@ export interface MemoryHooksOptions {
    *  缺省关：跨会话连续性是既有默认行为（#749 的跨会话召回仍是待定产品决策）。
    */
   sessionPrivate?: boolean
+  /** issue #677（@1）：自动记忆写入带 `dedupe`（默认 true）——同层同内容复用既有节点，
+   *  超时重试不再新增；代价是同一会话内同一条消息重复出现只保留一个节点。
+   *  设 false 回逐位旧行为（同内容各写一条）。
+   */
+  dedupe?: boolean
   /** 落盘审计文件路径（issue #56，诊断面：哪些消息被设计滤除、source.kind 分布、
    *  写入/跳过计数）。缺省 `~/.dsh/logs/dsh-memory-hook-audit.json`（与桥探针 /
    *  apply 探针同目录同惯例），供测试与定制注入；审计自身失败静默降级，
@@ -1105,6 +1110,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     // issue #730：会话记忆标 private（opt-in）——服务端 `_readable` 按 session 过滤；
     // 无归属时不加 private（private 无归属 ⇒ 仅设计者可见，等于写丢）。
     const sessionPrivacy = (opts.sessionPrivate && sidOwned) ? { sensitivity: 'private' } : {}
+    // issue #677（@1）：自动记忆默认带 dedupe——超时重试幂等（#776 的服务端闸）。
+    // 关掉即回逐位旧行为（同内容各写一条）；见 index.ts 的 memory.dedupe 注释。
+    const dedupeWrite = (opts.dedupe === false) ? {} : { dedupe: true }
     // issue #695：**会话级排除**（opt-in）。外部桥接的控制提示与真人输入在事件形状上
     // 不可区分（同 kind=user、同带 rpcId），故按会话显式排除。**只门控知识面轨**
     // （三类 remember + 语义召回 + 逢十轮计数）；窗口写侧（windowEntry/noteRecent）
@@ -1174,7 +1182,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('user', 'user', (g) => g.remember(safe, {
         condition_space: condSpace('user'),
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
-        ...sessionTag, ...sessionPrivacy,
+        ...sessionTag, ...sessionPrivacy, ...dedupeWrite,
       }))
       // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
       // 供 importance / scrub 陈旧度使用），同时预热检索路径。
@@ -1197,7 +1205,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('assistant', 'assistant', (g) => g.remember(safe, {
         condition_space: condSpace('assistant'),
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
-        ...sessionTag, ...sessionPrivacy,
+        ...sessionTag, ...sessionPrivacy, ...dedupeWrite,
       }))
     } else if (event.type === 'tool/result' && opts.toolResult && !excludedSession) {
       if (event.data.error) return
@@ -1208,7 +1216,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       memorize('tool', 'tool', (g) => g.remember(safe, {
         condition_space: condSpace('tool'),
         role: 'tool-output', tags: ['dsh', 'tool'], importance: opts.importance * 0.6,
-        ...sessionTag, ...sessionPrivacy,
+        ...sessionTag, ...sessionPrivacy, ...dedupeWrite,
       }))
     }
 

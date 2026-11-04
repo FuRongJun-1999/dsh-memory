@@ -78,6 +78,19 @@ def main():
         r4 = mcp_server.call_tool(cg, "mdcg_remember", {"content": BODY, "layer": "knowledge", "dedupe": True})
         d4 = r4 if isinstance(r4, dict) else None
         ok(not (d4 or {}).get("deduped"), "R4 跨层同内容不短路", r4)
+        # R5（#677 @1）：跨会话同内容 + dedupe ⇒ **不**短路（各写一条）。
+        # 否则两个会话写同一句会互相顶掉；叠加 sessionPrivate 时会「命中但读不到」。
+        _body = BODY + chr(10) + chr(10) + "（跨会话用例）"
+        mcp_server.call_tool(cg, "mdcg_remember",
+                             {"content": _body, "layer": "contextual", "session": "sA"})
+        n_mid = _nodes(cg)
+        r5 = mcp_server.call_tool(cg, "mdcg_remember",
+                                  {"content": _body, "layer": "contextual",
+                                   "session": "sB", "dedupe": True})
+        d5 = r5 if isinstance(r5, dict) else None
+        ok(not (d5 or {}).get("deduped") and _nodes(cg) == n_mid + 1,
+           "R5 跨会话同内容不幂等（session 不同各写一条）",
+           (d5, _nodes(cg), n_mid))
     finally:
         try:
             cg.close()
