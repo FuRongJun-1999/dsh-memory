@@ -55,6 +55,18 @@ test('S1 有效盘面：运行时安静，收尾恰一行、只含三项计数�
   assert.deepEqual(logs, [EXPECTED], '重复收尾不得重复输出')
 })
 
+test('S2b 旧盘面缺新增 reason：缺键按 0 计，摘要仍输出（前向兼容）', (t) => {
+  const file = fixture(t)
+  const old = state()
+  // 模拟 0.9.x 写的盘面：filtered 只有旧三项
+  delete (old.counts.filtered as Record<string, number>).session_excluded
+  writeFileSync(file, JSON.stringify(old), 'utf8')
+  const logs: string[] = []
+  const close = mount(file, (message) => logs.push(message))
+  close()
+  assert.deepEqual(logs, [EXPECTED], '缺键不得让摘要静默消失')
+})
+
 test('S2 收尾重读最新盘面，路径与记录器一致（去首尾空白）', (t) => {
   const file = fixture(t)
   writeFileSync(file, JSON.stringify(state()), 'utf8')

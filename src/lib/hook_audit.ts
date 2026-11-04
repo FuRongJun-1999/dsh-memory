@@ -40,7 +40,8 @@ import { expandHome } from './datapath.js'
 import { dirname, join } from 'node:path'
 
 /** 三处过滤分支的成因（与 hooks.ts 一一对应：子代理会话 / 中继消息 / kind 非 user）。 */
-export type HookFilterReason = 'subagent' | 'relay' | 'kind'
+/** issue #695：`session_excluded` = 会话在 memory.excludeSessions 里（按会话显式排除）。 */
+export type HookFilterReason = 'subagent' | 'relay' | 'kind' | 'session_excluded'
 /** 写入路径的角色（与 md_cg 对 DSH 会话事件的 role 约定一致）。 */
 export type HookWriteRole = 'user' | 'assistant' | 'tool'
 /** 跳过写入的成因。 */
@@ -100,7 +101,9 @@ const MAX_KINDS = 32
 /** kinds 归并桶。 */
 const OTHER_KIND = 'other'
 
-const FILTER_REASONS: HookFilterReason[] = ['subagent', 'relay', 'kind']
+const FILTER_REASONS: HookFilterReason[] = ['subagent', 'relay', 'kind', 'session_excluded']
+/** 只在**新增**键上允许旧盘面缺省（前向兼容），旧键缺失仍判坏盘面。 */
+const OPTIONAL_COUNT_KEYS = new Set<string>(['session_excluded'])
 const WRITE_ROLES: HookWriteRole[] = ['user', 'assistant', 'tool']
 const SKIP_REASONS: HookSkipReason[] = ['sanitized', 'not_ready', 'failed']
 
@@ -127,7 +130,7 @@ function nowIso(): string {
 function emptyState(): HookAuditState {
   return {
     counts: {
-      filtered: { subagent: 0, relay: 0, kind: 0 },
+      filtered: { subagent: 0, relay: 0, kind: 0, session_excluded: 0 },
       written: { user: 0, assistant: 0, tool: 0 },
       skipped: { sanitized: 0, not_ready: 0, failed: 0 },
     },
@@ -143,12 +146,19 @@ function countOf(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0
 }
 
-/** 摘要只接受完整的非负安全整数桶；坏盘面不伪装成零计数。 */
+/** 摘要只接受非负安全整数桶；**缺键按 0 计**（版本前向兼容：旧盘面没有新增 reason），
+ *  形态不符仍返回 null（坏盘面不伪装成零计数）。 */
 function sumCounts(bucket: unknown, keys: readonly string[]): number | null {
   if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) return null
   let total = 0
   for (const key of keys) {
     const value = (bucket as Record<string, unknown>)[key]
+    // 只对**新增**键放行缺省（旧盘面没有它）；旧三项缺键仍判坏——
+    // 否则「盘面被手改删键」会被伪装成健康零计数。
+    if (value === undefined) {
+      if (OPTIONAL_COUNT_KEYS.has(key)) continue
+      return null
+    }
     if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return null
     total += value
     if (!Number.isSafeInteger(total)) return null
@@ -233,7 +243,7 @@ export class HookAuditRecorder {
     }
   }
 
-  /** 一条**被设计滤除**的消息（三处过滤分支各调一次）。 */
+  /** 一条**被设计滤除**的消息（各过滤分支各调一次）。 */
   filtered(reason: HookFilterReason, kind?: string): void {
     this.#mutate((s) => {
       s.counts.filtered[reason] += 1
