@@ -27,11 +27,11 @@
                   },
                   {
                       "path":  "src/lib/console_web.mjs",
-                      "sha256":  "9C8F8450571729688033033F35345B18E9EEB68B871E3A4C53A9B619F28AA61E"
+                      "sha256":  "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
                   },
                   {
                       "path":  "lib/lib/console_web.mjs",
-                      "sha256":  "9C8F8450571729688033033F35345B18E9EEB68B871E3A4C53A9B619F28AA61E"
+                      "sha256":  "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
                   },
                   {
                       "path":  "lib/client.js",

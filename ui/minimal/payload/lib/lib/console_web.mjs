@@ -33,8 +33,12 @@ async function readBody(req) {
 // 空值被闭包固化，此后每次请求都命中 503「宿主鉴权不可用」，宿主就绪也不会自愈。
 // 现在改为**每次请求实时取**：服务晚到也能自愈。
 // 兼容：传的不是函数（旧调用方式/直接给实例）时按常量包裹，行为与旧版一致。
-export function createConsoleHandler(mdcg, config, assets, getConnection) {
+// issue #699 第二层（2026-11-04）：503 分不清「服务没注入」与「已注册未就绪」。
+// 第 5 参 probeConnection 用 `ctx.get(name, false)` 做诊断：strict=false 时即便 fiber 未就绪
+// 也能看到 impl 存在 ⇒ 可区分 not_injected / not_ready。诊断失败不影响主判据。
+export function createConsoleHandler(mdcg, config, assets, getConnection, probeConnection) {
   const connectionOf = typeof getConnection === 'function' ? getConnection : () => getConnection
+  const probeOf = typeof probeConnection === 'function' ? probeConnection : null
   const csrf = randomBytes(32).toString('hex');
   let catalog = null;
   const tools = async () => catalog ?? (catalog = await mdcg.bridge.listTools());
@@ -42,7 +46,29 @@ export function createConsoleHandler(mdcg, config, assets, getConnection) {
     try {
       const path = new URL(req.url, 'http://localhost').pathname;
       const connection = connectionOf()
-      if (!connection || typeof connection.admit !== 'function') return reply(res, 503, { error: '宿主鉴权服务尚未就绪，请稍后重试' });
+      if (!connection || typeof connection.admit !== 'function') {
+        // 三态（#699 复核）：not_admit = 服务存在但不提供 admit（服务名撞车/版本不兼容的
+        // 唯一可识别指纹）；not_injected = 探测到该名字下没有 impl；not_ready = 有 impl 但未就绪。
+        // 诊断异常必须可观测（probe_failed），不得默认退回 not_ready 而把「没注入」误报成「未就绪」。
+        let reason = connection ? 'not_admit' : 'not_ready'
+        if (!connection) {
+          try {
+            const p = probeOf ? probeOf() : null
+            if (p && p.any === false) reason = 'not_injected'
+          } catch { reason = 'probe_failed' }
+        }
+        return reply(res, 503, {
+          error: '宿主鉴权服务尚未就绪，请稍后重试',
+          reason,
+          hint: reason === 'not_injected'
+            ? '本插件看不到 connection 服务（inject 声明/服务名不匹配）；请把本回执贴到 issue #699'
+            : reason === 'not_admit'
+              ? 'connection 服务存在但不提供 admit（服务名撞车/版本不兼容）；请把本回执贴到 issue #699'
+              : reason === 'probe_failed'
+                ? '诊断探针异常；请把本回执贴到 issue #699'
+                : '服务已注册但尚未就绪；若持续出现请把本回执贴到 issue #699',
+        })
+      }
       const admission = connection.admit(req);
       if ('rejection' in admission) return reply(res, admission.rejection, { error: admission.rejection === 401 ? '未登录，请返回 DSH 登录' : '请求来源不可信' });
       if (req.method === 'GET' && assets[path]) {
@@ -96,7 +122,8 @@ export function installConsoleWeb(ctx, config, disposers, mdcg) {
       '/plugins/lingshu/entry.js': [asset('entry.js'), 'application/javascript; charset=utf-8'],
     };
     // issue #699：传**取值函数**（每次请求实时取），不再把挂载瞬间的值闭包固化。
-    const handler = createConsoleHandler(mdcg, config, assets, () => ctx.get('connection'));
+    const handler = createConsoleHandler(mdcg, config, assets, () => ctx.get('connection'),
+      () => ({ any: !!ctx.get('connection', false) }));
     for (const path of ['/lingshu', '/lingshu/', '/plugins/lingshu']) disposers.push(web.register({ kind: path === '/plugins/lingshu' ? 'prefix' : 'exact', path, handler }));
     disposers.push(web.tapIndex(html => html.includes('data-lingshu-entry') ? html : html.replace('</body>', '<script data-lingshu-entry src="/plugins/lingshu/entry.js"></script></body>')));
     ctx.logger.info('dsh-memory: 极简灵枢控制台已挂载 /lingshu（复用唯一大脑桥）');
