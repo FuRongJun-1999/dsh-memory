@@ -87,16 +87,20 @@ export function escapePromptBraces(text: string): string {
  *  一次劈开就让该会话**永久**不可用（历史只增不改）。
  *
  *  语义：预算单位仍是 **UTF-16 码元**（与既有 `RECALL_MAX_CHARS` 等常量一致，输出体积
- *  不变），只是不再把代理对拆开。快路径：`text.length <= maxUnits` 原样返回。
+ *  不变），只是不再把代理对拆开。
+ *
+ *  **输出恒不含孤立代理**（#742 复核对 #765 的采纳）：原文自带的孤立代理也会被清掉——
+ *  此前只保证「不新造」，未挂 strip 的调用点（如 `role`、`index.ts` 的 reason）只能靠
+ *  出口兜底；现在截断本身即安全，任何调用点都拿不到半个字符。
  */
 export function truncateSafe(text: string, maxUnits: number): string {
   // 预算语义固定（#762 复核）：NaN / -Infinity 这类非有限值 **fail-closed** 到 ''——
   // 旧实现里 `units + step > NaN` 恒假 ⇒ 返回全文，是「截空→全量」的失败开放反转；
   // `+Infinity` 表示无上限（原样返回）。小数按 floor 收口（与 `slice` 的隐式取整一致）。
-  if (!Number.isFinite(maxUnits)) return maxUnits > 0 ? text : ''
+  if (!Number.isFinite(maxUnits)) return maxUnits > 0 ? stripLoneSurrogates(text) : ''
   const max = Math.floor(maxUnits)
   if (max <= 0) return ''
-  if (text.length <= max) return text
+  if (text.length <= max) return stripLoneSurrogates(text)
   let units = 0
   let i = 0
   while (i < text.length) {
@@ -109,7 +113,7 @@ export function truncateSafe(text: string, maxUnits: number): string {
     units += step
     i += step
   }
-  return text.slice(0, i)
+  return stripLoneSurrogates(text.slice(0, i))
 }
 
 /** 移除**孤立代理**（issue #762）：合法代理对原样保留，落单的高位/低位代理丢弃。
