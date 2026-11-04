@@ -77,6 +77,42 @@ export function escapePromptBraces(text: string): string {
 
 // ---------------------------------------------------------------- 不可信记忆边界（H5）
 
+/**
+ * 孤立代理（Lone Surrogate）正则。
+ * 匹配：未配对的 High Surrogate (\uD800-\uDBFF) 或未配对的 Low Surrogate (\uDC00-\uDFFF)。
+ * 用于清理截断残片或外部载荷污染，防止非法 Unicode 导致模型服务报 400 INVALID_REQUEST。
+ */
+export const LONE_SURROGATE_RE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g
+
+/**
+ * 清除字符串中的所有孤立代理对（issue #762 出口卫生兜底）。
+ * 成对合法的 emoji（如 😊 = \uD83D\uDE0A）完全保留；仅剥离残破的高位/低位代理。
+ */
+export function stripLoneSurrogates(text: string): string {
+  if (!text) return ''
+  if (!/[\uD800-\uDFFF]/.test(text)) return text
+  return text.replace(LONE_SURROGATE_RE, '')
+}
+
+/**
+ * 按字符预算截断文本，确保不劈开 UTF-16 代理对（Surrogate Pair），并剥除残存的孤立代理。
+ *
+ * 缺陷：`slice(0, budget)` 按 UTF-16 code units 切，若恰好切在 emoji 中间，
+ * 会留下孤立的高位代理（如 \uD83D）。JSON.stringify 后生成合法语法但非法 Unicode，
+ * 严格服务端（DeepSeek/OpenAI 等）直接 400 INVALID_REQUEST，导致历史累积永久作废。
+ */
+export function sliceSafe(text: string, maxChars: number): string {
+  if (!text) return ''
+  if (text.length <= maxChars) return stripLoneSurrogates(text)
+  let end = maxChars
+  const code = text.charCodeAt(end - 1)
+  if (code >= 0xD800 && code <= 0xDBFF) {
+    end -= 1
+  }
+  return stripLoneSurrogates(text.slice(0, end))
+}
+
 /** 边界标记名——**唯一**来源：开/闭标记、打断判据都从它派生（不许各处手写字符串）。 */
 export const UNTRUSTED_MEMORY_TAG = 'untrusted-memory'
 
@@ -171,8 +207,9 @@ export function neutralizeUntrustedBoundary(text: string): string {
  * ——注入块按 v0.4.8 契约每步都 push，输出必须逐字节稳定（否则宿主每步新增快照）。
  */
 export function renderUntrustedMemoryBlock(payload: string): string {
+  const cleanPayload = stripLoneSurrogates(payload)
   return `${UNTRUSTED_MEMORY_NOTICE}\n`
     + `${UNTRUSTED_MEMORY_OPEN}\n`
-    + `${neutralizeUntrustedBoundary(payload)}\n`
+    + `${neutralizeUntrustedBoundary(cleanPayload)}\n`
     + `${UNTRUSTED_MEMORY_CLOSE}`
 }
