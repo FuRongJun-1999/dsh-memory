@@ -132,3 +132,51 @@ One historical measurement-basis difference, for completeness (now unified): the
 
 Nodes with empty `edges` and `access_count: 0` are hit by `T2_global_like` (the global lexical fallback path), and **this is a contract requirement**:
 `md_cg/routing.py` says verbatim "the node stays in the ORPHAN/fallback pool (**it must remain reachable by fallback recall when S1 converges**, see contract §3, S1 invariant)". If you want "high-confidence results only", use the qualification adjudication tier (`judge` / `cg(op=route)`), not a threshold on the fallback path.
+
+---
+
+## 7. Session-level exclusion for automatic memory (#695)
+
+An external bridge (e.g. a QQ bridge) calls `sessions.prompt()` with a wake-up/management protocol plus a chat snapshot,
+and DSH projects that into a `user/message` whose `source.kind` is still `user` — and, **measured, it also carries**
+`rpcId` (12/12), while a normal Web input only differs by the optional `clientTimeZone`. So lingshu **cannot** tell
+"human input" from "bridge-synthesized prompt" by event shape alone; the `source_shapes` audit is two marginal
+distributions (no kind × shape joint table).
+
+Explicit fallback: `memory.excludeSessions` (default `[]`).
+
+```jsonc
+{ "memory": { "userMessage": true, "excludeSessions": ["sess_bridge_*"] } }
+```
+
+- Exact match; entries ending with `*` match by prefix (`sess_bridge_*`). A bare `*` is **ignored** (otherwise one
+  entry would silently disable every session; use `userMessage=false` to disable globally).
+- A matching session writes **nothing to the knowledge track** (user / assistant / tool skipped) and does not count
+  toward the every-ten-turns reminder.
+- **The context-window write side still runs** (`_recent.jsonl`: runtime state, not searchable, not knowledge nodes);
+  the injection side is untouched.
+- **No content-marker filtering**: strings like `【会话令牌】` are never used as a criterion.
+- Malformed configuration (not an array / non-string items) means **no exclusion** (safe degradation).
+
+### Known costs
+
+1. **If a session mixes human input with synthetic prompts, the human content is dropped too.** Exclusion is
+   session-level, while a bridge is often "one group = one session". **Recommended: give bridge control prompts
+   their own session** (e.g. `sess_bridge_<channel>_*`).
+2. **Sessions with an empty `sid` (unassigned) cannot be excluded** — if the bridge does not pass a session id,
+   the switch silently does nothing.
+3. **Audit surface change**: `counts.filtered` gains a `session_excluded` key; `sumCounts` only tolerates a
+   missing **new** key, while a missing old key still marks the file corrupt.
+
+### Cleaning up already-polluted nodes (this switch only stops new ones)
+
+```text
+cg(op=read, query="【会话令牌】")        # or "【本次消息快照】"
+# after manual confirmation, delete (importance >= 0.7 needs override=True)
+```
+
+> **"No content-marker filtering" ≠ "cannot clean by marker"**: the marker stays out of code (it would kill real
+> memories) and lives only in this runbook.
+
+> True attribution needs a trustworthy source field from the host (option A in issue #695). Until then this switch is
+> the honest "remember less rather than misremember" choice; real bridge chat should use a separate entry point.

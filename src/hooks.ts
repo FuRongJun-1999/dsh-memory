@@ -108,6 +108,16 @@ export interface MemoryHooksOptions {
   autoRecallIdentity?: boolean
   /** 自动记忆脱敏：写入前过滤敏感信息（密钥/密码/令牌/身份证/手机号，默认 true）。 */
   desensitize: boolean
+  /** issue #695：**会话级排除**（默认空数组）。命中列表的会话不写知识面（也不计逢十轮）。
+   *
+   *  为什么需要：外部桥接经 `sessions.prompt()` 注入的控制提示在 DSH 里同样是
+   *  `source.kind='user'`（实测**也带 rpcId**，见 issue 内两组独立读数）——宿主当前不提供
+   *  可信来源字段，任何「凭事件形状判真人」的闸都会被这条链路证伪。故本仓给的是
+   *  **按会话显式排除**的诚实兜底（opt-in，缺省关，既有行为不变）。
+   *
+   *  条目语义：精确匹配；以 `*` 结尾时按前缀匹配（如 `sess_bridge_*`）。
+   */
+  excludeSessions?: string[]
   /** 落盘审计文件路径（issue #56，诊断面：哪些消息被设计滤除、source.kind 分布、
    *  写入/跳过计数）。缺省 `~/.dsh/logs/dsh-memory-hook-audit.json`（与桥探针 /
    *  apply 探针同目录同惯例），供测试与定制注入；审计自身失败静默降级，
@@ -669,6 +679,24 @@ function isSubagentSession(session: unknown): boolean {
  *  ① 不把委派判定押在 `source.kind` 单点上、② 覆盖「生产者把中继标成
  *  `kind='user'` 且带 form」这一类型面之外的形态——子会话的**首轮用户提示**就可能
  *  是这种：它与真人输入在 `kind` 上不可分，只有会话级判据（或这里的 form）能拦。 */
+/** issue #695：会话是否在 `memory.excludeSessions` 里（精确 / `*` 后缀前缀匹配）。
+ *  形态不符（非数组 / 非字符串项）一律忽略——不因配置写错就静默关掉真人记忆。 */
+function isExcludedSession(sid: string, list: unknown): boolean {
+  if (!sid || !Array.isArray(list)) return false
+  for (const raw of list) {
+    if (typeof raw !== 'string' || !raw) continue
+    if (raw === '*') continue          // 裸 * 会关闭全部会话 ⇒ 忽略（安装时已 warn）
+    if (raw.endsWith('*')) {
+      const prefix = raw.slice(0, -1)
+      if (!prefix) continue            // 防御：空前缀不匹配任何人
+      if (sid.startsWith(prefix)) return true
+    } else if (sid === raw) {
+      return true
+    }
+  }
+  return false
+}
+
 function isRelayedMessage(source: unknown): boolean {
   const s = source as { form?: unknown } | null | undefined
   return !!s && typeof s === 'object' && s.form === 'relay'
@@ -691,6 +719,16 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *  「写入失败/漏记」。审计失败静默降级（见 src/lib/hook_audit.ts），
    *  绝不冒泡进记忆路径、不改任何写入/过滤判定。 */
   const audit = new HookAuditRecorder(opts.auditPath)
+  // issue #695：配置自检（不静默）——裸 `*` 与中缀 `*` 都不会按预期工作，启动即告警。
+  if (Array.isArray(opts.excludeSessions)) {
+    for (const raw of opts.excludeSessions) {
+      if (raw === '*') {
+        ctx.logger.warn('dsh-memory: excludeSessions 含裸 "*"（会关闭全部会话的知识面记忆），已忽略；如需全关请用 userMessage=false')
+      } else if (typeof raw === 'string' && raw.includes('*') && !raw.endsWith('*')) {
+        ctx.logger.warn(`dsh-memory: excludeSessions 条目 "${raw}" 的 * 不在结尾，按精确匹配处理（不会命中任何会话）`)
+      }
+    }
+  }
 
   // ── 短期会话窗口（contextWindow）：与知识面写入**独立成轨**（见文件头）──
   // 缺省开启（{ enabled: true, turns: 10 }）；enabled=false → 写侧与注入侧
@@ -833,6 +871,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   /** 待推送提醒（session → 文本）：用户回合计数命中时写入，assemble 时只消费一次；
    *  不做 sticky 重推（那是提醒常驻的直接原因）。 */
   const pendingReminder = new Map<string, string>()
+  /** issue #695：已记过「本会话被排除」日志的会话（避免每条消息刷一条）。 */
+  const excludedLogged = new Set<string>()
   /** 提醒间隔：false 或 **<= 0 → 0（关闭）**；数字 → clamp 1..100；未设/非有限 → 10。
    *  issue #659 F26-21：旧实现把 0 钳成 1（每轮提醒一次），与「0 = 关」的直觉相反；
    *  负数同样落 0（关），而不是变成 1。非有限（NaN/Infinity）仍回落默认 10。 */
@@ -1052,11 +1092,28 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       observedSession = true
     }
     const sessionTag = sid ? { session: sid } : { session: UNASSIGNED_SESSION }
+    // issue #695：**会话级排除**（opt-in）。外部桥接的控制提示与真人输入在事件形状上
+    // 不可区分（同 kind=user、同带 rpcId），故按会话显式排除。**只门控知识面轨**
+    // （三类 remember + 语义召回 + 逢十轮计数）；窗口写侧（windowEntry/noteRecent）
+    // 照常——它是运行态、不进检索正排（见 docs/ops「自动记忆的会话级排除」）。
+    const excludedSession = !!sid && Array.isArray(opts.excludeSessions)
+      && isExcludedSession(sid, opts.excludeSessions)
+    if (excludedSession && (event.type === 'user/message'
+        || event.type === 'assistant/message' || event.type === 'tool/result')) {
+      // 只有 user/message 带 source.kind；assistant/tool 只记 reason（不留痕反而是缺口）。
+      const excludedKind = event.type === 'user/message' ? kindOf(event.data.source) : undefined
+      audit.filtered('session_excluded', excludedKind)
+      if (event.type === 'user/message' && !excludedLogged.has(sid)) {
+        excludedLogged.add(sid)
+        ctx.logger.info(`dsh-memory: 会话 ${sid} 在 memory.excludeSessions 中，知识面记忆已跳过（issue #695）`)
+      }
+    }
     // 逢十轮提醒的**计轮点**（#645/#658）：真实用户回合 = 用户消息条数。
     // 位置在 opts.userMessage 之外——那个开关是「消息不自动进知识面」的正当决策，
     // 与「提醒还该不该跑」是两件事；旧实现把计轮塞在它里面，关知识面会连带静默杀死提醒。
     if (event.type === 'user/message' && event.data.source?.kind === 'user'
-        && !isRelayedMessage(event.data.source) && sid && reminderInterval > 0) {
+        && !isRelayedMessage(event.data.source) && sid && !excludedSession
+        && reminderInterval > 0) {
       const n = (userTurns.get(sid) ?? 0) + 1
       userTurns.set(sid, n)
       if (shouldRemindTurn(n, reminderInterval)) {
@@ -1073,7 +1130,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         }
       }
     }
-    if (event.type === 'user/message' && opts.userMessage) {
+    if (event.type === 'user/message' && opts.userMessage && !excludedSession) {
       // 落盘审计（issue #56）：source.kind 分布——先于两级判据记录**完整**输入分布
       // （含被滤与放行），「宿主到底给这条消息标了什么 kind」是排障第一问。
       audit.observeKind(kindOf(event.data.source))
@@ -1119,7 +1176,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       // 带上它不构成越权：cg 读路径的 session 是**归因/视图**维度，不参与任何授权
       // （issue #35 定稿「身份不可自报」，见 md_cg/mdcos.py 的 _candidates）。
       memorize('user-recall', null, (g) => g.read(safe.slice(0, 200), { k: 3, ...sessionTag }))
-    } else if (event.type === 'assistant/message' && opts.assistantMessage) {
+    } else if (event.type === 'assistant/message' && opts.assistantMessage && !excludedSession) {
       const text = extractText(event.data.message.content)
       if (!text) return
       const safe = sanitize(text)
@@ -1129,7 +1186,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
         ...sessionTag,
       }))
-    } else if (event.type === 'tool/result' && opts.toolResult) {
+    } else if (event.type === 'tool/result' && opts.toolResult && !excludedSession) {
       if (event.data.error) return
       const text = extractText(event.data.message.content)
       if (!text) return

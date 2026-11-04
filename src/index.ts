@@ -172,6 +172,11 @@ export const Config: z<Config> = z.object({
   memory: z
     .object({
       userMessage: z.boolean().default(true),
+      /** issue #695：自动记忆的**会话级排除**（默认空）：命中列表的会话不写知识面。
+       *  外部桥接经 `sessions.prompt()` 注入的控制提示在 DSH 里同样是 `source.kind='user'`
+       *  （实测也带 rpcId），宿主当前无可信来源字段 ⇒ 按会话显式排除是诚实兜底。
+       *  条目：精确匹配；`*` 结尾按前缀匹配（如 `sess_bridge_*`）。 */
+      excludeSessions: z.array(String).default([]),
       assistantMessage: z.boolean().default(false),
       toolResult: z.boolean().default(false),
       importance: z.number().default(0.6),

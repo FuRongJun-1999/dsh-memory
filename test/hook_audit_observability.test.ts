@@ -161,7 +161,8 @@ test('A1 绿态：三类过滤 + 真人写入 + 脱敏置空 → counts/kinds/la
 
     const audit = readAudit(auditPath)
     // counts 逐项
-    assert.deepEqual(audit.counts.filtered, { subagent: 1, relay: 1, kind: 1 }, '三处过滤分支各计一次')
+    assert.deepEqual(audit.counts.filtered,
+    { subagent: 1, relay: 1, kind: 1, session_excluded: 0 }, '三处过滤分支各计一次')
     assert.deepEqual(audit.counts.written, { user: 1, assistant: 0, tool: 0 }, '成功发起的写入按 role 计')
     assert.deepEqual(audit.counts.skipped, { sanitized: 1, not_ready: 0, failed: 0 }, '跳过按成因计')
     // kinds：进入消息级处理的每条事件的 source.kind 分布（含被滤与放行；子代理会话不进）
