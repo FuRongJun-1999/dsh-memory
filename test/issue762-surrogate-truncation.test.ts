@@ -70,6 +70,13 @@ test('#762 truncateSafe：预算落在 emoji 中间时退回上一个完整码�
   assert.equal(truncateSafe('', 0), '')
 })
 
+test('#762 truncateSafe 输出恒无孤立代理（原文自带也会清）', () => {
+  assert.equal(truncateSafe('a\uD83D', 5), 'a')
+  assert.equal(truncateSafe('a\uDC00', 2), 'a')
+  assert.equal(truncateSafe('😊\uD83D', 10), '😊')
+  assert.equal(hasLoneSurrogate(truncateSafe('x\uD83Dy', 10)), false)
+})
+
 test('#762 stripLoneSurrogates：孤立代理丢弃、合法对保留、幂等', () => {
   assert.equal(stripLoneSurrogates('a\uD83Db'), 'ab')
   assert.equal(stripLoneSurrogates('a\uDE0Ab'), 'ab')
