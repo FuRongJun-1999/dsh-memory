@@ -3692,7 +3692,7 @@ class MdCG:
                 rejection_index_terms(fm, sealed),
             "access_count": fm.get("access_count", 0),
             "last_access": fm.get("last_access", 0),
-            "content_hash": hashlib.sha256(sealed.encode("utf-8")).hexdigest()[:12],
+            "content_hash": nodefile.content_hash(sealed),
             "temporal": fm.get("temporal"),
             "spatial": fm.get("spatial"),
             "time_window": cs.get("time_window"),

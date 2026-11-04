@@ -597,7 +597,22 @@ def rollback_mutation(cg, mutation, reason="", actor=None, force=False,
     if cur_fp != pre_fp and not force:     # 相等＝幂等重放，放行（见 docstring）
         want = mutation.get("after_hash")
         if isinstance(want, dict):
-            if cur_fp != want:
+            # issue #741 升级兼容：after_hash 是**执行时点持久化**的指纹（decisions.jsonl）。
+            # 升级前执行、升级后回滚的单子，其 content_hash 是旧口径（sha 去尾原文），
+            # 与「现盘面按新口径重算」的 cur_fp 恒不等 ⇒ 会被误判 drifted_since_execute
+            # 而 fail-closed（方向保守但阻塞运维）。此处仅对**旧口径**一次性放行：
+            # fm 逐键相等且 content_hash 命中「旧口径 = sha(rstrip 正文)」时才视为未漂移；
+            # 真漂移（正文实改）仍不等，照旧 fail-closed。
+            _legacy_ok = False
+            if (want.get("fm") == cur_fp.get("fm")
+                    and want.get("content_hash") != cur_fp.get("content_hash")):
+                import hashlib as _hl741
+                _node741 = _node_of(cg, tgt) or {}
+                _legacy741 = _hl741.sha256(
+                    (_node741.get("content") or "").rstrip("\n").encode("utf-8")
+                ).hexdigest()[:12]
+                _legacy_ok = (want.get("content_hash") == _legacy741)
+            if cur_fp != want and not _legacy_ok:
                 drift = {"ok": False, "error": "drifted_since_execute",
                          "action": act, "target": tgt, "preimage": rel,
                          "current": cur_fp, "expected_after_execute": want,
