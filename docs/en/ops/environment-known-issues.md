@@ -180,3 +180,55 @@ cg(op=read, query="【会话令牌】")        # or "【本次消息快照】"
 
 > True attribution needs a trustworthy source field from the host (option A in issue #695). Until then this switch is
 > the honest "remember less rather than misremember" choice; real bridge chat should use a separate entry point.
+
+---
+
+## 8. Session memory isolation: `sessionPrivate` and the narrowing surface (#730)
+
+### 8.1 "Each session reads its own" uses the existing sensitivity mechanism
+
+Server-side `_readable` (`md_cg/mdcos.py`): `public`/`internal` are cross-session levels;
+`private`/`secret` are **session-bound** (only the owning `frontmatter.session` can read them,
+`can_admin` exempts). Session-bound nodes without an owner are fail-closed (designer only).
+
+So the plugin only needs to mark automatic memories `private`:
+
+```jsonc
+{ "memory": { "userMessage": true, "sessionPrivate": true } }
+```
+
+- Default **false** (cross-session continuity is the existing default; cross-session recall is still a
+  product decision, see #749).
+- When on, user / assistant / tool memories carry `sensitivity: "private"`.
+- **Unassigned sessions are never marked private** — a private node without an owner is visible only to
+  the designer, i.e. effectively lost.
+
+### 8.3 Costs of enabling `sessionPrivate`
+
+1. **The session id must be stable across restarts**: visibility is `fm.session == principal.session`. If the host
+   generates a new `sess_*` on every start, private memories written last run cannot be read next run (not
+   "isolated" — lost; `recall` just returns less without error). The `s5` identity chain covers only part of the
+   paths — if the assistant seems to "forget" after enabling, turn the switch off and check session identity.
+2. **`private` is an encrypted level**: writing needs a master key (KEK/DEK). Without one the write is
+   fail-closed (not written), so on a keyless deployment enabling private means **no automatic memory at all**,
+   not "isolation works".
+3. **Only session flowing memories are affected**: knowledge-layer / distilled / direct `remember` writes stay
+   `internal`. Cross-session continuity should ride on **distilled knowledge**, not raw session turns — that is how
+   `sessionPrivate` and #749 coexist.
+4. **No owner, no private** (`sid` empty or exactly the `unassigned` sentinel) — private without an owner is
+   designer-only, i.e. written into the void.
+
+> One line: **enable only if you want isolation; enabling costs cross-session continuity and restart readability.**### 8.2 `sessions_read` and the `narrowed_principal` narrowing surface
+
+`sessions_read` limits the recent-event window in the resume package (it is **not** search visibility —
+that is governed by sensitivity).
+
+- Issue/derive: `tokens.issue(..., sessions_read=[...])` / `tokens.derive(..., sessions_read=[...])`
+  (derive takes the **intersection**; an empty intersection raises `TokenError`).
+- CLI: `--sessions-read a,b`.
+- Request-level narrowing: `as_unit` goes through `narrowed_principal`, which now propagates the owner
+  `sessions_read` (previously dropped: an owner restriction silently widened to unlimited, fail-open).
+- Single source of narrowing fields: `tokens.NARROWING_FIELDS` (clearance / can_write / can_admin /
+  layers_allow / ops_allow / sessions_read), guarded by `test_issue730_narrowing_audit`.
+- **No `as_session`**: `_readable` already rules that session identity cannot be self-declared;
+  switching sessions is privilege-neutral, not a narrowing.
