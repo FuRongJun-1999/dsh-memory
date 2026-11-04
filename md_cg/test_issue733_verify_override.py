@@ -115,6 +115,11 @@ def o2_override_false_still_denies():
            "O2 缺省 override 时 verification.ok 为假（实际 %r）" % (ver.get("ok"),))
         ok(ver.get("error") == "protected",
            "O2 拒绝码为 protected（实际 %r）" % (ver.get("error"),))
+        # 复核 ①（#752 采纳）：`after == before` 在 before 为 None 时会退化成
+        # 「仍是 None」，分不出 unverified→None 的破坏。先钉死初态属于合法集合，
+        # 再断言 after 与之逐位相等 —— 初态将来漂移也不会假绿。
+        ok(before in (None, "unverified"),
+           "O2 前置：初态属于合法集合 {None, unverified}（实际 %r）" % (before,))
         ok(after.get("verification_state") == before,
            "O2 受保护节点状态未被改动（前=%r 后=%r）"
            % (before, after.get("verification_state")))
@@ -148,15 +153,21 @@ def o4_confirmed_branch_carries_override():
     try:
         cg = MdCG(root)
         _mk_protected(cg, "o4")
-        res = cg.verify("o4", "外部证据：确认", "confirmed", override=True)
-        ver = res.get("verification") or {}
-        after = (cg.get("o4") or {}).get("frontmatter") or {}
-        ok(ver.get("ok") is True,
-           "O4 confirmed + override=True 成功（实际 ok=%r error=%r）"
-           % (ver.get("ok"), ver.get("error")))
-        ok(after.get("verification_state") == "verified",
-           "O4 受保护节点落到 verified（实际 %r）"
-           % (after.get("verification_state"),))
+        # 复核 ②（#752 采纳）：原写法是恒真测试——confirmed 是升格方向（verified
+        # rank 全局最小），旧码此处本就 ok=True，回退补丁也不变红。改为 monkeypatch
+        # 捕获 `set_verification` 实际收到的 override 实参：回退 ⇒ False ⇒ 红。
+        seen = {}
+        orig = cg.set_verification
+
+        def spy(node_id, state, **kw):
+            seen["override"] = kw.get("override")
+            return orig(node_id, state, **kw)
+
+        cg.set_verification = spy
+        cg.verify("o4", "外部证据：确认", "confirmed", override=True)
+        ok(seen.get("override") is True,
+           "O4 set_verification 实际收到 override=True（实收 %r）"
+           % (seen.get("override"),))
     finally:
         shutil.rmtree(root, ignore_errors=True)
 
