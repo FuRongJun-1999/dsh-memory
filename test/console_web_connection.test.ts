@@ -58,6 +58,48 @@ test("B **连接随后就绪 ⇒ 同一 handler 立刻 200（自愈）**", async
   assert.equal(r2.out.body, "<html>ok</html>")
 })
 
+test("D 服务根本没注入 ⇒ reason=not_injected（第二层诊断）", async () => {
+  const h = (createConsoleHandler as any)({}, {}, ASSETS, () => undefined,
+    () => ({ ready: false, any: false }))
+  const res = fakeRes()
+  await h({ url: "/lingshu", method: "GET", headers: {} }, res)
+  assert.equal(res.out.status, 503)
+  assert.ok(res.out.body.includes("not_injected"), "应区分「没注入」：" + res.out.body)
+})
+
+test("F 服务存在但不提供 admit ⇒ reason=not_admit（服务名撞车/版本不兼容的指纹）", async () => {
+  const h = (createConsoleHandler as any)({}, {}, ASSETS, () => ({}))
+  const res = fakeRes()
+  await h({ url: "/lingshu", method: "GET", headers: {} }, res)
+  assert.equal(res.out.status, 503)
+  assert.ok(res.out.body.includes("not_admit"), "应识别第三态：" + res.out.body)
+})
+
+test("G 探针异常 ⇒ reason=probe_failed（不默认退回 not_ready）", async () => {
+  const h = (createConsoleHandler as any)({}, {}, ASSETS, () => undefined, () => { throw new Error("probe boom") })
+  const res = fakeRes()
+  await h({ url: "/lingshu", method: "GET", headers: {} }, res)
+  assert.equal(res.out.status, 503)
+  assert.ok(res.out.body.includes("probe_failed"), "诊断失败必须可观测：" + res.out.body)
+})
+
+test("A′ 旧调用（4 参）503 的 reason 保守落 not_ready", async () => {
+  const h = (createConsoleHandler as any)({}, {}, ASSETS, () => undefined)
+  const res = fakeRes()
+  await h({ url: "/lingshu", method: "GET", headers: {} }, res)
+  assert.equal(res.out.status, 503)
+  assert.ok(res.out.body.includes("not_ready"), "缺省 probe 时不得误报：" + res.out.body)
+})
+
+test("E 已注册但未就绪 ⇒ reason=not_ready（可重试）", async () => {
+  const h = (createConsoleHandler as any)({}, {}, ASSETS, () => undefined,
+    () => ({ ready: false, any: true }))
+  const res = fakeRes()
+  await h({ url: "/lingshu", method: "GET", headers: {} }, res)
+  assert.equal(res.out.status, 503)
+  assert.ok(res.out.body.includes("not_ready"), "应区分「未就绪」：" + res.out.body)
+})
+
 test("C 旧调用方式（直接传值）仍按常量处理——向后兼容", async () => {
   const h = (createConsoleHandler as any)({}, {}, ASSETS, OK_ADMIT)
   const res = fakeRes()
