@@ -433,7 +433,18 @@ class WritePipeline:
         # ——原先此处 `"mem_" + 毫秒` 与 mcp_server 的 mdcg_remember 分支各写一份，
         # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。
         # 本处只委托，不复制判据。
-        ctx = {"cg": cg, "a": a, "nid": _nid, "verdict": None, "cvd": None}
+        # **元数据补丁**：由 mcp_server 的 write 分派在「调用方没给 content」时
+        # 打上 `_meta_patch` 标记（正文由盘面取回）。只有这一条显式路径放宽内容
+        # 类闸（audit / consistency）与自治档位闸：
+        #   · 内容闸判的是「这段正文能不能入库」，而补丁根本不改正文——重跑等于
+        #     用**今天的**规则否决一条早已合法入库的旧正文（实测
+        #     mem_1792393765836_305c32：旧格式正文缺 `# 功能名`，一次只加
+        #     domain: 标签的补丁被整条拒收并写进负记忆）；
+        #   · 档位闸保护的是「正文被替换」，正文没被替换就不该出单。
+        # 刻意**不**按「正文是否相同」推断：普通 write 即便正文一样，也走原有
+        # 全套闸（幂等重放、REJECT 存根密级继承等既有语义依赖这些闸被执行）。
+        ctx = {"cg": cg, "a": a, "nid": _nid, "verdict": None, "cvd": None,
+               "meta_only": bool(a.get("_meta_patch"))}
         # ★ issue #322（P0，多实例共根）：**同一 node_id 的整条写链**必须在同一把
         # **跨进程**锁内——`_gate_autonomy` 的存在性判定、`_gate_gated` 的遗忘闸、
         # 链尾 `cg.add` 的保护闸/落盘、以及出口的 `_commit_visibility`（flush）
@@ -603,6 +614,9 @@ def _gate_audit(ctx):
     分支）。故策略不可用时在**提案入队之前**返回结构化错误：moved_to=
     "policy_unavailable"，响应体只带错误码/原因/hint，**不含正文**。
     """
+    if ctx.get("meta_only"):
+        # 正文未变 ⇒ 不重判内容合规（见 execute 里 _meta_only 的注释）
+        return None
     a = ctx["a"]
     cg = ctx["cg"]
     from . import audit
@@ -713,6 +727,10 @@ def _gate_consistency(ctx):
     defer=转入审核队列。BLINDSPOT（无可比对节点，检测前提不存在）恒放行，
     cvd 审计经链尾透出（issue #26：无法比对 ≠ 冲突，入队是死胡同）。
     """
+    if ctx.get("meta_only"):
+        # 正文未变 ⇒ 冲突检测的输入没变，结论也不会变（且旧正文可能早于现行
+        # 判据入库）。同一 o 理由见 execute 里 _meta_only 的注释。
+        return None
     a = ctx["a"]
     cg = ctx["cg"]
     if not bool(a.get("consistency", True)):
@@ -831,6 +849,8 @@ def _write_values(ctx) -> dict:
         "importance_hint": _hint,
         # direct 专有：**声明值语义**（None ＝ 未声明 ⇒ 缺省 0.5，与 add 缺省同口径；
         # 显式 0/0.0 等合法 falsy 数值照传）。与上一条**不等价**，理由见文件头注释。
+        # 注：元数据补丁要「继承旧 importance」时，由 mcp_server 的分派把旧值填进
+        # a["importance"]（见那里的注释）——不在此处放宽，两个出口的缺省语义不变。
         "importance": 0.5 if _imp is None else float(_imp),
         "override": bool(a.get("override")),
         "consistency": False,
@@ -1305,6 +1325,11 @@ def _gate_autonomy(ctx):
     from . import forgetting as _forgetting
     prior = _forgetting.prior_node(cg, nid)
     action = _am.C_REWRITE if prior is not None else _am.A_ADD
+    if prior is not None and a.get("_meta_patch"):
+        # 元数据补丁（正文由盘面取回、逐字不变）不是「改写」：出单只会让 #732
+        # 那类迁桶场景卡在为「没有发生的内容变更」点确认上。资格闸（层闸、写
+        # 保护闸）住在 cg.add 内部，不因本放行而减少。
+        return None
     if prior is not None:
         # 资格在先（纯加严）：覆写的层闸/写保护闸住在 `cg.add` 内部，若档位闸
         # 先出单，一次本该 `AccessDenied`/`ProtectionError` 的覆写会变成静默入队

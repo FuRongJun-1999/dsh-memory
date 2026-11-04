@@ -805,8 +805,16 @@ KERNEL_TOOLS = [
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
                                  "回指原文/轮次）"),
-            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified；"
+            verdict=_p("string", "verify 裁决：confirmed|weakened|falsified"
+                                 "|superseded（superseded=被新版本取代：不删除、"
+                                 "不动验证态，需同时给 superseded_by）；"
                                  "insight verify：verified|falsified"),
+            superseded_by=_p("string", "verify verdict=superseded 时必填："
+                                      "取代它的节点 id"),
+            tags_add=_p("array", "maintain retag：要新增的标签（含 domain:<域>）"),
+            tags_remove=_p("array", "maintain retag：要移除的标签"),
+            condition_space_patch=_p("object", "maintain retag：条件空间补丁"
+                                              "（浅合并，如 observation_position）"),
             question=_p("string", "whitebox：ask/verify 的问题"),
             message=_p("string", "whitebox ask：问题（question 的别名）"),
             session_id=_p("string", "whitebox：会话 id（默认 md_cg-whitebox-verify）"),
@@ -915,7 +923,8 @@ KERNEL_TOOLS = [
                                       "（仅重要性重算；固化需 LLM 仍交人工。默认否）"),
             allow_evolve=_p("boolean", "sustain heal：放行演化类修复"
                                       "（确定性动作才执行；默认否）"),
-            dry_run=_p("boolean", "sustain heal / scrub：只列动作不落盘"),
+            dry_run=_p("boolean", "sustain heal / scrub：只列动作不落盘；"
+                            "maintain retag：只算不写（缺省沿用 apply 口径）"),
             ids=_p("array", "scrub：节点 id 列表（缺省全库）"),
             kinds=_p("string", "scrub：限定污染类型，逗号分隔"),
             strategy=_p("string", "scrub sample：stratified|risk|random"),
@@ -2377,6 +2386,8 @@ def _require_verify_for_vstate(p, a):
 
 def _cg_dispatch(cg, a):
     """认知图唯一入口的 op 分发主体。"""
+    # 防御性再剥一次（`_dispatch` 已剥；内部调用方若直接调本函数，同样不许传内部标志）。
+    a = {k: v for k, v in (a or {}).items() if not str(k).startswith("_")}
     op = (a.get("op") or "read").strip().lower()
     if op == "help":
         return _help_call(cg, a)
@@ -2800,6 +2811,36 @@ def _cg_dispatch(cg, a):
         # 本文件；新增闸门 = register_before 一行，即插即拔。
         # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
         from .writepipe import default_pipeline
+        # **元数据补丁**（issue #732 的实用形态）：只给 node_id + tags /
+        # condition_space / depends_on 而不给 content ⇒ 视为「改元数据、不动
+        # 正文」，正文按原样从盘面取回再走同一条写链。这样「给存量节点补
+        # domain: 标签以迁出 orphan 桶」不必再用同 id 覆写——覆写是全量重建
+        # fm，历史上会重置 created_at/session 并丢 evidence_log/edges。
+        # 为何挂在 write 下而不是新造 op：它本质是**单节点写**（与 verify 同类），
+        # 不是批量维护；也不给令牌 face 引入新 op 词（派生收窄面零改动）。
+        if not str(a.get("content") or "").strip() and a.get("node_id"):
+            _cur = cg.get(a.get("node_id"))
+            if not _cur:
+                return {"ok": False, "error": "node_not_found",
+                        "node_id": a.get("node_id"),
+                        "hint": "content 为空时按「元数据补丁」处理，此时 node_id "
+                                "必须指向既有节点（新建节点必须给 content）"}
+            a = dict(a)
+            a["content"] = _cur.get("content") or ""
+            # 内容类型必须补齐：写入闸按 content_kind 选规则，缺省会判
+            # 「未知内容类型 ''」→ BLINDSPOT → 入审核队列（实测）。补丁的
+            # 正文是原来那条，故类型也沿用原节点的（modality 是既有落盘列）。
+            _pfm = _cur.get("frontmatter") or {}
+            if not a.get("content_kind"):
+                a["content_kind"] = (_pfm.get("content_kind")
+                                     or _pfm.get("modality") or "text")
+            # 显式标记：写链据此放行内容闸与档位闸（见 writepipe.execute 的注释）。
+            # 只有**这条**路径会置位——普通 write 即便正文一样也走全套闸。
+            a["_meta_patch"] = True
+            # importance 继承：写链 direct 出口对未声明值回落 0.5（那是两出口的
+            # 既有不变量，不动），故补丁要保原值必须在这里把旧值显式填进去。
+            if a.get("importance") is None and _pfm.get("importance") is not None:
+                a["importance"] = _pfm["importance"]
         return default_pipeline().execute(cg, a)
 
     if op == "goal":
@@ -2889,7 +2930,8 @@ def _cg_dispatch(cg, a):
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
                          a.get("verdict", ""),
-                         override=bool(a.get("override")))
+                         override=bool(a.get("override")),
+                         superseded_by=a.get("superseded_by"))
 
     if op == "review":
         act = (a.get("action") or "list").strip().lower()
@@ -3517,7 +3559,11 @@ def _maintain_call(cg, a):
         min_conf=a.get("min_conf"), basis_text=a.get("basis_text"),
         prefixes=a.get("prefixes"), aeis_root=a.get("aeis_root"),
         sample_n=a.get("sample_n"), prefix=a.get("prefix"),
-        verdicts=a.get("verdicts"), reason=a.get("reason"))
+        verdicts=a.get("verdicts"), reason=a.get("reason"),
+        # action=retag 的形参（只改元数据，正文与证据链原样）：
+        tags_add=a.get("tags_add"), tags_remove=a.get("tags_remove"),
+        condition_space_patch=a.get("condition_space_patch"),
+        depends_on=a.get("depends_on"), dry_run=a.get("dry_run"))
 
 
 # 生效条件：act=(a.get("action") or "promote").strip().lower()；principal 非 None 时一律先 require_admin(f"consolidate_{act}")；imp=a.get("min_importance")，为 None 时回落为 a.get("importance")，随后以 imp 等参数调 cg.consolidate_run 并返回。
@@ -4068,7 +4114,10 @@ def _oversize_r2(nid, a):
 
 
 def _dispatch(cg, name, args):
-    a = args or {}
+    # issue #742 复核（提权面）：`_meta_patch` 等**下划线前缀键是内部标志**，只能由
+    # 内部路径置位（见 `_cg_dispatch` 的元数据补丁分支）。外部调用方若能在 args 里
+    # 自己带上它们，就能绕过内容闸/档位闸直接落盘——故在唯一外部入口统一剥离。
+    a = {k: v for k, v in (args or {}).items() if not str(k).startswith("_")}
     # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**（见 _runtime_token_recheck）
     _re86 = _runtime_token_recheck(getattr(cg, "principal", None))
     if _re86:
