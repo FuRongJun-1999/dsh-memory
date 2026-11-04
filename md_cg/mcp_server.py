@@ -892,6 +892,7 @@ KERNEL_TOOLS = [
             incremental=_p("boolean", "index_code/index_doc：按 _refindex.json 水位跳过"
                                      "未变文件（默认否=全量重切，保证不漏召回）；"
                                      "传 sensitivity 覆盖时自动退回全量"),
+            allow_nested=_p("boolean", "index_code/index_doc：显式允许与已索引根互相嵌套（issue #754）；默认拒绝——同一物理文件会因「相对 root 的 path」不同而生成两套节点"),
             max_nodes=_p("integer", "ref action=check：最多巡检节点数（默认 2000，"
                                     "越限返回 truncated=true）"),
             sensitivity=_p("string", "密级声明：index_doc 的节点密级（默认 internal 并显式"
@@ -3021,6 +3022,18 @@ def _cg_dispatch(cg, a):
         check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "index_code")
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
+        # issue #754：父/子根互相包含 ⇒ 同一物理文件生成两套节点（id 键是相对 path）。
+        # 默认 root（未显式给 path）是部署侧「全库刷一遍」语义，不做嵌套拦截；
+        # allow_nested=true 强制时回执留痕（nested_override），便于日后清理区分。
+        _nest, _nest_ok = ((None, True) if not a.get("path")
+                           else _nested_root_guard(cg, root, "code_ref"))
+        _nest_allowed = _nest if (_nest and a.get("allow_nested")) else None
+        if _nest and not a.get("allow_nested"):
+            return {"ok": False, "error": "nested_root", "path": root,
+                    "conflicts_with": _nest,
+                    "hint": ("该目录与已索引根互相嵌套（%s）——同一文件会生成两套"
+                             "节点（issue #754）。请改为索引最外层根；确需同时"
+                             "索引请显式 allow_nested=true。" % _nest)}
         # 写序（commit=False → add_items 成功后再 save）：水位是**派生物的水位**，
         # 必须落在「节点已写成功」之后。否则进程在两步之间被杀，会留下
         # 「水位新 + 节点旧」——下次巡检按水位判「未变、可跳过」，漂移静默漏报。
@@ -3051,6 +3064,11 @@ def _cg_dispatch(cg, a):
                "skipped_unchanged": stats.get("skipped_unchanged", 0),
                "skipped_suffixes": stats["skipped_suffixes"], "note": note}
         out.update(_skip_dirs_report(stats))
+        if _nest_allowed:               # issue #754：强制放行留痕（不静默）
+            out["nested_override"] = True
+            out["conflicts_with"] = _nest_allowed
+        if not _nest_ok:                # 守卫读不到水位 ⇒ 显式降级，不扮成「无嵌套」
+            out["nested_guard"] = "unavailable"
         if stats["truncated"]:
             # 截断必须显式说出来：以前静默 return，调用方以为索引是完整的。
             out["truncated_reason"] = stats["truncated_reason"]
@@ -3076,6 +3094,16 @@ def _cg_dispatch(cg, a):
         check_path_root(a.get("path"), "MDCG_INGEST_ROOT", "index_doc")
         if not os.path.isdir(root):
             return {"ok": False, "error": f"目录不存在：{root}"}
+        # issue #754：同 index_code——父/子根嵌套会双写（按 doc_ref kind 判）。
+        _nest, _nest_ok = ((None, True) if not a.get("path")
+                           else _nested_root_guard(cg, root, "doc_ref"))
+        _nest_allowed = _nest if (_nest and a.get("allow_nested")) else None
+        if _nest and not a.get("allow_nested"):
+            return {"ok": False, "error": "nested_root", "path": root,
+                    "conflicts_with": _nest,
+                    "hint": ("该目录与已索引根互相嵌套（%s）——同一文件会生成两套"
+                             "节点（issue #754）。请改为索引最外层根；确需同时"
+                             "索引请显式 allow_nested=true。" % _nest)}
         layer = a.get("layer") or "knowledge"
         # 显式改密级时必须全量重切（增量会跳过未变文件、覆盖不生效）。
         incremental = bool(a.get("incremental")) and not a.get("sensitivity")
@@ -3105,6 +3133,11 @@ def _cg_dispatch(cg, a):
                "skipped_suffixes": stats["skipped_suffixes"],
                "layer": layer, "sensitivity": sens_counts, "note": note}
         out.update(_skip_dirs_report(stats))
+        if _nest_allowed:               # issue #754：强制放行留痕（不静默）
+            out["nested_override"] = True
+            out["conflicts_with"] = _nest_allowed
+        if not _nest_ok:                # 守卫读不到水位 ⇒ 显式降级，不扮成「无嵌套」
+            out["nested_guard"] = "unavailable"
         if stats["truncated"]:
             out["truncated_reason"] = stats["truncated_reason"]
             out["note"] = (f"⚠ 索引被截断，结果不完整（{stats['truncated_reason']}），"
@@ -3369,6 +3402,20 @@ def _session_call(cg, a):
 
 
 # 生效条件：flag=a.get("prune", True)，flag 为字符串时重算为 flag.strip().lower() not in ("false","0","no","off","")；若 not flag 或 stats.get("truncated") 为真则返回 None；否则返回 refindex.prune_orphans(cg, kind=kind, root=root, items=items, dry_run=bool(a.get("prune_dry_run"))).
+    new = _os.path.realpath(str(root))
+    seen = set()
+    for rec in files.values():
+        r = (rec or {}).get("root") if isinstance(rec, dict) else None
+        if r:
+            seen.add(_os.path.realpath(str(r)))
+    for r in sorted(seen):
+        if r == new:
+            continue
+        if new.startswith(r + _os.sep) or r.startswith(new + _os.sep):
+            return r
+    return None
+
+
 def _prune_after_index(cg, a, *, kind, root, items, stats):
     """索引后的**节点级对账**：清退「同 root + 同 path 的过期代」。
 
@@ -3392,6 +3439,66 @@ def _prune_after_index(cg, a, *, kind, root, items, stats):
 
 
 # 生效条件：sd=list(stats.get("skipped_dirs") or [])，返回 {"skipped_dirs": sd[:limit], "skipped_dirs_count": len(sd), "skip_dirs": list(stats.get("skip_dirs") or [])}，且仅当 len(sd)>limit 时追加 skipped_dirs_note。
+# 生效条件：cg 为认知图实例、root 为待索引源根、kind 为 code_ref/doc_ref 时，读
+# <cg.root>/_refindex.json 的 files 记录（逐条带 root/kind），若新 root 与**同 kind** 的
+# 某个已索引根 realpath 互相包含（且不是同一个根）则返回 (该根, True)；无嵌套返回
+# (None, True)；水位缺失/损坏/schema 不符 ⇒ (None, False)（不拦，但回执显式降级）。
+def _nested_root_guard(cg, root, kind):
+    '''issue #754：同一物理文件从父/子根各索引一次会写两套 doc/code 节点。
+
+    node_id 的键是「相对传入 root 的 path」⇒ 换 root 就换 id；#352-E 的冲突检测只在
+    **同 id 被另一源根占用**时触发，本例 id 不同 ⇒ 静默双写。故在入口按 realpath 判
+    「新根与已索引根互相包含」，命中即拒（调用方可显式 allow_nested=true 强制）。
+
+    **按 kind 过滤（#754 复核）**：code_ref 与 doc_ref 的后缀面不相交，repo 的代码索引
+    与 repo/docs 的文档索引是**两种域**，不能因目录嵌套就互拦。
+
+    为什么读水位而不是扫节点：水位文件的 files 记录逐文件带 root（绝对路径键），是
+    全库已索引根的可靠单点；扫节点需逐个 get() 读 fm，大库不可承受。
+    '''
+    import os as _os
+    from . import refindex
+    try:
+        _fp = _os.path.join(cg.root, refindex.LEDGER_FILE)
+        if _os.path.exists(_fp):
+            import json as _json
+            with open(_fp, "r", encoding="utf-8") as _f:
+                _raw = _json.load(_f)
+            if not (isinstance(_raw, dict)
+                    and _raw.get("schema") == refindex.SCHEMA
+                    and isinstance(_raw.get("files"), dict)):
+                return None, False   # 水位在但 schema/形状不符 ⇒ 显式降级，不静默放行
+            files = _raw["files"]
+        else:
+            files = {}               # 尚无水位＝全新库，不是降级
+    except Exception:                # noqa: BLE001 —— 读失败不改既有行为，但须显式降级
+        return None, False
+    try:
+        new = _os.path.normcase(_os.path.realpath(str(root)))
+        seen = []
+        for rec in files.values():
+            if not isinstance(rec, dict) or rec.get("kind") != kind:
+                continue
+            r = rec.get("root")
+            if not r:
+                continue                  # root 兜底值（dirname）不自洽 ⇒ 不当根用
+            seen.append(str(r))
+        for r_raw in seen:
+            r = _os.path.normcase(_os.path.realpath(r_raw))
+            if r == new:
+                continue
+            # commonpath 而非 startswith(r+sep)：后者对盘符根与尾分隔符失效
+            try:
+                common = _os.path.commonpath([new, r])
+            except ValueError:        # 不同盘符 ⇒ 必不包含
+                continue
+            if common == r or common == new:
+                return r_raw, True
+    except Exception:                # noqa: BLE001 —— 守卫自身不得成为新失败源
+        return None, False
+    return None, True
+
+
 def _skip_dirs_report(stats, limit=20):
     """把「本次被 skip_dirs 排掉的目录」压成可审计字段。
 
