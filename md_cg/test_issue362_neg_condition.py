@@ -36,6 +36,7 @@
 """
 from __future__ import annotations
 
+import ast
 import inspect
 import json
 import os
@@ -209,11 +210,43 @@ def group_e():
                 sites.append((rel, i))
     _check('E1 NFKC 归一实现全仓唯一（排除 test_*.py；不得长出第二份口径）',
            len(sites) == 1 and sites[0][0] == "md_cg/routing.py", sites)
-    fold_src = inspect.getsource(fold_for_match)
-    _check('E2 fold_for_match 走 routing.fold_variants 单点（不新造一份全角/大小写处理）',
-           'routing.fold_variants(' in fold_src, fold_src[:160])
+    # E2（#753/#755 复核：改 AST 判据）——文本切片会被 docstring/注释骗（假绿或假红）：
+    # 走 AST 只认**真实调用**：fold_for_match 必须调 fold_for_match_keep，
+    # 且 fold_for_match_keep 必须调 routing.fold_variants。
+    def _fn_body(fn):
+        _tree = ast.parse(inspect.getsource(fn)).body[0]
+        _b = _tree.body
+        if _b and isinstance(_b[0], ast.Expr) and isinstance(_b[0].value, ast.Constant):
+            _b = _b[1:]                      # 剥 docstring（注释不进 AST，天然免疫）
+        return _b
+
+    def _has_call(body, attr, mod=None):
+        for _n in ast.walk(ast.Module(body=body, type_ignores=[])):
+            if (isinstance(_n, ast.Call) and isinstance(_n.func, ast.Attribute)
+                    and _n.func.attr == attr):
+                if mod is None:
+                    return True
+                if isinstance(_n.func.value, ast.Name) and _n.func.value.id == mod:
+                    return True
+        return False
+
+    def _has_name_call(body, name):
+        for _n in ast.walk(ast.Module(body=body, type_ignores=[])):
+            if isinstance(_n, ast.Call) and isinstance(_n.func, ast.Name) and _n.func.id == name:
+                return True
+        return False
+
+    _keep_body = _fn_body(M.fold_for_match_keep)
+    _check('E2 fold_for_match 走 routing.fold_variants 单点（#753/#755 后归一收进 fold_for_match_keep）',
+           _has_name_call(_fn_body(fold_for_match), 'fold_for_match_keep')
+           and _has_call(_keep_body, 'fold_variants', 'routing'),
+           (ast.unparse(ast.Module(body=_keep_body, type_ignores=[]))[:160],))
     _check('E3 fold_variants 走 nfkc_text 单点',
            'nfkc_text(' in inspect.getsource(RT.fold_variants))
+    # E6（#753/#755 复核）：归一**顺序**必须与 main 原式一致（fold_accents → fold_variants）。
+    # 实测 BMP 有 8 个码点因此分叉（希腊下加点区）：「ᾀ」正序 → α、反序 → αι。
+    _check('E6 归一顺序 fold_accents → fold_variants（ᾀ → α；反序得 αι）',
+           fold_for_match("ᾀ") == "α", fold_for_match("ᾀ"))
     _check('E4 judge_qualification 的负条件腿走 neg_condition_hits 单点',
            'neg_condition_hits(' in inspect.getsource(MdCG.judge_qualification))
     n_def = sum(len(re.findall(r'def neg_condition_hits', src))
@@ -332,18 +365,18 @@ _MUTATIONS = (
        '                if all(not _negated_at(scene_norm, k)'),),
      ('K5',)),
     ('M5 归一退化：fold_for_match 退回只做去空白（#362b 修前形态）', 'md_cg/mdcg.py',
-     (('    return compact_exact_text(routing.fold_variants(text))',
+     (('    return routing.fold_variants(fold_accents(text))',
        '    return compact_exact_text(text)'),),
-     ('A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'C1', 'E2', 'K11')),
+     ('A4', 'A5', 'A6', 'A7', 'A8', 'A9', 'C1', 'E2', 'E6', 'K11')),
     ('M6 判据退化：全词命中 all → any（单个通用词即整片否决）', 'md_cg/mdcg.py',
      (('        if words and all(w in scene_norm for w in words):',
        '        if words and any(w in scene_norm for w in words):'),),
      ('K8b',)),
     ('M7 单点分裂：fold_for_match 自写一份内联 NFKC（不走 routing 单点）', 'md_cg/mdcg.py',
-     (('    return compact_exact_text(routing.fold_variants(text))',
+     (('    return routing.fold_variants(fold_accents(text))',
        '    return compact_exact_text(' + chr(10)
        + '        __import__(' + _Q + 'unicodedata' + _Q + ').normalize(' + _Q + 'NFKC' + _Q + ', str(text))).casefold()'),),
-     ('C1', 'E1', 'E2')),
+     ('C1', 'E1', 'E2', 'E6')),
     ('M8 案②回退：摘掉 reason 里的「未摘词面原判 REJECT」证据（可观测性缺失）',
      'md_cg/mdcg.py',
      (('            why += ("；**摘词面前原判 %s**（查询逐字含本节点的拒绝域条目，该 REJECT "'
@@ -355,6 +388,10 @@ _MUTATIONS = (
      (('        if j >= 1 and j + 1 < len(s) and s[j - 1] == s[j + 1]:',
        '        if False:'),),
      ('K12',)),
+    ('M10 顺序交换：fold_for_match_keep 反序（fold_accents ∘ fold_variants）', 'md_cg/mdcg.py',
+     (('    return routing.fold_variants(fold_accents(text))',
+       '    return fold_accents(routing.fold_variants(text))'),),
+     ('E6',)),
 )
 
 
