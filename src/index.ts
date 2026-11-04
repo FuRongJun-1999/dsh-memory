@@ -182,6 +182,11 @@ export const Config: z<Config> = z.object({
        *  按 `frontmatter.session` 只让归属会话读到——「读各归各」用的是既有密级机制。
        *  缺省关：跨会话连续性是既有默认（#749 的跨会话召回仍是待定产品决策）。 */
       sessionPrivate: z.boolean().default(false),
+      /** issue #677（@1，2026-11-05）：自动记忆写入带 `dedupe`（默认 true）。
+       *  「写入成功但调用超时」后重试是既有病灶（节点已落盘、应答没回）；`dedupe` 让
+       *  同层同内容复用既有节点（`deduped=true`），重试不再新增。代价：同一会话内
+       *  同一条消息重复出现时只保留一个节点。要保留重复条数请设 false。 */
+      dedupe: z.boolean().default(true),
       assistantMessage: z.boolean().default(false),
       toolResult: z.boolean().default(false),
       importance: z.number().default(0.6),
@@ -215,7 +220,7 @@ export const Config: z<Config> = z.object({
         })
         .default({ enabled: true, turns: 10 }),
     })
-    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, autoRecallIdentity: false, turnReminder: 10, desensitize: true, contextWindow: { enabled: true, turns: 10 } }),
+    .default({ userMessage: true, assistantMessage: false, toolResult: false, importance: 0.6, autoRecall: true, autoRecallLimit: 4, autoRecallIdentity: false, turnReminder: 10, desensitize: true, dedupe: true, contextWindow: { enabled: true, turns: 10 } }),
   toolCallTimeoutMs: z.number().default(60_000),
   maxRetryDelayMs: z.number().default(30_000),
   failOnStartupError: z.boolean().default(false),

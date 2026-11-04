@@ -592,11 +592,18 @@ def _gate_dedupe(ctx):
     from . import nodefile
     want = nodefile.content_hash(content)
     layer_want = str(a.get("layer") or "knowledge")
+    # #677 @1：**同会话才幂等**。自动记忆默认开 dedupe；若只比 content_hash，
+    # 两个会话写同一句（如「继续」）会互相顶掉——叠加 sessionPrivate 时，
+    # 后写方会「命中」前一会话的 private 节点却读不到 ⇒ 记忆静默消失。
+    # 声明了 session 的写入要求 session 相等；未声明（旧 cg(op=write) 用法）保持原口径。
+    sess_want = str(a.get("session") or "").strip()
     nodes = ((getattr(ctx["cg"], "index", None) or {}).get("nodes") or {})
     for nid, e in list(nodes.items()):
         if str(e.get("layer") or "") != layer_want:
             continue
         if str(e.get("content_hash") or "") == want:
+            if sess_want and str(e.get("session") or "").strip() != sess_want:
+                continue                 # 跨会话不幂等（#677 @1）
             return {"ok": True, "id": nid, "committed": False, "deduped": True,
                     "content_sha": want, "dedupe_of": nid, "verdict": None,
                     "hint": ("同层已存在内容指纹相同的节点 %s（issue #677 幂等闸）："

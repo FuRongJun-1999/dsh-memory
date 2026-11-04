@@ -79,6 +79,16 @@ catch (e) {
   (short-circuit reuse of an existing node by "same layer + content fingerprint", returning `deduped: true` and `content_sha`).
 - **Neither is the default**: when `node_id` is not passed, the server generates one, so a retry adds a node — existing contract, unchanged.
 - Where the rule lives: `md_cg/writepipe.py` (the idempotency gate short-circuits at the head of the chain, before reference resolution or edge creation).
+- **Automatic memory is deduplicated by default** (issue #677 @1, 2026-11-05): the three kinds written by the
+  plugin (user/assistant/tool) carry `dedupe: true`, so a retry after a timeout no longer adds a duplicate node.
+  - **Deduplication is session-scoped** (the server compares `session`): the same text written by two different
+    sessions does **not** collapse — otherwise, with `sessionPrivate` on, the second session would "hit" the
+    first session's private node and silently read nothing.
+  - **Cost**: the same message repeated within one session is kept once — occurrence count, timestamps and
+    attribution are lost (tool results suffer most). Set `memory.dedupe` to `false` to keep duplicates.
+  - A hit adds no node but does **not** skip this round's gates (dedupe short-circuits at the head of
+    `mdcg_remember`; it reuses a node that already passed the gates). A dedicated `audit.deduped` counter is
+    not implemented yet.
 
 ---
 
