@@ -18,6 +18,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  escapePromptBraces,
   renderUntrustedMemoryBlock,
   stripLoneSurrogates,
   truncateSafe,
@@ -103,4 +104,23 @@ test('#762 JSON 面：注入块经 JSON.stringify 后代理转义成对', () => 
   const escapes = json.match(/\\u[dD][89aAbB][0-9a-fA-F]{2}/g) ?? []
   // 合法 emoji 会写成一对（\ud83d\ude0a）；落单高位只会写一个 ⇒ 计数必须为偶数
   assert.equal(escapes.length % 2, 0, `代理转义未成对：${escapes.join(',')}`)
+})
+test('#762 truncateSafe 预算语义固定：NaN fail-closed、+Inf 无上限、小数 floor', () => {
+  assert.equal(truncateSafe('abc', Number.NaN), '')
+  assert.equal(truncateSafe('abc', -Infinity), '')
+  assert.equal(truncateSafe('abc', Infinity), 'abc')
+  assert.equal(truncateSafe('abc', 2.9), 'ab')
+})
+
+test('#762 strip 边界序列：连续孤高/孤低、串首孤低、串尾孤高', () => {
+  assert.equal(stripLoneSurrogates('\uD800\uD800\uDC00'), '\uD800\uDC00')   // 丢孤高，保留合法对
+  assert.equal(stripLoneSurrogates('\uDC00\uDC00'), '')
+  assert.equal(stripLoneSurrogates('\uDC00a'), 'a')
+  assert.equal(stripLoneSurrogates('a\uD83D'), 'a')
+})
+
+test('#762 顺序守卫：strip 在 escapePromptBraces 之前（删字符可能合成 {{）', () => {
+  // `{\uD83D{` 清掉孤代理后变成 `{{` —— 若 strip 放在 escape 之后，就会重现 #16 事故
+  const out = escapePromptBraces(renderUntrustedMemoryBlock('{\uD83D{'))
+  assert.equal(out.includes('{{'), false)
 })

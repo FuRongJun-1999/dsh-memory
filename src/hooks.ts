@@ -72,7 +72,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { MdcgClient } from './lib/mdcg_client.js'
-import { escapePromptBraces, renderUntrustedMemoryBlock, truncateSafe } from './lib/prompt_safety.js'
+import { escapePromptBraces, renderUntrustedMemoryBlock, stripLoneSurrogates, truncateSafe } from './lib/prompt_safety.js'
 import { HookAuditRecorder, kindOf, type HookWriteRole } from './lib/hook_audit.js'
 // 运行期会话状态单点（B 治本批）：观测在 hooks 面，写归因注入在工具面
 // （src/tools.ts）——两处共用同一状态，见 lib/session_state.ts 头注。
@@ -558,7 +558,16 @@ export function formatSessionWindow(
     const v = String(s ?? '').trim()
     if (!v) return '?'
     if (curSid && v === curSid) return '本'
-    return `会话${v.slice(-4)}`
+    // issue #762：**负索引** `slice(-4)` 从尾部切，起点可能正好落在低位代理上（半个
+    // 字符）。先清孤立代理，再在必要时向前扩一个码元，保证不从中劈开。
+    const clean = stripLoneSurrogates(v)
+    let st = Math.max(0, clean.length - 4)
+    if (st > 0) {
+      const c0 = clean.charCodeAt(st)
+      const c1 = clean.charCodeAt(st - 1)
+      if (c0 >= 0xdc00 && c0 <= 0xdfff && c1 >= 0xd800 && c1 <= 0xdbff) st -= 1
+    }
+    return `会话${clean.slice(st)}`
   }
   const sensTag = (s: unknown): string => {
     const v = String(s ?? '').trim().toLowerCase()
@@ -1058,7 +1067,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
         if (existed) {
           ctx.logger.info('dsh-memory: 逢十轮提醒已有待推条目（保留最早一条，丢弃本轮重复）')
         } else {
-          pendingReminder.set(sid, escapePromptBraces(formatTurnReminder(n)))
+          // issue #762：turn-reminder 是唯一不经 renderUntrustedMemoryBlock 的模型可见文本，
+          // 当前文案是常量 + 数字（无孤代理来源），仍过一道 strip 作防御（将来插入外部数据时不漏）。
+          pendingReminder.set(sid, escapePromptBraces(stripLoneSurrogates(formatTurnReminder(n))))
         }
       }
     }

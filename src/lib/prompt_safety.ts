@@ -90,8 +90,13 @@ export function escapePromptBraces(text: string): string {
  *  不变），只是不再把代理对拆开。快路径：`text.length <= maxUnits` 原样返回。
  */
 export function truncateSafe(text: string, maxUnits: number): string {
-  if (maxUnits <= 0) return ''
-  if (text.length <= maxUnits) return text
+  // 预算语义固定（#762 复核）：NaN / -Infinity 这类非有限值 **fail-closed** 到 ''——
+  // 旧实现里 `units + step > NaN` 恒假 ⇒ 返回全文，是「截空→全量」的失败开放反转；
+  // `+Infinity` 表示无上限（原样返回）。小数按 floor 收口（与 `slice` 的隐式取整一致）。
+  if (!Number.isFinite(maxUnits)) return maxUnits > 0 ? text : ''
+  const max = Math.floor(maxUnits)
+  if (max <= 0) return ''
+  if (text.length <= max) return text
   let units = 0
   let i = 0
   while (i < text.length) {
