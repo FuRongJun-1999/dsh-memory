@@ -2746,6 +2746,10 @@ class MdCG:
                 for _nid, _e in batch:
                     if _nid not in self._dirty:
                         self._dirty[_nid] = _e
+                # #677 C 复核：`_dirty.clear()` 会连 superseded_ids 一起清（见 _DirtyDict），
+                # 失败回填若不恢复它，下一轮会把「已判陈旧」的记录当新记录写进分片
+                # ⇒ 旧版本覆盖新版本（内容错误，比重复更严重）。
+                self._dirty.superseded_ids |= superseded
             raise
 
 # 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
@@ -2763,12 +2767,18 @@ class MdCG:
             # 否则「分片文件已存在但 _own_shard 未登记」的窗口里，本进程自己的
             # 追加会被自家探活当成他进程变化（多线程下白重载一次）。
             self._own_shard = self._log.path
-            for nid, e in batch:
-                # issue #80 残留面（C 案）：被判定陈旧（重放时已放行盘面）的条目
-                # **不得**落分片日志——落了就成『索引侧旧盖新』且跨重启存活。
-                if nid in superseded:
-                    continue
-                self._log.append({"id": nid, "e": e})
+            # issue #80 残留面（C 案）：被判定陈旧（重放时已放行盘面）的条目
+            # **不得**落分片日志——落了就成『索引侧旧盖新』且跨重启存活。
+            _recs = [{"id": nid, "e": e} for nid, e in batch if nid not in superseded]
+            # #677 C 根治：**一次 write + 一次 flush**（原实现每条 append 都 flush，
+            # 锁内 IO 次数 = 脏集条数；大库下一批上千条就是上千次 flush——这正是
+            # 「写成功但应答超时」的持锁来源）。原子性不变：整批仍在同一把 FileLock 内。
+            _app = getattr(self._log, "append_many", None)
+            if callable(_app):
+                _app(_recs)
+            else:                                   # 兼容旧 ShardedLog（无 append_many）
+                for _r in _recs:
+                    self._log.append(_r)
             # 写完立即关分片句柄：Windows 上「被本进程打开的文件」无法删除，
             # 若持有句柄，rebuild_index 的 ShardedLog.clear 会静默失败，已并进
             # 快照的旧记录被永久重放（旧条目反而覆盖新快照）。append 内部已

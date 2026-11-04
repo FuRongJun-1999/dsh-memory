@@ -1006,6 +1006,30 @@ class ShardedLog:
                                   separators=(",", ":")) + "\n")
         self._fh.flush()
 
+# 生效条件：records 为 list[dict]（空列表直接返回 0）；句柄按需打开，**一次 write + 一次 flush**
+#   （#677 C 根治：把「每条 flush」降为「每批一次」——锁内 IO 次数从 O(N) 降为 O(1)，
+#   而整批仍在调用方的同一个 FileLock 内，与 compact 的 read→clear 互斥语义不变）。
+    def append_many(self, records):
+        recs = list(records or [])
+        if not recs:
+            return 0
+        if self._fh is None:
+            ensure_shard_dir(self.dir, "append")
+            self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
+        # #677 C 复核：上次崩溃可能留下**残尾**（末字节不是换行）。不补一个换行就追加，
+        # 新批第 1 条会与残尾粘成一行——语法完整但解析失败，重放游标照样推进 ⇒
+        # 残尾与那条好记录一起永久丢失（与 append_jsonl 的 ends_mid_line 同一防线）。
+        if ends_mid_line(self.path):
+            self._fh.write("\n")
+        out = []
+        for record in recs:
+            self._seq += 1
+            out.append(json.dumps(dict(record, _t=time.time(), _s=self._seq),
+                                  ensure_ascii=False, separators=(",", ":")))
+        self._fh.write("\n".join(out) + "\n")
+        self._fh.flush()
+        return len(out)
+
 # 生效条件：幂等；self._fh 为真值时 flush 并关闭句柄、再把 self._fh 置 None，为 None 时直接返回不报错；
     def close(self):
         if self._fh:
