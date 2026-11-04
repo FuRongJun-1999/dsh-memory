@@ -19,9 +19,13 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   escapePromptBraces,
+  neutralizeUntrustedBoundary,
   renderUntrustedMemoryBlock,
   stripLoneSurrogates,
   truncateSafe,
+  UNTRUSTED_MEMORY_CLOSE,
+  UNTRUSTED_MEMORY_NOTICE,
+  UNTRUSTED_MEMORY_OPEN,
 } from '../src/lib/prompt_safety.ts'
 import { formatTimelineDecayed, renderIdentityAnchors } from '../src/hooks.ts'
 
@@ -123,4 +127,18 @@ test('#762 顺序守卫：strip 在 escapePromptBraces 之前（删字符可能�
   // `{\uD83D{` 清掉孤代理后变成 `{{` —— 若 strip 放在 escape 之后，就会重现 #16 事故
   const out = escapePromptBraces(renderUntrustedMemoryBlock('{\uD83D{'))
   assert.equal(out.includes('{{'), false)
+})
+test('#762 零位移：不含增补平面字符的文本，truncateSafe 与 slice 逐字节一致', () => {
+  for (const s of ['', 'abc', '中文记忆正文', 'a1b2c3 d4', '这是 mixed 文本 123', '括号（全角）与符号 ~!@#']) {
+    for (let n = 0; n <= s.length + 1; n++) {
+      assert.equal(truncateSafe(s, n), s.slice(0, n), `s=${JSON.stringify(s)} n=${n}`)
+    }
+  }
+})
+
+test('#762 零位移：合法 payload 的注入块与旧实现逐字节相同', () => {
+  const payload = '普通记忆正文，含 {{模板}} 与 <untrusted-memory> 伪标记'
+  const old = UNTRUSTED_MEMORY_NOTICE + '\n' + UNTRUSTED_MEMORY_OPEN + '\n'
+    + neutralizeUntrustedBoundary(payload) + '\n' + UNTRUSTED_MEMORY_CLOSE
+  assert.equal(renderUntrustedMemoryBlock(payload), old)
 })
