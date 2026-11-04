@@ -137,12 +137,19 @@ def _src(rel):
 
 
 def _contra_src():
-    tree = ast.parse(_src("md_cg/scrub.py"), "scrub.py")
+    """证据串生成面的源码段：`_contradiction` + 槽位支 `_slot_contradiction`（#747）。
+
+    #747 把极性支搬到 `_slot_contradiction` 后，只扫 `_contradiction` 会让 E1b 失去覆盖面；
+    故扫描**证据串可能出现的全部函数**（新增分支也要加进来）。
+    """
+    src = _src("md_cg/scrub.py")
+    tree = ast.parse(src, "scrub.py")
+    segs = []
     for node in ast.walk(tree):
-        if isinstance(node, ast.FunctionDef) and node.name == "_contradiction":
-            import ast as _a
-            return _a.get_source_segment(_src("md_cg/scrub.py"), node) or ""
-    return ""
+        if isinstance(node, ast.FunctionDef) and node.name in (
+                "_contradiction", "_slot_contradiction"):
+            segs.append(ast.get_source_segment(src, node) or "")
+    return "\n".join(segs)
 
 
 def group_e(tmp):
@@ -185,9 +192,8 @@ _MUTATIONS = (
      ("A2", "A3", "A4", "A5", "A6")),
     ("M2 极性支改回共享词面",
      "md_cg/scrub.py",
-     (("                        \"why\": f\"极性相反且共享内容：共享片段 {len(shared)} 个\"" + chr(10)
-       + "                               f\"（占比 {ratio:.2f}），词面不入证据串\"}",
-       "                        \"why\": \"极性相反且共享内容：\" + \"、\".join(sorted(shared)[:5])}"),),
+     (('f"（占比 {ratio:.2f}），词面不入证据串")',
+       'f"（占比 {ratio:.2f}），词面不入证据串" + "、".join(sorted(shared)[:5]))'),),
      ("E1b",)),
 )
 
