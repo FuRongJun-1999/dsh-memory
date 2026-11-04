@@ -75,6 +75,70 @@ export function escapePromptBraces(text: string): string {
   return out
 }
 
+// ---------------------------------------------------------------- 代理对安全（issue #762）
+
+/** 文本的**码元安全截断**（issue #762）：最多保留 `maxUnits` 个 UTF-16 码元，
+ *  且**绝不劈开代理对**（emoji / 增补平面字符）。
+ *
+ *  为什么必须：注入面此前用 `s.slice(0, max)`，预算落点若恰好压在 emoji 两个码元之间，
+ *  截断结果就是孤立高位代理 `\uD83D`；`JSON.stringify` 会把它写成 `"\ud83d"`——
+ *  **合法 JSON 文本、非法 Unicode 码元**，严格校验的服务端把整条请求拒掉
+ *  （实测 400 INVALID_REQUEST、0 token 输出）。而注入文本每轮重拼、每轮写进对话历史，
+ *  一次劈开就让该会话**永久**不可用（历史只增不改）。
+ *
+ *  语义：预算单位仍是 **UTF-16 码元**（与既有 `RECALL_MAX_CHARS` 等常量一致，输出体积
+ *  不变），只是不再把代理对拆开。快路径：`text.length <= maxUnits` 原样返回。
+ */
+export function truncateSafe(text: string, maxUnits: number): string {
+  // 预算语义固定（#762 复核）：NaN / -Infinity 这类非有限值 **fail-closed** 到 ''——
+  // 旧实现里 `units + step > NaN` 恒假 ⇒ 返回全文，是「截空→全量」的失败开放反转；
+  // `+Infinity` 表示无上限（原样返回）。小数按 floor 收口（与 `slice` 的隐式取整一致）。
+  if (!Number.isFinite(maxUnits)) return maxUnits > 0 ? text : ''
+  const max = Math.floor(maxUnits)
+  if (max <= 0) return ''
+  if (text.length <= max) return text
+  let units = 0
+  let i = 0
+  while (i < text.length) {
+    const c = text.charCodeAt(i)
+    const isHigh = c >= 0xd800 && c <= 0xdbff
+    const next = i + 1 < text.length ? text.charCodeAt(i + 1) : 0
+    const isPair = isHigh && next >= 0xdc00 && next <= 0xdfff
+    const step = isPair ? 2 : 1
+    if (units + step > maxUnits) break
+    units += step
+    i += step
+  }
+  return text.slice(0, i)
+}
+
+/** 移除**孤立代理**（issue #762）：合法代理对原样保留，落单的高位/低位代理丢弃。
+ *
+ *  幂等；无代理的文本走快路径原样返回（零改写，保真）。
+ *  用途：注入块**出口卫生**——来源不止记忆（工具输出 / 文件名 / 网页抓取都可能带
+ *  半个字符），在共同出口清一次胜过到处补。
+ */
+export function stripLoneSurrogates(text: string): string {
+  if (!/[\uD800-\uDFFF]/.test(text)) return text
+  let out = ''
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (c >= 0xd800 && c <= 0xdbff) {
+      const n = i + 1 < text.length ? text.charCodeAt(i + 1) : 0
+      if (n >= 0xdc00 && n <= 0xdfff) {
+        out += text.charAt(i) + text.charAt(i + 1)
+        i++
+      }
+      // 落单高位：丢弃（半个字符本来就是非法码元，保留它只会废掉整条请求）
+    } else if (c >= 0xdc00 && c <= 0xdfff) {
+      // 落单低位：丢弃
+    } else {
+      out += text.charAt(i)
+    }
+  }
+  return out
+}
+
 // ---------------------------------------------------------------- 不可信记忆边界（H5）
 
 /** 边界标记名——**唯一**来源：开/闭标记、打断判据都从它派生（不许各处手写字符串）。 */
@@ -171,8 +235,12 @@ export function neutralizeUntrustedBoundary(text: string): string {
  * ——注入块按 v0.4.8 契约每步都 push，输出必须逐字节稳定（否则宿主每步新增快照）。
  */
 export function renderUntrustedMemoryBlock(payload: string): string {
+  // issue #762（2026-11-04）：**出口卫生**——载荷里的孤立代理（半个 emoji）会被宿主
+  // `JSON.stringify` 写成 `"\ud83d"`（合法 JSON 文本、非法 Unicode 码元），严格校验的
+  // 服务端把**整条请求**拒掉（400 INVALID_REQUEST、0 token），而注入文本每轮重拼、每轮
+  // 写进对话历史 ⇒ 一次就永久。三个注入块的共同出口在此兜底清一次（幂等、合法对不动）。
   return `${UNTRUSTED_MEMORY_NOTICE}\n`
     + `${UNTRUSTED_MEMORY_OPEN}\n`
-    + `${neutralizeUntrustedBoundary(payload)}\n`
+    + `${neutralizeUntrustedBoundary(stripLoneSurrogates(payload))}\n`
     + `${UNTRUSTED_MEMORY_CLOSE}`
 }

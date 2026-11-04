@@ -55,6 +55,7 @@ import { dirname, join, resolve } from 'node:path'
 // Python 侧令牌记录落 `<家目录>/.mdcg/_tokens.json`：密钥环被写进插件包目录，
 // pnpm 更新整目录替换即丢失（下次启动重签新令牌，旧令牌仍在且未吊销）。
 import { expandHome, pythonPathValue, runRoot } from './datapath.js'
+import { stripLoneSurrogates, truncateSafe } from './prompt_safety.js'   // issue #762：错误详情是模型可见文本
 
 /** 凭据来源（用于启动日志与故障定位）。 */
 export type TokenSource =
@@ -223,7 +224,8 @@ function issueToken(python: string, role: string, actor: string, clearance: stri
       '--tenant', tenant], env)
   if (r.error) return { error: r.error }
   if (!r.ok) {
-    const detail = (r.stderr || r.stdout || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+    // issue #762：错误详情可能进工具回执（模型可见）——先清孤代理、再码元安全截断。
+    const detail = truncateSafe(stripLoneSurrogates((r.stderr || r.stdout || '').trim().replace(/\s+/g, ' ')), 200)
     return { error: `md_cg.tokens issue 退出码 ${r.status}${detail ? `：${detail}` : ''}` }
   }
   try {
@@ -288,7 +290,8 @@ function checkKeyring(python: string, keyringPath: string, tenant: string,
     }
     return { status: 'ok', reason: '', tokenId }
   }
-  const detail = (r.stderr || r.stdout || '').trim().replace(/\s+/g, ' ').slice(0, 200)
+  // issue #762：错误详情可能进工具回执（模型可见）——先清孤代理、再码元安全截断。
+  const detail = truncateSafe(stripLoneSurrogates((r.stderr || r.stdout || '').trim().replace(/\s+/g, ' ')), 200)
   // 令牌库损坏：`_load` 回落空表后报「令牌不存在」，必须按告警先分出来（N198）。
   if (/令牌库损坏|令牌库不可读|拒绝整份写回/.test(detail)) {
     return { status: 'blocked', reason: `令牌库损坏：${detail}` }

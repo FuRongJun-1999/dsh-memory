@@ -44,6 +44,7 @@ import { pythonPathValue, runRoot } from './datapath.js'
 // 用同一函数算出租户——N62 之后服务端对「令牌记录租户 ≠ 入参租户」fail-closed，
 // 两侧各算一遍就必然分叉（签发按 default、运行按 work ⇒ rc=3 拒启）。
 import { effectiveTenant } from './token_store.js'
+import { stripLoneSurrogates, truncateSafe } from './prompt_safety.js'   // issue #762
 
 /** md_cg 子进程与根目录配置。 */
 export interface MdcgOptions {
@@ -425,7 +426,7 @@ export class MdcgClient {
     if (best && best.score > 0 && STRONG_BASIS.has(best.basis)) {
       return {
         judgment: `采纳：认知图已有强依据节点 ${best.id}（basis=${best.basis}）`,
-        best: best.content.slice(0, 200),
+        best: truncateSafe(stripLoneSurrogates(best.content), 200),   // issue #762
         d_norm: Math.min(1, best.score),
         record_id: best.id,
       }
@@ -433,7 +434,7 @@ export class MdcgClient {
     if (best && best.score > 0) {
       return {
         judgment: `待定：命中节点 ${best.id} 但依据不足（basis=${best.basis || 'unknown'}）`,
-        best: best.content.slice(0, 200),
+        best: truncateSafe(stripLoneSurrogates(best.content), 200),   // issue #762
         d_norm: -1,
         record_id: best.id,
       }

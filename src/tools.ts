@@ -18,7 +18,7 @@ import type { LingshuBridge, McpTool } from './bridge.ts'
 // 运行时导入写 `.js`（本仓口径：type-only 才写 `.ts`，tsconfig 未开
 // allowImportingTsExtensions —— 值导入写 `.ts` 会 TS5097 编译失败）。
 import { attributeSession } from './lib/session_state.js'
-import { neutralizeUntrustedBoundary } from './lib/prompt_safety.js'
+import { neutralizeUntrustedBoundary, stripLoneSurrogates, truncateSafe } from './lib/prompt_safety.js'
 
 /** 默认暴露的核心工具集合：**记忆面已基元化**，只注册 `cg` / `stg` 两个认知基元。
  *
@@ -247,9 +247,11 @@ export async function registerLingshuTools(
             // ②兜底上限（服务端已有 offset 分页，插件层只兜一个远大于单页的硬上限，
             // 防止一次把整库搬进上下文；截断必须显式标注，不静默）。
             const raw = extractText((value as McpCallResultLike).content ?? [])
-            const safe = neutralizeUntrustedBoundary(raw)
+            // issue #762：工具返回同样是模型上下文的一部分——半个 emoji 会让宿主
+            // JSON.stringify 产出 "\ud83d" ⇒ 整条请求 400。出口先清孤立代理。
+            const safe = neutralizeUntrustedBoundary(stripLoneSurrogates(raw))
             const text = safe.length > TOOL_RENDER_MAX_CHARS
-              ? safe.slice(0, TOOL_RENDER_MAX_CHARS)
+              ? truncateSafe(safe, TOOL_RENDER_MAX_CHARS)   // issue #762：不劈代理对
                 + `
 …[已截断：工具返回超过插件上限 ${TOOL_RENDER_MAX_CHARS} 字符]`
               : safe
