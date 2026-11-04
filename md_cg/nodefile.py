@@ -375,7 +375,7 @@ def declares_dependency(content) -> bool:
     return bool(dep_refs(val))
 
 
-# 生效条件：content 为 None 或空串时按源码的 content or "" 回落空串计算，非空时按其原值编码，一律返回 sha256(utf-8) 十六进制摘要的前 12 位（content 的 frontmatter 不计入口径由调用方保证）。
+# 生效条件：content 为 None 或空串时按空串处理（落盘形态即单个换行），非空时先经 normalize_body 补尾换行再编码；一律返回 sha256(utf-8) 十六进制摘要的前 12 位。基准＝正文**落盘形态**（与 dumps 落盘逐字一致），frontmatter 不计入（由调用方保证）。非正文内容（query / 结构化序列化）请直接用 hashlib.sha256——本函数会把「尾换行个数」归一，对非正文是信息损失。
 def normalize_body(content: str) -> str:
     """正文**落盘形态**的单点规范化（issue #741）——本函数就是从 `dumps()` 抽出的
     那行尾换行规则。凡在**写盘前**计算 content_hash 的路径（add 内联 /
@@ -384,12 +384,13 @@ def normalize_body(content: str) -> str:
     同节点同正文在索引里先后出现两个值（#741 实测 9eb1d121c59f / aaf2ffbbdd36）。
     `dumps` 与 `content_hash` 都调本函数——规范化规则改动只许发生在这里。
     """
-    c = content or ""
-    return c if c.endswith("\n") else c + "\n"
+    # 严格版（不做 None 兜底）：dumps 走本函数，保持「None 正文 = 调用方错误」的 fail-fast；
+    # content_hash 侧需要 None 兜底，由它自己 `content or ""` 承担。
+    return content if content.endswith("\n") else content + "\n"
 
 
 def content_hash(content: str) -> str:
-    """节点正文的**内容指纹**（sha256 前 12 位）——全仓唯一实现。
+    """节点正文**落盘形态**的内容指纹（sha256 前 12 位）——全仓唯一实现。
 
     两处共用且必须逐位一致，否则对账/变更探测会永远"匹配成功"而失去意义
     （与 `codeindex.region_hash` 同一纪律：两侧各写一份哈希算法，漂移就悄悄失效）：
@@ -405,12 +406,14 @@ def content_hash(content: str) -> str:
     # 正文」（恒带尾换行），与重建/读回路径的输入逐位一致。修前调用方各喂各的
     # 形态（add 内联喂原串、重建喂读回），同一节点同一正文在索引里先后出现两个
     # 值（实测 9eb1d121c59f / aaf2ffbbdd36），对账恒报 hash_drift 假阳性。
-    # ⇒ 升级注意：存量索引条目（旧口径）首轮对账会报 hash_drift——跑一次
-    # rebuild_index() 即拉齐（幂等）。
-    return hashlib.sha256(normalize_body(content).encode("utf-8")).hexdigest()[:12]
+    # ⇒ 升级注意：存量索引条目（旧口径）首轮对账会报 hash_drift——但 reconcile
+    # 缺省开启、且对 drift 做「以盘面为准」的定向 upsert ⇒ **启动即自愈**；
+    # rebuild_index() 是等价手段（可选，非必须）。空正文的指纹随之改变
+    # （sha("") → sha("换行")），属本次口径变更的显式一面（测试 G8/G9 钉住）。
+    return hashlib.sha256(normalize_body(content or "").encode("utf-8")).hexdigest()[:12]
 
 
-# 生效条件：frontmatter（任意 dict，键按 sorted 输出）与 content（任意 str）均无前置校验即生效；content 不以 "\n" 结尾时补一个换行，返回 "---" + 各键的 "{k}: {json.dumps(v, ensure_ascii=False)}" 行 + "---" 行 + 正文。
+# 生效条件：frontmatter（任意 dict，键按 sorted 输出）与 content（任意 str）均无前置校验即生效；content 经 normalize_body 归一（与 content_hash 同一份规则），返回 "---" + 各键的 "{k}: {json.dumps(v, ensure_ascii=False)}" 行 + "---" 行 + 正文。
 def dumps(frontmatter: dict, content: str) -> str:
     lines = [_DELIM]
     for k in sorted(frontmatter):

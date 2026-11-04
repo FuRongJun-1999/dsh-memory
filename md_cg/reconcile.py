@@ -71,6 +71,10 @@ def _norm(text: str) -> str:
 
 # 生效条件：content（nodefile.loads 切出的盘面正文，含尾换行）非 None 时返回 (content_hash(content), content_hash(_norm(content))) 二元组——**双形态接受集**：add 写路径入索引的指纹按封存原文（mdcg.py `_stage` 面，正文不带尾换行时等于 norm 形态），rebuild 重建路径按 loads 读回原文（带尾换行）——两 producers 各自稳定，diff 两侧都认，否则无尾换行节点会在每次启动被误报漂移（假阳性洪水，twophase._norm 文档串同款教训）。
 def _disk_hashes(content: str) -> tuple:
+    # issue #741：**第二元素现已不可达**——content_hash 内部先 normalize_body 再哈希，
+    # 对「尾换行恰 1 个」的常盘形态两元素恒等；多尾换行盘面的第二元素只是沿用既有
+    # 容忍面（当前无写点产出该形态）。**旧 add 手写口径（sha 原文）修后不再被接受**——
+    # 升级首轮由 reconcile 自身以盘面为准 upsert 拉齐。保留二元组属历史遗留，待删。
     raw = nodefile.content_hash(content or "")
     return raw, nodefile.content_hash(_norm(content))
 

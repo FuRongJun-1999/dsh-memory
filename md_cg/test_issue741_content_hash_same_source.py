@@ -110,11 +110,37 @@ def main():
 
         # G6 尾换行幂等
         cg.add("g6", BODY + "\n", layer="knowledge", tags=["a"], verification_basis="test")
-        ok(_idx_hash(cg, "g6") == nodefile.content_hash(BODY + "\n"), "G6 尾换行幂等（不双补）")
+        # G6 改判据（原写法两侧同时双补 ⇒ 恒真；改为「BODY 与 BODY+\n 同值」）
+        ok(nodefile.content_hash(BODY) == nodefile.content_hash(BODY + "\n"),
+           "G6 尾换行幂等（normalize 只补不删：BODY 与 BODY+换行 同值）")
 
         # G7 旧口径 ≠ 新口径（升级一次性 drift 的书面证据）
         ok(_old_style(BODY) != nodefile.content_hash(BODY),
            "G7 旧口径 != 新口径（升级首轮 hash_drift 属预期，rebuild_index 迁移）")
+
+        # G8/G9 空正文与 None（#741 口径变更的破坏性一面，显式钉住）
+        ok(nodefile.content_hash("") == hashlib.sha256(b"\n").hexdigest()[:12],
+           "G8 content_hash(空) == sha256(单个换行)（修前是 sha256 空串）")
+        ok(nodefile.content_hash(None) == nodefile.content_hash(""),
+           "G9 None 与空串同值（content_hash 侧兜底）")
+        # G10 normalize 只补不删（尾换行个数仍可区分）
+        ok(nodefile.content_hash("a\n\n") != nodefile.content_hash("a\n"),
+           "G10 尾换行个数仍可区分（normalize 不 rstrip）")
+        ok(nodefile.normalize_body(nodefile.normalize_body("a"))
+           == nodefile.normalize_body("a"), "G11 normalize_body 幂等")
+
+        # G12/G13 twophase legacy 双向守卫（旧口径 intent 放行 / 真 mismatch 拒）
+        from md_cg import twophase as _tp
+        cg.add("g12", BODY, layer="knowledge", tags=["a"], verification_basis="test")
+        _legacy_want = hashlib.sha256(BODY.rstrip("\n").encode("utf-8")).hexdigest()[:12]
+        _st12, _cd12 = _tp._judge(cg, {"id": "g12", "content_hash": _legacy_want})
+        ok(_st12 == _tp.STATUS_COMMITTED,
+           "G12 旧口径 intent 放行（升级兼容，%s/%s）" % (_st12, _cd12))
+        cg.add("g12", BODY + "\n追加", layer="knowledge", tags=["a"],
+               verification_basis="test")
+        _st13, _cd13 = _tp._judge(cg, {"id": "g12", "content_hash": _legacy_want})
+        ok(_st13 == _tp.STATUS_INTERRUPTED and _cd13 == _tp.R_MISMATCH,
+           "G13 正文真改后旧 intent 仍判 mismatch（兼容不过宽，%s/%s）" % (_st13, _cd13))
 
         cg.close()
     finally:

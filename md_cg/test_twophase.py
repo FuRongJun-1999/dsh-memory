@@ -253,10 +253,9 @@ def _run(tmp):
         f.write("{坏行不是 json\n")
     check("⑩2 坏行跳过不炸（账本读侧容错）",
           isinstance(_recs(cg10), list))
-    check("⑩3 指纹算法与 nodefile 同源（唯一真源，防漂移；#741 后基准＝落盘形态）",
+    check("⑩3 指纹算法与 nodefile 同源（唯一真源，防漂移；#741 后基准＝落盘形态 abc 加一个换行）",
           twophase.nodefile.content_hash("abc")
-          == __import__("hashlib").sha256(
-              twophase.nodefile.normalize_body("abc").encode("utf-8")).hexdigest()[:12])
+          == __import__("hashlib").sha256(b"abc\n").hexdigest()[:12])
     check("⑩4 账本文件在 root 下（随记忆库一起备份/迁移）",
           os.path.dirname(twophase.log_path(cg10)) == cg10.root)
     check("⑩5 对账只增行不删行（append-only 结构保证）",
