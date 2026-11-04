@@ -72,7 +72,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { MdcgClient } from './lib/mdcg_client.js'
-import { escapePromptBraces, renderUntrustedMemoryBlock } from './lib/prompt_safety.js'
+import { escapePromptBraces, renderUntrustedMemoryBlock, truncateSafe } from './lib/prompt_safety.js'
 import { HookAuditRecorder, kindOf, type HookWriteRole } from './lib/hook_audit.js'
 // 运行期会话状态单点（B 治本批）：观测在 hooks 面，写归因注入在工具面
 // （src/tools.ts）——两处共用同一状态，见 lib/session_state.ts 头注。
@@ -449,11 +449,13 @@ export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity
     // 的信号——注入面照常成立（与 #354 P1-14 的诚实边界一致：保证的是「原文不出现」，
     // 不是「不注入」）。
     const safe = redactKeepPlaceholders(preview)
-    out.push(`- [${layer}] ` + (safe.length > budget ? safe.slice(0, budget) + '…' : safe))
+    // issue #762：预算落在 emoji 中间时 `slice` 会劈出孤立代理（宿主 JSON.stringify
+    // 产出 "\ud83d" ⇒ 整条请求 400、会话永久废）。改走码元安全截断（不拆代理对）。
+    out.push(`- [${layer}] ` + (safe.length > budget ? truncateSafe(safe, budget) + '…' : safe))
     rank += 1
     if (out.join('\n').length >= RECALL_MAX_CHARS) break
   }
-  return out.join('\n').slice(0, RECALL_MAX_CHARS)
+  return truncateSafe(out.join('\n'), RECALL_MAX_CHARS)   // issue #762：拼完再切也不劈代理对
 }
 
 /** 身份锚点块（issue #635）：只取永久层（self/anchor），独立预算。 */
@@ -473,11 +475,11 @@ export function renderIdentityAnchors(payload: unknown): string {
     const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     const safe = redactKeepPlaceholders(preview)
-    out.push('  - [' + layer + '] ' + (safe.length > IDENTITY_ITEM_CHARS ? safe.slice(0, IDENTITY_ITEM_CHARS) + '…' : safe))
+    out.push('  - [' + layer + '] ' + (safe.length > IDENTITY_ITEM_CHARS ? truncateSafe(safe, IDENTITY_ITEM_CHARS) + '…' : safe))
     if (out.length >= IDENTITY_MAX_ITEMS) break
     if (out.join('\n').length >= IDENTITY_MAX_CHARS) break
   }
-  return out.join('\n').slice(0, IDENTITY_MAX_CHARS)
+  return truncateSafe(out.join('\n'), IDENTITY_MAX_CHARS)   // issue #762
 }
 
 // ---------------------------------------------------------------- 会话窗口渲染
@@ -568,13 +570,13 @@ export function formatSessionWindow(
     // issue #354 [P1-12]：role 与 text 同受单条上限约束——只限 text 时一条超长
     // role 就能让首行突破整块预算并把后续历史全部挤出（首行 used===0 绕过了
     // 下方总预算判据）。role 截断后再判空，仍为空则回落 'user'。
-    const role = String(it['role'] ?? '').trim().slice(0, WINDOW_ROLE_CHARS) || 'user'
+    const role = truncateSafe(String(it['role'] ?? '').trim(), WINDOW_ROLE_CHARS) || 'user'   // issue #762
     const preview = String(it['text'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     // issue #563 ①：同上——窗口块每行也**先脱敏、后截断**，否则截断残片绕过注入侧脱敏。
     const safe = redactKeepPlaceholders(preview)
     const body = safe.length > WINDOW_ITEM_CHARS
-      ? safe.slice(0, WINDOW_ITEM_CHARS) + '…'
+      ? truncateSafe(safe, WINDOW_ITEM_CHARS) + '…'   // issue #762
       : safe
     const attr = wantAttr
       ? `[${stamp(it['t'])}|${sessTag(it['session'])}|${sensTag(it['sensitivity'])}] `
@@ -923,7 +925,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             // 注入**，内容是前缀 + `[已过滤:密钥]`。真正的保证是**凭据原文不出现在上下文**
             // （一定被替换成占位），而不是「不注入」；`if (recallBody)` 只是兜底，
             // 覆盖渲染文本本身即纯凭据（无前缀）的形态。
-            const recallBody = desensitize(text.slice(0, RECALL_MAX_CHARS))
+            const recallBody = desensitize(truncateSafe(text, RECALL_MAX_CHARS))   // issue #762
             if (recallBody) {
               assembly.contexts.push({
                 name: 'lingshu:auto-recall',
