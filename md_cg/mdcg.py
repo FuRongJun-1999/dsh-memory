@@ -3094,6 +3094,28 @@ class MdCG:
     # ---------- 写 ----------
 
 # 生效条件：node_id/content 必填；node_id 不匹配 _NODE_ID_RE（^[A-Za-z0-9_.@-]{1,128}$）或含 ".."、或整串精确等值于 _NODE_ID_FORBIDDEN（"None"/"null"，空语义值字符串化污染形态，P3 None.md 缺陷禁写）、或落盘 realpath 越出 self.root 时抛 ValueError（P0-1 白名单+纵深闸）；layer 不在 LAYERS 内、或 verification_basis 非 None 且不在 VERIFICATION_BASIS 内时抛 ValueError；consistency 为真且 _cons.check 判 REJECT 时，on_conflict="reject" 抛 ConsistencyError、on_conflict="defer" 返回 None；判 BLINDSPOT（comparable==0，检测前提不存在）时**恒放行**（与 writepipe._gate_consistency 的 issue #26 同口径，落盘并把 vd 并进 extra["consistency"]）；其余情形完成写盘/入索引后返回 node_id；consistency_out 为 dict 时把本次判定回填 consistency_out["consistency"]（#361：三条出口都可追溯）。
+    # 生效条件：prev_entry 为索引条目、content 为本次写入正文；返回 True 表示「正文变了，验证态须降级」。
+    # issue #757：优先用**索引条目的 content_hash**（与盘面同源，见 #741/#756），省一次读盘；
+    # 缺 hash 时才回退读盘、并用**同一个** nodefile.content_hash 归一（不引入第二口径）。
+    # 失败面：索引陈旧只会多判「变了」→ 降 doubted（安全方向）；反向不可能（陈旧值来自更早正文）。
+    @staticmethod
+    def _vstate_body_changed(cg, node_id: str, prev_entry, content) -> bool:
+        if not prev_entry:
+            return False
+        prev_hash = prev_entry.get("content_hash")
+        if not prev_hash:
+            try:
+                prev_hash = nodefile.content_hash(
+                    (cg.get(node_id) or {}).get("content") or "")
+            except Exception:          # noqa: BLE001 —— 读面失败按未变处置
+                return False
+        try:
+            new_hash = nodefile.content_hash(content or "")
+        except Exception:              # noqa: BLE001 —— 非 str 正文按未变处置（不打断写入）
+            return False
+        return bool(prev_hash) and prev_hash != new_hash
+
+
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             tags=None, condition_space=None, importance=None,
             confidence: float = None, edges=None, verification_basis: str = None,
@@ -3646,24 +3668,20 @@ class MdCG:
             # 「已验证」。证据针对的是**旧正文**，故只在正文真的变了时才降
             # （verified→doubted 是 TRANSITIONS 里的合法迁移，不需 override）。
             # 边界：无 principal 的裸库 / ops 未声明（`Principal()` 缺省）⇒
-            # `allows_op` 为真，逐位继承，既有语义零变化；正文比对走读回内容
-            # （盘面形态：nodefile.dumps 补尾换行），不用索引条目的 content_hash
-            # ——该键的基准随写入路径而异（直调 add 落原串、重建扫描落盘面形态）。
+            # `allows_op` 为真，逐位继承，既有语义零变化。
+            # issue #757：正文比对改用**索引条目的 content_hash**（不再读盘回正文）。
+            # 前提已由 #741/#756 建立：content_hash 内部 normalize_body 是唯一真源，
+            # 直调 add / 重建扫描 / 两级提交写入的条目都同源；两级提交保证「同 id 的
+            # 上一次成功写入」此时已在内存索引里（不依赖是否 flush）。
+            # 失败面是**保守的**：索引若陈旧只会多判「正文变过」→ 降 doubted（安全方向）。
             _inherit = prev_vstate
             if prev_vstate == "verified" and prev_entry is not None:
                 _principal = getattr(self, "principal", None)
                 _may_verify = (not callable(getattr(_principal, "allows_op", None))
                                or _principal.allows_op("verify"))
-                if not _may_verify:
-                    try:
-                        _prev_body = (self.get(node_id) or {}).get("content")
-                    except Exception:          # noqa: BLE001 —— 读面失败按未变处置
-                        _prev_body = None
-                    _new_body = content or ""
-                    if not _new_body.endswith("\n"):
-                        _new_body += "\n"
-                    if _prev_body is not None and _prev_body != _new_body:
-                        _inherit = "doubted"
+                if not _may_verify and MdCG._vstate_body_changed(
+                        self, node_id, prev_entry, content):
+                    _inherit = "doubted"
             fm[trust.STATE_FIELD] = _inherit
         else:
             _pe_v = prev_entry or {}
