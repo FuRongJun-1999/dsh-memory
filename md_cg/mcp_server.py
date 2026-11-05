@@ -3455,21 +3455,6 @@ def _session_call(cg, a):
     raise ValueError(f"session 未知 action：{act}（允许 note/recall/compact）")
 
 
-# 生效条件：flag=a.get("prune", True)，flag 为字符串时重算为 flag.strip().lower() not in ("false","0","no","off","")；若 not flag 或 stats.get("truncated") 为真则返回 None；否则返回 refindex.prune_orphans(cg, kind=kind, root=root, items=items, dry_run=bool(a.get("prune_dry_run"))).
-    new = _os.path.realpath(str(root))
-    seen = set()
-    for rec in files.values():
-        r = (rec or {}).get("root") if isinstance(rec, dict) else None
-        if r:
-            seen.add(_os.path.realpath(str(r)))
-    for r in sorted(seen):
-        if r == new:
-            continue
-        if new.startswith(r + _os.sep) or r.startswith(new + _os.sep):
-            return r
-    return None
-
-
 def _prune_after_index(cg, a, *, kind, root, items, stats):
     """索引后的**节点级对账**：清退「同 root + 同 path 的过期代」。
 

@@ -39,7 +39,7 @@ hive 面**两趟**（契约 c4/c5/c6；id 契约 v2 之后 `_submit` 改调 Rust
   · 安全前提（真 exe 为什么安全，码上必须写明）：``alloc-id`` 是**纯分配**通道
     （Rust ``job::alloc_job_id`` 只 ``fs::create_dir`` 落池，不读不启动 serve）；
     且 ``HIVE_CONFIG`` 钉在不存在路径 ⇒ ``_ensure_serve`` 的拉起分支在
-    ``serve_start.start()`` 的 ``load_config`` 即返回失败（serve_start.py:462-464），
+    ``serve_start.start()`` 的 ``load_config`` 即返回失败（serve_start.py:493），
     Popen 那一步不执行——成功趟据此断言 ``serve.started is False`` 自证（失败趟的
     响应是 context 闸的拒收，本就**没有** serve 字段，故该断言只落在成功趟）。
 
@@ -211,7 +211,7 @@ def _hive_env(tmp: str, exe: str | None = None) -> dict:
     生效条件：exe 为 None（失败趟）⇒ HIVE_EXE 钉在**不存在的探针路径**（`_alloc_job_id`
     在 isfile 即抛显式 SubmitError）；exe 给定时（成功趟）⇒ HIVE_EXE 指向该**真实**
     二进制。两趟的 HIVE_CONFIG 一律指向不存在的路径：`_ensure_serve` 的拉起分支因此
-    在 `serve_start.start()` 的 `load_config` 即返回失败（serve_start.py:462-464），
+    在 `serve_start.start()` 的 `load_config` 即返回失败（serve_start.py:493），
     Popen 那一步**不执行** ⇒ 真 exe 也绝不拉起在役 serve。HIVE_JOBS_DIR 一律指向本
     守卫自己的临时池。
     """
@@ -442,7 +442,7 @@ def main():
         #      落池 + 回显 job_id），**不读也不启动任何 serve**；
         #   ② `HIVE_CONFIG` 仍钉在不存在路径 ⇒ `_ensure_serve` 的拉起分支即使被走到，
         #      也在 `serve_start.start()` 的 `load_config` 即返回 {"ok": False,…}
-        #      （serve_start.py:462-464），`Popen([EXE, "serve", …])` 不执行；
+        #      （serve_start.py:493），`Popen([EXE, "serve", …])` 不执行；
         #   ③ 池是 HIVE_JOBS_DIR 指针指向的**临时**目录 ⇒ 在役池零触碰（2g/2j 自证）。
         print("[2'] hive 成功路径实弹（真 exe + 守卫自己的临时池；alloc-id 不启动 serve）")
         binexe = _hive_bin()

@@ -4,6 +4,51 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [0.9.23] - 2026-11-05
+
+### 修复：`cg(op=read)` 自然问法普遍 DEFER（issue #722，Q1=A / Q2=A）
+
+- `judge_qualification` 增 `strict_conditions`（库面默认 `true`，既有调用方零变化）；**工具面 `read`/`route` 缺省放宽**；
+- 放宽**只到 `usable`**：`state` 仍是 `DEFER`，新增 `usable/relaxed/code/condition_status`，reason 明写「未冒充已确认」；
+- **只放宽「生效条件未在情境确认」一支**；坏条件 / `REJECT` / `BLINDSPOT` / 验证基底**仍拦**；
+- 守卫 10 条；`judge_with_boundary` 现在保留这四个标记键（原先被裁掉，导致「放宽了也看不见」）。
+
+### 修复：`cg(op=info)` 在大库上超时（issue #677 B）
+
+- `health_os()`（全库扫描类）改为**仅 `full=true` 时执行**；新增 `flush_state`（`pending_dirty/worker_alive/last_error`）与 `node_count`；
+- **契约变更**：缺省不再含 health_os 的键（`buckets`/`bucket_scope`/`ccg_by_layer` 等）；要旧全集请传 `full=true`。
+
+### 修复：写入成功后调用超时、重试产生重复节点（issue #677）
+
+- `mdcg_remember` 支持 `dedupe`（与 `cg(op=write)` 同一个幂等闸）；**插件三类自动记忆默认带 `dedupe: true`**，可用 `memory.dedupe=false` 关闭；
+- 服务端闸改为**同会话才幂等**：跨会话写同一句不会互相顶掉（叠加 `sessionPrivate` 时不再「命中但读不到」）。
+
+### 性能：flush 锁内 IO 从 O(N) 降到 O(1)（issue #677 C）
+
+- `ShardedLog.append_many`：**一次 write + 一次 flush**；整批仍在同一把 `FileLock` 内（与 compact 互斥语义不变）；
+- 同时修两个崩溃安全缺陷：**残尾粘行**（末字节非换行先补 `\n`）、**失败回填丢 `superseded` 标记**（否则陈旧记录复活=旧盖新）。
+
+### 修复：`FileLock.__enter__` 异常路径泄漏 fd（issue #740）
+
+- strict 超时 / 非重试 errno / `timeout` 类型错 / `sleep` 中 `KeyboardInterrupt` 四条路径现在都走 `_close_fd()`；
+- `__exit__` 复用（幂等、绝不抛），重复 `__enter__` 先清旧句柄。
+
+### 口径收口：同一份指纹只留一个真源
+
+- `reconcile._disk_hashes` 二元组收单值（#758）；
+- `twophase` 指纹与索引条目同源（#759，`_norm` 降为 legacy 兼容）；
+- 验证态继承改用索引 `content_hash` 比对、**不再读盘**（#757，撤 #352 §B 绕行）。
+
+### 修复：scrub 把正文引用行当成断言键（误判矛盾）
+
+- 键里出现括号类标点即不是字段名；值以 `src_/ref_/doc_` 开头不算可断言值；
+- **注**：`…（源：src_x）` 的真凶是「`…（源`」这个**带括号前缀键**，不是单字「源」（后者被长度闸过滤）。
+
+### 已知限制
+
+- `cg(op=recall)`（预算装包路径）尚未接线 `strict_conditions`；
+- `health_os()` 自身耗时未优化，仅被 `full=true` 挡在主路径外；
+- scrub 的 `contradiction` 仍按字面键值比对，语义改写类误判只能靠「键形态」收敛，无法根除。
 ## [0.9.22] - 2026-11-03
 
 ### 修复：`cg(op=write)` 静默丢弃 `aliases`（issue #722，用户实测）

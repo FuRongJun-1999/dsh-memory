@@ -6,6 +6,50 @@ This file is maintained since **0.9.15**. For earlier versions see the git tags 
 
 The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); version numbers follow semantic versioning.
 
+## [0.9.23] - 2026-11-05
+
+### Fixed: `cg(op=read)` returned DEFER for natural phrasing (issue #722, Q1=A / Q2=A)
+
+- `judge_qualification` gains `strict_conditions` (library default `true`, no change for existing callers); **the tool face (`read`/`route`) defaults to relaxed**;
+- relaxation stops at `usable`: `state` stays `DEFER`, with new `usable/relaxed/code/condition_status`; the reason says explicitly that nothing was "confirmed";
+- **only the "condition not confirmed in context" branch** is relaxed; bad conditions / `REJECT` / `BLINDSPOT` / verification basis still block;
+- `judge_with_boundary` now keeps those four marker keys (previously pruned, so a relaxed result was invisible).
+
+### Fixed: `cg(op=info)` timed out on large libraries (issue #677 B)
+
+- `health_os()` (full-library scan) now runs **only with `full=true`**; new `flush_state` (`pending_dirty/worker_alive/last_error`) and `node_count`;
+- **contract change**: the default response no longer carries the health_os keys (`buckets`, `bucket_scope`, `ccg_by_layer`, ...); pass `full=true` for the old set.
+
+### Fixed: write succeeded but the call timed out, and retries duplicated nodes (issue #677)
+
+- `mdcg_remember` supports `dedupe` (same idempotency gate as `cg(op=write)`); **the plugin's three automatic memory kinds now send `dedupe: true`**, disable with `memory.dedupe=false`;
+- the server gate is now **session-scoped**: the same text written by two sessions no longer collapses (and with `sessionPrivate` it no longer "hits but reads nothing").
+
+### Performance: flush I/O under lock from O(N) to O(1) (issue #677 C)
+
+- `ShardedLog.append_many`: **one write + one flush**, still inside a single `FileLock`;
+- two crash-safety fixes: **torn-tail repair** (append a `\n` if the shard ends mid-line) and **backfill keeps the `superseded` set** (otherwise stale records are resurrected = old overwrites new).
+
+### Fixed: `FileLock.__enter__` leaked a file descriptor on error paths (issue #740)
+
+- strict timeout / non-retryable errno / bad `timeout` type / `KeyboardInterrupt` during sleep all go through `_close_fd()` now; `__exit__` reuses it (idempotent, never raises), re-entry closes the old handle first.
+
+### One true source per fingerprint
+
+- `reconcile._disk_hashes` collapsed to a single value (#758);
+- `twophase` fingerprints now match index entries (#759, `_norm` demoted to legacy compatibility);
+- verification-state inheritance compares the index `content_hash` instead of reading from disk (#757, removes the #352 §B detour).
+
+### Fixed: scrub treated inline source references as assertable key/value pairs
+
+- a key containing bracket punctuation is not a field name; values starting with `src_/ref_/doc_` are not assertable values;
+- **note**: for `...(source: src_x)` the real culprit is the bracketed prefix key, not the single character "source" (that one is filtered by the length gate).
+
+### Known limitations
+
+- `cg(op=recall)` (budgeted packing path) does not thread `strict_conditions` yet;
+- `health_os()` itself is not optimised, only moved off the default path;
+- scrub's `contradiction` still compares literal key/value pairs; semantic rewrites are only reduced, not eliminated.
 ## [0.9.21] - 2026-10-31
 
 ### Fix: standard documents are **shipped with the package** (0.9.20 only gave external links)
