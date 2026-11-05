@@ -895,6 +895,16 @@ NEG_CUES = ("不属于", "不是", "没有", "并非", "并无", "未有",
 #: 那是过度收紧方向（由守卫 `--mutate` 的 M3 定点变异钉住）。
 NEG_LINK_CHARS = frozenset("是这那该此种个些的了在为之其")
 
+#: 否定词与被否定成分之间的**动词性虚化字**（`未使用X` / `不是采用X` / `没有用X`）。
+#: 与 `NEG_LINK_CHARS`（连接字：的/这/种/是…）**分表存放**，因为二者词性不同：
+#: 连接字不承载语义，动词承载——合并会掩盖「否定词作用于动作、动作的宾语才是词项」
+#: 这一层结构。判据仍是一条：`_negated_at` 里两表**并集**逐字符检查。
+#: 只收高频、几乎不单独作实义词的虚化用法；`做`/`看`/`走` 这类实义动词不收。
+NEG_VERB_CHARS = frozenset("使用采")
+
+#: `_negated_at` 的字符准入集＝连接字 ∪ 虚化动词字（单点，勿在别处另拼）。
+NEG_SCOPE_CHARS = NEG_LINK_CHARS | NEG_VERB_CHARS
+
 #: 否定作用域窗口（向前最多回看的字符数）：6 够「不是」+「这样的」（2+3），
 #: 又不足以跨过 `不适合X` 里的实义词。窗口两端都有 K 组对照——缩到 1 即红（M2）。
 NEG_SCOPE_WINDOW = 6
@@ -981,7 +991,7 @@ def _negated_at(s: str, i: int) -> bool:
             continue
         for cue in NEG_CUES:
             if j + len(cue) <= i and s.startswith(cue, j):
-                if all(ch in NEG_LINK_CHARS for ch in s[j + len(cue):i]):
+                if all(ch in NEG_SCOPE_CHARS for ch in s[j + len(cue):i]):
                     return True
     return False
 
