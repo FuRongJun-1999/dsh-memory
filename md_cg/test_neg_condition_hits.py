@@ -201,7 +201,10 @@ def g6():
     ok(n == 1, "G6c 单点全仓唯一实现（mdcg.py 内出现 %d 次）" % n, n)
     # 三态调用方（mdcos 的 legacy 覆盖）必须仍委托父类判据
     mdsrc = open(os.path.join(os.path.dirname(p), "mdcos.py"), encoding="utf-8").read()
-    ok("MdCG.judge_qualification(node_dict, query, context)" in mdsrc,
+    # issue #722：委托现带 strict_conditions 关键字 —— 断言放宽为「以该前缀委托」，
+    # 意图不变（仍钉住「不在副本里重判」）。
+    import re as _re
+    ok(_re.search(r"MdCG\.judge_qualification\(node_dict, query, context", mdsrc) is not None,
        "G6d mdcos 的 legacy 分支仍委托 MdCG.judge_qualification（不在副本里重判）")
     # G6e/G6f：批次76 同批收口的**陈旧副本**——`_ccg_line` 自称「与 mdcos._ccg_field
     # 同源」，实为手抄且停在「必须有冒号」的旧语义（旧副本取空／单点非空实测 93 条）。

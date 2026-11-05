@@ -4978,7 +4978,8 @@ class MdCG:
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；
-    def judge_qualification(node_dict, query: str, context=None):
+    def judge_qualification(node_dict, query: str, context=None,
+                             strict_conditions: bool = True):
         """四态判定（白箱第 1/2 篇）。
 
         输入：节点 + 查询 + 当前情境
@@ -5027,6 +5028,7 @@ class MdCG:
         #    情境为空（无 query 且无 context）→ 无可判定依据，跳过本段不降级：
         #    「无情境」不能被误判成「不适用」。
         cond_hit = None
+        relaxed = False          # #722：未确认条件被放宽（state 仍 DEFER）
         has_scene = bool((query or "").strip()) or bool(context)
         # 正条件段「跳过比对」的原因（review 5b 可观测性）：不记录的话，
         # 「没写条件」「写了空值声明」「写了全时窗哨兵」三者在日志上完全同形。
@@ -5083,16 +5085,29 @@ class MdCG:
                     cond_hit = next((t for t in terms_
                                      if MdCG._term_in_scene_norm(t, _norm_scene)), None)
                     if cond_hit is None:
-                        return {"state": STATE_DEFER,
-                                "reason": ("生效条件未在情境确认（未命中任何声明条件："
-                                           + "、".join(terms_[:3])
-                                           + "）；可补充情境或条件词面后重判")}
+                        if strict_conditions:
+                            return {"state": STATE_DEFER,
+                                    "reason": ("生效条件未在情境确认（未命中任何声明条件："
+                                               + "、".join(terms_[:3])
+                                               + "）；可补充情境或条件词面后重判")}
+                        # issue #722（Q2=A）：放宽**只到 usable**——state 仍是 DEFER，
+                        # 不稀释 ACCEPT=已确认 的语义；切不出可用短语不放宽（坏条件）。
+                        relaxed = True
 
         # 4) DEFER：节点无 verification_basis → 信任根基不足
         if not fm.get("verification_basis"):
             return {"state": STATE_DEFER,
                     "reason": "未声明验证基底，需补充才能继续判定"}
 
+        # 5) 放宽出口（#722 Q2=A）：state 仍 DEFER，usable=True + code/relaxed 供下游分流。
+        if relaxed:
+            return {"state": STATE_DEFER,
+                    "code": "relaxed_condition",
+                    "condition_status": "unconfirmed",
+                    "relaxed": True,
+                    "usable": True,
+                    "reason": ("生效条件未在情境确认；strict_conditions=false 放宽："
+                               "可参考使用，但未冒充已确认（原判 DEFER）")}
         # 5) ACCEPT：默认——reason 诚实标注正条件是否经情境确认
         acc = "5 要素齐全 + 不适用条件未命中 + 验证基底已声明"
         if cond_hit:
@@ -5114,7 +5129,8 @@ class MdCG:
 
     # 生效条件：node_dict 为 {frontmatter, content}（缺键按空处理）、query 为字符串、context 为 dict 或 None；无条件先算边界命中（boundary_hit），再算资格判定——边界命中**且** query 为边界问句（is_boundary_query）时，资格判定改以「摘掉命中拒绝域条目后的 query」重跑（并在返回体的 qualification 上标 boundary_suppressed=True），其余情形资格判定原样跑 judge_qualification(node_dict, query, context)；返回 {"qualification","boundary","counts","recallable","reason"}——counts 内 reject 与 boundary_hit **分开计数**，recallable 为「可召回可展示」（边界命中恒真；无边界命中时 = 资格态不是 REJECT）；#362d 案②：抑制确实发生且未摘词面原判 REJECT 时，把该证据并入顶层 reason（键集与 state 不动）。
     @staticmethod
-    def judge_with_boundary(node_dict, query: str, context=None) -> dict:
+    def judge_with_boundary(node_dict, query: str, context=None,
+                            strict_conditions: bool = True) -> dict:
         """资格判定 + 拒绝域命中——**分开计数、分开呈现**（§5.2 / P0-4）。
 
         返回形状（P2 的检索面直接消费）::
@@ -5163,10 +5179,12 @@ class MdCG:
         qual = dict(MdCG.judge_qualification(
             node_dict,
             strip_boundary_terms(query, bh["terms"]) if suppressed else query,
-            context))
+            context,
+            strict_conditions=strict_conditions))
         qual["boundary_suppressed"] = suppressed
         # #362d 案②（零破坏子形态）：另算一次**未摘词面**的判定作证据，见下方 reason 段。
-        raw = (dict(MdCG.judge_qualification(node_dict, query, context))
+        raw = (dict(MdCG.judge_qualification(node_dict, query, context,
+                                                      strict_conditions=strict_conditions))
                if suppressed else qual)
         # 非边界问句下 raw 即 qual 本身，**不产生第二次判定**（默认口径零位移）；
         # 该证据只并入顶层 reason——键集与 state 一字不动，§5.2 的不变量保持成立；
@@ -5189,9 +5207,14 @@ class MdCG:
             why += ("；**摘词面前原判 %s**（查询逐字含本节点的拒绝域条目，该 REJECT "
                     "被边界问句的摘词面抑制；边界命中使其可召回可展示）"
                     % STATE_REJECT)
-        return {"qualification": {"state": qual.get("state"),
-                                  "reason": qual.get("reason"),
-                                  "boundary_suppressed": qual["boundary_suppressed"]},
+        _q = {"state": qual.get("state"),
+              "reason": qual.get("reason"),
+              "boundary_suppressed": qual["boundary_suppressed"]}
+        # issue #722：放宽标记必须随 qualification 透出（否则调用方只能看 reason 文案）。
+        for _k in ("usable", "relaxed", "code", "condition_status"):
+            if _k in qual:
+                _q[_k] = qual[_k]
+        return {"qualification": _q,
                 "boundary": {"hit": bh["hit"], "terms": bh["terms"],
                              "marker": bh["marker"], "reason": bh["reason"]},
                 "counts": counts, "recallable": recallable,
@@ -5205,7 +5228,8 @@ class MdCG:
                include_neg: bool = True, judge: bool = True, pools=None,
                session=None, branch=None, validity=None,
                start_time=None, end_time=None, start_operator=None,
-               end_operator=None, time_axis=None, view=None):
+               end_operator=None, time_axis=None, view=None,
+               strict_conditions: bool = True):
         """返回 (results, meta)。results = [(node_dict, score, qualification)]。
 
         validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
@@ -5447,7 +5471,8 @@ class MdCG:
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
                                   len(docs), judge, context, neg_coverage,
-                                  big_domain, big_scores, pool_cfg)
+                                  big_domain, big_scores, pool_cfg,
+                          strict_conditions=strict_conditions)
             return None
 
         # T0/T1：路由桶内
@@ -5642,7 +5667,8 @@ class MdCG:
                         self.record_access([r[0]["id"] for r in _merged[:k]], TIER_SPREAD)
                     return self._emit(_merged, k, TIER_SPREAD, stat, route_bucket,
                                       record, len(_merged), judge, context,
-                                      neg_coverage, big_domain, big_scores, pool_cfg)
+                                      neg_coverage, big_domain, big_scores, pool_cfg,
+                          strict_conditions=strict_conditions)
             else:
                 gates["s3"] = {"seeds": len(_seeds), "expanded": 0,
                                "hops": _s3_hops, "reason": "no_edges"}
@@ -5680,7 +5706,8 @@ class MdCG:
         scored = self._score(picked, q, qb, pool_cfg)
         return self._emit(scored, k, TIER_GLOBAL_SCAN, stat, route_bucket,
                           record, len(picked), judge,
-                          context, neg_coverage, big_domain, big_scores, pool_cfg)
+                          context, neg_coverage, big_domain, big_scores, pool_cfg,
+                          strict_conditions=strict_conditions)
 
 # 生效条件：无条件按 hits 的 path 与 allowed 集合做双向邻接扩散（只读 index["nodes"] 的 edges/target，不读节点文件），
 # hops<=0 或无命中/无 allowed 时返回 ({}, seeds)；否则返回 ({被扩散节点 path: decay**跳数}, seeds)，不含种子自身；
@@ -6002,7 +6029,7 @@ class MdCG:
 # 生效条件：scored 按 (-分数, -importance) 排序，真实命中数 n_real = min(max(0,k), scored 中 s>0 的条数)，负覆盖提示条数 = len(_neg_tail(neg_coverage, max(0,k-n_real))) = min(NEG_COVERAGE_MAX, max(0,k-n_real))（H10 修订：真实命中优先，提示不再按 min(3,k) 先占位——改前 k=2/3 时主结果配额被算成 0、一条真实命中都不返回），主结果取 scored[:max(0,k-提示数)]（#89② 收窄：tier==TIER_GLOBAL_SCAN 且 n_real==0 时取 0 条；单点见 _primary_bound/_zero_filler_only）后逐条判定（judge 为真值时调 judge_qualification(r[0], stat["query"] 或 "", context)，否则 qual={"state":None,"reason":"judge_disabled"}），再把提示条目 extend 到 out 末尾；record 为真且主结果非空时调 record_access；pool_plan 以 pooling.plan(stat["cap"] 或模块级 GLOBAL_CAP, pools) 生成，stat["pool_taken"] 为真时并入 taken/cands/lost；返回 (out, 含 tier/scanned/bucket/candidates/pre_cap/cap/cut_order/pools/covered_neg/big_domain 的审计 dict)；
     def _emit(self, scored, k, tier, stat, bucket, record, candidates,
               judge, context, neg_coverage, big_domain=None, big_scores=None,
-              pools=None):
+              pools=None, strict_conditions: bool = True):
         # ---- S5 负记忆抑制（契约 §3 S5；flag 控、默认关）----
         # 现状：rejected/unresolved 命中只会被「附加」到结果里（sensing），对正候选毫无影响。
         # 这里把它变成**抑制信号**：与负记忆「边相邻」或「词面高度重叠」的正候选按
@@ -6176,7 +6203,8 @@ class MdCG:
         for r in results:
             if judge:
                 _jw = MdCG.judge_with_boundary(r[0], stat.get("query") or "",
-                                               context)
+                                               context,
+                                               strict_conditions=strict_conditions)
                 qual = dict(_jw["qualification"])
                 _b = boundary_mark(r[0], stat.get("query") or "", context)
                 if _b.get("hit"):
