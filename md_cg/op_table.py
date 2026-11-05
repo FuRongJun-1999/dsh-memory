@@ -38,6 +38,7 @@ _OP_TABLE = {
         "params": (
             "intent",
             "view",
+            "strict_conditions",
         ),
         "actions": (),
         "default_action": None,
@@ -56,6 +57,7 @@ _OP_TABLE = {
             "view",
             "budget_tokens",
             "dedupe",
+            "strict_conditions",
     "exclude_doc",
             "excerpt_strategy",
             "bm25",

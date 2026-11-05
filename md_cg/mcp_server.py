@@ -801,7 +801,10 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
-                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
+                          # issue #722：工具面缺省 false=放宽（库面默认严格）。
+                          strict_conditions=_p("boolean", "条件闸门严格度（**缺省 false=放宽**："
+                                                         "生效条件未在情境确认时仍标 usable，但 state 保持"
+                                                         "DEFER、不冒充已确认；传 true 回严格闸门）"),                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex 断言"
                                                 "文档节点必须可被检索到；需要只看真记忆卡时显式传 true）"),
             excerpt_strategy=_p("string", "read 超预算条目摘录方式：prefix（默认）或 query（查询相关原文片段）"),
@@ -2391,6 +2394,11 @@ def _require_verify_for_vstate(p, a):
 
 
 def _cg_dispatch(cg, a):
+    # issue #722（Q1=A）：**工具面 read/route 缺省放宽**——在派发入口补默认，
+    # 而不是在每个调用点编造参数：读面「不编造默认」约束的是**参数推导/回显**，
+    # 这里是 op 级默认策略（不改 action_source，不伪造调用方意图）。
+    if a.get("op") in ("read", "route") and "strict_conditions" not in a:
+        a["strict_conditions"] = False
     """认知图唯一入口的 op 分发主体。"""
     # 防御性再剥一次（`_dispatch` 已剥；内部调用方若直接调本函数，同样不许传内部标志）。
     a = {k: v for k, v in (a or {}).items() if not str(k).startswith("_")}
@@ -2656,7 +2664,9 @@ def _cg_dispatch(cg, a):
         intent = a.get("intent") or a.get("query") or ""
         res, meta = cg.search(intent, k=_int_arg(a, "k", 10),
                               context=a.get("context"), record=False,
-                              view=a.get("view"))
+                              view=a.get("view"),
+                              **({"strict_conditions": _as_flag(a["strict_conditions"])}
+                                 if "strict_conditions" in a else {}))
         knowledge, caps = [], []
         for n, s, q in res:
             fm = n.get("frontmatter") or {}
@@ -2781,7 +2791,11 @@ def _cg_dispatch(cg, a):
         _doc_filter_on = _as_flag(a.get("exclude_doc", False))
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=a.get("context"), session=a.get("session"),
-                           validity=a.get("validity"), **_tkw)
+                           validity=a.get("validity"),
+                           # issue #722：**只在显式传参时透传**（读面纪律：不编造默认）。
+                           **({"strict_conditions": _as_flag(a["strict_conditions"])}
+                              if "strict_conditions" in a else {}),
+                           **_tkw)
         _k_want = search_args["k"]
         if _doc_filter_on:
             # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）
@@ -2802,7 +2816,12 @@ def _cg_dispatch(cg, a):
         meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
-             "reason": q2.get("reason"), **refindex.ref_fields(n)}
+             "reason": q2.get("reason"),
+             **({"usable": q2["usable"],
+                "relaxed": q2["relaxed"],
+                "code": q2["code"]}
+               if "usable" in q2 else {}),
+             **refindex.ref_fields(n)}
             for n, s, q2 in res]}
         if _kwarn:
             _out["warning"] = _kwarn

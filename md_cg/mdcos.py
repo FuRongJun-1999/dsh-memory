@@ -1295,7 +1295,8 @@ class MdCGOS(MdCG):
 
     @staticmethod
 # 生效条件：node_dict 的 frontmatter 中 ccg_exempt 为真且 content 去空白后非空时返回 DEFER 记录，否则以 (node_dict, query, context) 转 MdCG.judge_qualification；
-    def judge_qualification(node_dict, query: str, context=None):
+    def judge_qualification(node_dict, query: str, context=None,
+                             strict_conditions: bool = True):
         """在父类四态之上支持 legacy 记忆（迁移进来的自由文本）。
 
         迁移进来的历史记忆没有 CCG 5 要素注释。若直接按父类判 BLINDSPOT，
@@ -1308,7 +1309,7 @@ class MdCGOS(MdCG):
         if fm.get("ccg_exempt") and content.strip():
             return {"state": STATE_DEFER,
                     "reason": "legacy 记忆（无 CCG 5 要素）：可检索；建议补生效条件/不适用条件/验证方式"}
-        return MdCG.judge_qualification(node_dict, query, context)
+        return MdCG.judge_qualification(node_dict, query, context, strict_conditions=strict_conditions)
 
     # ================= 检索（含 role 过滤 + 四路召回） =================
 
@@ -1385,7 +1386,8 @@ class MdCGOS(MdCG):
                roles=None, include_work: bool = False, pools=None,
                session=None, branch=None, validity=None,
                start_time=None, end_time=None, start_operator=None,
-               end_operator=None, time_axis=None, view=None):
+               end_operator=None, time_axis=None, view=None,
+               strict_conditions: bool = True):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
@@ -1524,7 +1526,8 @@ class MdCGOS(MdCG):
             if valid >= min_results:
                 return self._emit(scored, k, tier, stat, route_bucket, record,
                                   len(docs), judge, context, neg_coverage,
-                                  big_domain, big_scores, pool_cfg)
+                                  big_domain, big_scores, pool_cfg,
+                                  strict_conditions=strict_conditions)
             return None
 
         def _prescored(docs, scored_all):
@@ -2164,7 +2167,8 @@ class MdCGOS(MdCG):
                    session=None, branch=None, validity=None,
                    early_stop_threshold=None,
                    start_time=None, end_time=None, start_operator=None,
-                   end_operator=None, time_axis=None, view=None):
+                   end_operator=None, time_axis=None, view=None,
+                   strict_conditions: bool = True):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
@@ -2521,7 +2525,8 @@ class MdCGOS(MdCG):
                         and (-upper, nid) >= (-kept[-1][1], kept[-1][0])):
                     break
                 node, s = node_by_id[nid]
-                qual = self.judge_qualification(node, q, context)
+                qual = self.judge_qualification(
+                    node, q, context, strict_conditions=strict_conditions)
                 quals[nid] = qual
                 st = qual.get("state")
                 if st in (STATE_REJECT, STATE_BLINDSPOT):
@@ -2585,7 +2590,8 @@ class MdCGOS(MdCG):
                 for _k in _c:
                     boundary_counts["counts"][_k] += _c[_k]
             elif judge:
-                _jw = MdCG.judge_with_boundary(node, q, context)
+                _jw = MdCG.judge_with_boundary(
+                node, q, context, strict_conditions=strict_conditions)
                 qual = dict(_jw["qualification"])
                 _b = boundary_mark(node, q, context)
                 if _b.get("hit"):
