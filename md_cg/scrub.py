@@ -484,6 +484,11 @@ _EXPIRY_KEYS = ("effective_until", "valid_until", "expires_at", "expire_at",
 _SKIP_KEYS = ("功能名", "执行", "条件", "来源", "标签", "状态", "备注", "标题",
               "描述", "name", "id", "title", "layer", "tags", "说明",
               "假设", "否决原因", "验证")
+# 引用/出处行的键形（本地实测：正文「…（源：src_x、src_y）」会被 partition("：") 切成
+# 键「…（源」——单字「源」本来就被 2–12 长度闸过滤，真正的入口是**带括号的前缀键**）。
+# 判据：**键里不得出现括号类标点**（字段名是标识符，不是半句话）；值侧再拦「src_ 列表」形态。
+_KEY_BAD_CHARS = "（）()【】[]{}<>《》〈〉「」『』"
+_SOURCE_VALUE_PREFIXES = ("src_", "ref_", "doc_")
 _NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可",
               "不会", "没有", "无须", "不必", "无需")
 _POS_WORDS = ("应当", "建议", "必须", "需要", "可以", "允许", "推荐", "宜")
@@ -535,7 +540,11 @@ def _kv_pairs(content) -> dict:
                 # 互为「同键不同值」矛盾（实测 12 抽样里 9 条 high 全是这类误报，
                 # 且 apply 会把好节点 weaken+demote 并跨层移动文件）。
                 if (2 <= len(k) <= 12 and v and k not in _SKIP_KEYS
-                        and not nodefile.is_ccg_mark(k)):
+                        and not nodefile.is_ccg_mark(k)
+                        # issue（scrub 误判）：括号类标点出现即不是字段名（引用/出处行）
+                        and not any(ch in k for ch in _KEY_BAD_CHARS)
+                        # 值侧兜底：纯引用 id 列表（src_x、ref_y）不是可断言的值
+                        and not v.startswith(_SOURCE_VALUE_PREFIXES)):
                     out.setdefault(k, v)
                 break
     return out

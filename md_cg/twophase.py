@@ -66,7 +66,7 @@ def log_path(cg) -> str:
 
 # 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回去尾换行后的字符串（仅剥 "\n"）。
 def _norm(text: str) -> str:
-    """正文口径归一（**对账正确性的前提**）：`nodefile.dumps` 写盘时会给正文补尾
+    """**仅 legacy 兼容口径**（issue #759 起主路径不再用它）：`nodefile.dumps` 写盘时会给正文补尾
     换行，`loads` 读回即带它。若 intent 按入参原文、对账按读回内容各算一次指纹，
     两者**永远不会相等** → 每一笔都误报 interrupted——比不做对账更坏（假阳性会
     淹没真问题，且诱人去"修"不存在的问题）。故两侧统一按「去尾换行」归一。
@@ -108,7 +108,7 @@ def begin(cg, node_id: str, content: str, layer: str = None,
     tok = {
         "iid": uuid.uuid4().hex[:16],
         "node_id": node_id,
-        "content_hash": nodefile.content_hash(_norm(content)),
+        "content_hash": nodefile.content_hash(content),   # issue #759：与索引条目同源（传原文，不再先剥尾）
     }
     rec = {"t": time.time(), "phase": "intent", "iid": tok["iid"],
            "id": node_id, "content_hash": tok["content_hash"]}
@@ -271,7 +271,7 @@ def _judge(cg, intent: dict):
         if tgt:
             return STATUS_COMMITTED, "%s:%s" % (R_MERGED_INTO, tgt)
         return STATUS_INTERRUPTED, R_NODE_MISSING
-    got = nodefile.content_hash(_norm(node.get("content") or ""))
+    got = nodefile.content_hash(node.get("content") or "")   # issue #759：与 begin/索引同源
     if want and got != want:
         # issue #741 升级兼容：content_hash 的输入基准已收口为「落盘形态」（恒补
         # 尾换行），而升级前写入的旧版 intent 指纹是「去尾换行后直接哈希」——两者
