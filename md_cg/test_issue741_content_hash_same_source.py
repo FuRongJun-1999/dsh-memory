@@ -132,7 +132,9 @@ def main():
         # G12/G13 twophase legacy 双向守卫（旧口径 intent 放行 / 真 mismatch 拒）
         from md_cg import twophase as _tp
         cg.add("g12", BODY, layer="knowledge", tags=["a"], verification_basis="test")
-        _legacy_want = hashlib.sha256(BODY.rstrip("\n").encode("utf-8")).hexdigest()[:12]
+        # issue #759：旧 begin 的实际口径是 content_hash(_norm(x))（= sha256(rstrip + "\n")），
+        # 不是手写 sha256(rstrip)——后者少一个尾换行字节，从来不是真实旧口径。
+        _legacy_want = nodefile.content_hash(_tp._norm(BODY))
         _st12, _cd12 = _tp._judge(cg, {"id": "g12", "content_hash": _legacy_want})
         ok(_st12 == _tp.STATUS_COMMITTED,
            "G12 旧口径 intent 放行（升级兼容，%s/%s）" % (_st12, _cd12))

@@ -51,6 +51,10 @@ def main():
         # intent 记录里 id 字段名与 _judge 读取口径不同（按 node_id 落账），这里直接按判定契约构造。
         st, why = twophase._judge(cg, {"id": "n759a", "content_hash": tok["content_hash"]})
         ok(st == twophase.STATUS_COMMITTED, "A3 begin→add→judge = committed", (st, why))
+        # A4（复核要求）：**legacy intent 放行**——旧 begin 存的是 content_hash(_norm(x))。
+        ok(twophase._judge(cg, {"id": "n759a", "content_hash": nodefile.content_hash(twophase._norm(BODY))})[0]
+           == twophase.STATUS_COMMITTED,
+           "A4 legacy 口径 intent 仍判 committed（兼容分支不是死代码）")
         cg.close()
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
