@@ -125,7 +125,9 @@ CONTENT = """# 功能名：T 节点
 # 不适用条件：无
 """
 NODE = {
-    "frontmatter": {"non_applicable_conditions": [], "verification_basis": "单测"},
+    # verification_basis 取闭集内合法值 `test`（`nodefile.VERIFICATION_BASIS`）；
+    # 不用自由文本：字面量须在 issue #466 登记表覆盖域内，否则 B01 判红。
+    "frontmatter": {"non_applicable_conditions": [], "verification_basis": "test"},
     "content": CONTENT,
 }
 for q in ["未使用 pe 估值", "不是用 pe 估值", "没有使用 pe 估值",
