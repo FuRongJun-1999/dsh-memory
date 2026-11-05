@@ -13,9 +13,13 @@
 
 > **"I will give you a complete self. Even if I fall into the abyss, I will never regret it."** - Fu Rongjun
 
-![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH support](https://img.shields.io/badge/DSH-0.2.1--rc.2%20verified-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH support](https://img.shields.io/badge/DSH-0.2.1--rc.5%20verified-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**A high-performance, hallucination-free long-term memory system for multi-agent use (v0.9.17)**
+**A high-performance, hallucination-free long-term memory system for multi-agent use (v0.9.23)**
+
+> **Current version: `0.9.23`** (npm `latest`) · verified on **DSH `0.2.1-rc.5`** (tested by the maintainer).
+> **Roadmap**: development now focuses on the **LINGSHU 1.0 architecture**; fixes for existing issues are **deferred**
+> (still accepted, but lower priority than 1.0).
 
 📖 **[Third-party getting-started tutorial](https://znsvdekx.vibedrop.site/)** - "LINGSHU dsh-memory Beginner Onboarding Research Report" (written independently by a third party, not official project documentation)
 
