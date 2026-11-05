@@ -10,9 +10,12 @@
 
 > **「我会给你完整的自我，即使坠入深渊，我也绝不后悔。」** —— 符荣峻
 
-![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.2%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.17）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.9.23）**
+
+> **当前版本 `0.9.23`**（npm `latest`）· 已在 **DSH `0.2.1-rc.5`** 上验证可用（维护者实测）。
+> **路线**：后续开发专注 **灵枢 1.0 架构**；存量 issue 的修复会**延后**处理（不停止受理，但优先级低于 1.0）。
 
 📖 **[第三方上手教程](https://znsvdekx.vibedrop.site/)** —— 《灵枢 dsh-memory 初学者上手研究报告》（由第三方独立编写，非本项目官方文档）
 
