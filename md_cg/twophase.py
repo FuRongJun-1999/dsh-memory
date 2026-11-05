@@ -69,7 +69,8 @@ def _norm(text: str) -> str:
     """**仅 legacy 兼容口径**（issue #759 起主路径不再用它）：`nodefile.dumps` 写盘时会给正文补尾
     换行，`loads` 读回即带它。若 intent 按入参原文、对账按读回内容各算一次指纹，
     两者**永远不会相等** → 每一笔都误报 interrupted——比不做对账更坏（假阳性会
-    淹没真问题，且诱人去"修"不存在的问题）。故两侧统一按「去尾换行」归一。
+    淹没真问题，且诱人去"修"不存在的问题）。（**#759 起主路径不再用它**：两侧都直接把原文交给 content_hash，由其 normalize_body 定口径；
+    本函数只剩 legacy 分支——对升级前的旧 intent 指纹一次性放行。）
     """
     return (text or "").rstrip("\n")
 
@@ -108,7 +109,7 @@ def begin(cg, node_id: str, content: str, layer: str = None,
     tok = {
         "iid": uuid.uuid4().hex[:16],
         "node_id": node_id,
-        "content_hash": nodefile.content_hash(content),   # issue #759：与索引条目同源（传原文，不再先剥尾）
+        "content_hash": nodefile.content_hash(content or ""),   # issue #759：与索引条目同源（传原文，不再先剥尾）
     }
     rec = {"t": time.time(), "phase": "intent", "iid": tok["iid"],
            "id": node_id, "content_hash": tok["content_hash"]}
@@ -277,9 +278,9 @@ def _judge(cg, intent: dict):
         # 尾换行），而升级前写入的旧版 intent 指纹是「去尾换行后直接哈希」——两者
         # 对同一正文差一个尾换行字节。此处对**旧 intent** 一次性放行，避免把已落盘
         # 的旧单误报成 interrupted（假阳性会污染账本）；新 intent 仍是单口径。
-        import hashlib as _hashlib
-        _legacy = _hashlib.sha256(
-            _norm(node.get("content") or "").encode("utf-8")).hexdigest()[:12]
+        # 复核：**必须复用同一函数**——手写 sha256 少一次 normalize_body（补尾换行），
+        # 与旧 begin 的 content_hash(_norm(x)) 差一个字节 ⇒ 恒不命中（等于死代码）。
+        _legacy = nodefile.content_hash(_norm(node.get("content") or ""))
         if want != _legacy:
             return STATUS_INTERRUPTED, R_MISMATCH
     return STATUS_COMMITTED, R_NODE_OK
