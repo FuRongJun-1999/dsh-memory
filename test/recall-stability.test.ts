@@ -82,7 +82,15 @@ test('① 记忆不变时：注入块每步照旧 push，渲染文本逐字节�
 
   // 判据重述（2026-10-23，issue #645）：提醒的计轮单位改成**真实用户回合**后，
   // 没有新用户消息的 12 次 assemble 不会再插提醒 ⇒ 只追加首份快照。
-  assert.equal(appends, 1, '无新用户回合时，12 步只应在首步追加一份快照')
+  // issue #739（2026-11-06）：注入面加了**会话内去重**（同一条最多 2 次），于是第 3 步
+  // 起条目从 2 条收缩到 1 条 —— 那一次收缩**必然**产生一份新快照（文本变了），之后恢复稳定。
+  // 代价是被限界的：每个条目一生只触发**一次**收缩；换来的是旧会话里「18 条被贴 362 次、
+  // 单条 ×62」的复述式退化（实测 --D-6_ai--/session-c28c8589…）。
+  // issue #739：注入面加了会话内去重（同一条最多 2 次）后，本用例不再恒为 1 份快照：
+  // 首份 + 若干次「条目到期收缩」。收缩次数上界 = 条目数（每条一生只掉一次），
+  // 此后文本恒定、宿主不再追加 —— 要钉的是**有界性**，不是某个精确数字（实测在 2~3 间浮动，
+  // 取决于 timeline 每步返回的条目数）。
+  assert.ok(appends >= 1 && appends <= 3, `去重后的追加次数应有界（实测 ${appends}，上界=首份+条目数）`)
 
   // 正对照：走满 10 个真实用户回合后，**下一次** assemble 会带来一次功能性变化
   // （提醒块出现），之后不再重复（不 sticky）。
@@ -101,16 +109,21 @@ test('① 记忆不变时：注入块每步照旧 push，渲染文本逐字节�
     const rendered = renderContextSnapshot(assembly)
     if (hostAppends(retained, rendered)) { appends++; retained = rendered }
   }
-  await stepOnce()
-  assert.equal(appends, 2, '第 10 回合后的首次 assemble 应追加一次（提醒块出现）')
-  await stepOnce()
-  await stepOnce()
-  // 提醒只出现一步：下一步它消失 ⇒ 再追加一次（出现 + 消失 = 两次）。
-  // 这是 issue #645 明确接受的代价——「接受一次额外的快照追加」，换取提醒不再常驻、
-  // 不再诱发 agent 反复空转归档。后续步保持稳定（不再追加）。
-  assert.equal(appends, 3, '提醒出现与消失各追加一份，之后稳定')
-  await stepOnce()
-  assert.equal(appends, 3, '之后不再追加（不 sticky）')
+  // issue #739（2026-11-06）：注入去重会让「文本何时变化」不再是固定的步数点（收缩步可能与
+  // 提醒步重合），因此这里**不再断言 appends 的精确增量**，改为直接断言**功能面**：
+  // 提醒块出现一次、下一步消失（不 sticky）。这正是 #645 要保证的性质，且不受注入去重影响。
+  const ctxNames = (a: Assembly): string[] => (a.contexts ?? []).map((c) => c.name)
+  const stepCtx = async (): Promise<string[]> => {
+    const assembly: Assembly = { contexts: [{ name: 'clock', text: '当前时间 12:00' }], variables: {} }
+    await handler(assembly, { agent: { session: { id: 'sess-1', header: {} } } }, async () => assembly)
+    const rendered = renderContextSnapshot(assembly)
+    if (hostAppends(retained, rendered)) { appends++; retained = rendered }
+    return ctxNames(assembly)
+  }
+  const firstTurn = await stepCtx()
+  assert.ok(firstTurn.includes('lingshu:turn-reminder'), '第 10 回合后的首次 assemble 应带提醒块')
+  const secondTurn = await stepCtx()
+  assert.ok(!secondTurn.includes('lingshu:turn-reminder'), '提醒只出现一步（不 sticky）')
 })
 
 test('② 记忆真变了才追加：内容变化 → 恰好多一份；之后再次稳定', async () => {
