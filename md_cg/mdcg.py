@@ -3462,8 +3462,12 @@ class MdCG:
         # （`MdCGSecure.add` 的 `sensitivity or DEFAULT_SENSITIVITY` 把两者
         # 归一成同一个值，闸便看不见差异）。本键只是判据载体，**不落 fm**。
         _declared_sens = extra.pop("declared_sensitivity", None)
+        # issue #795 方案 A（单一时间源）：兜底 created_at 与观测窗锚点必须用**同一个** now。
+        # 旧实现两处各调一次 time.time() ⇒ 正常路径下 tw[0] 与 created_at 差几微秒，
+        # test_p2「time_window 锚定写入时刻」用的是 1e-6 严格相等 ⇒ 必红。
+        _now = time.time()
         _created_given = "created_at" in extra
-        created_at = extra.pop("created_at", time.time())
+        created_at = extra.pop("created_at", _now)
         if not _created_given and _prev_fm.get("created_at"):
             created_at = _prev_fm["created_at"]      # 出生时间只写一次
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
@@ -3479,7 +3483,7 @@ class MdCG:
         cs = dict(condition_space or {})
         tw = cs.get("time_window")
         if not (isinstance(tw, (list, tuple)) and len(tw) == 2):
-            _anchor = created_at if _created_given else time.time()
+            _anchor = created_at if _created_given else _now
             cs["time_window"] = [_anchor, _anchor + OBSERVATION_WINDOW_SEC]
         # BODY_SAME 继承不得覆盖**显式给出**的键（#742 复核）：形参缺省无法区分
         # 「没给」与「给了缺省值」，故以 None 为哨兵；confidence 的 0.6 在继承
