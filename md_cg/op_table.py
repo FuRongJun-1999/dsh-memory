@@ -59,6 +59,14 @@ _OP_TABLE = {
             "dedupe",
             "strict_conditions",
     "exclude_doc",
+            # issue #721：检索期按标签过滤（域隔离）。三条判据显式声明，改口径须同步改注释：
+            #   · 多标签 = OR —— 命中**任一**即保留（include）/ 即剔除（exclude）；
+            #   · 匹配 = **全等** —— 不做前缀（否则 dom:work 会误命中 dom:workshop）；
+            #   · 无匹配 = **返回空集，不报错** —— 空集是合法检索答案。
+            # 优先级：exclude 命中先剔除，**优先于** include。
+            # 缺省不传 => 完全跳过过滤分支，既有调用方行为逐位不变（向后兼容）。
+            "include_tags",
+            "exclude_tags",
             "excerpt_strategy",
             "bm25",
             "session",
