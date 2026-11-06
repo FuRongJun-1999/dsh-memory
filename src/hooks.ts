@@ -445,6 +445,42 @@ const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
  *  9 条全部保留。（注意：整块仍远小于一条知识节点 500~800 tok，故本块定位是
  *  「存在性索引/提醒」，不承载知识本身——要知识请显式 mdcg_recall 并给足预算。） */
 // issue #563：导出仅为可测（注入面脱敏顺序的回归用例需要直接喂 payload）。
+
+/**
+ * issue #739（注入面去重）：同一会话内**同一条记忆最多注入 `cap` 次**。
+ *
+ * 实测（2026-11-06，`--D-6_ai--/session-c28c8589…`，192 轮 / 39.7 MB）：
+ * 「灵枢最近记忆」注入 48 次、条目出现 **362 次但只有 18 条去重后节点** ⇒ 单条最高被贴 **62 次**。
+ * 上下文里同一批旧结论被反复强化会产生「复述已有结论、不再探索」的退化观感（#739 原始报告）。
+ *
+ * 口径：按 `layer + preview` 计（`timeline` 的 item 不带 id，且预览即渲染面），
+ * 超过 cap 的条目本轮丢弃；**不丢完**——若全被滤掉则保留第一条，避免整块消失导致
+ * 宿主再追加一份「没有本块」的快照（#657 的代价）。
+ */
+export function dedupeRepeatedItems(
+  payload: unknown,
+  seen: Map<string, number>,
+  cap = 2,
+): unknown {
+  const items = (payload && typeof payload === 'object'
+    && Array.isArray((payload as { items?: unknown }).items))
+    ? (payload as { items: Array<Record<string, unknown>> }).items
+    : null
+  if (!items) return payload
+  const kept: Array<Record<string, unknown>> = []
+  for (const it of items) {
+    const key = String(it['layer'] ?? '') + '|' + String(it['preview'] ?? '')
+    const n = seen.get(key) ?? 0
+    if (n >= cap) continue
+    seen.set(key, n + 1)
+    kept.push(it)
+  }
+  if (kept.length === 0) {
+    const first = items[0]
+    return { ...(payload as object), items: first ? [first] : [] }
+  }
+  return { ...(payload as object), items: kept }
+}
 export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity?: boolean }): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { items?: unknown }).items))
@@ -885,6 +921,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   const pendingReminder = new Map<string, string>()
   /** issue #695：已记过「本会话被排除」日志的会话（避免每条消息刷一条）。 */
   const excludedLogged = new Set<string>()
+  /** issue #739：会话 → (layer|preview) → 已注入次数；同一会话内同一条最多注入 2 次。 */
+  const injectSeen = new Map<string, Map<string, number>>()
   /** 提醒间隔：false 或 **<= 0 → 0（关闭）**；数字 → clamp 1..100；未设/非有限 → 10。
    *  issue #659 F26-21：旧实现把 0 钳成 1（每轮提醒一次），与「0 = 关」的直觉相反；
    *  负数同样落 0（关），而不是变成 1。非有限（NaN/Infinity）仍回落默认 10。 */
@@ -962,7 +1000,11 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           const identityPayload = identityOn
             ? await graph.timeline(IDENTITY_MAX_ITEMS * 3, {})
             : null
-          const text = formatTimelineDecayed(timelinePayload)
+          // issue #739：同一会话内同一条最多注入 2 次（见 dedupeRepeatedItems 的实测数据）。
+          const seenKey = sid || '__no_sid__'
+          let seenMap = injectSeen.get(seenKey)
+          if (!seenMap) { seenMap = new Map<string, number>(); injectSeen.set(seenKey, seenMap) }
+          const text = formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2))
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
