@@ -895,13 +895,23 @@ NEG_CUES = ("不属于", "不是", "没有", "并非", "并无", "未有",
 #: 那是过度收紧方向（由守卫 `--mutate` 的 M3 定点变异钉住）。
 NEG_LINK_CHARS = frozenset("是这那该此种个些的了在为之其")
 
+#: 否定词与被否定成分之间的**动词性虚化字**（`未使用X` / `不是采用X` / `没有用X`）。
+#: 与 `NEG_LINK_CHARS`（连接字：的/这/种/是…）**分表存放**，因为二者词性不同：
+#: 连接字不承载语义，动词承载——合并会掩盖「否定词作用于动作、动作的宾语才是词项」
+#: 这一层结构。判据仍是一条：`_negated_at` 里两表**并集**逐字符检查。
+#: 只收高频、几乎不单独作实义词的虚化用法；`做`/`看`/`走` 这类实义动词不收。
+NEG_VERB_CHARS = frozenset("使用采")
+
+#: `_negated_at` 的字符准入集＝连接字 ∪ 虚化动词字（单点，勿在别处另拼）。
+NEG_SCOPE_CHARS = NEG_LINK_CHARS | NEG_VERB_CHARS
+
 #: 否定作用域窗口（向前最多回看的字符数）：6 够「不是」+「这样的」（2+3），
 #: 又不足以跨过 `不适合X` 里的实义词。窗口两端都有 K 组对照——缩到 1 即红（M2）。
 NEG_SCOPE_WINDOW = 6
 
 
 # 生效条件：text 为任意对象（None 按空串）时返回**保空白**的匹配面归一串（fold_accents → routing.fold_variants，顺序与 fold_for_match 逐字一致）；只归一去空白。
-_SceneNorm = collections.namedtuple("_SceneNorm", "compact keep")   # (紧凑归一串, 保空白归一串)
+_SceneNorm = collections.namedtuple("_SceneNorm", "compact keep raw")   # (紧凑归一串, 保空白归一串, 原文串)
 
 
 def fold_for_match_keep(text) -> str:
@@ -981,7 +991,7 @@ def _negated_at(s: str, i: int) -> bool:
             continue
         for cue in NEG_CUES:
             if j + len(cue) <= i and s.startswith(cue, j):
-                if all(ch in NEG_LINK_CHARS for ch in s[j + len(cue):i]):
+                if all(ch in NEG_SCOPE_CHARS for ch in s[j + len(cue):i]):
                     return True
     return False
 
@@ -4953,12 +4963,29 @@ class MdCG:
         归一与 `_term_in_scene_norm` 共用 `fold_for_match_keep`（#753/#755 复核）；
         **循环内请改用 `_term_in_scene_norm` + 预归一场**，否则每个词项都会重算场景归一。
         """
+        # 入口闸（fail-closed）：归一化后场景会被 `str(text)` repr 化——
+        # `["pe"]` → `"['pe']"`、`{"k":"pe"}` → `"{'k': 'pe'}"`。短词项恰好是
+        # repr 的子串，判据就从「不命中」变成**静默 fail-open**（节点被错误判成
+        # 「条件已确认」而 ACCEPT）。故显式只接受 str（None 按空串）。
+        #
+        # **不写成「base 一律 fail-loud」**（我曾这么写，是错的，2026-11-04 三树
+        # 实测）：base 只在词边界支抛 TypeError；子串支对容器**会径真**——
+        # `_term_in_scene("估值", ["估值"])` 在 base 与 main 上都是 `True`
+        # （`t in scene` 是 list 成员判断）。所以本闸相对 base 是**收紧**而非
+        # 「保持原样」。生产路径不可达（`judge_qualification` 恒传 `json.dumps`
+        # 的 str，真实库 886 节点 0 落点），取 fail-closed 是有意的代价，
+        # 不是「与 base 等价」。
+        if scene is not None and not isinstance(scene, str):
+            return False
         return MdCG._term_in_scene_norm(term, MdCG._cond_scene_norm(scene))
 
     @staticmethod
-# 生效条件：scene 为任意值（None 按空串）时返回二元组 (紧凑归一串, 保空白归一串)；归一口径＝fold_for_match_keep（fold_accents → routing.fold_variants）+ compact_exact_text 去空白，与 fold_for_match 同一份单点。
+# 生效条件：scene 为任意值（None 按空串）时返回三元组 _SceneNorm(compact, keep, raw)——紧凑归一串／保空白归一串／原文串；归一口径＝fold_for_match_keep（fold_accents → routing.fold_variants）+ compact_exact_text 去空白，与 fold_for_match 同一份单点。
     def _cond_scene_norm(scene):
-        """场景串 → `_SceneNorm(compact, keep)`（紧凑归一串 / 保空白归一串）。**一次归一，多处复用**。
+        """场景串 → `_SceneNorm(compact, keep, raw)`（紧凑归一串 / 保空白归一串 / 原文串）。**一次归一，多处复用**。
+
+        `raw` 保留**未归一的原文**：base 的原文判定必须在原文上做（`_term_in_scene_norm`
+        第一段按分支逐字复刻 base），不能拿归一串冒充。
 
         为什么要拆出来：判据在一个节点的 5~6 个词项上**共用同一个场景串**，不拆就是
         同一份归一连算 6 遍（O(词项数) 倍；具体微秒数随机器与库规模而变，本条不做数字承诺）。
@@ -4968,22 +4995,35 @@ class MdCG:
         不另拼第三份实现。
         """
         keep = fold_for_match_keep(scene or "")
-        return _SceneNorm(compact_exact_text(keep), keep)
+        return _SceneNorm(compact_exact_text(keep), keep, (scene or ""))
 
     @staticmethod
 # 生效条件：term 为任意值、norm_scene 为 _cond_scene_norm 的返回值时，纯 ASCII 字母词按词边界（判在保空白串上）匹配、其余按紧凑串子串匹配；任一路径命中即 True。
     def _term_in_scene_norm(term, norm_scene) -> bool:
-        """条件短语是否在**已归一**的场景里成立（口径见 `_term_in_scene`）。"""
+        """条件短语是否在**已归一**的场景里成立（口径见 `_term_in_scene`）。
+
+        判据顺序（三步，**顺序本身是判据**）：
+
+          ① 先算 main 的判定（折叠路径）——main 说不命中，就保持不命中。
+             #753 的 D9–D12 那类「子串→词边界」收紧是**有意**的
+             （`data flow` 不该咬 `metadata flow`），本补丁不得撤销。
+          ② main 说命中时，再看 **base（#753 之前）在原文上**是否也命中。
+             命中的是 base 本来就有的 → 原样放行（不新造召回损失）。
+          ③ 只有 base 不命中、main 命中 ⇒ 这次命中是**折叠新造**的，
+             须过否定作用域闸（否则否定句被判成「条件已确认」）。
+
+        第 ③ 步是本补丁的全部内容。它只在「折叠改变了判定」时才生效，
+        所以对 base 的存量判定与 main 的有意收紧都**零位移**。
+        """
         t = "" if term is None else str(term)
         if not t:
             return False
-        # 与负条件面（neg_condition_hits）**同口径归一**：此前这里两侧都是裸原文，
-        # 于是「条件写 PE、问句打 pe」永不命中，而同一个词在负条件面却能命中 ——
-        # 同一份判据的两个面口径分裂。
         t_keep = fold_for_match_keep(t)
         t_fold = compact_exact_text(t_keep)
         if not t_fold:
             return False
+
+        # ---- ① main 的判定（与 #753 合入后的实现逐字等价）-------------------
         if t_fold.isascii() and t_fold.isalpha():
             # 词边界必须判在**保空白**的归一串上：紧凑串把
             # `"fdata financials"` 拼成 `"fdatafinancials"`，再判「左右不得紧邻
@@ -4991,8 +5031,108 @@ class MdCG:
             pat = (r"(?<![A-Za-z])"
                    + r"\s*".join(re.escape(p) for p in t_keep.split())
                    + r"(?![A-Za-z])")
-            return re.search(pat, norm_scene.keep) is not None
-        return t_fold in norm_scene.compact
+            main_hit = re.search(pat, norm_scene.keep) is not None
+        else:
+            main_hit = t_fold in norm_scene.compact
+        if not main_hit:
+            # main 说不命中。但可能是**剥重音造出的假阴性**：`apiá` 归一成
+            # `apia`，`api` 右侧凭空紧邻 ASCII 字母 ⇒ 折叠词边界崩掉；而原文里
+            # `á` 不是 ASCII 字母，词边界成立（base 靠这一点命中）。
+            #
+            # 回填的**准入条件**：`t` 只由 ASCII 字母与空白组成。
+            #
+            # 为什么这一条就够：若 `t` 全是 ASCII 字母/空白，则 `t_keep` 相对 `t`
+            # 只可能差在**大小写**，而词边界判的是 `[A-Za-z]` —— 大小写不改变
+            # 边界结论。于是「原文判成立、折叠判不成立」只可能是**场景侧**折叠
+            # （剥重音把 `á`→`a`）凭空造出了一个相邻字母 —— 正是要回填的那一类。
+            #
+            # 各类反例因此被自然排除：
+            #   · ＰＥ（D11）／Café（D12）：**词项自己**被折叠改动，不是 ASCII
+            #     → 那条收紧是 #753 有意的，不回填。
+            #   · か / が（H5/H6，#659 不折叠假名）：非 ASCII → 不回填。
+            #   · data flow vs metadata flow（D9）：虽是 ASCII，但原文词边界
+            #     本身不成立 → 下面的 `pat_raw` 拦掉。
+            #   · 大写 API / PE：ASCII 字母 → 照常回填（不能被大小写误伤）。
+            #
+            # **`pat_raw` 必须逐字连续，不许用 `\s*` 连接各词**：base 只对
+            # `t.isalpha()`（无空白的纯字母）走词边界支，**含空格的 ASCII 短语
+            # 走的是子串支 `t in scene`** —— 那要求逐字连续（单空格）。若这里用
+            # `t.split()` + `\s*` 拼，就允许零个/多个/NBSP 空白，等于给多词词项
+            # 换了一套**比 base 更宽**的判据。真实库 5 个多词纯 ASCII 词项上实测：
+            #   'Connectionabortedé 说明' / 'Connection  abortedé 说明' /
+            #   'Connection\u00a0abortedé 说明' —— base=DEFER main=DEFER，
+            #   用 `\s*` 时 v6=ACCEPT（凭空新造），逐字连续时回到 DEFER。
+            # 单词项下 `re.escape(t)` 与原来的 `\s*` 拼法逐字等价。
+            if t.isascii() and all(c.isalpha() or c.isspace() for c in t):
+                pat_raw = (r"(?<![A-Za-z])" + re.escape(t) + r"(?![A-Za-z])")
+                if re.search(pat_raw, norm_scene.raw) is not None:
+                    # 回填**不是放行证**：它恢复的只是「base 在原文上也认这一次」，
+                    # 而 base 的原文判定**没有**否定作用域这一层（那是负条件面独有）。
+                    # 故回填出的命中同样须过 ③，否则 `api` vs `不是 apiá 日志` 会出现
+                    # 「正说已确认、负说不成立」—— 相对 main **新造**两面分裂，方向还
+                    # 是放宽（ACCEPT）。实测：真实库纯 ASCII 词项 × 8 重音符 × 4 否定
+                    # 前缀 = 2528 格，不过闸时分裂率 100%；过闸后分裂 0，且肯定模板上
+                    # 召回损失 0（那些格 `_occ` 不在否定窗口内）。
+                    return MdCG._fold_hit_unnagated(norm_scene.compact, t_fold)
+            return False
+
+        # ---- ② base（#753 之前）在**原文**上的判定 -------------------------
+        # 这里用**子串**判，而不是复刻 base 的词边界分支 —— 两者在这一点上等价：
+        # 走到这里说明 main_hit 已成立（对纯 ASCII 字母词是「判在 keep 上的词边界」
+        # 成立）。若 `t` 在原文里只出现在词内部（`api` 之于 `capital`），那么归一串
+        # 里同样在词内部（fold_accents 只会把字母并得更紧，不会拆开），main_hit
+        # 就会是 False —— 走不到这里。故子串判与词边界判在此处不可区分。
+        if t in norm_scene.raw:
+            # base 本来就命中：不是折叠新造的，原样放行（零召回损失）。
+            return True
+
+        # ---- ③ 折叠新造出的命中：须过否定作用域闸 --------------------------
+        return MdCG._fold_hit_unnagated(norm_scene.compact, t_fold)
+
+    @staticmethod
+# 生效条件：norm_compact 为紧凑归一串、t_fold 为词项紧凑归一串时，返回「该词面在串中无出现」或「存在至少一次出现未被否定词作用域覆盖」（与 neg_condition_hits 的 _negated_at 同源同判）。
+    def _fold_hit_unnagated(norm_compact, t_fold) -> bool:
+        """**折叠**新认出的命中，须存在一次出现未被否定词覆盖。
+
+        为什么需要这一层：#753 统一的是**最外层**（字符归一），而
+        `neg_condition_hits` 比正条件面还多三道闸 —— `NEG_MIN_TERM`、
+        自主题豁免、**否定作用域 `_negated_at`**。于是折叠让正条件面认出 `pe`，
+        而负条件面那一次命中正被「不是/不属于/没有」挡着：
+
+            base : (False, False)   一致，条件未确认 → DEFER
+            修前 : (True , False)   正说「已确认」、负说「不适用不成立」⇒ 新造分裂
+
+        方向是**放宽**（把否定句判成「条件已确认」而 ACCEPT），与「修分裂」相反。
+        真实库 24010 格（`reach_three.py`）实测：本闸挡回 1368 格
+        `ACCEPT→DEFER`，且这 1368 格**全部**是 `pre753 != main`（#753 新造的）
+        ——`pre753 == main 且 main != patched` 的格数 = **0**，即本闸对存量
+        判定零位移。
+
+        **只闸折叠路径**：base 的原文路径在调用点原样放行、一字不动。若连原文
+        路径也闸，`new_split` 同样归零，但会把 base 本来就命中的 `不是 PE` /
+        `不是 api` 一并收紧（族枚举 recall_loss 2340）——那是改 base 的判定，
+        超出「字符归一」这条的范围。
+
+        已知同型缺口（本补丁不修）：负条件面还有 `own_topic_text` 自主题豁免，
+        正条件面没有。构造用例能让 base `DEFER → ACCEPT`，但真实库 886 个
+        节点里「不适用条件条目**整条**落在自主题面」的格数为 0（2026-11-04
+        实测；此前我写成 882，是笔误）。登记为已知同型缺口，**不是「已覆盖」**。
+
+        **`_occ` 恒非空（可证），故此处不再留「空则放行」的分支。**
+        理由：两条到达本函数的路都保证 `t_fold` 是 `norm_compact` 的子串——
+          · 路径 ②③（main_hit 为真）：词边界支是「在 `keep` 上用 `\\s*` 连接各词
+            命中」，空洞里只有空白，去掉空白后该词面在 `compact` 里连成一片；
+            子串支本身就是 `t_fold in compact`。
+          · 路径 ①b（main_hit 为假）：前提是**原文** `raw` 上词边界成立，故
+            `raw` 里含有 `t`；归一化逐字符进行、去空白不减内容，于是
+            `fold(raw)` 含 `fold(t)`，`compact` 含 `t_fold`。
+        实测 200000 组随机构造，`main_hit ∧ ¬raw ∧ _occ 空` = **0 格**。
+        此前这里写「`_occ` 为空则放行，例如 `pe ratio` → 场景 `pe ratios`」——
+        **理由是错的**：`pe ratio` 与 `pe ratios` 在 main 判定就**不命中**，
+        根本到不了本函数。删代码而不是补断言。
+        """
+        return any(not _negated_at(norm_compact, k)
+                   for k in _occurrences(norm_compact, t_fold))
 
     @staticmethod
 # 生效条件：node_dict 的 content 经 ccg_completeness 判为不完整 → BLINDSPOT；否则由 query 与 context（仅当 context 为 dict 时并入）合成情境串，命中 frontmatter 的任一 non_applicable_conditions 词 → REJECT；否则情境非空（query 去空白后非空，或 context 为真）且「生效条件」文本非空、非"无条件"、其词项全未命中且词项非空 → DEFER；否则无 verification_basis → DEFER；否则 ACCEPT；

@@ -220,7 +220,7 @@ python -X utf8 -m md_cg.test_state_event_op --mutate   # 定点变异自证（�
 - The engineering ledger surface (`goal` / `task`) and statistical surfaces (`health` / `whoami` / conformance): read the index directly,
   not constrained by this section;
 - **Lifecycle recovery**: the library-layer entry `MdCG.set_state(node, "archived"→"active")`
-  (`md_cg/mdcg.py:3900` → `lifecycle.set_state`, following the legal transition table, one level at a time with no level skipping); after recovery
+  (`md_cg/mdcg.py:3910` → `lifecycle.set_state`, following the legal transition table, one level at a time with no level skipping); after recovery
   the read surface / continuation surface see it again. **The MCP tool surface has no standalone lifecycle entry** (`mcp_server.py` contains the strings `set_state` / `lifecycle` nowhere)
   — 'explicit recovery' is a library-layer call surface.
 - Difference from `op=restore` (easy to confuse, stated explicitly): `op=restore` is `action=restore` of `op=forget`
