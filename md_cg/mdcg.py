@@ -3463,7 +3463,12 @@ class MdCG:
         # 归一成同一个值，闸便看不见差异）。本键只是判据载体，**不落 fm**。
         _declared_sens = extra.pop("declared_sensitivity", None)
         _created_given = "created_at" in extra
-        created_at = extra.pop("created_at", time.time())
+        # #768 CI 修复（2026-11-06）：now 只取一次，created_at 与 time_window 共用同一个值。
+        # 原实现两处各调一次 time.time()，两次之间有微秒级差；md_cg/test_p2.py 的 ts1 断言
+        # abs(tw[0]-created_at) < 1e-6，CI 上实测差恰为 1e-6 ⇒ 恰好不成立而红（本机因时钟
+        # 粒度粗、两次落在同一微秒而侥幸绿）。语义上二者本就应同源，故统一为一个 now。
+        _now = time.time()
+        created_at = extra.pop("created_at", _now)
         if not _created_given and _prev_fm.get("created_at"):
             created_at = _prev_fm["created_at"]      # 出生时间只写一次
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
@@ -3479,7 +3484,7 @@ class MdCG:
         cs = dict(condition_space or {})
         tw = cs.get("time_window")
         if not (isinstance(tw, (list, tuple)) and len(tw) == 2):
-            _anchor = created_at if _created_given else time.time()
+            _anchor = created_at if _created_given else _now
             cs["time_window"] = [_anchor, _anchor + OBSERVATION_WINDOW_SEC]
         # BODY_SAME 继承不得覆盖**显式给出**的键（#742 复核）：形参缺省无法区分
         # 「没给」与「给了缺省值」，故以 None 为哨兵；confidence 的 0.6 在继承
