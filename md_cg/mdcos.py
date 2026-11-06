@@ -1155,6 +1155,16 @@ class MdCGOS(MdCG):
                         continue
                     _ov = _ofm.get(_ik)
                     if _ov is not None:
+                        # #768：`condition_space.time_window` 是「**这次观测**发生在什么时候」，
+                        # 不是节点的静态属性——#550 的「未传字段继承旧值」把它一起继承过来后
+                        # 观测窗就被冻结在**首写时刻**（覆写旧节点 ⇒ 窗口落在过去），而
+                        # mdcg.add 的默认窗口构造因为「cs 已带 time_window」整段跳过、
+                        # 再也不刷新。故继承 cs 时剔除该键，让写面按本次写入重新定锚
+                        # （显式回填 created_at 仍锚在给出的时刻，见 mdcg.add）。
+                        if _ik == "condition_space" and isinstance(_ov, dict):
+                            _ov = {k: v for k, v in _ov.items() if k != "time_window"}
+                            if not _ov:
+                                continue
                         kw[_ik] = _ov
             nid = super().add(node_id, content, layer=layer, **kw)
             e = self.index["nodes"].get(nid)
