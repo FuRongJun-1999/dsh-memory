@@ -3467,11 +3467,17 @@ class MdCG:
         if not _created_given and _prev_fm.get("created_at"):
             created_at = _prev_fm["created_at"]      # 出生时间只写一次
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
-        # 调用方未提供 time_window 时，以写入时刻为锚、默认窗口 OBSERVATION_WINDOW_SEC。
+        # 调用方未提供 time_window 时，以**写入时刻**为锚、默认窗口 OBSERVATION_WINDOW_SEC。
+        # #768：锚点**不能**用 created_at —— 它在同 id 覆写时继承自旧节点（出生时间只写一次，
+        # #766/#732），拿它当锚会把观测窗写成 [旧出生时刻, 旧出生时刻+1h]，**落在过去**，
+        # 且此后每次覆写都再写一遍；配合下方 S2 时间门（_cond_prefilter_pass：双方都有且
+        # 区间不相交 ⇒ 剔除），被覆写过的旧节点会在带时间窗的查询里**永久消失**。
+        # 两者各管一头：created_at = 出生时刻（只写一次），time_window = 这次观测发生的时刻。
         cs = dict(condition_space or {})
         tw = cs.get("time_window")
         if not (isinstance(tw, (list, tuple)) and len(tw) == 2):
-            cs["time_window"] = [created_at, created_at + OBSERVATION_WINDOW_SEC]
+            _observed_at = time.time()
+            cs["time_window"] = [_observed_at, _observed_at + OBSERVATION_WINDOW_SEC]
         # BODY_SAME 继承不得覆盖**显式给出**的键（#742 复核）：形参缺省无法区分
         # 「没给」与「给了缺省值」，故以 None 为哨兵；confidence 的 0.6 在继承
         # 之后才补（显式传入 0.6 也会进 _explicit）。modality 走 extra.pop，
