@@ -211,6 +211,29 @@ def group_a():
 
 
 # ---------------------------------------------------------------- B 组：DROP 侧
+def _log_plaintext_leaked(raw_log, rows, body, port):
+    """#789：留痕里是否**真的**泄露了明文（而不是运气不好的数字撞车）。
+
+    缺陷（修复前，实测）：B6 拿四位端口字面量对**整份留痕文本**做子串判断
+    （`PORT_B not in raw_log`）。留痕每行含时间戳浮点 `t`（如
+    `"t":1793965510.1209595`）与毫秒级 trace_id，四位数字串会**偶发**出现在
+    这些与内容无关的字段里 ⇒ 假红。实测 2000 次独立沙箱命中 1 次
+    （run=1401/2000，rate=0.05%），CI 全量跑久了必然碰上。
+
+    正确判据（不放松、反而更准）：明文是否出现在
+      ① 该行**承载正文的字段**（dropped_content / content / text / preview），或
+      ② 整份留痕里是否含**正文全文**（body，长文本，无撞车可能）。
+    端口号只在承载字段里查——它仍是「新值确实没落盘」的最短信号，
+    但不再拿它去扫时间戳。
+    """
+    row = (rows or [{}])[0] if rows else {}
+    for key in ("dropped_content", "content", "text", "preview"):
+        val = row.get(key)
+        if val and (port in str(val) or body in str(val)):
+            return True
+    return body in (raw_log or "")
+
+
 def group_b():
     print("\n[B] DROP 侧（internal_deterministic ∧ dup≥0.60）：新正文去向")
     cg = _mk("drop")
@@ -260,13 +283,15 @@ def group_b():
     if os.path.exists(p):
         with open(p, encoding="utf-8") as f:
             raw_log = f.read()
+    # #789：明文探针改走 ——旧写法拿 4 位端口字面量扫
+    # 整份留痕，会与时间戳/毫秒 id 的尾数撞子串（实测 1401/2000 命中一次）。
+    leaked = _log_plaintext_leaked(raw_log, srows, SENT_B, PORT_B)
     _check("B6 加密级（private）DROP：明文不落留痕（只留摘要/长度）",
            rs.get("verdict") == "DROP" and drops.get("content_kept") is False
            and bool(drops.get("redacted_reason"))
-           and PORT_B not in raw_log
+           and not leaked
            and srows and srows[0].get("content_chars"),
-           "kept=%s raw_has_new=%s" % (drops.get("content_kept"),
-                                       PORT_B in raw_log))
+           "kept=%s raw_has_new=%s" % (drops.get("content_kept"), leaked))
     return cg
 
 
