@@ -374,6 +374,11 @@ TOOLS = [
                           exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex ⑤ 断言"
                                                 "文档节点必须可被检索到；需要「只看真记忆卡」的调用方显式传 true）"),
+                          # issue #721（#802）：op_table 的 read 面登记了这两个参数，但 cg 的
+                          # schema 里没有 ⇒ check_op_table_parity 判「幻影参数」，并连带让
+                          # test_issue153b / test_issue71 的跨面对账红。此处补齐。
+                          include_tags=_p("array", "issue #721：检索期按标签过滤——只保留含任一标签的节点"),
+                          exclude_tags=_p("array", "issue #721：检索期按标签过滤——剔除含任一标签的节点"),
                           expand=_p("array", "LLM 查询侧扩展词：[{term,weight}] 或 [\"词\"]；"
                                              "仅在查询时刻生效，索引侧仍白箱"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
