@@ -50,6 +50,15 @@ def main():
     # A4（保护面）：base 的「不是X」判定一字不动 —— 这是方案 C 与方案 A 的分界
     for q in ("不是 PE", "不是 PE 估值", "并非 PE"):
         ok(st(q) == STATE_ACCEPT, "A4 保护面「%s」仍 ACCEPT" % q, st(q))
+    # A6：误伤面（复核 0077/0092：单字 cue + 动词字会误判否定；C′ 已收窄 cue 集并加两条豁免）——必须 ACCEPT
+    for q in ("分别采用 PE 估值", "特别使用 PE 估值", "不得不采用 PE 估值",
+              "莫非使用 PE", "是不是 PE", "有没有使用 PE"):
+        ok(st(q) == STATE_ACCEPT, "A6 误伤面「%s」⇒ ACCEPT" % q, st(q))
+    # A7：多次出现 —— 只要**有一次**未被否定就算确认（钉 `all` 语义；`all`→`any` 变异必红）
+    q7 = "未使用 PE 估值；另外 PE 估值另有一套口径"
+    ok(st(q7) == STATE_ACCEPT, "A7 一词多处出现、仅一处被否定 ⇒ ACCEPT", st(q7))
+    q7b = "未使用 PE；也没有采用 PE"
+    ok(st(q7b) == STATE_DEFER, "A7b 全部出现都被否定 ⇒ DEFER", st(q7b))
     # A5：判据本体（单点）
     s = "未使用 PE 估值"
     occ = _occurrences(s, "PE")

@@ -996,6 +996,35 @@ def _negated_at(s: str, i: int) -> bool:
     return False
 
 
+#: #790 方案 C：原文路径只认这四个否定词。`别`/`莫`/`非`/`无` 等单字 cue 在
+#: 「分别采用」「特别使用」「莫非使用」里会误伤（2026-11-06 实测），故不纳入。
+_NEG_VERB_CUES = ("没有", "未", "不", "没")
+
+#: 双重否定判据：cue 前一字符也属否定字 ⇒ 不判否定（`不得不`/`不能不`/`不是不`）。
+_NEG_DOUBLE_CHARS = frozenset("不没未无非莫别")
+
+#: 双重否定之间允许出现的情态字（`不`+`得`+`不`）。
+_NEG_MODAL_CHARS = frozenset("得能会可要想须该")
+
+
+def _double_negated_before(s: str, j: int) -> bool:
+    """#790：`s[j]` 处的否定词是否处于双重否定里（`不得不`/`不能不`/`未必不`）。
+
+    只看 cue 之前**一个字**挡不住 `不得不采用`——第二次「不」前面是「得」。故向前最多跨 2 个
+    情态字，若遇到否定字则判为双重否定（语义＝必须），不当作否定。
+    """
+    k = j - 1
+    for _ in range(3):
+        if k < 0:
+            return False
+        ch = s[k]
+        if ch in _NEG_DOUBLE_CHARS:
+            return True
+        if ch not in _NEG_MODAL_CHARS:
+            return False
+        k -= 1
+    return False
+
 # 生效条件：s 为归一串、i 为 0 <= i < len(s) 的匹配起址时返回 True 当且仅当「否定词与匹配之间含至少一个虚化动词字」
 #   （未使用X / 未采用X / 没有使用X / 不采用X）且 gap 全由连接字或空白构成；其余情形一律 False。
 def _verb_negated_at(s: str, i: int) -> bool:
@@ -1015,8 +1044,16 @@ def _verb_negated_at(s: str, i: int) -> bool:
         j = i - back
         if j < 0:
             break
-        for cue in NEG_CUES:
+        for cue in _NEG_VERB_CUES:
             if j + len(cue) <= i and s.startswith(cue, j):
+                # A-not-A（正反问）：「是不是」「有没有」里的否定词是正反叠用标记，
+                # 与 `_negated_at` 的同名豁免同源（多字 cue 用「前字 == cue 尾字」判）。
+                if j >= 1 and s[j - 1] == (s[j + 1] if len(cue) == 1 else cue[-1]):
+                    continue
+                # 双重否定：「不得不采用」「不能不使用」语义是「必须用」，不能判否定。
+                # 要跨过情态字（得/能/会/可/要/想）再往前看一个字是否定字。
+                if _double_negated_before(s, j):
+                    continue
                 gap = s[j + len(cue):i]
                 if any(ch in NEG_VERB_CHARS for ch in gap) and all(
                         ch in NEG_SCOPE_CHARS or ch.isspace() for ch in gap):
