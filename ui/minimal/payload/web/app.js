@@ -64,7 +64,9 @@
   async function overview(token) {
     $('main').innerHTML=title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')+loading();
     $('new-memory').onclick=()=>navigate('memory',true);
-    const results=await Promise.allSettled([call('cg',{op:'info'}),call('stg',{op:'timeline',limit:5,desc:true})]);
+    // issue #801（#677 B 的契约变更后续）：面板要读 os.goals / os.review_pending / os.protection，
+  // 而 info 缺省**不再返回** os（仅 full=true 才回）⇒ 面板取数必须显式带 full:true，否则整片显示「—」。
+  const results=await Promise.allSettled([call('cg',{op:'info',full:true}),call('stg',{op:'timeline',limit:5,desc:true})]);
     if(token!==generation)return;
     if(results[0].status==='rejected') throw results[0].reason;
     info=results[0].value; const os=info.os||{}, who=info.whoami?.principal||{}; const timeline=results[1].status==='fulfilled'?results[1].value:null;
