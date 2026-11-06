@@ -6,6 +6,8 @@
    registry 模式需网络可达 registry.npmjs.org。
 # 子功能：R1 凭据/密钥面；R2 私有数据面；R3 隐私文本；R4 非追踪件面；
    R5 清单路径安全；R6 清单来源可信；R7 扫描面完整性（清单内文本件不得「未扫」而不报）；
+   R8 声明面产物在位；R9a/R9b 运行时必需件与同名分叉；
+   R10a/R10b 随包文档里**可执行形态**点名的脚本必须可达（不随包须登记）；
    --registry 增加 tarball sha1/sha512/fileCount 一致性核验。
 # 执行：python scripts/check_publish_artifact.py [--root <仓库根>] [--registry <版本>] [--max-examples N] [--selftest]
 # 验证方式：本地 npm pack --dry-run --json 生成发布清单，扫描工作区文本；
@@ -16,7 +18,12 @@
 R4 包内非追踪件仅允许 lib/；R5 清单条目不得越出 --root；R6 清单来源须为
 npm 自身产出（N216：生命周期脚本 stdout 不得冒充发布清单）；R7 清单内文本件
 须真被扫描过——读不到 / 超 TEXT_SIZE_LIMIT 即判负（N251：「未扫」不得等价于
-「已扫且干净」）。
+「已扫且干净」）；R8 `exports`/`files` 声明的产物必须真在包里；R9a 被随包模块
+按路径装载的件必须随包，**但装载方自己就不随包时整链不发布 ⇒ 只记 NOTE 不判负**
+（装机侧根本到不了那段代码，判负等于要求「把源码树工具也发货」）；R9b 同一判据不得
+分叉两个落点（未登记即判负）；
+R10a 随包文档里可执行形态点名的脚本必须在某个基址下真实存在；R10b 该脚本若不随包
+须登记（维护者工具），否则判负。
 用法: 本地模式 python scripts/check_publish_artifact.py --root <repo_root>；
 registry 后置核验 python scripts/check_publish_artifact.py --registry <version>。
 不适用条件: 非 npm 发布物；工作区缺少 npm 或 git；无法访问 registry.npmjs.org。
@@ -61,6 +68,62 @@ TEXT_SIZE_LIMIT = 3 * 1024 * 1024
 #: 本元组才是唯一的政策常量。
 ALLOW_NONTRACKED = ("lib/", "web/", "build-ui.mjs", "src/lib/")
 BATCH_MAX = 400
+
+#: R9b 的**登记豁免面**：源码树薄壳/薄垫片——设计上就是「包内是单点、源码树留薄壳」。
+#:
+#: 判据不是「有同名就红」，而是「**未登记的分叉**才红」。理由：
+#: `scripts/review_cli.py` / `scripts/judgment_manifest.py` / `scripts/state_extract.py`
+#: 三件都是**薄壳**（只 re-export 或只转发 main，实现在 `md_cg/`），源码树保留它们
+#: 是为了既有路径不断。只要「薄壳不含第二份实现」，它不发货**不是缺陷**。
+#:
+#: 但 `state_extract.py` 本轮暴露了真问题：**薄壳本身被运行时按路径装载**
+#: （`sync_zcode_session._load_state_extract()` 直接 open `scripts/state_extract.py`），
+#: 于是「包内已有本体」也救不了装机侧——装载点找的是薄壳，薄壳不发货就断。
+#: 故登记项必须写成「为什么它作为薄壳**不会被运行时装载**」；被装载的不能登记。
+#:
+#: 登记格式：{"文件名": {"why": "为何安全（一行）",
+#:                     "requires_not_shipped": "该安全性所依赖的装载方（须不随包）"}}
+#:
+#: **带前提的登记**（2026-11-02 升级，本轮教训）：登记不是说「永远没问题」，
+#: 而是「在某个可检验的前提下没问题」。一旦前提失效（装载方开始随包，
+#: 于是装机侧会执行这次装载），登记自动失效 ⇒ 重新判负。
+#: 这正是本轮栽过的坑：`sync_zcode_session` 一旦进包，`scripts/state_extract.py`
+#: 就立刻从「源码树薄壳」变成「装机必需件」，漏发即断链。
+R9B_REGISTERED_SHIMS = {
+    "review_cli.py": {
+        "why": "薄壳只转发 main；出货包唯一入口是 "
+               "`python -m md_cg.review_cli`，无任何模块按路径装载 scripts/ 版",
+        "requires_not_shipped": None,          # 无前提：本就不被装载
+    },
+    "judgment_manifest.py": {
+        "why": "薄壳；`md_cg/interop.py` 优先加载源码树版、安装态自动降级到包内版"
+               "（已有等价实现 + 降级分支），非断链",
+        "requires_not_shipped": None,
+    },
+    "state_extract.py": {
+        "why": "薄垫片（只 re-export md_cg.state_extract）；源码树里由 "
+               "scripts/sync_zcode_session.py::_load_state_extract 按路径装载",
+        # **前提**：装载方自己不随包 ⇒ 装机侧不执行该装载，故垫片不发货不致断链。
+        # 一旦 sync_zcode_session.py 进 files 白名单，下面这条前提失效，登记自动作废。
+        "requires_not_shipped": "scripts/sync_zcode_session.py",
+    },
+    # 2026-11-02：两个**随包运维探针**的薄垫片（与 state_extract 同款处置）。
+    # 文档 §七/§十 随包发给使用者，命令原本写 `scripts/probe_c_ledger_integrity.py`，
+    # 而 scripts/ 不随包 ⇒ 装机用户照抄即 Errno 2（实测）。本体移进 md_cg/ 后，
+    # 源码树垫片只转发。装载方：无按路径装载（纯人工照抄命令行），故无前提。
+    "probe_c_ledger_integrity.py": {
+        "why": "薄垫片（只 re-export md_cg.probe_c_ledger_integrity）；本体随包，"
+               "装机侧入口是 `python -m md_cg.probe_c_ledger_integrity`，"
+               "无任何模块按路径装载 scripts/ 版",
+        "requires_not_shipped": None,
+    },
+    "probe_d_retirement_discipline.py": {
+        "why": "薄垫片（只 re-export md_cg.probe_d_retirement_discipline）；本体随包，"
+               "装机侧入口是 `python -m md_cg.probe_d_retirement_discipline`，"
+               "无任何模块按路径装载 scripts/ 版",
+        "requires_not_shipped": None,
+    },
+}
 
 #: N251（2026-10-05，high）：清单内**文本件**却未被扫描的成因——「未扫」不得等价于
 #: 「已扫且干净」。修前 `read_local_text_if_needed` 的三处静默 `return None`（stat 失败 /
@@ -667,6 +730,193 @@ def http_get_bytes(url: str) -> bytes:
         return resp.read()
 
 
+#: R9 的扫描面：只认**动态装载调用**里出现的 `.py` 字面量。
+#:
+#: 为什么不用「文本里出现 scripts/xxx.py」这种粗判：实测两者差一个数量级——
+#: 朴扫命中 48 个目标，其中 47 个只是文档/注释里提到（`docs/*.md`、模块 docstring、
+#: CHANGELOG），**运行时从不打开**。若把它们都当必需件，闸门会产生数十条误报；
+#: 而误报多了，闸门就会被忽略，等于没有闸门（本仓 N251 已有同款教训）。
+#: 故判据收紧到「装载动作的第二参数」——这是「真的会去 open 它」的强信号。
+_R9_LOAD = re.compile(
+    r"spec_from_file_location\s*\(\s*"      # importlib 动态装载
+    r"[^,)]*?,\s*"                          # 第一参数（模块名，忽略）
+    r".{0,300}?"                            # 路径表达式（可跨行、可含 Path(...)/os.path.join）
+    r"[\"']([A-Za-z0-9_]+\.py)[\"']",       # 第二参数里**字面出现**的 .py 文件名
+    re.S,
+)
+_R9_SKIP_DIRS = {"node_modules", ".git", "__pycache__", "lib", "web", ".tmp"}
+
+
+#: R9 的第二判据面：**同名文件分叉**（split-brain）。
+#:
+#: 为什么要这条（2026-11-02 实测教训，比装载关系更准）：
+#: 本轮真实缺陷的形态是——`state_extract.py` 的**生产方本体**已在 `md_cg/`（随包），
+#: 而 `scripts/` 下留的**薄垫片**不随包。这不是「装载关系断了」，而是
+#: **同一判据存在于两个落点，一个发货一个不发**。只查装载关系的判据看不见它：
+#: 因为装载方 `sync_zcode_session.py` 自己也不发货 ⇒ 整条 fall into「整链不发布」。
+#:
+#: 判据：同一文件名在仓内出现于多个**随包/不随包**混合位置 ⇒ 分叉风险。
+#: 但**不能一律判负**——本仓实测有 33 组同名，其中大量是 `compiler/x.py` 与
+#: `md_cg/whitebox_kb/wisdom/core/x.py` 这种**同名不同物**（不同包、不同职责），
+#: 以及 `md_cg/test_*.py` 与 `tests/test_*.py` 这种**顶层测试与包内测试并行**。
+#: 那两类都不是缺陷。故只判「**同名且互为薄壳/等价实现**」——判据取
+#: 「其中一个文件 import 了另一个的同名模块」或「一个是薄垫片（re-export）」。
+_R9_SHIM_HINT = re.compile(
+    r"(薄垫片|thin\s+shim|薄壳|re-export|原样\s*re-export|包内等价实现)", re.I)
+
+
+def _split_brain_split(root, pkg_set):
+    """R9b：同名 .py 落在「一发货一不发」混合位置，且互为薄壳/等价实现。
+
+    返回缺失清单（元素为说明串）。判定链：
+      ① 同名 .py 在仓内 ≥2 处；
+      ② 这些位置**混合**（有的随包、有的不随包）；
+      ③ 至少一对满足「同一判据」信号：其中一方文件头有薄壳/等价实现措辞，
+         或一方 import 了同名模块；
+      ④ 测试件不参与（`md_cg/test_*.py` 与 `tests/test_*.py` 是并行套件，非分叉）。
+    """
+    shipped_files = list(pkg_set)
+
+    def _shipped(rel):
+        rel = rel.replace("\\", "/")
+        return any(rel == s or rel.startswith(s.rstrip("/") + "/")
+                   for s in shipped_files)
+
+    by_name = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _R9_SKIP_DIRS]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            rel = os.path.relpath(os.path.join(dirpath, fn), root).replace("\\", "/")
+            by_name.setdefault(fn, []).append(rel)
+
+    out = []
+    for fn, locs in sorted(by_name.items()):
+        if len(locs) < 2:
+            continue
+        if fn.startswith("test_") or fn == "__init__.py" or fn == "__main__.py":
+            continue                       # ④ 并行测试套件 / 包标记文件，非分叉
+        flags = [_shipped(l) for l in locs]
+        if not (any(flags) and not all(flags)):
+            continue                       # ② 必须混合
+        stem = fn[:-3]
+        # ③ 同一判据信号
+        signal = []
+        for l in locs:
+            try:
+                with open(os.path.join(root, l), encoding="utf-8") as fh:
+                    head = fh.read(2000)
+            except (OSError, UnicodeDecodeError):
+                continue
+            if _R9_SHIM_HINT.search(head):
+                signal.append(l)
+            elif re.search(r"from\s+[\w.]*\b%s\s+import\b" % re.escape(stem), head):
+                signal.append(l)
+        if not signal:
+            continue                       # 同名不同物：不判
+        present = [l for l, f in zip(locs, flags) if f]
+        absent = [l for l, f in zip(locs, flags) if not f]
+        entry = "%s：随包 %s ｜ 不发货 %s（同一判据两落点，易分叉）" % (
+            fn, "/".join(present[:2]), "/".join(absent[:2]))
+        if fn in R9B_REGISTERED_SHIMS:
+            reg = R9B_REGISTERED_SHIMS[fn]
+            why = reg.get("why") or reg
+            need = reg.get("requires_not_shipped") if isinstance(reg, dict) else None
+            # **带前提的登记**：前提（装载方不随包）必须仍成立，否则登记失效。
+            if need and _shipped(need):
+                out.append(("unregistered", entry + " ｜ 登记已失效：其前提"
+                            "「%s 不随包」不再成立（它进包了 ⇒ 装机侧会执行这次"
+                            "装载，薄壳不发货即断链）" % need))
+            else:
+                extra = ("（前提：%s 不随包，现成立）" % need) if need else ""
+                out.append(("registered", entry + " ｜ 已登记：" + why + extra))
+        else:
+            out.append(("unregistered", entry + " ｜ 未登记，需说明它"
+                        "「为何不会被运行时装载」或把它移入随包面"))
+    return out
+
+
+def _runtime_loaded_not_shipped(root, pkg_set):
+    """R9 扫描：被随包模块按路径装载、但自身不随包发货的必需件。
+
+    返回 (缺失清单, 装载点数)。缺失清单元素形如
+    ``"装载点:行 → 目标文件（仓内位置）"``，供 report.rule 直接判负。
+
+    判据链（缺一不成立，故不误报）：
+      ① 装载方本身**在包内**（否则它自己都不发货，谈不上「必需件」）；
+      ①b 装载方**不是测试件**——测试件按设计就不随包发货，它们装载只存在于源码树
+         （`hive/verify_runner.py`、`scripts/bootstrap_loop.py` 等）在安装态本就不存在，
+         那是**测试面的已知边界**，不是发布缺陷。实测：不加这条会误报 4 条（全在
+         `md_cg/test_*.py`），闸门一旦误报就会被忽略，等于没有闸门；
+      ② 装载动作里**字面**出现 `<X>.py`；
+      ③ 仓内**确实存在**同名文件（否则是拼错/可选依赖，不该由本闸判）；
+      ④ 该文件的**所有**仓内位置都不在包内 ⇒ 装机侧必然装载失败。
+    """
+    shipped_files = [p for p in pkg_set]
+
+    def _shipped(rel):
+        rel = rel.replace("\\", "/")
+        return any(rel == s or rel.startswith(s.rstrip("/") + "/")
+                   for s in shipped_files)
+
+    def _is_test(rel):
+        base = rel.rsplit("/", 1)[-1]
+        return (base.startswith("test_") or base.endswith("_test.py")
+                or "/tests/" in rel or "/test/" in rel)
+
+    # 仓内 .py 索引（按文件名）
+    by_name = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _R9_SKIP_DIRS]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root).replace("\\", "/")
+            by_name.setdefault(fn, []).append(rel)
+
+    misses, scanned, skipped = [], 0, []
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if d not in _R9_SKIP_DIRS]
+        for fn in filenames:
+            if not fn.endswith(".py"):
+                continue
+            full = os.path.join(dirpath, fn)
+            rel = os.path.relpath(full, root).replace("\\", "/")
+            if _is_test(rel):
+                continue                      # ①b 测试件：见 docstring 说明
+            # ① 判据面＝「**装机侧会执行**的装载关系」。分两类，处置不同：
+            #   · 装载方随包  ⇒ 装机侧一定执行这次装载，目标缺件即真断链 ⇒ 判 FAIL。
+            #   · 装载方不随包 ⇒ 装机侧没有它，这次装载永不执行；但若其目标是
+            #     「本该随包的生产件」，则说明**整条链路都没发布**——这是发布面的
+            #     结构问题，不是「必需件缺失」，故记 NOTE 保持可见，不判 FAIL。
+            #     （本仓实测：zcode 端 4 处 scripts/ 内部装载全属此类，
+            #      根因是 scripts/ 只发 workspace_index.py ⇒ zcode 链路整体不在包里。）
+            loader_shipped = _shipped(rel)
+            try:
+                with open(full, encoding="utf-8") as fh:
+                    src = fh.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            for m in _R9_LOAD.finditer(src):
+                target = m.group(1)
+                scanned += 1                  # ②
+                locs = by_name.get(target) or []
+                if not locs:
+                    continue                  # ③
+                if any(_shipped(l) for l in locs):
+                    continue                  # ④ 至少一个位置在包内 ⇒ 可达
+                line = src.count("\n", 0, m.start()) + 1
+                entry = "%s:%d → %s（仓内 %s，均不在包内）" % (
+                    rel, line, target, "/".join(locs[:3]))
+                if loader_shipped:
+                    misses.append(entry)      # 真断链
+                else:
+                    skipped.append(entry)     # 整链不发布（可见但不判负）
+    return misses, scanned, skipped
+
+
 def local_mode(root: str, report: CheckReport) -> int:
     print("=== 本地模式 ===")
     pj = parse_package_json(root)
@@ -750,6 +1000,102 @@ def local_mode(root: str, report: CheckReport) -> int:
     report.rule("R8 声明面产物在位；exports/files 声明的产物必须真在包里",
                 not _miss, _miss,
                 detail="；声明 %d 项" % len(_decl))
+
+    # R9 运行时必需件在位（2026-11-02 补，**实测事故驱动**）：
+    # R8 只查 `exports`/`files` **声明面**的产物；但有一类必需件从不被声明——
+    # 运行时**按路径动态装载**的模块（`spec_from_file_location` / `exec_module` /
+    # 按 `Path(__file__).parent` 拼路径打开的那类）。它们不在 `exports` 里，
+    # `files` 白名单漏列时 R1~R8 **全绿**，而装机后装载不到。
+    #
+    # 实测事故（2026-11-02）：`scripts/state_extract.py` 是状态事件台账的生产方，
+    # 由 `sync_zcode_session._load_state_extract()` 按路径装载；而 `files` 只发
+    # `scripts/workspace_index.py` ⇒ 发货清单 1794 件里 `scripts/` 仅 1 件，
+    # 该抽取器 MISSING。后果不是「少个文件」，是整条记账链在装机环境断掉，
+    # 生产台账 `_state_events.jsonl` 长期 0 条（实测该文件不存在）。
+    #
+    # 判据（**正向**：「必须真在包里」）：仓内存在、且被随包模块按路径装载的模块，
+    # 其自身必须随包发货。扫描面只取 `spec_from_file_location(...)` 的**第二参数**
+    # 里出现的 `.py` 字面量——这是「运行时真的会去打开它」的强信号；
+    # 文档/注释里提到 `scripts/xxx.py` 不算（实测两者的交集为 0，若混算会误报
+    # 数十条纯文档引用）。
+    _r9_miss, _r9_skipped, _r9_note = [], [], []
+    _r9_scanned = 0
+    _r9_split = []
+    try:
+        _r9_miss, _r9_scanned, _r9_skipped = _runtime_loaded_not_shipped(
+            root, pkg_set)
+        _r9_split = _split_brain_split(root, pkg_set)
+    except Exception as _exc:  # noqa: BLE001 —— 闸门自身不得因扫描失败而静默放行
+        _r9_note.append("[R9] 跳过：扫描异常（%s: %s）"
+                        % (type(_exc).__name__, _exc))
+        _r9_miss, _r9_scanned, _r9_skipped = [], 0, []
+        _r9_split = []
+    if _r9_note:
+        report.note(_r9_note)
+        # 扫描不了 = 判据失效，不能读成「没问题」——与 R7 同款纪律。
+        report.rule("R9 运行时必需件在位", False, ["扫描异常，判据失效"],
+                    detail="；详见 NOTE")
+    else:
+        if _r9_skipped:
+            report.note(["[R9a] 整链不发布（装载方自己不随包，装机侧不执行；"
+                         "仅登记不判负）：%s" % x for x in _r9_skipped])
+        report.rule(
+            "R9a 随包模块按路径动态装载的件必须随包发货",
+            not _r9_miss, _r9_miss,
+            detail="；装载点 %d 处，其中整链不发布 %d 处"
+                   % (_r9_scanned, len(_r9_skipped)))
+        # R9b 是本轮缺陷**真正的**判据面（见 _split_brain_split 头注）。
+        # 三档：未登记分叉 ⇒ 判负；已登记薄壳 ⇒ NOTE 保持可见；无分叉 ⇒ 绿。
+        _r9b_bad = [e for k, e in _r9_split if k == "unregistered"]
+        _r9b_ok = [e for k, e in _r9_split if k == "registered"]
+        if _r9b_ok:
+            report.note(["[R9b] 已登记薄壳（源码树保留、不随包，非缺陷）：%s"
+                         % x for x in _r9b_ok])
+        report.rule(
+            "R9b 同一判据不得分叉两落点（未登记即判负）",
+            not _r9b_bad, _r9b_bad,
+            detail="；分叉 %d 组（已登记 %d）"
+                   % (len(_r9_split), len(_r9b_ok)))
+
+    # R10 随包文档的可执行引用可达（2026-11-02 补，**实测事故驱动**，与 R9 互补但面不同）：
+    # R9 管「代码按路径装载的件在不在包里」；R10 管「**文档让人照抄的命令**在装机侧跑不跑得
+    # 起来」。实测两次同类事故（probe_c / probe_d 的命令写作 `python scripts/x.py`，而
+    # `scripts/` 只有 workspace_index.py 随包）——R1~R9 全绿也照样发生，因为缺陷不在「件
+    # 在不在包里」，而在「文档指向的件不在包里」。本仓 2026-11-02 实测口径：随包 md 1100 件，
+    # 可执行形态点名 33 处，其中不随包 11 处（3 处是修前 R10a 真缺陷，其余为维护者工具）。
+    _r10a, _r10b, _r10_scanned = [], [], 0
+    _r10_note = []
+    _expired = []
+    try:
+        _r10a, _r10b, _r10_scanned = _r10_doc_exec_refs(root, pkg_set)
+        # 登记过期的**反向**判据：目标已进 files 白名单，登记就该删——
+        # 静默留着的代价是「它被移出白名单时也没人发现」（与 R9b 带前提同款纪律）。
+        # 只对**精确文件条目**判过期：目录前缀条目（`hive/`）本身不代表「进了白名单」，
+        # 它的前提是「整棵子树都没进」，已由扫描面（命中即不再报 B）天然表达。
+        _norm = {p.replace("\\", "/") for p in pkg_set}
+        _expired = [k for k in R10_REGISTERED_UNSHIPPED
+                    if not k.endswith("/") and k in _norm]
+    except Exception as _exc:  # noqa: BLE001 —— 闸门自身不得因扫描失败而静默放行
+        _r10_note.append("[R10] 跳过：扫描异常（%s: %s）"
+                         % (type(_exc).__name__, _exc))
+        _r10a, _r10b, _r10_scanned = [], [], 0
+        _expired = []
+    if _r10_note:
+        report.note(_r10_note)
+        report.rule("R10 随包文档的可执行引用可达", False, ["扫描异常，判据失效"],
+                    detail="；详见 NOTE")
+    else:
+        report.rule(
+            "R10a 随包文档点名的脚本必须能被解析到（任一基址下真实存在）",
+            not _r10a, _r10a,
+            detail="；可执行引用 %d 处" % _r10_scanned)
+        report.rule(
+            "R10b 文档点名的脚本若不随包须登记（维护者工具除外）",
+            not _r10b, _r10b,
+            detail="；已登记 %d 项" % len(R10_REGISTERED_UNSHIPPED))
+        if _expired:
+            report.note(["[R10b] 登记已过期（目标已进 files 白名单，请删该条登记）：%s"
+                         % k for k in _expired])
 
     # N216：清单来源与路径两条独立判据——四档内容规则只扫「清单里的件」，
     # 清单本身被冒充/越根时四档全绿也不代表发布件干净（发版门禁的最后一道）。
@@ -1126,6 +1472,254 @@ def main(argv=None):
     print("  FAIL 规则数=%d" % report.total_fails)
     print("VERDICT=%s" % ("FAIL" if report.failed else "PASS"))
     return 1 if report.failed else 0
+
+
+
+#: R10 的**登记豁免面**：随包文档里以**可执行形态**点名、但目标不随包的脚本。
+#:
+#: 为什么需要 R10（2026-11-02 补，与 R9 同源但**面不同**）：
+#: R9 查的是「**代码**按路径装载的件在不在包里」；R10 查的是「**文档**让人照抄的命令
+#: 在装上之后跑不跑得起来」。两者不重叠——R9 全绿时，文档里仍可能写着
+#: `python scripts/xxx.py`，而 `scripts/` 只有 `workspace_index.py` 随包 ⇒ 装机用户
+#: 照抄即 `Errno 2` / `ModuleNotFoundError`。本仓实测过两次这种「文档让人照抄一个
+#: 装好的包里不存在的文件」（probe_c / probe_d，见 docs/mdcg/世界模型功能端…§七）。
+#:
+#: 判据口径（只认**可执行形态**，不认叙述性提及）：
+#:   · 形态 = 行内出现 `python` / `py` 调用 token，其后跟 `-m <模块>` 或 `<…>.py`；
+#:     裸反引号里的 `` `scripts/x.py` ``（叙述「它在 scripts 下」）**不算**——
+#:     否则几十条纯说明性提及会把闸门淹掉（R9 已有同款教训：误报多了等于没闸门）。
+#:   · 基址解析：仓根 → 文档所在目录 → 其上目录 → 所在代码块之前最近的 `cd <dir>`。
+#:     这四个基址覆盖了本仓全部现实写法；解析不出任何基址才是真缺陷。
+#:
+#: 两档判据：
+#:   R10a **解析不出任何基址** ⇒ 判负。读者在任何基址下都找不到该文件，
+#:        属「文档写了条跑不了的命令」，无豁免可谈（2026-11-02 修前实测 3 处）。
+#:   R10b **目标在源码树存在、但不随包** ⇒ 默认判负；登记后可放行。
+#:        放行条件：该脚本是**维护者工具**（读者手里有完整源码树才用得上），
+#:        且文档已在上下文里说明其位置边界。
+#:
+#: 登记格式：{"<仓根相对路径 或 目录前缀/>": {"why": "为何它只在源码树里被点名而不构成装机缺陷"}}
+#: 目录前缀（以 `/` 结尾）用于**整棵子树都是源码树**的情形——比逐文件登记更贴近事实
+#: （`hive/` 就是整目录不随包，不是「碰巧少发十几个文件」）。
+#: 与 R9b 同款**带前提**纪律：一旦某条登记的目标**进了 files 白名单**，登记即失效
+#: （不再是「不随包」），本函数会把该条报成「登记已过期」提请删除，不静默留着。
+R10_REGISTERED_UNSHIPPED = {
+    "hive/": {
+        "why": "`hive/` 整目录不在 files 白名单（只单独发了 hive/id_charset_blocks.txt 与 "
+               "hive/README.md）——它是源码树里的 Rust 并发调度面。hive/README.md 会随包，"
+               "但文中命令全部面向「手里有完整仓库的部署者」；该 README 顶部已加位置边界块。",
+    },
+    "scripts/run_tests.py": {
+        "why": "全仓测试驱动器——只在源码树有意义（装机侧没有 tests/ 与绝大多数 scripts/）。"
+               "它出现在 hive/README.md 的验收命令里。",
+    },
+    "scripts/render_discipline.py": {
+        "why": "纪律渲染器——维护者工具（改真源后重渲染各端产物）。装机用户不需要跑："
+               "纪律注入是插件**已渲染好的产物**，不是安装期步骤。文档已按此标注。",
+    },
+    "scripts/verify_discipline.py": {
+        "why": "纪律漂移校验器——维护者工具，与 render_discipline.py 配套；装机侧无"
+               "真源可比对，跑它没有意义。文档已按此标注。",
+    },
+    "scripts/gate_output.py": {
+        "why": "对外交付前的 echo/版本锚判据——维护者工具。它点名出现在**渲染产物**"
+               "（CODEBUDDY.md / AGENTS.md 第 19 条纪律正文）里，属纪律本体的一部分，"
+               "对装机用户是「知道有这条纪律」而非「现在就去跑」。",
+    },
+    "scripts/state_atlas.py": {
+        "why": "多主体状态追踪图——源码树工具，依赖同样不随包的兄弟件"
+               "（whale_state_tracker 等），整体迁移待裁。文档 §十 已显式标注"
+               "「前三件在装机侧不存在」并给出随包替代面（md_cg.state_slots / stg）。",
+    },
+    # 2026-11-02：两个探针的**源码树薄垫片**。文档 §七 引它们时写的是
+    # 「源码树里 python -X utf8 scripts/probe_X.py 也照旧可用（薄垫片…）；但装机侧
+    # 只有 -m 形态」——即文档自己就说明了这处引用只在源码树成立。本体已随包。
+    "scripts/probe_c_ledger_integrity.py": {
+        "why": "薄垫片（只转发 md_cg.probe_c_ledger_integrity，本体随包）。文档 §七.1 "
+               "引用它时已写明「源码树里可用、装机侧用 -m 形态」，与 R9b 同一份登记口径。",
+    },
+    "scripts/probe_d_retirement_discipline.py": {
+        "why": "薄垫片（只转发 md_cg.probe_d_retirement_discipline，本体随包）。"
+               "文档 §七.4 引用它时已写明「装机侧只有 -m 形态」，同上。",
+    },
+    "hive/hive_mcp/mcp_server.py": {
+        "why": "蜂巢 MCP server——`hive/` 整目录不在 files 白名单。dsh/README.md 讲的是"
+               "「怎么把它接进 DSH」，读者须先有源码树；文档已加位置边界块。",
+    },
+    # 2026-11-06：英文文档面（docs/en/）这两件。它们是**维护者工具**，不是装机件。
+    "scripts/audit_translation.py": {
+        "why": "英文文档翻译机械门禁——读 docs/en/TRANSLATION_MANIFEST.json，逐对校验"
+               "结构保真（围栏代码块逐字节一致、标题层级序列一致、无未译汉字、相对链接"
+               "可解析、生成文档不得手译）。它校验的**真源是 docs/ 与 TRANSLATION_MANIFEST"
+               "本身**，装机侧既无源码树也无清单可对照，跑它没有意义。docs/en/TRANSLATION.md"
+               "（翻译者手册）与 docs/en/glossary.md 点名的都是「改译文的人」的动作。",
+    },
+    "scripts/cogmap_sync.py": {
+        "why": "认知图文档同步管线——从 md_cg/mcp_server.py 与 md_cg/whitebox.py **AST 提取**"
+               "工具名/op 分支行/模块链，重生成《功能调用映射表》。真源是源码树，装机侧没有"
+               "可提取的源；docs/en/mdcg/generated-docs.md 讲的是「这些文档怎么生成」，"
+               "面向改文档的维护者，不是装机用户要执行的动作。",
+    },
+}
+
+#: R10 的可执行形态正则。**只认调用**：`python [-flags] [-m mod | path/to/x.py]`。
+#: 前导字符集合含反引号/引号/括号/管道——覆盖 `… 写作 \`python x.py\` 会挂` 这类行内写法；
+#: 但要真的是「一次调用」，故 `python` 之前必须是分隔符或行首（防止 `mypython.py` 误命中）。
+#:
+#: flags 面**必须显式枚举**（2026-11-02 修）：最初写成 `(?:\s+-[A-Za-z0-9]+)*`，
+#: 结果 `python -X utf8 scripts/x.py` 整条**扫不到**——`-X` 被当 flag 吃掉后，剩下的
+#: `utf8` 不是 `.py`，正则在此失败并放弃该行。而本仓文档里带 `-X utf8` 的命令不少
+#: （探针/守卫都这么写），漏扫等于给这一类留了白名单。现按 CPython 真实 CLI 分两组：
+#:   · 取值型：`-X opt` / `-W arg` / `-Q arg`（**其后必须跟值**，故两段一起匹配）
+#:   · 无值型：`-u -B -E -I -O -q -s -S -b -d -h -i -R -v -V` 与 `--long[=v]`
+#: 这样既不会把 `-u script.py` 里的 `script.py` 误吃成 `-u` 的值（那是上一版另一种错法），
+#: 也不会漏掉 `-X utf8`。新 flag 出现时最坏是「不扫」，不会「扫错」。
+_R10_PY_VAL_FLAGS = r"-{1,2}[XWQ]\s+[^\s`\"'<>|;]+"
+_R10_PY_BOOL_FLAGS = r"-{1,2}(?:[uBEIOqsSbdhiRvV]+|(?:-[A-Za-z0-9_-]+)(?:=[^\s]*)?)"
+_R10_EXE = re.compile(
+    r"(?:^|[\s`\"'($>|;])"
+    r"(?:python[0-9.]*|py)"
+    r"(?:\s+(?:" + _R10_PY_VAL_FLAGS + r"|" + _R10_PY_BOOL_FLAGS + r"))*"
+    r"\s+(?:(?:-m)\s+([A-Za-z_][\w.]*)|((?:[A-Za-z]:)?[^\s`\"'<>|;]*?\.py))"
+)
+#: 代码块里的 `cd <dir>` / `pushd <dir>`——文档大量使用「先 cd 再跑相对路径」的写法，
+#: 不认这个基址会把一批**能跑**的命令误判成 R10a。
+_R10_CD = re.compile(r"^\s*(?:cd|pushd)\s+([^\s;&|`]+)\s*$")
+#: R10 的**占位符面**（2026-11-06 补）。文档讲「怎么跑测试/怎么调某个工具」时，
+#: 普遍会用示意路径举例，例如 `python md_cg/test_xxx.py`——原文恰恰是拿它说明
+#: 「直接这样跑会 ImportError」，它**不是**一条让读者照抄的命令。若不排除，
+#: 这类示意路径会被判成 R10a「文档写了条跑不了的命令」，属误报
+#: （实测上游 docs/en/dev/coding-testing.md:26 因而红）。
+#: 判据只认**真实文件名**：路径任一段命中下列形态即视为占位符——
+#:   `xxx` / `Xxx`、`<...>`、`{...}`、`*`、`...`、`$VAR`、`%VAR%`、`NAME` 全大写变量段。
+#: 注意这是**跳过整条引用**且不计数（不计入 scanned），故不会掩盖「扫了 0 处」。
+_R10_PLACEHOLDER = re.compile(
+    r"(?:^|/)[^/]*x{3,}[^/]*(?:/|$)"                # 段内含 3+ 个 x：xxx / test_xxx.py
+    r"|(?:^|/)(?:<[^/]*>|\{[^/]*\}|\*+|\.{3,}|\$[\w]+|%[\w]+%)(?:\.\w+)?(?:/|$)",
+    re.IGNORECASE,
+)
+
+
+def _r10_registered(rel):
+    """该路径是否落在 R10 登记面内（精确条目 或 目录前缀条目）。"""
+    rel = rel.replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    for key in R10_REGISTERED_UNSHIPPED:
+        k = key.replace("\\", "/")
+        if k.endswith("/"):
+            if rel.startswith(k):
+                return key
+        elif rel == k:
+            return key
+    return None
+
+
+def _r10_base_candidates(doc_rel, raw, cd_dir):
+    """文档内可执行引用的**基址候选**（按现实写法排序，先命中先用）。
+
+    `cd <dir>` 的基址有两种现实读法，都要认（2026-11-02 实测出来的）：
+      · 相对**仓根**——读者在仓根开终端，`cd skills/x` 这类写法属这种；
+      · 相对**文档所在目录**——文档自己的示例块里 `cd sub`，指的是它旁边的 sub/。
+    只认一种会漏判一半（本仓 skills/README.md 就踩过：`cd skills/designer-perspective`
+    在仓根下不成立、在文档目录下也不成立——它本身就是条陈旧路径，属真缺陷）。
+    """
+    cands = [("repo-root", raw)]
+    docdir = os.path.dirname(doc_rel).replace("\\", "/") or "."
+    if docdir != ".":
+        cands.append(("doc-dir", docdir + "/" + raw))
+        parent = os.path.dirname(docdir).replace("\\", "/") or "."
+        if parent != "." and parent != docdir:
+            cands.append(("doc-parent", parent + "/" + raw))
+    if cd_dir:
+        cands.append(("cd-block", cd_dir + "/" + raw))
+        if docdir != ".":
+            cands.append(("cd-block-doc", docdir + "/" + cd_dir + "/" + raw))
+    return cands
+
+
+def _r10_doc_exec_refs(root, pkg_set):
+    """R10 扫描：随包文档里**可执行形态**点名的脚本，解析得到却跑不到的那些。
+
+    返回 ``(unresolved, unshipped, scanned)``：
+      unresolved —— R10a 命中（任何基址下都不存在的目标），元素为说明串；
+      unshipped  —— R10b 命中（源码树存在但不随包、且未登记），元素为说明串；
+      scanned    —— 实际扫到的可执行引用处数（用于打印「扫了 N 处」，
+                    防止「扫了 0 处」被读成「很干净」——与 R7 同款纪律）。
+    """
+    shipped = [p.replace("\\", "/") for p in pkg_set]
+
+    def _is_shipped(rel):
+        rel = rel.replace("\\", "/")
+        while rel.startswith("./"):
+            rel = rel[2:]
+        return any(rel == s or rel.startswith(s.rstrip("/") + "/") for s in shipped)
+
+    def _ondisk(rel):
+        return os.path.isfile(os.path.join(root, *rel.split("/")))
+
+    md_docs = [p.replace("\\", "/") for p in pkg_set
+               if p.lower().endswith(".md") and _is_shipped(p)]
+    unresolved, unshipped = [], []
+    scanned = 0
+    for doc in md_docs:
+        fp = os.path.join(root, *doc.split("/"))
+        try:
+            with open(fp, encoding="utf-8", errors="replace") as fh:
+                lines = fh.read().splitlines()
+        except OSError:
+            continue
+        cd_dir, cd_at = None, {}
+        for i, line in enumerate(lines, 1):
+            m = _R10_CD.match(line.strip("`").strip())
+            if m:
+                c = m.group(1).replace("\\", "/").rstrip("/")
+                while c.startswith("./"):
+                    c = c[2:]
+                # `cd <dir>` 的落点同样有两种现实读法：相对仓根、相对文档所在目录。
+                # 只按仓根判目录存在性会把文档自带的 `cd sub`（sub 就在文档旁边）整条否掉。
+                docdir0 = os.path.dirname(doc).replace("\\", "/") or "."
+                for cand in ([c] if docdir0 == "." else [c, docdir0 + "/" + c]):
+                    if os.path.isdir(os.path.join(root, *cand.split("/"))):
+                        cd_dir = cand
+                        break
+            cd_at[i] = cd_dir
+        for ln, line in enumerate(lines, 1):
+            for m in _R10_EXE.finditer(line):
+                mod, path = m.group(1), m.group(2)
+                raw = (mod.replace(".", "/") + ".py") if mod else path
+                raw = (raw or "").replace("\\", "/")
+                while raw.startswith("./"):
+                    raw = raw[2:]
+                if not raw:
+                    continue
+                # 占位符面（2026-11-06 修）：文档讲「怎么跑测试」时普遍写
+                # `python md_cg/test_xxx.py` 这类**示意路径**，它不是让读者照抄的
+                # 命令——原文恰恰是拿它举例说明「直接跑会 ImportError」。不排除
+                # 会把它报成 R10a「文档写了条跑不了的命令」，属误报（实测上游
+                # docs/en/dev/coding-testing.md:26 就是这么红起来的）。
+                # 判据只认**真实文件名**：路径里任一段含 xxx/<...>/{...}/* 者跳过，
+                # 且不计入 scanned（它不是一次可执行引用）。
+                if _R10_PLACEHOLDER.search(raw):
+                    continue
+                scanned += 1
+                hit = None
+                for _base, cand in _r10_base_candidates(doc, raw, cd_at.get(ln)):
+                    if _ondisk(cand):
+                        hit = cand
+                        break
+                if hit is None:
+                    unresolved.append("%s:%d → %s（仓根/文档目录/上级目录/cd 块四种"
+                                      "基址下均不存在）" % (doc, ln, raw))
+                    continue
+                if _is_shipped(hit):
+                    continue
+                if _r10_registered(hit):
+                    continue
+                unshipped.append("%s:%d → %s（源码树存在，不在 files 白名单）"
+                                 % (doc, ln, hit))
+    return unresolved, unshipped, scanned
+
 
 
 if __name__ == "__main__":

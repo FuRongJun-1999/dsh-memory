@@ -118,6 +118,8 @@ CURATED_ENV_NAMES = [
     # 叙事/状态族
     "MDCG_D_META", "MDCG_STATUS_HEAD", "MDCG_FRESHNESS", "MDCG_SUSTAIN",
     "MDCG_HEARTBEAT_LEDGER",
+    # L2 状态台账抽取面（recent·add 接线：缺省开、主体可覆盖）
+    "MDCG_STATE_EXTRACT", "MDCG_STATE_SUBJECT",
     # 预测面
     "PREDICTION_META_DIM", "PREDICTION_META_PROXY",
     # 图像后端

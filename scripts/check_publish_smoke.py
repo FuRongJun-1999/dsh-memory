@@ -45,6 +45,14 @@
   S7 装机后 md_cg/units.py 的字符集表可解析（**语义**判据：真 import 真解析，不止看
      文件名在不在——`CHARSET_BLOCKS_ERROR is None` 且区间数 > 0；缺则点名
      「修法：files 加 hive/id_charset_blocks.txt」）
+  S8 装机后 `recent·add` **真落台账**（2026-11-02 补，**行为判据**）：签写入凭据 → 起真
+     MCP 发一条用户轮 → `<MDCG_ROOT>/_state_events.jsonl` 里至少 1 条且
+     `actor=state_extract`。S1–S3/S7 全是静态面（件在不在、数据能不能解析），
+     而 L2 台账的真缺陷是「静态全绿、链路不通」（抽取器本体在不随包的 `scripts/`）
+     ⇒ 判据必须落在行为上。**不钉具体槽位/值**：把发布闸耦合到抽取规则表会让
+     规则演进误伤发版。
+  S9 台账**读得回来**（投影/查询面与台账账实一致）：`state_slots --status` 的 events
+     数 == 台账条数，且 `stg(op=state_chain)` 对首条事件的 (subject, slot) count ≥ 1。
 
 退出码：0 通过｜1 判据红（含 npm 探不到，按本腿契约 fail-closed）｜2 环境错误。
 """
@@ -241,6 +249,167 @@ def _handshake(python_exe, pkg_dir, mem_root, aux_dir, state_dir, data_dir):
     proc = _run([python_exe, "-X", "utf8", "-m", "md_cg.mcp_server"], pkg_dir,
                 env, HANDSHAKE_TIMEOUT, stdin_payload=payload)
     return proc
+
+
+# ---- L2 状态台账端到端（S8/S9）----
+#: 探针发言：一句话同时命中两条保守抽取规则（地点·所在迁移 + 情感·偏好）。
+#: **不硬编码命中结果**——只要求「至少落 1 条且 actor=state_extract」，避免把门禁
+#: 耦合到抽取规则表本身（规则演进不该让发布闸变红）。
+L2_PROBE_TEXT = "我搬到杭州了，我很喜欢西湖"
+L2_PROBE_SESSION = "publish-smoke-l2"
+L2_PROBE_TURN = 7
+
+
+# 生效条件：python_exe 为解释器路径、pkg_dir 为装好的包目录、四根为沙箱内绝对路径（须已
+# makedirs）时，签一张写入凭据（recent 面即可，收窄到最小权限）→ 起真 MCP 发一条
+# recent·add（role=user、meta 带 session/turn）→ 读 <mem_root>/_state_events.jsonl。
+# 返回 dict：token_ok / ledger_exists / events / actors / bad_rows / rc / note。
+# 任何子进程异常都回落成字段而非抛出（本函数只供 S8 判据取值）。
+def _l2_write_probe(python_exe, pkg_dir, mem_root, aux_dir, state_dir, data_dir):
+    env = _sealed_env(mem_root, aux_dir, state_dir, data_dir)
+    out = {"token_ok": False, "ledger_exists": False, "events": 0,
+           "actors": [], "bad_rows": None, "rc": None, "note": ""}
+    # ① 签凭据（--ops-allow recent：只给写窗口所需的最小 op 面）
+    proc = _run([python_exe, "-X", "utf8", "-m", "md_cg.tokens", "issue",
+                 "--role", "recorder", "--actor", "publish-smoke",
+                 "--clearance", "internal", "--ops-allow", "recent,write"],
+                pkg_dir, env, PROBE_TIMEOUT)
+    if proc is None or proc.returncode != 0:
+        out["note"] = "签发写入凭据失败（rc=%s）：%s" % (
+            None if proc is None else proc.returncode,
+            _stderr_tail(None if proc is None else (proc.stderr or proc.stdout), 3))
+        return out
+    token = None
+    # tokens issue 的输出是**缩进的多行 JSON**（不是单行）——先整体解析，失败再逐行兜底。
+    raw = proc.stdout or ""
+    candidates = []
+    try:
+        candidates.append(json.loads(raw))
+    except ValueError:
+        for line in raw.splitlines():
+            line = line.strip()
+            if not line.startswith("{"):
+                continue
+            try:
+                candidates.append(json.loads(line))
+            except ValueError:
+                continue
+    for obj in candidates:
+        if isinstance(obj, dict) and isinstance(obj.get("token"), str):
+            token = obj["token"]
+            break
+    if not token:
+        out["note"] = "tokens issue 返回 0 但取不到 token 字段"
+        return out
+    out["token_ok"] = True
+
+    # ② 真发一条 recent·add（走与 DSH/zcode 两端共用的那个分支）
+    env2 = dict(env)
+    env2["MDCG_TOKEN"] = token
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
+                    "clientInfo": {"name": "publish-smoke-l2", "version": "1.0"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+         "params": {"name": "cg", "arguments": {
+             "op": "recent", "action": "add", "role": "user",
+             "text": L2_PROBE_TEXT,
+             "meta": {"session": L2_PROBE_SESSION, "turn": L2_PROBE_TURN}}}},
+    ]
+    payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in requests)
+    proc = _run([python_exe, "-X", "utf8", "-m", "md_cg.mcp_server"], pkg_dir,
+                env2, HANDSHAKE_TIMEOUT, stdin_payload=payload)
+    if proc is None:
+        out["note"] = "recent·add 进程起不来"
+        return out
+    out["rc"] = proc.returncode
+    replies = _parse_replies(proc.stdout)
+    added = replies.get(2) or {}
+    res = added.get("result") if isinstance(added.get("result"), dict) else {}
+    if added.get("error") or res.get("isError"):
+        detail = added.get("error") or res
+        out["note"] = "recent·add 被判负：%s" % (json.dumps(detail, ensure_ascii=False)[:200],)
+        return out
+
+    # ③ 读台账（判据面：文件在 + 至少 1 条 + 记账人可甄别）
+    led = os.path.join(mem_root, "_state_events.jsonl")
+    out["ledger_exists"] = os.path.isfile(led)
+    if not out["ledger_exists"]:
+        out["note"] = ("按 recent·add 写入后台账文件未生成 —— 记账链在装机侧没跑"
+                       "（抽取器缺失 / 接线未挂 / 开关被关，三者之一）")
+        return out
+    rows, bad = [], 0
+    try:
+        with open(led, encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except ValueError:
+                    bad += 1
+    except OSError as exc:
+        out["note"] = "台账读不动：%r" % (exc,)
+        return out
+    out["events"] = len(rows)
+    out["bad_rows"] = bad
+    out["actors"] = sorted({str(r.get("actor")) for r in rows if isinstance(r, dict)})
+    out["rows"] = rows
+    return out
+
+
+# 生效条件：python_exe/pkg_dir/四根同 _l2_write_probe，且台账至少有 1 条时，读侧两验：
+# ① `python -m md_cg.state_slots --status` 的 events 数；② stg(op=state_chain) 对台账里
+# 头一条事件的 (subject, slot) 查 count。返回 dict：slots_events / chain_count / note。
+def _l2_read_probe(python_exe, pkg_dir, mem_root, aux_dir, state_dir, data_dir, rows):
+    env = _sealed_env(mem_root, aux_dir, state_dir, data_dir)
+    out = {"slots_events": None, "chain_count": None, "note": ""}
+    proc = _run([python_exe, "-X", "utf8", "-m", "md_cg.state_slots", "--status"],
+                pkg_dir, env, PROBE_TIMEOUT)
+    if proc is not None and proc.returncode == 0:
+        try:
+            out["slots_events"] = json.loads((proc.stdout or "").strip()).get("events")
+        except ValueError:
+            out["note"] = "state_slots --status 输出不可解析"
+    else:
+        out["note"] = "state_slots --status rc=%s" % (None if proc is None else proc.returncode)
+
+    first = next((r for r in rows if isinstance(r, dict) and r.get("slot")), None)
+    if not first:
+        out["note"] = (out["note"] + "；" if out["note"] else "") + "台账里没有带 slot 的事件"
+        return out
+    env2 = dict(env)
+    env2["MDCG_STG_STATE"] = "1"      # 查询面缺省关，读侧探针须显式打开
+    requests = [
+        {"jsonrpc": "2.0", "id": 1, "method": "initialize",
+         "params": {"protocolVersion": PROTOCOL_VERSION, "capabilities": {},
+                    "clientInfo": {"name": "publish-smoke-l2r", "version": "1.0"}}},
+        {"jsonrpc": "2.0", "method": "notifications/initialized"},
+        {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
+         "params": {"name": "stg", "arguments": {
+             "op": "state_chain", "subject": first.get("subject"),
+             "slot": first.get("slot"), "include_retired": True, "history": True}}},
+    ]
+    payload = "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in requests)
+    proc = _run([python_exe, "-X", "utf8", "-m", "md_cg.mcp_server"], pkg_dir,
+                env2, HANDSHAKE_TIMEOUT, stdin_payload=payload)
+    if proc is None:
+        out["note"] = (out["note"] + "；" if out["note"] else "") + "state_chain 进程起不来"
+        return out
+    replies = _parse_replies(proc.stdout)
+    got = replies.get(2) or {}
+    res = got.get("result") if isinstance(got.get("result"), dict) else {}
+    body = res.get("content") if isinstance(res, dict) else None
+    if isinstance(body, list) and body and isinstance(body[0], dict):
+        try:
+            inner = json.loads(body[0].get("text") or "{}")
+        except ValueError:
+            inner = {}
+        if isinstance(inner, dict):
+            out["chain_count"] = inner.get("count")
+    return out
 
 
 # 生效条件：root 指向含 package.json 的目录且其 name 为非空字符串时返回该 name（含 scope，
@@ -537,6 +706,61 @@ def main(argv=None):
         report.rule("S5 tools 面 == 缺省面 ['cg','stg']", False, "安装未成功，无从取 tools")
 
     summary["handshake_ok"] = handshake_ok
+
+    # ---- ⑤ L2 状态台账端到端（S8 写侧 / S9 读侧）----
+    # 为什么本腿必须真跑一次 recent·add：S1–S3 只证「件在包里」，S7 只证「数据能解析」，
+    # 全都是**静态面**。上一轮的真缺陷恰恰是静态面全绿而链路不通——抽取器本体在
+    # `scripts/`（不随包）⇒ 装机侧 `_state_events.jsonl` 长期不存在。判据必须落在
+    # **行为**上：发一条用户轮，看台账里有没有落进一条可甄别的记录。
+    # 判据面取「至少 1 条 且 actor=state_extract」——不钉具体槽位/值，避免把发布闸
+    # 耦合到抽取规则表（规则演进不该让发布闸变红；抽不到的回归由 md_cg 层守卫管）。
+    l2_write = {}
+    l2_read = {}
+    if install_ok and handshake_ok:
+        print("=== 5) L2 状态台账端到端（签凭据 → 真发 recent·add → 读台账 → 投影/查询面回读）===")
+        l2_write = _l2_write_probe(sys.executable, installed_pkg,
+                                   mem_root, aux_dir, state_dir, data_dir)
+        led_ok = (l2_write.get("ledger_exists") and (l2_write.get("events") or 0) >= 1
+                  and "state_extract" in (l2_write.get("actors") or []))
+        s8_detail = ""
+        if not led_ok:
+            s8_detail = l2_write.get("note") or (
+                "台账已生成但无 state_extract 记账（events=%r actors=%r bad_rows=%r）"
+                % (l2_write.get("events"), l2_write.get("actors"),
+                   l2_write.get("bad_rows")))
+        if not report.rule("S8 装机后 recent·add 真落台账（至少 1 条 actor=state_extract）",
+                           led_ok, s8_detail):
+            print("         修法：确认 md_cg/state_extract.py 随包（R9a 管的）、"
+                  "mcp_server 的 recent·add 分支挂着抽取、且 MDCG_STATE_EXTRACT 未被关")
+        if led_ok:
+            l2_read = _l2_read_probe(sys.executable, installed_pkg,
+                                     mem_root, aux_dir, state_dir, data_dir,
+                                     l2_write.get("rows") or [])
+            n = l2_write.get("events")
+            s9_ok = (l2_read.get("slots_events") == n
+                     and (l2_read.get("chain_count") or 0) >= 1)
+            s9_detail = ""
+            if not s9_ok:
+                s9_detail = ("投影/查询面与台账不一致：台账 events=%r，"
+                             "state_slots --status events=%r，state_chain count=%r%s"
+                             % (n, l2_read.get("slots_events"), l2_read.get("chain_count"),
+                                ("；" + l2_read["note"]) if l2_read.get("note") else ""))
+            report.rule("S9 台账读得回来（state_slots 投影数 == 台账数 且 state_chain 可查）",
+                        s9_ok, s9_detail)
+        else:
+            report.rule("S9 台账读得回来（state_slots 投影数 == 台账数 且 state_chain 可查）",
+                        False, "S8 未过，无从回读")
+    else:
+        report.rule("S8 装机后 recent·add 真落台账（至少 1 条 actor=state_extract）",
+                    False, "安装/握手未成功，无从探测记账链")
+        report.rule("S9 台账读得回来（state_slots 投影数 == 台账数 且 state_chain 可查）",
+                    False, "安装/握手未成功，无从回读")
+    summary["l2_ledger_exists"] = l2_write.get("ledger_exists", False)
+    summary["l2_events"] = l2_write.get("events", 0)
+    summary["l2_actors"] = l2_write.get("actors", [])
+    summary["l2_slots_events"] = l2_read.get("slots_events")
+    summary["l2_chain_count"] = l2_read.get("chain_count")
+
     code = 1 if report.fails else 0
     return _finish(report, summary, code, keep, sandbox)
 
