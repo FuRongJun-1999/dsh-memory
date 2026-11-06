@@ -2953,10 +2953,37 @@ def _cg_dispatch(cg, a):
     if op == "recent":
         act = (a.get("action") or "list").strip().lower()
         if act in ("add", "append", "remember"):
-            return cg.remember_event(a.get("role") or "user",
-                                     a.get("text") or a.get("content") or "",
-                                     tags=a.get("tags"), meta=a.get("meta"),
+            _role = a.get("role") or "user"
+            _text = a.get("text") or a.get("content") or ""
+            _meta = a.get("meta") or {}
+            _res = cg.remember_event(_role, _text, tags=a.get("tags"),
+                                     meta=a.get("meta"),
                                      window=int(a.get("window") or 200))
+            # L2 状态台账的**双端共用触发点**（2026-11-02 接线）。
+            # 放在这里而不是各端钩子里的理由：DSH 端（src/hooks.ts 的
+            # recentAdd）与 zcode 端（sync_zcode_session）**都**经过本分支，
+            # 一处接线即覆盖两端；且 op 面零扩张——本 op 的 require 是
+            # `recent`，而「能写 _recent」本就已隐含「能写运行态面」，
+            # 不把任何角色抬到 `write`（实测：output/guest 两个角色有 recent
+            # 无 write，但它们 can_write=False，remember_event 已在上一行拒掉，
+            # 到不了这里）。
+            #
+            # 三个前置条件（缺一不抽）：
+            #   ① role == "user"——抽取器只认真人发言（助手自述不复盖真值）；
+            #   ② meta 带 session——无会话归属的事件无法做去重与审计；
+            #   ③ 开关 MDCG_STATE_EXTRACT 开（缺省开）。
+            # 逐轮 fail-soft：抽取/记账任何失败都**不得**影响窗口写入的返回值
+            # （窗口是运行态面，状态台账是派生面）。
+            if _role == "user" and _text and _meta.get("session"):
+                try:
+                    from . import state_extract as _sx
+                    if _sx.enabled():
+                        _sx.extract_and_record(
+                            cg, _meta.get("session"),
+                            _meta.get("turn"), "user", _text)
+                except Exception:  # noqa: BLE001
+                    pass
+            return _res
         if act == "clear":
             return {"cleared": cg.clear_recent()}
         return {"events": cg.recent_events(limit=int(a.get("limit") or 20),

@@ -108,8 +108,11 @@ def main():
                "fm sensitivity=%r" % fm_a.get("sensitivity"))
         _check("B2-A3 落盘正文不是明文（AEAD 密文）",
                crypto.is_encrypted(content_a), str(content_a)[:40])
+        # 判据只取「密文不可能出现的字符」：base64 字母表是纯 ASCII，
+        # 中文子串在任何 base64 密文里都不会撞；纯数字 "8888" 会撞
+        # （base64 含数字，理论抖动率约 1e-5，CI 上偶发 B2-A4 假红）。
         _check("B2-A4 盘上文件不含明文标记",
-               "B2MARK" not in raw_a and "8888" not in raw_a, raw_a[:60])
+               "B2MARK" not in raw_a and "银行卡尾号" not in raw_a, raw_a[:60])
         readback = (cg_a.get(nid_a) or {}).get("content") or ""
         _check("B2-A5 有权限读面读回明文（加密存储不损可读性）",
                _MARK in readback, readback[:40])
