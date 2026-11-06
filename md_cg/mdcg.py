@@ -996,6 +996,33 @@ def _negated_at(s: str, i: int) -> bool:
     return False
 
 
+# 生效条件：s 为归一串、i 为 0 <= i < len(s) 的匹配起址时返回 True 当且仅当「否定词与匹配之间含至少一个虚化动词字」
+#   （未使用X / 未采用X / 没有使用X / 不采用X）且 gap 全由连接字或空白构成；其余情形一律 False。
+def _verb_negated_at(s: str, i: int) -> bool:
+    """#790（方案 C）：只拦「否定词 + (连接字|空白) + **虚化动词** + 宾语」这一支。
+
+    为什么不在原文路径直接用 `_negated_at`：#790 的诉求是「未使用 PE」不该判条件已确认，
+    但把原文路径交给 `_negated_at` 会把 base 本来就命中的「不是 PE」「不是 api」一并变
+    DEFER——族枚举 recall_loss 2340（见 `_fold_hit_unnagated` docstring 的登记）。
+    本判据额外要求 gap 里**含虚化动词字**（`NEG_VERB_CHARS`），故：
+
+      · `未使用 PE`   gap=「使用 」→ 含动词字 ⇒ 否定（DEFER）
+      · `没有使用 PE` gap=「使用 」→ 同上
+      · `未使用这种 PE` gap=「使用这种 」→ 全为连接字 ⇒ 否定
+      · `不是 PE`     gap=「是 」   → 无动词字 ⇒ **不判否定**（base 判定一字不动）
+    """
+    for back in range(1, NEG_SCOPE_WINDOW + 1):
+        j = i - back
+        if j < 0:
+            break
+        for cue in NEG_CUES:
+            if j + len(cue) <= i and s.startswith(cue, j):
+                gap = s[j + len(cue):i]
+                if any(ch in NEG_VERB_CHARS for ch in gap) and all(
+                        ch in NEG_SCOPE_CHARS or ch.isspace() for ch in gap):
+                    return True
+    return False
+
 # 生效条件：hay 与 needle 均为 str 时返回 needle 在 hay 中的全部出现起始下标（左对齐、按升序，含重叠出现）；needle 为空串返回空列表。
 def _occurrences(hay: str, needle: str) -> list:
     """needle 在 hay 中的全部出现起址（#362a：逐次出现各自判否定作用域）。"""
@@ -5083,7 +5110,14 @@ class MdCG:
         # 里同样在词内部（fold_accents 只会把字母并得更紧，不会拆开），main_hit
         # 就会是 False —— 走不到这里。故子串判与词边界判在此处不可区分。
         if t in norm_scene.raw:
-            # base 本来就命中：不是折叠新造的，原样放行（零召回损失）。
+            # issue #790（方案 C）：原文命中不再**无条件**放行——只拦「否定词 + 虚化动词 + 宾语」
+            # 这一支（未使用X / 未采用X / 没有使用X）。判据见 `_verb_negated_at`：它要求否定词与
+            # 命中之间**含虚化动词字**，故 base 原有的「不是 PE」「不是 api」判定一字不动
+            # （族枚举 recall_loss 2340 仍在保护之下；与折叠路径的 `_negated_at` 分开，不合并）。
+            _occ_raw = _occurrences(norm_scene.compact, t_fold)
+            if _occ_raw and all(_verb_negated_at(norm_scene.compact, i)
+                                for i in _occ_raw):
+                return False
             return True
 
         # ---- ③ 折叠新造出的命中：须过否定作用域闸 --------------------------
