@@ -3526,16 +3526,29 @@ class MdCG:
         # （`MdCGSecure.add` 的 `sensitivity or DEFAULT_SENSITIVITY` 把两者
         # 归一成同一个值，闸便看不见差异）。本键只是判据载体，**不落 fm**。
         _declared_sens = extra.pop("declared_sensitivity", None)
+        # issue #795 方案 A（单一时间源）：兜底 created_at 与观测窗锚点必须用**同一个** now。
+        # 旧实现两处各调一次 time.time() ⇒ 正常路径下 tw[0] 与 created_at 差几微秒，
+        # test_p2「time_window 锚定写入时刻」用的是 1e-6 严格相等 ⇒ 必红。
+        _now = time.time()
         _created_given = "created_at" in extra
-        created_at = extra.pop("created_at", time.time())
+        created_at = extra.pop("created_at", _now)
         if not _created_given and _prev_fm.get("created_at"):
             created_at = _prev_fm["created_at"]      # 出生时间只写一次
         # 条件论「观测时间」栏：写入时必须记录观测时间窗。
-        # 调用方未提供 time_window 时，以写入时刻为锚、默认窗口 OBSERVATION_WINDOW_SEC。
+        # 默认窗口长度 OBSERVATION_WINDOW_SEC；**锚点分两种**（#768 返工裁定，见下）：
+        # #768：created_at 在**同 id 覆写**时继承自旧节点（出生时间只写一次，#766/#732），
+        # 拿它当锚会把观测窗写成 [旧出生时刻, 旧出生时刻+1h]，**落在过去**，且此后每次覆写
+        # 都再写一遍；配合下方 S2 时间门（_cond_prefilter_pass：双方都有且区间不相交 ⇒ 剔除），
+        # 被覆写过的旧节点会在带时间窗的查询里**永久消失**。故覆写继承时锚到写入时刻。
+        # 但**调用方显式回填 created_at**（历史导入/回放）是另一条路径，其语义是「这条是那时
+        # 观测的」，改动它会破坏既有约定（md_cg/test_p2.py 的 ts3 断言），因此保持旧口径。
+        # 两者各管一头：created_at = 出生时刻（只写一次），time_window = 这次观测发生的时刻；
+        # 前者仅在「显式给出」时同时充当锚。
         cs = dict(condition_space or {})
         tw = cs.get("time_window")
         if not (isinstance(tw, (list, tuple)) and len(tw) == 2):
-            cs["time_window"] = [created_at, created_at + OBSERVATION_WINDOW_SEC]
+            _anchor = created_at if _created_given else _now
+            cs["time_window"] = [_anchor, _anchor + OBSERVATION_WINDOW_SEC]
         # BODY_SAME 继承不得覆盖**显式给出**的键（#742 复核）：形参缺省无法区分
         # 「没给」与「给了缺省值」，故以 None 为哨兵；confidence 的 0.6 在继承
         # 之后才补（显式传入 0.6 也会进 _explicit）。modality 走 extra.pop，
