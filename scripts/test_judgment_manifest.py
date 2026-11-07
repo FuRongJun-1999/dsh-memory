@@ -156,9 +156,13 @@ def main():
     rt = importlib.util.module_from_spec(rt_spec)
     rt_spec.loader.exec_module(rt)
     disc = rt._discover()
-    check("六组齐全（md_cg/compiler|swarm/scripts/hive/test）",
+    # 判据是「组名集合**恰好**等于本清单」——新增一组必须在此显式登记，这正是
+    # 它防的漂移（run_tests 加了收集面而判据面不知道）。2026-11-07 补 `tests`
+    # （根 tests/ 复数目录）：run_tests 的 ROOT_TESTS 收了其中两个 script-style
+    # 守卫，组名随之出现；不登记本条就会红——它红得对，是它先发现了漂移。
+    check("七组齐全（md_cg/compiler|swarm/scripts/hive/test/tests）",
           {g for g, _, _ in disc} == {"md_cg", "compiler", "swarm",
-                                      "scripts", "hive", "test"},
+                                      "scripts", "hive", "test", "tests"},
           sorted({g for g, _, _ in disc}))
     check("discover 数量 == discovered_files 数量",
           len(disc) == len(rt._discovered_files()))

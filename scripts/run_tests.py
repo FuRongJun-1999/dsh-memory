@@ -29,6 +29,7 @@ import argparse
 import re
 import concurrent.futures
 import os
+import shutil
 import subprocess
 import sys
 
@@ -72,6 +73,38 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEST_DIR_TESTS = ("hive_exec_test.py", "hive_wm_test.py",
                   "chaos_injection/run_all.py")
 
+#: 仓库根 `tests/`（复数）下**已逐文件裁决可收**、且在 `md_cg/` 里**没有同名副本**
+#: 的测试（= 若本清单漏收，该测试就完全不在 CI 里，没有任何其它流线兜底）。
+#:
+#: 为什么需要这份清单（2026-11-07 实测）：`_discovered_files()` 只收 `md_cg/`、
+#: `compiler|swarm/tests/`、`scripts/`、`hive/` 与 `test/`（单数）具名清单，
+#: **根 `tests/`（复数）整个不在收集面**。该目录 23 个文件里 19 个是「薄壳」
+#: （从 `md_cg.test_x` import main 再转发，源测试本身已在 CI），剩 4 个没有
+#: `md_cg/` 同名副本 —— 这 4 个自入库起从未在任何门禁上执行过。
+#:
+#: 判据（逐条实测，不是照抄目录清单）：
+#:   · test_hook_audit_summary.py —— #606 摘要守卫。真守卫：5 臂变异（M1..M5），
+#:     `--mutate` 下每臂都必须精确打红；base 走 node --test。依赖 node>=22.19 +
+#:     `npm ci --include=dev`（CI 的 python-tests job 已 `npm ci && npm run build`，
+#:     故可收）。本地无 node_modules 时应显式 SKIP 而非假绿 —— 见 _require_node()。
+#:   · test_issue721_tag_filter.py —— #721/#799 标签过滤守卫（8 例：多标签 OR /
+#:     exclude 优先 / 非法类型结构化 error / 不存在标签返回空集不报错 / 向后兼容）。
+#:     PR #799 带了它却在 CI 收集面之外，等于该 PR 的判据在门禁上不存在。
+#:     形态：script-style（自带 `_main()` + `VERDICT=` + `if __name__`）⇒ 直跑成立。
+#:
+#: **本清单只收 script-style 件**（判据：自带 `if __name__` 或 SystemExit/sys.exit，
+#: 使 `python <file>` 真的执行断言并据退出码定罪）。pytest-style 件（只有 `def test_*`
+#: 而无入口）**不得**并入：`python <file>` 对它们只做 define、跑零个用例、RC 恒 0 ——
+#: 收进来就是新增一条永远打不红的假守卫，比不收更糟。
+#: 实测留档（2026-11-07，本清单首版差点踩的坑）：
+#:   tests/test_relation_type_whitelist_guard.py 是 **pytest-style** —— `python` 直跑
+#:   输出 0 字节 / RC=0；把它唯一的区间断言改成恒假（`assert 1.5 <= rate <= 1.6`）后
+#:   直跑**仍然 RC=0**，而 `-m pytest` 下是 8 passed 1 skipped。仓内 pytest **未**进
+#:   CI（.github/workflows 无 pytest 接线，且未声明为依赖），故收它必须先改 CI 依赖面。
+#:   ⇒ 该件**暂不收**，列为待作者裁决项（补 script-style 入口 或 给 CI 装 pytest）。
+ROOT_TESTS = ("test_hook_audit_summary.py",
+              "test_issue721_tag_filter.py")
+
 
 # 生效条件：以模块级常量 _REPO 为根，返回全量套件实际执行的测试文件路径列表（相对 _REPO 的正斜杠路径）——md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py，按组序拼接。
 def _discovered_files():
@@ -93,6 +126,9 @@ def _discovered_files():
     # test/（A6）：只收具名裁决清单（见 TEST_DIR_TESTS 注释——含不收件与理由）。
     # 不设 os.path.isfile 过滤：目标被改名/删除时须**响亮 FAIL**，不得静默缩面。
     files += [os.path.join(_REPO, "test", name) for name in TEST_DIR_TESTS]
+    # tests/（复数，根）：只收 ROOT_TESTS 具名裁决件（理由见其定义处注释）。
+    # 同样不设 os.path.isfile 过滤：被判收的目标被改名/删除时必须**响亮 FAIL**。
+    files += [os.path.join(_REPO, "tests", name) for name in ROOT_TESTS]
     return [os.path.relpath(f, _REPO).replace("\\", "/") for f in files]
 
 
@@ -137,6 +173,12 @@ def _discover():
             # Python 3.12 下 `-m test.x` 解析到 Lib\test\__init__.py）→ 只能直跑。
             # 显示名保子路径：test/chaos_injection/run_all.py → test.chaos_injection.run_all
             out.append(("test", "test." + rel[len("test/"):-3].replace("/", "."),
+                        [[sys.executable, "-X", "utf8", f]]))
+        elif rel.startswith("tests/"):
+            # tests/（复数，根）同样非包（无 __init__.py）→ 只直跑，不走 -m。
+            # 显示名带 `tests.` 前缀，与单数 `test.` 区分：两者是不同目录，
+            # 显示名撞了会让 --list 上两个目标看起来是同一个。
+            out.append(("tests", "tests." + rel[len("tests/"):-3].replace("/", "."),
                         [[sys.executable, "-X", "utf8", f]]))
         else:
             # hive/ 是包（有 __init__.py，与 md_cg 同形）→ -m 优先；测试内用
@@ -311,6 +353,26 @@ def _dep_pil():
     return None
 
 
+def _dep_node():
+    """TS 侧守卫（tests/test_hook_audit_summary.py）需要 node + 已装的 devDependencies。
+
+    两件缺一不可：`node` 可执行 ⊕ 仓内 `node_modules/.bin/tsx`（`npm ci --include=dev`
+    才有；CI 的 python-tests job 在跑套件前已 `npm ci && npm run build`）。
+
+    为什么必须探测而不是让它自己红：该件缺 node 时 `run()` 里 `shutil.which` 抛
+    RuntimeError → 子进程 traceback 退非 0 → 本入口记 FAIL。但「裸 clone 没跑过
+    npm ci」不是被测代码的问题，判 FAIL 是假红（外部复核建议 #3 的同一类）。
+    反过来，**探测到就真跑**：不把 rc 判据放宽成 rc∈{0,2}（见 _SKIPS 的总口径）。
+    """
+    if shutil.which("node") is None:
+        return ("依赖 node（TS 守卫走 node --test）——按 issue #84 口径 SKIP"
+                "（等价于该守卫自身的 rc=2『有跳过』语义）")
+    if not os.path.exists(os.path.join(_REPO, "node_modules", ".bin", "tsx")):
+        return ("依赖 node_modules/.bin/tsx（先 npm ci --include=dev）——"
+                "按 issue #84 口径 SKIP（等价于该守卫自身的 rc=2『有跳过』语义）")
+    return None
+
+
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
@@ -334,6 +396,10 @@ _SKIPS = {
     "md_cg.test_csre_correctness": _dep_numpy,
     "md_cg.test_csre_session": _dep_numpy,
     "md_cg.test_csre_mutations": _dep_numpy,
+    # tests/（复数，根）补收件 #1：TS 侧摘要守卫需要 node + node_modules（见 _dep_node）。
+    # 名字形态与本表其余项一致——用 _discover() 的**显示名**（tests.test_x），
+    # 不是路径形态；两者必须逐字相同，否则探测登记不上、缺依赖时仍会假红。
+    "tests.test_hook_audit_summary": _dep_node,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),
@@ -436,7 +502,7 @@ def main():
     # 注：不用 argparse choices——部分 Python 版本对 nargs="*" 无值时
     # 以空列表过 choices 校验会误报 invalid choice（bpo-27227 老行为）。
     ap.add_argument("group", nargs="*", default=None,
-                    help="只跑指定组，可多选：md_cg compiler swarm scripts hive test"
+                    help="只跑指定组，可多选：md_cg compiler swarm scripts hive test tests"
                          "（缺省全量）")
     ap.add_argument("-k", default="", help="按关键字过滤模块名")
     ap.add_argument("--jobs", type=int, default=4, help="并发数（默认 4）")
@@ -453,7 +519,7 @@ def main():
                     help="按模块名前缀过滤（如 md_cg/test_issue4 或 test_issue4）")
     args = ap.parse_args()
 
-    _known = ("md_cg", "compiler", "swarm", "scripts", "hive", "test")
+    _known = ("md_cg", "compiler", "swarm", "scripts", "hive", "test", "tests")
     _bad = [g for g in (args.group or ()) if g not in _known]
     if _bad:
         ap.error(f"invalid group: {', '.join(_bad)}（可选：{'/'.join(_known)}）")

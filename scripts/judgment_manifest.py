@@ -54,6 +54,13 @@ PATTERNS = [
     ("test", "hive_exec_test.py"),
     ("test", "hive_wm_test.py"),
     ("test/chaos_injection", "run_all.py"),
+    # tests/（复数，根，2026-11-07）：与 scripts/run_tests.py 的 ROOT_TESTS 具名
+    # 裁决清单同步——该目录原先**整个不在** run_tests 的收集面（判据面自然也
+    # 不含它），两处同时补才通得过「跑什么 ⊆ 冻结什么」。同样逐文件精确名冻结：
+    # 未过裁决件（pytest-style 无入口的 test_relation_type_whitelist_guard.py、
+    # 空壳 test_issue_580.py）**不得**进判据面，否则会冻结一个假守卫。
+    ("tests", "test_hook_audit_summary.py"),
+    ("tests", "test_issue721_tag_filter.py"),
 ]
 
 
