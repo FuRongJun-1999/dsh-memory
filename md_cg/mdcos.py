@@ -2689,6 +2689,54 @@ class MdCGOS(MdCG):
                          view=view, extra=_cache_extra, clock_window=_query_window)
         if _rrf_dropped:
             stat["min_score"] = _rrf_min
+        # issue #814 后续 / Ornn8 测评建议②（读取策略立项单 A 之外的最小项）：
+        # **cutoff 邻近保障**——检索完成后，把「最近 N 条用户轮次」中与 query
+        # 有词法交集、且尚未出现在结果里的事件，按 0 分追加到结果**尾部**。
+        # 动机（测评 turn16/75/25 漏检）：相关但「不相似」的最近事实会被多路排序挤掉；
+        # 它们是用户刚刚说过的话，即使 RRF 排不进 k，也必须可见。
+        # 设计约束：**不进热路径缓存**（每轮 recent 不同，缓存键无法表达）；
+        # **不参与打分**（score=0.0，打乱正排等于换算法）；meta 记 recent_tail 计数。
+        _recent_tail_n = 0
+        try:
+            _rt_n = int(os.environ.get("MDCG_RECENT_TAIL", "6"))
+            if _rt_n > 0 and results:
+                _have_ids = {r[0].get("id") for r in results}
+                _q_terms = [t.lower() for t in re.split(r"[\s,，、;；]+", q or "")
+                            if len(t) >= 2]
+                _tail = []
+                _have_texts = [str(r[0].get("content") or "") for r in results]
+                for _ev in self.recent_events(limit=max(20, _rt_n * 4),
+                                               roles=["user"]):
+                    if len(_tail) >= _rt_n:
+                        break
+                    _txt = str(_ev.get("text") or "")
+                    if not _txt or _ev.get("id") in _have_ids:
+                        continue
+                    # 判重边界（B10 修订裁定）：补尾**只按事件 id 查重**，不做内容级判重。
+                    # 理由：「（轮20）灯箱已经报价」与正排命中的「灯箱已报价」是同一事实的
+                    # 不同措辞，词面判重（子串/分词覆盖）都会**漏判或误判**——语义判重
+                    # 属于跨层职责（将来可由 memory 层的 dup 信号提供），不进检索面。
+                    # 代价接受：同一事实可能正排一次 + 补尾一次（≤2 次出现，有 recent_event
+                    # 标记可识别）。宁可重复可见，不可静默丢失——与 #802/#811 的「不过滤
+                    # 就显式」是同一条哲学。
+                    _low = _txt.lower()
+                    if _q_terms and not any(t in _low for t in _q_terms):
+                        continue
+                    _tail.append({
+                        "id": _ev.get("id"),
+                        "frontmatter": {"tags": _ev.get("tags") or [],
+                                        "recent_event": True},
+                        "content": _txt,
+                        "path": "_recent.jsonl#" + str(_ev.get("id")),
+                        "recent_event": True,
+                    })
+                for _node in _tail:
+                    results.append((_node, 0.0,
+                                    {"state": None, "reason": "recent_tail"},
+                                    []))
+                    _recent_tail_n += 1
+        except Exception:                # noqa: BLE001 —— 保障面不拖崩主检索
+            _recent_tail_n = 0
         # issue #672：把生效的时效口径如实透出——调用方看名字容易以为「只给有效的」，
         # 读 meta 一眼可辨（只排过期 / 未启用）。
         _validity_meta = ({"validity_scope": "expired_only"} if validity
@@ -2698,6 +2746,7 @@ class MdCGOS(MdCG):
                             if _rrf_min > 0 else {}),
                          **(_rrf_note or {}),
                          "paths": per_path, "fused": len(results),
+                         "recent_tail": _recent_tail_n,
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
