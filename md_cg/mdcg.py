@@ -2178,6 +2178,13 @@ class MdCG:
         # 由下次访问重建。占用面：1.7 万节点 ≈ 三张小表 + 位序/分类两表（内存派生，
         # 不改磁盘格式）。
         self._stg_index = None
+        # issue #766（W3 增量化）：增量重载的**物化基线**三元组——必须与
+        # `self.index` 分开存，否则调用方就地改写索引条目会把基线一起污染，
+        # 下次增量便携带这份脏值（全量路径不会，它从盘上重读）。
+        self._index_baseline = None      # 私有 nodes 拷贝（条目顶层已隔离）
+        self._baseline_cursor = None     # 该基线已消费到的分片日志字节水位
+        self._baseline_snap_sig = None   # 该基线对应 _index.json 的 (mtime_ns,size)
+        self._baseline_dir_fp = None     # 该基线对应盘面目录指纹（不依赖快照带该键）
         self.index = self._load_index()
         # P1b-2（2026-09-26，DSH 在役复验）：索引只在本行装载一次，此后
         # read/get/search 全走内存态——其它进程（review_cli autoflush=1）
@@ -2204,8 +2211,209 @@ class MdCG:
 
     # ---------- 索引（派生物，可重建） ----------
 
+# 生效条件：idx 为一份**刚落盘/刚装载**的完整索引（dict，含 nodes）时，把增量基线三元组重置为「该 idx 私有拷贝 + 当前日志水位 + 当前快照签名」；恒返回 None。
+    def _reset_baseline(self, idx):
+        """重置增量基线三元组（单点——构造 / 全量装载 / compact / rebuild 共用）。
+
+        **为什么存私有拷贝**：调用方会就地改写 `self.index` 的条目（仓内测试与
+        bench 多处这么做），共享同一批条目对象会让基线携带脏值；全量路径每次
+        从盘上重读、不会，故基线必须自己留一份。
+
+        **为什么水位在拷贝之后再取**（安全方向）：先取水位再去重放日志，水位里
+        记的东西可能**尚未**被应用；反过来（先重放、后取水位）则水位一定 ⊆ 已
+        消费集合，下次至多重放幂等记录，不会漏。本函数取在水位之前即调用方
+        之后还要 apply_log 的情形也保持一致——宁可重复，不可漏。
+        """
+        nodes = idx.get("nodes") if isinstance(idx, dict) else None
+        if not isinstance(nodes, dict):
+            self._index_baseline = None
+            self._baseline_cursor = None
+            self._baseline_snap_sig = None
+            return
+        self._index_baseline = {
+            "schema": SCHEMA,
+            "nodes": {k: dict(v) for k, v in nodes.items() if isinstance(v, dict)},
+            "_fingerprint": idx.get("_fingerprint"),
+        }
+        try:
+            self._baseline_cursor = ShardedLog.committed_cursor(self.index_log_dir)
+        except (OSError, ValueError):
+            self._baseline_cursor = None
+        # 目录指纹：增量正确性的 ④ 前提。**自存**而非依赖快照的 _fingerprint
+        # 键——后者只在 compact 过之后才有，而生产常态（MCP serve autoflush=1
+        # 只 flush 不 close）根本不会写快照，读那条会把增量永久挡在门外
+        # （实测踩过：probe read 臂重载仍 200/200）。
+        try:
+            self._baseline_dir_fp = self._dir_fingerprint()
+        except (OSError, ValueError):
+            self._baseline_dir_fp = None
+        try:
+            _st = os.stat(self.index_path)
+            self._baseline_snap_sig = (_st.st_mtime_ns, _st.st_size)
+        except OSError:
+            self._baseline_snap_sig = None
+
+# 生效条件：仅当「快照文件签名与上次装载时逐位相同」**且**「上次已把该快照对应那一刻的全部分片日志消费到水位」时，返回在现有内存索引上叠加日志新增尾部后的新索引（新对象，条目不共享）；任一条证不出（无基线、快照签名变过、游标缺失、分片消失/被截断、盘面指纹变化）一律返回 None，交由 _load_index 走全量路径。
+    def _try_incremental_index(self):
+        """索引**增量重载**（issue #766 / W3）：只重放日志新增尾部，不重读快照。
+
+        为什么需要（先量后改的读数）：`flush()` 只 append 分片、从不清；只有
+        `close()`→`compact_index` 才 `ShardedLog.clear`。长期存活写方（MCP serve
+        本体即 `autoflush=1 只 flush 不 close`）的分片日志**只增不减**，而
+        `_load_index` 每次都把全部记录重读重解析一遍：
+          · 300 节点、日志 2000→12000 条：单次 `_load_index` 65→258 ms（斜率
+            约 18ms/千条）——成本 ∝ **该库历史写入总量**，不是本次增量；
+          · 10000 节点：单次重载 258 ms 里 `json.load` 177 ms + `read_all` 160 ms。
+        两者叠加就是 §6 注实测的「读 P95 放大 16.6–21.0x」。故可拆物是
+        **重载本身的成本**，不是锁（读路径取锁 0 次）。
+
+        **为什么可以只叠尾部而不重读快照**（充要条件，缺一即回退）：
+          ① 快照签名（mtime_ns,size）逐位未变 ⇒ `_index.json` 字节没被改写过
+             ⇒ 它描述的那份 nodes 与上次装载时是同**一份**，无需重读；
+          ② 上次装载后**已消费**该快照对应时刻的全部分片记录（`_log_cursor`
+             与索引同代）⇒ 内存索引 == 快照 ⊕ 已消费记录，再叠加新尾部即
+             等于「快照 ⊕ 全部记录」= 全量路径的结果；
+          ③ 期间无 compact 发生：compact 会 `ShardedLog.clear` 使部分分片
+             消失、并重写快照使签名变化——两条中任一条都已被 ①② 或返回
+             `(None,None)` 挡住；
+          ④ 盘面目录指纹仍可信（`_snapshot_trusted` 同一判据）：防非合作写者
+             在快照写入后改了盘面（改名/换目录/删加），此时路径映射可能已陈旧。
+        三者同时成立时，增量结果与全量路径**逐位一致**，不是近似。
+
+        **不看 `_dirty`**：脏集属于「本实例未落盘写入」，由调用方
+        `_maybe_reload_index` 在拿到新索引后按其见证判据重放；本函数只负责
+        重建「盘面 + 日志」这一面，与既有分工一致。
+        """
+        base = getattr(self, "_index_baseline", None)
+        cursor = getattr(self, "_baseline_cursor", None)
+        if base is None or cursor is None:
+            return None
+        snap = getattr(self, "_baseline_snap_sig", None)
+        # ① 快照签名逐位未变（双侧 None 也算一致：库从未 compact 过）
+        try:
+            st = os.stat(self.index_path)
+            cur_snap = (st.st_mtime_ns, st.st_size)
+        except OSError:
+            cur_snap = None
+        if cur_snap != snap:
+            return None
+        # ④ 盘面变化判据：**与全量路径同一判据**（`_load_index` 里
+        # `_changed <= _log_dirs` + `_covers_disk` 那两步），不另造更严的口径。
+        # 为什么不能要求「目录指纹一位不变」：合作写入每次 `add` 都走
+        # atomic_write（建临时文件再改名），必然改所在目录的 mtime ⇒ 那条
+        # 判据会把**正常写入本身**判成不可增量，增量被永久挡在门外（实测：
+        # 探针 read 臂重载仍 200/200、P95 仍是 16.58x，改动等于没生效）。
+        try:
+            cur_fp = self._dir_fingerprint()
+        except (OSError, ValueError):
+            return None
+        old_fp = getattr(self, "_baseline_dir_fp", None)
+        if old_fp is None:
+            return None
+        changed = {d for d, m in cur_fp.items() if old_fp.get(d) != m}
+        changed |= {d for d in old_fp if d not in cur_fp}
+
+        # ② / ③ 读日志新增尾部（分片消失/被截断时 read_tails 返回 (None,None)）
+        try:
+            recs, new_cursor = ShardedLog.read_tails(self.index_log_dir, cursor)
+        except (OSError, ValueError):
+            return None
+        if recs is None:
+            return None
+
+        # ④' 变过的目录必须都在「日志新增/改写记录所在目录」里——非合作写者
+        # （改名/换目录/对调/删一加一）不改 .md 计数却改路径映射，它们在日志
+        # 里没有对应 path，必被这条挡住而回退全量。
+        if changed:
+            log_dirs = set()
+            for _r in recs:
+                _e = _r.get("e") if isinstance(_r, dict) else None
+                _p = _e.get("path") if isinstance(_e, dict) else None
+                if _p:
+                    log_dirs.add(os.path.dirname(str(_p).replace("\\", "/")))
+            if not changed <= log_dirs:
+                return None
+
+        # ④'' **不在此处判**：盘面覆盖闸要在重放之后才判得准（见下方 `_covers_disk`
+        # 调用点）。此处留注释只为标明④' 不是最后一道闸。
+        if not recs:
+            # 无新增：**仍须返回新对象**。调用方 `_maybe_reload_index` 会在
+            # 拿到的 idx["nodes"] 上就地重放 `_dirty`（`idx["nodes"][nid] = e`），
+            # 若把基线本身交出去，本实例未落盘的脏值就会写进基线，下次增量
+            # 便把它当成盘面事实携带下去。
+            self._baseline_cursor = new_cursor
+            self._baseline_snap_sig = snap
+            # 指纹推进到**本次已核对过的当前盘面**（上面 ④' 已判「变过的目录
+            # 全在日志新增目录里」，即这些变化已被本次重放覆盖）。不推进则下
+            # 一轮会把同一批已核销的变化再判一次，无限回退全量。
+            self._baseline_dir_fp = cur_fp
+            _n = dict(base.get("nodes") or {})
+            # ④'' 同上：无新增日志时也必须判盘面覆盖（孤儿形态同样存在于
+            # 「零新增 + 盘上多一个 .md」这条路径上）。
+            if not self._covers_disk(_n):
+                return None
+            _idx = {"schema": SCHEMA, "nodes": _n,
+                    "buckets": self._count_buckets(_n)}
+            if "_fingerprint" in base:
+                _idx["_fingerprint"] = base["_fingerprint"]
+            return _idx
+
+        nodes = dict(base.get("nodes") or {})   # 外层新 dict；条目对象随后逐条替换
+        skips = []
+        for rec in recs:
+            nid, e = rec.get("id"), rec.get("e")
+            if not nid:
+                continue
+            nid = str(nid)
+            if e is not None and not isinstance(e, dict):
+                skips.append((self.index_log_dir, nid, e))
+                continue
+            if e is None:
+                nodes.pop(nid, None)
+            else:
+                nodes[nid] = e
+        if skips:
+            note_bad_payload_rows(skips)
+        # ④'' 盘面覆盖闸：**必须复用全量路径的 `_covers_disk`**，不得只靠目录
+        # 指纹。独立复核实测到的缺陷（改前可见 / 改后不可见）：
+        #   「他实例写已落盘、其索引增量还在其 `_dirty`」——盘上多出一个 .md，
+        #   日志里没有它。若它恰好和一条合作写入落在**同一子目录**，则
+        #   `changed == log_dirs` 成立、④' 放行，而快照里没有该节点 ⇒ 增量
+        #   继承快照的旧节点集 ⇒ **该节点在存活读者上要等到下次全量才可见**。
+        #   全量路径正是靠本闸挡住这种形态（`_covers_disk` 不过 ⇒ 宁重扫）。
+        # 不调它 = 两条路径对「盘面覆盖」各执一套口径，正好回到 #409 要消灭
+        # 的形态（该 issue 的收口纪律是判据单点）。
+        # 位置在**重放之后**：要判的是「重放完的节点集是否覆盖当前盘面」。
+        if not self._covers_disk(nodes):
+            return None
+        idx = {"schema": SCHEMA, "nodes": nodes, "buckets": {}}
+        idx["buckets"] = self._count_buckets(nodes)
+        # 保留快照的指纹（④ 已判其仍与当前盘面一致，故逐位不变）
+        if "_fingerprint" in base:
+            idx["_fingerprint"] = base["_fingerprint"]
+        # 推进基线（同一代四元组）：下次继续从新水位往后读。指纹一并推进到
+        # 本次已核对过的盘面——上面的 ④' 已判「变过的目录全在日志新增目录
+        # 里」，这些变化已被本次重放覆盖，不推进会让下一轮把同一批已核销的
+        # 变化再判一次，无限回退全量。
+        self._index_baseline = {"schema": SCHEMA,
+                                "nodes": {k: dict(v) for k, v in nodes.items()
+                                          if isinstance(v, dict)},
+                                "_fingerprint": base.get("_fingerprint")}
+        self._baseline_cursor = new_cursor
+        self._baseline_snap_sig = snap
+        self._baseline_dir_fp = cur_fp
+        return idx
+
 # 生效条件：os.path.exists(self.index_path) 为真、json.load 成功、解析结果为 dict（顶层非对象=null/[]/123/"abc" 视同损坏）且其 "schema" 等于模块级 SCHEMA、且其 "_fingerprint"（目录树 mtime 指纹）等于当前 self._dir_fingerprint() 时以该快照为基底；快照缺失/损坏/顶层非对象/无指纹/指纹不符（盘面在快照写入后有增删——其它存活实例未 flush 的写入或外部改盘）均回退 self._scan_nodes() 全库扫描为基底；随后经 self._apply_log 重放分片日志（N225 补强：与 compact 面**同一实现**——无 id 跳过、e 为 None 则 pop 该 nid（tombstone）、e 非 dict 且非 None 则跳过并记账、其余覆盖），最终 buckets 由 _count_buckets 重算；
     def _load_index(self):
+        # issue #766（W3 增量化）：先试**增量**重载——快照未变就只重放日志新增
+        # 尾部，不重读快照、不重放历史记录。任一前提证不出即回退下面的全量
+        # 路径（`_try_incremental_index` 返回 None 的全部情形）。
+        _incr = self._try_incremental_index()
+        if _incr is not None:
+            return _incr
+        # 全量路径：先试增量，不可行再整库重装（`_reset_baseline` 在返回前
+        # 重建基线，见该函数与 `_try_incremental_index` 的水位顺序说明）。
         idx = None
         if os.path.exists(self.index_path):
             try:
@@ -2270,6 +2478,9 @@ class MdCG:
             idx = {"schema": SCHEMA, "nodes": self._scan_nodes(), "buckets": {}}
         self._apply_log(idx["nodes"])
         idx["buckets"] = self._count_buckets(idx["nodes"])
+        # 记录物化基线，供下次增量使用。**水位取在此刻**（apply_log 之后）是
+        # 安全方向：水位 ⊆ 已消费集合 ⇒ 下次至多重放幂等记录，不会漏。
+        self._reset_baseline(idx)
         return idx
 
 # 生效条件：nodes 为可 pop / 可赋值的映射（dict 或 _DirtyDict）时，对 ShardedLog.read_all(self.index_log_dir) 的每条记录逐条重放——无 id（假值）跳过；有 id 时 str 归一（legacy P3 自愈腿：旧版本 _stage 落下的 {"id": 123} 不得让 int 键进索引）；e 为 None（tombstone）⇒ nodes.pop(nid, None)，语义一字不改；e 非 dict 且非 None（"[]"/123/"abc" 等合法 JSON 载荷）⇒ **跳过**并经 fsutil.note_bad_payload_rows 记账 + stderr 告警（容忍 ≠ 静默，且不得让非 dict 载荷进 nodes——下游 _count_buckets 对元素裸调 .get，不做类型检查）；其余（dict 载荷）⇒ nodes[nid] = e 覆盖；函数返回传入的 nodes。
@@ -2702,6 +2913,13 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # issue #766：compact 重写了快照并**清空分片日志** ⇒ 旧基线（旧快照 +
+        # 旧水位）描述的盘面已不存在。此处**立即重建**基线（而不是留 None 等
+        # 下次重载）：compact 手里就有刚落盘的 idx，日志刚清空（水位全 0），
+        # 是重建基线最廉价的一刻。留 None 会让「刚 compact 完的进程」在下次
+        # 全量重载之前一直无法增量——那是静默的性能回退（正确性无碍，但
+        # 收益归零，实测踩过）。
+        self._reset_baseline(idx)
         # 第 3 层结构索引随快照替换失效（快照重建过，旧表与它的划分关系不再
         # 有据可依）：下次 stg 访问重建；不在此处立即重算——compact 是收尾路
         # 径，重建成本挪到真正需要索引的那次读（惰性失效重建，同一选）。
@@ -3105,6 +3323,9 @@ class MdCG:
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
+        # issue #766：rebuild 同 compact——重写快照 + 清空分片日志 ⇒ 旧基线作废，
+        # 用刚落盘的 idx 立即重建（理由见 compact_index 同名注释）。
+        self._reset_baseline(idx)
         # 第 3 层结构索引随全量重建失效（新快照 = 新盘面语义）：下次 stg 访问
         # 重建——重建后的划分不变量由守卫钉住（写/删/rebuild/compact 后三表与
         # 快照一致）。
