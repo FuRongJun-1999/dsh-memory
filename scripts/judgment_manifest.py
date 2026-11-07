@@ -57,8 +57,14 @@ PATTERNS = [
     # tests/（复数，根，2026-11-07）：与 scripts/run_tests.py 的 ROOT_TESTS 具名
     # 裁决清单同步——该目录原先**整个不在** run_tests 的收集面（判据面自然也
     # 不含它），两处同时补才通得过「跑什么 ⊆ 冻结什么」。同样逐文件精确名冻结：
-    # 未过裁决件（pytest-style 无入口的 test_relation_type_whitelist_guard.py、
-    # 空壳 test_issue_580.py）**不得**进判据面，否则会冻结一个假守卫。
+    # 未过裁决件（pytest-style 无入口的 test_relation_type_whitelist_guard.py）
+    # **不得**进判据面，否则会冻结一个假守卫。
+    # 空壳 test_issue_580.py 已于 2026-11-08 **删除**（不是不收，是不该存在）：
+    # 它直跑跑零个用例、RC 恒 0（断言改 False 后实测仍 0），而其声称覆盖的
+    # #580 回归场景早已由 md_cg/test_issue561_pending_review.py 的 R00–R04
+    # 真实覆盖且在门禁内（18/18）。防复发改由
+    # scripts/test_gate_no_false_green.py 承担——它逐目标 AST 判定「直跑是否
+    # 真的会执行断言」，把「空壳件/无入口件混进收集面」变成机器可判的红。
     ("tests", "test_hook_audit_summary.py"),
     ("tests", "test_issue721_tag_filter.py"),
 ]

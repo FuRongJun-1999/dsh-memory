@@ -71,8 +71,10 @@ PATTERNS = [
     # tests/（复数，根，2026-11-07）：与 scripts/ 版逐字同步——run_tests 的
     # ROOT_TESTS 具名裁决清单补收了该目录的两个 script-style 守卫，判据面
     # 必须同步，否则「跑什么 ⊆ 冻结什么」报缺口。同样精确名冻结：未过裁决件
-    # （pytest-style 无入口的 test_relation_type_whitelist_guard.py、
-    # 空壳 test_issue_580.py）不进判据面，否则会冻结一个假守卫。
+    # （pytest-style 无入口的 test_relation_type_whitelist_guard.py）不进判据面，
+    # 否则会冻结一个假守卫。空壳 test_issue_580.py 已于 2026-11-08 **删除**
+    # （直跑零用例、RC 恒 0；#580 回归场景由 md_cg/test_issue561_pending_review.py
+    # 的 R00–R04 真实覆盖）；防复发改由 scripts/test_gate_no_false_green.py 承担。
     ("tests", "test_hook_audit_summary.py"),
     ("tests", "test_issue721_tag_filter.py"),
 ]
