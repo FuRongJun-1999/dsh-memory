@@ -2712,11 +2712,30 @@ def _cg_dispatch(cg, a):
         # 客户端 60s 超时（#677 现场：write 与 info 同时超时）。
         _full = _as_flag(a.get("full"))
         _nodes_info = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+        # issue #812：`node_count` 是**进程内存索引**的条目数；外部进程（如直接调 MdCGOS 批量 forget）
+        # 改库后，这里不会变——2026-11-07 实测：批量软删 1987 条后 node_count 35884→35886，
+        # 而落盘 `_index.json` 实际只有 33900 条（被删节点已不在盘上索引里）。
+        # 修法：默认只透出 `index_mtime`（os.stat，零成本）；`full=true` 时再解析落盘索引，
+        # 给出 `index_node_count` 与 `index_stale`，让「内存 vs 落盘」的偏差可判定而不是靠猜。
+        # issue #812：`MdCG` 有 `index_path`，`MdCGOS` 没有 ⇒ 退回按 `root` 拼（同一文件名，见 mdcg.py）。
+        _idx_path = getattr(cg, "index_path", None)
+        if not _idx_path:
+            _root = getattr(cg, "root", None)
+            if _root:
+                _idx_path = os.path.join(str(_root), "_index.json")
+        _idx_mtime = None
+        if _idx_path:
+            try:
+                _idx_mtime = os.stat(str(_idx_path)).st_mtime
+            except OSError:
+                _idx_mtime = None
         h = {"surface": SURFACE,
              "tools": [t["name"] for t in tools_for_surface()],
              # 纯 MdCG 没有 whoami（Secure 才有）——诊断面不得因它崩（#677 B）。
              "whoami": (cg.whoami() if callable(getattr(cg, "whoami", None)) else None),
              "node_count": len(_nodes_info),
+             # issue #812：落盘索引的 mtime（零成本）。若它晚于本进程启动，说明索引被外部改过。
+             "index_mtime": _idx_mtime,
              "audit_kinds": audit.kinds(),
              # 裁定 B：CCG 六要素的契约角色（术语真源在 nodefile，此处只透出）
              "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES),
@@ -2728,6 +2747,21 @@ def _cg_dispatch(cg, a):
                 h["flush_state"] = _fs()
             except Exception:               # noqa: BLE001 —— 诊断面不得拖崩
                 h["flush_state"] = None
+        # issue #812：落盘索引 vs 内存索引的偏差（只在 full=true 时解析——58MB JSON，快照面不能付这个成本）。
+        if _full and _idx_path:
+            try:
+                import json as _json
+                with open(str(_idx_path), encoding="utf-8") as _fh:
+                    _disk_nodes = len(((_json.load(_fh) or {}).get("nodes")) or {})
+                h["index_node_count"] = _disk_nodes
+                h["index_stale"] = _disk_nodes != len(_nodes_info)
+                h["index_stale_hint"] = ("index_stale=true 表示内存索引与落盘索引不一致："
+                                         "外部进程改过库（如直接调 MdCGOS 批量 forget），"
+                                         "本进程需重载/重启才能反映") if h["index_stale"] else None
+            except Exception as _ie:            # noqa: BLE001 —— 诊断面不拖崩
+                h["index_node_count"] = None
+                h["index_stale"] = None
+                h["index_stale_error"] = "%s: %s" % (type(_ie).__name__, _ie)
         if _full:
             # 慢面：只有显式 full=true 才跑。**慢面不得覆盖快照已有键**（#677 复核：
             # 旧序 h.update(health_os()) 会让同名键覆盖快照值，两条腿对同一键不同值）。
