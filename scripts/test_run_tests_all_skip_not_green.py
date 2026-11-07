@@ -27,9 +27,14 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(ROOT, "scripts", "run_tests.py")
 
-#: 常态会 SKIP 的目标（依赖缺失即跳过，不进 runnable）。
-#: 选它作「全跳过」输入：本机与 CI 上都不依赖外部服务，行为稳定。
-SKIPPY = "test_bench_chain_retrieval_diag"
+#: 用于构造「全部跳过」输入的确定性目标。
+#:
+#: 为什么不用某个「当前恰好会打印 SKIP」的测试文件：那是**外部行为耦合**——
+#: 该文件哪天改成真跑或不再输出 SKIP，A 组就会静默失效（守卫变成永远不会红的
+#: 摆设，正是本文件要防的那类病）。改用 `_SERIAL_ONLY` 里的目标：它在
+#: `--jobs > 1` 时由 run_tests 自己按声明跳过，与第三方文件的行为无关。
+#: 取两个目标是为了让断言对「单条/多条」都成立。
+SERIAL_ONLY = ("bench_swarm_parallel", "bench_swarm_scale")
 #: 常态会真跑且通过的目标（无外部依赖），用作「真跑」对照。
 REAL = "test_check_relation_types"
 #: 被 _heavy_reason 判定为「重质检」的目标（--gate fast 会把它移出 targets）。
@@ -57,11 +62,18 @@ def _run(*argv, timeout=900, script=None):
 def main(script=None):
     script = script or SCRIPT
     print("== A 全跳过：零执行必须非 0（这是本守卫的正题）")
-    out, rc = _run("-k", SKIPPY, script=script)
+    # 显式 --jobs 4：_SERIAL_ONLY 只在并行下跳过（负载敏感的性能阈值断言）。
+    # 选择器由 SERIAL_ONLY 的公共前缀拼出，避免写死字面量与常量各说一套。
+    _sel = "_".join(SERIAL_ONLY[0].split("_")[:2])       # bench_swarm
+    out, rc = _run("-k", _sel, "--jobs", "4", script=script)
     ok(rc == 3, "A1 全部跳过 ⇒ rc=3（旧实现是 0，即沉默通过）", rc)
     ok("全部跳过" in out, "A2 明确打印「全部跳过」（可检索）", out[-300:])
     ok("无一真正执行" in out, "A3 说明零执行这一事实", out[-300:])
     ok("SUMMARY 0/" in out, "A4 汇总确实声称 0 通过（对照用，非判据）", out[-300:])
+    # A5：确保「全跳过」输入的确定性来自 _SERIAL_ONLY 声明（而非某个测试文件
+    # 恰好会打印 SKIP）。若哪天 run_tests 的 _SERIAL_ONLY 语义变了，这里先红。
+    ok(len(SERIAL_ONLY) >= 1 and "0 跳过" not in out,
+       "A5 跳过确实发生且被计入（不依赖第三方文件的 SKIP 行为）", out[-300:])
 
     print("== B 部分跳过但至少一条真跑：不得误伤（设计内 SKIP 是裸 clone 友好）")
     out2, rc2 = _run("-k", REAL, script=script)
