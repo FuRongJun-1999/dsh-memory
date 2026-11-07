@@ -63,6 +63,17 @@ _HOST_MODULES = (
 #: 分层序号：数字越小越靠上。下层引用层号**更小**的即反向依赖。
 _LAYER_RANK = {name: rank for rank, name in enumerate(_LAYERS)}
 
+#: 需要扫描的层：``_LAYERS`` 里除最顶层（``adapter``）之外**全部**。
+#:
+#: 为什么从 ``_LAYERS`` 推导而不是手写 ``("kernel", "govern")``：
+#: 手写清单会与 ``_LAYERS`` 漂移——事实就是漂了，「iface 层引 adapter」这类
+#: 反向依赖在 ``_violations`` 里判得出来，却因为层名不在手写清单里而**从不被扫**，
+#: 形成第二个「判据有、守卫不接电」的盲区。此处从真值表推导，加层即自动覆盖。
+#:
+#: ``adapter`` 不扫：它是宿主接线层（路线稿 §2 顶端），允许向下引用任意内层，
+#: 不存在「反向」可言。
+_INTERNAL_LAYERS = tuple(name for name in _LAYERS if name != "adapter")
+
 _results = []
 
 
@@ -308,9 +319,14 @@ def _violations(layer, relpath, names, file_path=None):
         if file_path:
             segs, _ = _resolve_fqn(file_path, name)
         else:                        # 夹具不落地时按字面分段
-            segs = name.lstrip(".").split(".")
-            if not name.lstrip("."):
-                segs = []
+            segs = name.lstrip(".").split(".") if name.lstrip(".") else []
+            # 与 `_resolve_fqn` 的绝对导入分支保持**同一口径**：剥掉包根 `md_cg`。
+            # 不剥就会让 `md_cg.adapter` 的首段变成 `md_cg`（不是层名），
+            # 反向依赖判据整条穿网——这正是宿主类型判据上
+            # 「`from md_cg.mcp_server import x` 首段是 md_cg 故不命中」的同型盲区，
+            # 上一轮只修了宿主类型那条路，反向依赖这条一直没修。现两条都按剥根后判定。
+            if segs and segs[0] == "md_cg":
+                segs = segs[1:]
         # 1) 宿主类型：任意段命中（不再只看首段）
         hit = [s for s in segs if s in _HOST_MODULES]
         if hit:
@@ -337,10 +353,22 @@ def _violations(layer, relpath, names, file_path=None):
     return problems
 
 
+def _scan_layers():
+    """守卫**实际扫描**的层清单——单独成函数，好让覆盖性断言直接盯它。
+
+    为什么不让它内联在 ``_test_import_direction`` 里：内联时，把循环的取值
+    换成手写元组（``for layer in ("kernel", "govern")``）不会有任何断言变红
+    ——我实测过，覆盖性用例照样 PASS。抽成函数后，覆盖性用例断言的是
+    **扫描器自己**，而不是一个旁边放着的常量，于是「扫描范围退回手写清单」
+    这种回退能被抓住。
+    """
+    return _INTERNAL_LAYERS
+
+
 def _test_import_direction():
-    """kernel / govern 不得 import 上层，也不得碰宿主类型。"""
+    """kernel / govern / iface 不得 import 上层，也不得碰宿主类型。"""
     problems = []
-    for layer in ("kernel", "govern"):
+    for layer in _scan_layers():
         pkg = os.path.join(_REPO, "md_cg", layer)
         for path in _iter_py(pkg):
             rel = os.path.relpath(path, _REPO)
@@ -394,7 +422,7 @@ def _test_import_guard_catches_violation():
 
 def _test_import_guard_clean_on_real_tree():
     """真树上当前骨架必须是干净的（与上一条夹具自证互为对照）。"""
-    for layer in ("kernel", "govern"):
+    for layer in _scan_layers():
         pkg = os.path.join(_REPO, "md_cg", layer)
         assert os.path.isdir(pkg), f"W1 骨架缺失：md_cg/{layer}"
         for path in _iter_py(pkg):
@@ -402,6 +430,31 @@ def _test_import_guard_clean_on_real_tree():
             assert not _violations(layer, rel, _imported_names(path), path), (
                 f"{rel} 不该有导入图违规"
             )
+
+
+def _test_guard_covers_every_internal_layer():
+    """守卫必须对 ``_LAYERS`` 里**每个**内层都接电（防「判据有、扫描不覆盖」）。
+
+    为什么单列一条：本仓已经栽过两次同型事故——先是判据只看首段（写法穿网），
+    后是扫描层名手写成 ``("kernel", "govern")``（``iface`` 层从不被扫）。
+    判据正确 ≠ 守卫生效：只要「被扫描的层」和 ``_LAYERS`` 漂开，反证就白写。
+    这条断言把「覆盖范围」本身变成可红可绿的检查对象。
+    """
+    # 1) 扫描器必须真的覆盖 `_LAYERS` 里除顶层外的每一层。
+    #    断言对象是 `_scan_layers()`（扫描器本身），不是旁边的常量——
+    #    否则把循环改回手写 `("kernel", "govern")` 仍会绿（实测过）。
+    scanned = _scan_layers()
+    expected = tuple(n for n in _LAYERS if n != "adapter")
+    assert scanned == expected, (
+        f"扫描器覆盖层必须等于 _LAYERS 去掉顶层 adapter，实得 {scanned!r}（应为 {expected!r}）"
+    )
+    assert "adapter" not in scanned, "adapter 是宿主接线层，不该被扫"
+
+    # 2) 逐层实证：对每个被扫描的层，「它引用最顶层 adapter」必须判出违规。
+    #    若某层漏在 `_LAYER_RANK` 里（层号查不到），这里必红。
+    for layer in scanned:
+        got = _violations(layer, f"md_cg/{layer}/_probe.py", {"md_cg.adapter"}, None)
+        assert got, f"{layer} 层引用 adapter 必须判为反向依赖，实际未判出（该层未接电）"
 
 
 def main():
@@ -415,8 +468,9 @@ def main():
     _check("打分层吐 state 必红（#111）", _test_read_state_only_from_govern)
     _check("SelfCheck 四键齐备", _test_selfcheck_four_keys)
     _check("四契约 Protocol 方法面", _test_protocols_runtime_checkable)
-    _check("导入图单向（kernel/govern）", _test_import_direction)
+    _check("导入图单向（kernel/govern/iface）", _test_import_direction)
     _check("导入图守卫夹具自证", _test_import_guard_catches_violation)
+    _check("守卫覆盖每个内层（防判据空转）", _test_guard_covers_every_internal_layer)
     _check("真树骨架干净", _test_import_guard_clean_on_real_tree)
 
     failed = [r for r in _results if not r[1]]
