@@ -2136,6 +2136,11 @@ def _action_sig(a, op):
 
 
 # 生效条件：op0=(a.get("op") or "").strip().lower()，op0 为空时按 a.get("content")→"write"、a.get("query") 或 a.get("node_id")→"read"、a.get("intent")→"route"、都无→"read" 推导 op；act0=(args.get("action") or "").strip().lower()，act0 为空时用 _action_sig(args, op) 推导且推导出时写回 args["action"]；另恒定计算 act_source（explicit|sig|default|none）；args["op"]=op 后调 _cg_dispatch，返回 dict 且 op0 为空时补 out["op"]、out["op_derived"]=True 与 hint，**无条件** setdefault out["action_source"]=act_source，act0 为空且 (act_derived 或 op in _ACTION_DEFAULT) 时 setdefault("action", eff)、out["action_derived"]=True 并按是否有 act_derived 写 hint_action。
+#: issue #810：允许 `root` 参数的 op —— 它们的 `root` 语义是「覆盖索引里记录的根」（跨机器搬迁），
+#: **不是**数据根选择。数据面（write/read/recall/...）出现 `root` 一律显式拒绝。
+_ROOT_SCOPED_OPS = frozenset({"ref", "index_code", "index_doc"})
+
+
 def _cg_call(cg, a):
     """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 `_cg_dispatch`）。
 
@@ -2179,6 +2184,15 @@ def _cg_call(cg, a):
             op = "route"
         else:
             op = "read"        # 无任何签名可依：维持旧缺省 read
+    # issue #810（2026-11-07 真实污染事故）：`root` **不参与数据根选择**——数据根的真源是
+    # 插件 datapath.ts 的四层链（env MDCG_DATA_ROOT/MDCG_ROOT → paths.json → 插件 config.mdcg.root → 默认）。
+    # 历史上 `root` 被静默忽略，调用方「以为分库了、实际全写进主库」（Ornn8 事件：主库 33805→35884）。
+    # 现在在数据面上**显式拒绝**，只在「覆盖索引里记录的 root」那几个面保留（ref / index_code / index_doc）。
+    if "root" in a and a.get("root") is not None and op not in _ROOT_SCOPED_OPS:
+        raise ValueError(
+            "root 不用于选择数据根（issue #810）：请用环境变量 MDCG_ROOT 启动独立进程；"
+            "root 参数仅在 ref / index_code / index_doc 上有效（覆盖索引里记录的 root）。"
+        )
     args = dict(a)
     act0 = (args.get("action") or "").strip().lower()
     act_sig = act_derived = None
