@@ -50,15 +50,20 @@ def ok(cond, msg, detail=""):
           + (("  <- " + str(detail)) if detail and not cond else ""))
 
 
-def _run(*argv, timeout=900, script=None, strip_ci=False):
+def _run(*argv, timeout=900, script=None, keep_ci=False):
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
-    # strip_ci：run_tests.py 在 CI 环境下会把 `--gate fast` **强制升级为 strict**
-    # （防误用漏检，见其 main() 内 `if gate == "fast" and os.environ.get("CI")`）。
-    # 而 B6/B7 要测的正是 fast 档的分支——不剥掉 CI 变量，该分支在 CI 上根本不会
-    # 走到，断言必然假红（2026-11-08 CI 实测：本地绿、CI 红）。
-    if strip_ci:
-        for k in ("CI", "GITHUB_ACTIONS", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER"):
-            env.pop(k, None)
+    # 默认剥掉 CI 相关变量，**与 scripts/test_run_tests_gate.py 的既有约定一致**
+    # （那边 `_run` 里恒有 `env.pop("CI", None)`）。原因是 run_tests.py 有一条
+    # 防误用逻辑：CI 环境下 `--gate fast` 会被**强制升级为 strict**。本文件多条
+    # 断言要验的正是 fast/gate 相关的具体分支，若让 CI 变量泄漏进子进程，那些分支
+    # 在 CI 上根本走不到，断言必然假红（2026-11-08 CI 实测踩到：本地绿、CI 红）。
+    #
+    # 教训：凡断言依赖环境分支（CI / 平台 / 语言版本），要么显式构造该环境，
+    # 要么显式剥离——不能依赖「本地恰好没有这个变量」。
+    # keep_ci=True 仅供将来确有「要验 CI 行为」的用例使用。
+    if not keep_ci:
+        for _k in ("CI", "GITHUB_ACTIONS", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER"):
+            env.pop(_k, None)
     r = subprocess.run([sys.executable, "-X", "utf8", script or SCRIPT, *argv],
                        cwd=ROOT,
                        capture_output=True, text=True, encoding="utf-8",
@@ -102,8 +107,8 @@ def main(script=None):
     # 但它们**原先进不了 skipped 集**：若整批都是重质检项，就得到「零执行 + 零跳过」，
     # 于是「全跳过」门的前提 `(skipped or mod_skips)` 为假、门被绕过（rc=0 沉默通过）。
     # 修法是把 _heavy_skipped 并入 skipped；此二条锁死该行为。
-    # 必须 strip_ci：CI 环境下 run_tests 会把 fast 强制升为 strict，该分支走不到。
-    out2c, rc2c = _run("--gate", "fast", "-k", HEAVY, script=script, strip_ci=True)
+    # （_run 默认已剥 CI 变量，故 fast 档在 CI 上也真的走 fast 分支。）
+    out2c, rc2c = _run("--gate", "fast", "-k", HEAVY, script=script)
     ok(rc2c == 3, "B6 全被 --gate fast 移出 ⇒ rc=3（第四形态，同为零执行）", rc2c)
     ok("gate=fast" in out2c and "重质检" in out2c,
        "B7 报错信息点明是 fast 档移出（不误称「依赖缺失」）", out2c[-400:])
