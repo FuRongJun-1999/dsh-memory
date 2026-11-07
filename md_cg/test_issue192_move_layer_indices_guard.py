@@ -256,3 +256,51 @@ def test_g3_existing_move_behavior_zero_regression(tmp_path):
         == buckets_before.get("orphan", 0) - 1, "桶归属迁移票数不符"
     assert lifecycle.state_of(after_entry) == lifecycle.state_of(before_entry)
     cg.close()
+
+
+# ---------------------------------------------------------------- 直跑入口
+# 为什么需要（issue #807 同族，2026-11-07 实测）：本件的 6 个用例都是
+# `def test_*(tmp_path)`，**没有模块级断言、没有 __main__**。CI 的门禁
+# （scripts/run_tests.py）对 md_cg 组只发 `python -X utf8 -m <module>` ——
+# `-m` 对纯 pytest-style 模块只做 import+define，跑**零个**用例、RC 恒 0。
+# 实测：把 test_g1 的首条断言改成 `assert False` 后，直跑仍 RC=0，而
+# `-m pytest` 下是 1 failed 5 passed。⇒ 本件在门禁里**从未真正执行过**，
+# 是一条假绿守卫。补此入口使其成为 script-style，让直跑真的跑断言。
+#
+# tmp_path 是 pytest 的 fixture，直跑路径下用 tempfile.mkdtemp 等价替代
+# （用例只把它当目录路径用：str(tmp_path) / os.path.join(root, ...)）。
+_ENTRY_CASES = (
+    ("G1  搬迁携带全部 7 键", test_g1_move_carries_all_seven_keys),
+    ("G1b archived lifecycle 键存活", test_g1b_archived_lifecycle_key_survives),
+    ("G1c 搬迁条目形态等于重扫", test_g1c_moved_entry_form_equals_rescan),
+    ("G1d 上游 verify 面", test_g1d_upstream_verify_face),
+    ("G2  旧层残留清零", test_g2_no_old_layer_residue),
+    ("G3  既有搬迁行为零回归", test_g3_existing_move_behavior_zero_regression),
+)
+
+
+def main():
+    import tempfile
+    import traceback
+
+    failed = []
+    for name, fn in _ENTRY_CASES:
+        d = tempfile.mkdtemp(prefix="mdcg_i192_")
+        try:
+            fn(d)
+            print("  PASS %s" % name)
+        except Exception as exc:            # noqa: BLE001 —— 直跑要报全，不吞
+            failed.append(name)
+            print("  FAIL %s: %s: %s" % (name, type(exc).__name__, exc))
+            traceback.print_exc()
+        finally:
+            shutil.rmtree(d, ignore_errors=True)
+    total = len(_ENTRY_CASES)
+    print("")
+    print("===== SUMMARY %d/%d 通过 =====" % (total - len(failed), total))
+    print("VERDICT=%s" % ("PASS" if not failed else "FAIL"))
+    return 0 if not failed else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

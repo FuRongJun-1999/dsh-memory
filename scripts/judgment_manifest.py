@@ -54,6 +54,18 @@ PATTERNS = [
     ("test", "hive_exec_test.py"),
     ("test", "hive_wm_test.py"),
     ("test/chaos_injection", "run_all.py"),
+    # tests/（复数，根，2026-11-07）：与 scripts/run_tests.py 的 ROOT_TESTS 具名
+    # 裁决清单同步——该目录原先**整个不在** run_tests 的收集面（判据面自然也
+    # 不含它），两处同时补才通得过「跑什么 ⊆ 冻结什么」。同样逐文件精确名冻结：
+    # 未过裁决件曾包含 pytest-style 无入口的 test_relation_type_whitelist_guard.py
+    # （冻结它就是冻结一个假守卫）—— 该件已于 2026-11-08 补齐 script-style 入口，
+    # 直跑与 -m pytest 结果等价（8 passed 1 skipped），现按裁决**收进**判据面。
+    ("tests", "test_hook_audit_summary.py"),
+    ("tests", "test_issue721_tag_filter.py"),
+    # 2026-11-08 收：原 pytest-style（直跑零用例 RC 恒 0）⇒ 已补 _ENTRY_CASES+main()
+    # + if __name__，pytest 依赖降级为可选软导入（approx/skip 做等价替换），
+    # 不新增 CI 依赖面。与 run_tests.py 的 ROOT_TESTS 逐字同步，两处必须同时改。
+    ("tests", "test_relation_type_whitelist_guard.py"),
 ]
 
 
