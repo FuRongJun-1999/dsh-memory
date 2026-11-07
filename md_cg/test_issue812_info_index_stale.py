@@ -67,6 +67,8 @@ def main():
     ok("index_node_count" not in h3 and "index_stale" not in h3,
        "A7 快照模式不返回 index_node_count/index_stale")
     ok(h3.get("index_mtime") is not None, "A8 快照模式仍带 index_mtime（零成本）")
+    ok(h3.get("node_count_scope") == "memory_index",
+       "A9 node_count 口径显式标注（memory_index）", h3.get("node_count_scope"))
     print()
     print("issue #812：%d 项失败" % len(FAILS) if FAILS else "issue #812：全部通过")
     return 1 if FAILS else 0
