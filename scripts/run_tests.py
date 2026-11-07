@@ -595,7 +595,9 @@ def main():
             print("[gate] fast 档：本批无重质检项，执行 %d 条" % len(targets), flush=True)
 
     # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
-    skipped, runnable = [], []
+    # 起点带上 fast 档已跳过的重质检项：它们同样是「选中了但没跑」，必须进同一个
+    # 跳过集，否则下方的「全跳过」门会被绕过（见 _heavy_skipped 处的说明）。
+    skipped, runnable = list(_heavy_skipped), []
     for g, n, a in targets:
         if n in _SERIAL_ONLY and max(1, args.jobs) > 1:
             reason = "负载敏感（性能阈值断言），并行争抢会假红——仅串行执行"
@@ -676,10 +678,20 @@ def main():
     # 被测守卫自身也用 rc=2 表 fail-closed 锚点漂移），复用它会让「零执行」与
     # 「跑过但有跳过」在只看码的消费方眼里无法区分。rc=3 在本入口此前未使用。
     if _passed == 0 and (skipped or mod_skips):
-        print("全部跳过：%d 个目标无一真正执行（%d 依赖跳过 + %d 模块内跳过）"
-              % (len(skipped) + len(mod_skips), len(skipped), len(mod_skips)), flush=True)
+        # 跳过原因分三类，必须分别点明：fast 档移出的重质检项（_heavy_skipped）
+        # 与依赖缺失/串行限定不是同一回事，混称「依赖缺失」会误导排障方向。
+        _n_heavy = len(_heavy_skipped)
+        _n_dep = len(skipped) - _n_heavy
+        print("全部跳过：%d 个目标无一真正执行（%d gate=fast 重质检 + %d 依赖/平台跳过"
+              " + %d 模块内跳过）"
+              % (len(skipped) + len(mod_skips), _n_heavy, _n_dep, len(mod_skips)),
+              flush=True)
         print("拒绝以 0 执行「通过」收场（与 #1910 零选中、#284 SKIP 冒充 PASS 同族；"
               "同 hive/verify_runner.py:161 的 N9 门口径）。", flush=True)
+        if _n_heavy:
+            print("注意：其中有 %d 条是被 --gate fast 移出的重质检项——"
+                  "用 --gate strict（或直接不传 --gate）会真跑它们。" % _n_heavy,
+                  flush=True)
         print("若这是预期（如裸 clone 缺依赖），请显式用 --list 查看目标，或补齐依赖后重跑。",
               flush=True)
         return 3

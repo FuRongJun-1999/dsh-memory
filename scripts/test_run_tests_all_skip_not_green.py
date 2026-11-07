@@ -32,6 +32,9 @@ SCRIPT = os.path.join(ROOT, "scripts", "run_tests.py")
 SKIPPY = "test_bench_chain_retrieval_diag"
 #: 常态会真跑且通过的目标（无外部依赖），用作「真跑」对照。
 REAL = "test_check_relation_types"
+#: 被 _heavy_reason 判定为「重质检」的目标（--gate fast 会把它移出 targets）。
+#: 选它是为了构造「整批都被 fast 档移出」的第四形态输入。
+HEAVY = "test_h4_sustain_snapshot"
 
 _PASS, _FAIL = [], []
 
@@ -75,6 +78,15 @@ def main(script=None):
     ok(rc2b == 0, "B4 混合输入（部分通过 + 部分跳过）⇒ rc=0（不得误判为全跳过）", rc2b)
     ok("全部跳过" not in out2b,
        "B5 混合输入不得打印「全部跳过」（_passed>0 时该门必须让路）", out2b[-400:])
+
+    # B6/B7：第四形态（2026-11-08 实测补）。`--gate fast` 会把重质检项移出 targets，
+    # 但它们**原先进不了 skipped 集**：若整批都是重质检项，就得到「零执行 + 零跳过」，
+    # 于是「全跳过」门的前提 `(skipped or mod_skips)` 为假、门被绕过（rc=0 沉默通过）。
+    # 修法是把 _heavy_skipped 并入 skipped；此二条锁死该行为。
+    out2c, rc2c = _run("--gate", "fast", "-k", HEAVY, script=script)
+    ok(rc2c == 3, "B6 全被 --gate fast 移出 ⇒ rc=3（第四形态，同为零执行）", rc2c)
+    ok("gate=fast" in out2c and "重质检" in out2c,
+       "B7 报错信息点明是 fast 档移出（不误称「依赖缺失」）", out2c[-400:])
 
     print("== C 既有语义不被覆盖：零选中仍是 rc=2")
     out3, rc3 = _run("--module", "definitely.not.exist", script=script)
@@ -120,6 +132,11 @@ def _mutations():
          "if _passed == 0 and (skipped or mod_skips):", "if skipped or mod_skips:"),
         ("M3 退出码混淆：改回 rc=2（与「有跳过」语义冲突）",
          "        return 3", "        return 2"),
+        # M4 第四形态回归：把 _heavy_skipped 从统一跳过集里摘掉，于是「整批被
+        # --gate fast 移出」时 skipped 为空 ⇒ 全跳过门的前提为假 ⇒ 又回到 rc=0。
+        ("M4 回缺陷：fast 档移出的重质检项不进统一跳过集",
+         "skipped, runnable = list(_heavy_skipped), []",
+         "skipped, runnable = [], []"),
     ]
 
 
