@@ -2930,6 +2930,33 @@ class MdCGOS(MdCG):
                 recent.append({"role": ev.get("role"), "t": ev.get("t"),
                                "text": ev.get("text"), "tokens": t,
                                "tags": ev.get("tags") or []})
+        # ===== 检索裁定：结论必须由确定性规则裁决（structural: mem_ruling_vector_ref_deterministic）=====
+        # 向量/语义相似度只提供候选参考；**最终名次由词法·时间·空间·交互四类可数信号重排**，
+        # 且必须确定性可回放。纯后处理：不改 pack 内容、不改 fused 分数，只调整交付顺序。
+        # 缺省关（MDCG_DET_RERANK=0）；开启后 meta 透出 det_reranked 与时钟来源。
+        det_reranked = False
+        _rerank_clock = (meta.get('clock') if isinstance(meta, dict) else None) or time.time()
+        _clock_source = ('search_meta' if (isinstance(meta, dict) and meta.get('clock'))
+                         else 'recall_local')
+        try:
+            if int(os.environ.get('MDCG_DET_RERANK', '0')) > 0 and len(pack) >= 2:
+                from . import detrerank as _dr      # noqa: PLC0415
+                _items = [({'id': e.get('id'),
+                           'content': e.get('content'),
+                           'frontmatter': e.get('frontmatter')},
+                           float(e.get('score') or 0.0), {}, []) for e in pack]
+                _ranked = _dr.rerank(_items, query, _rerank_clock, session=session)
+                _order = {it[0][0]['id']: i for i, it in enumerate(_ranked)}
+                pack.sort(key=lambda e: _order.get(e.get('id'), len(pack)))
+                # 四信号读数随包透出（可审计：谁因为什么排在前面）
+                _sig_by_id = {it[0][0]['id']: it[2] for it in _ranked}
+                for e in pack:
+                    sig = _sig_by_id.get(e.get('id'))
+                    if sig is not None:
+                        e['det'] = {'signals': sig, 'score': _dr.score(sig)}
+                det_reranked = True
+        except Exception:                # noqa: BLE001 —— 重排失败回退原序，绝不拖崩装包
+            det_reranked = False
         # ===== 读取策略改造 · A 项：跨轮状态聚合（Ornn8 测评建议①，+2~4 点最大头）=====
         # 病灶（report 原文）：「答案状态散在轮9 和轮20 两条里，检索给了直接相关的一条，
         # 拼不出完整状态」——这是**记忆组织**问题：search 只按单轮相关性给材料。
@@ -2942,6 +2969,10 @@ class MdCGOS(MdCG):
                 aggregates = self._topic_aggregates(pack, query)
         except Exception:            # noqa: BLE001 —— 聚合面不拖崩装包
             aggregates = []
+        if isinstance(meta, dict):
+            meta["det_reranked"] = det_reranked
+            if det_reranked:
+                meta["det_clock_source"] = _clock_source
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates}
