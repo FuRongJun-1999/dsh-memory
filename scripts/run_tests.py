@@ -650,13 +650,39 @@ def main():
         print("模块内跳过（**不计入通过数**，issue #284）：", flush=True)
         for _n, _why in mod_skips:
             print(f"  SKIP  {_n}  （{_why}）", flush=True)
-    print(f"\n===== SUMMARY {len(runnable) - len(bad) - len(mod_skips)}/{len(runnable)} 通过，"
+    _passed = len(runnable) - len(bad) - len(mod_skips)
+    print(f"\n===== SUMMARY {_passed}/{len(runnable)} 通过，"
           f"{len(skipped) + len(mod_skips)} 跳过（依赖缺失/平台不符"
           + (f"；其中模块内跳过 {len(mod_skips)} 条" if mod_skips else "")
           + "） =====")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1
+    # 全跳过假绿（2026-11-08，与 #1910「零选中」、#284「SKIP 冒充 PASS」同族第三形态）：
+    # 上面两条已挡住「选中 0 个」与「模块内 SKIP 记 PASS」，但**选中了、却全部跳过**
+    # 仍会走到这里 ⇒ `SUMMARY 0/N 通过` + rc=0。此时**零个断言真正执行**，门禁却报绿。
+    #
+    # 与 hive/verify_runner.py:161 的 N9 门同源：那里早就写了「rc=0 不等于『跑了』」，
+    # 并自己补了 `passed > 0` 门。也就是说**下游消费方早就防着这件事**，而入口本身
+    # 不兜——修复方向应是把门移到入口，让所有消费方（CI、手跑、verify_runner）
+    # 一致受益，而不是每个消费方各补一遍。verify_runner 的 N9 门保留亦无害（双保险）。
+    #
+    # 与「部分跳过」严格区分：只要有一条真的跑过（_passed > 0）就正常返回 0——
+    # 依赖缺失导致个别件跳过是**设计内**的（裸 clone 友好，见 _SKIPS 口径），不追究。
+    # 判据用「声称通过数为 0 且确有跳过」，不引入任何比例阈值：阈值要靠猜，
+    # 而「零执行」是结构事实。
+    #
+    # 退出码选 3 而非 2：本仓 rc=2 已有既定语义「有跳过」（见 _SKIPS 上方口径，
+    # 被测守卫自身也用 rc=2 表 fail-closed 锚点漂移），复用它会让「零执行」与
+    # 「跑过但有跳过」在只看码的消费方眼里无法区分。rc=3 在本入口此前未使用。
+    if _passed == 0 and (skipped or mod_skips):
+        print("全部跳过：%d 个目标无一真正执行（%d 依赖跳过 + %d 模块内跳过）"
+              % (len(skipped) + len(mod_skips), len(skipped), len(mod_skips)), flush=True)
+        print("拒绝以 0 执行「通过」收场（与 #1910 零选中、#284 SKIP 冒充 PASS 同族；"
+              "同 hive/verify_runner.py:161 的 N9 门口径）。", flush=True)
+        print("若这是预期（如裸 clone 缺依赖），请显式用 --list 查看目标，或补齐依赖后重跑。",
+              flush=True)
+        return 3
     return 0
 
 
