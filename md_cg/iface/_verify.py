@@ -52,7 +52,16 @@ _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 _LAYERS = ("adapter", "iface", "govern", "kernel")
 
 #: 宿主类型：内核/治理层出现即判耦合（路线稿 §2 禁止项）。
-_HOST_MODULES = ("mcp", "aiohttp", "starlette", "flask", "fastapi", "requests")
+#: **按全名分段匹配**（见 `_violations`），不再只看首段——否则
+#: `from md_cg.mcp_server import x` 这类本仓最自然的违规写法会整段穿网。
+_HOST_MODULES = (
+    "mcp", "mcp_server",          # 本仓 md_cg/mcp_server.py 即宿主接线面
+    "hooks", "plugin", "inject",  # 宿主注入面
+    "aiohttp", "starlette", "flask", "fastapi", "requests",  # HTTP 框架
+)
+
+#: 分层序号：数字越小越靠上。下层引用层号**更小**的即反向依赖。
+_LAYER_RANK = {name: rank for rank, name in enumerate(_LAYERS)}
 
 _results = []
 
@@ -111,6 +120,35 @@ def _test_write_request_shape():
         assert exc.code == "missing_provenance", exc.code
     else:
         raise AssertionError("WriteRequest 缺 provenance 必须在构造期抛错")
+
+
+def _test_write_request_immutable():
+    """``WriteRequest`` 必须**真不可变**：属性赋值与 mapping 内部改写都要被拒。
+
+    为什么单列一条：``__slots__`` 只防新增属性、不防重新赋值，而 ``digest()``
+    每次重算 ⇒ 指纹可被外部改写污染。没有这条断言，「不可变」只是 docstring 上
+    的一句话。
+    """
+    req = WriteRequest("mem_1", "正文", conditions={"c": 1}, provenance={"src": "s"})
+    digest0 = req.digest()
+
+    for attr, value in (("node_id", "hacked"), ("content", "篡改"), ("conditions", {}), ("provenance", {})):
+        try:
+            setattr(req, attr, value)
+        except AttributeError:
+            pass
+        else:
+            raise AssertionError(f"WriteRequest 必须拒绝给 {attr!r} 赋值（否则指纹可被污染）")
+
+    for mapping in ("provenance", "conditions"):
+        try:
+            getattr(req, mapping)["k"] = 1  # type: ignore[index]
+        except TypeError:
+            pass
+        else:
+            raise AssertionError(f"WriteRequest.{mapping} 必须是只读视图，不得内部改写")
+
+    assert req.digest() == digest0, "不可变对象上 digest() 必须恒定（指纹被污染即失守）"
 
 
 def _test_write_receipt_requires_ledger():
@@ -196,7 +234,12 @@ def _iter_py(pkg_dir):
 
 
 def _imported_names(path):
-    """静态解析出该文件的 import 名集合（不执行）。"""
+    """静态解析出该文件的 import 名集合（不执行）。
+
+    形态：绝对导入保留全名（``md_cg.mcp_server``）；相对导入保留前导点
+    （``..mcp_server`` / ``.``）。**空 module 的相对导入也保留**——它是
+    ``from . import x`` 的形态，绝不能被静默丢掉（否则该形态完全不可见）。
+    """
     with io.open(path, "r", encoding="utf-8") as fh:
         source = fh.read()
     tree = ast.parse(source, filename=path)
@@ -206,13 +249,92 @@ def _imported_names(path):
             for a in node.names:
                 names.add(a.name)
         elif isinstance(node, ast.ImportFrom):
-            # level>0 为相对导入：module 可能为 None
             base = node.module or ""
             if node.level:
                 names.add("." * node.level + base)
             else:
                 names.add(base)
     return names
+
+
+def _resolve_fqn(rel_file, name):
+    """把一条 import 记录解析成**从 md_cg 起算的绝对全名**。
+
+    相对导入按所在文件的位置合成：``md_cg/kernel/x.py`` 里的
+    ``..mcp_server`` → ``md_cg.mcp_server``；``.`` → 所在包的 ``__init__``
+    （返回 ``md_cg.kernel`` 这类包名，供后续分段判定）。
+
+    返回 (segments, kind)：segments 是从 ``md_cg`` 之后开始的段列表
+    （``md_cg.mcp_server`` → ``["mcp_server"]``）；无法解析时返回 ([], name)。
+    """
+    # 文件相对仓根的路径 → 包段（去掉 md_cg 之前的部分与 .py）
+    rel = os.path.relpath(os.path.abspath(rel_file), _REPO).replace(os.sep, "/")
+    parts = rel[:-3].split("/") if rel.endswith(".py") else rel.split("/")
+    if parts and parts[-1] == "__init__":
+        parts = parts[:-1]
+    # 定位 md_cg 在路径里的位置
+    if "md_cg" not in parts:
+        return [], name
+    idx = parts.index("md_cg")
+    cur = parts[idx + 1:-1]          # 当前文件所在包（相对 md_cg）
+    level = len(name) - len(name.lstrip("."))
+    body = name.lstrip(".")
+    if level == 0:                   # 绝对导入
+        segs = body.split(".")
+        if segs and segs[0] == "md_cg":
+            segs = segs[1:]
+        return segs, name
+    # 相对导入：level=1 指当前包，level=2 指父包
+    up = level - 1
+    base = cur[:len(cur) - up] if up <= len(cur) else []
+    tail = body.split(".") if body else []
+    return base + tail, name
+
+
+def _violations(layer, relpath, names, file_path=None):
+    """导入图判据**唯一实现**：给定层名与一组 import 记录，返回违规说明列表。
+
+    这是**纯函数**（不做 IO），守卫与夹具自证共用它——因此「删掉判据就必红」，
+    不会出现「断的是 ast 能不能解析 import」这种恒真断言。
+
+    判据（路线稿 §2）：
+    1. 宿主类型：全名**任一段**命中 ``_HOST_MODULES`` 即判耦合；
+    2. 宿主包：全名含 ``dsh`` 段即判耦合；
+    3. 反向依赖：本层引用层号更小的层（如 kernel 引 iface/govern/adapter）。
+    """
+    problems = []
+    rank = _LAYER_RANK.get(layer)
+    for name in names:
+        if file_path:
+            segs, _ = _resolve_fqn(file_path, name)
+        else:                        # 夹具不落地时按字面分段
+            segs = name.lstrip(".").split(".")
+            if not name.lstrip("."):
+                segs = []
+        # 1) 宿主类型：任意段命中（不再只看首段）
+        hit = [s for s in segs if s in _HOST_MODULES]
+        if hit:
+            problems.append(f"{relpath} 引宿主类型 {name!r}（命中段 {hit}，路线稿 §2 禁止项）")
+        # 2) 宿主包
+        if "dsh" in segs:
+            problems.append(f"{relpath} 引宿主包 {name!r}（路线稿 §2 禁止项）")
+        # 3) 反向依赖
+        if rank is not None and segs:
+            head = segs[0]
+            other = _LAYER_RANK.get(head)
+            if other is not None and other < rank:
+                problems.append(f"{relpath} {layer} 层反向依赖上层 {name!r}（路线稿 §2）")
+        # 4) 解析不出目标段：显式报错，不许静默跳过。
+        #    真实形态：`md_cg/kernel/__init__.py` 里写 `from .. import x`——
+        #    level=2 越过了 md_cg 这一点，合成后为空段。静默跳过就漏报。
+        if not segs and not file_path:
+            pass  # 无 file_path 时由调用方负责给出可解析的名字
+        elif not segs:
+            problems.append(
+                f"{relpath} 导入 {name!r} 解析不出目标段（越过 md_cg 包根）——"
+                "无法判定归属，按 fail-closed 记为违规"
+            )
+    return problems
 
 
 def _test_import_direction():
@@ -222,33 +344,52 @@ def _test_import_direction():
         pkg = os.path.join(_REPO, "md_cg", layer)
         for path in _iter_py(pkg):
             rel = os.path.relpath(path, _REPO)
-            for name in _imported_names(path):
-                base = name.lstrip(".")
-                head = base.split(".")[0]
-                if head in _HOST_MODULES:
-                    problems.append(f"{rel} 引宿主类型 {name!r}（路线稿 §2 禁止项）")
-                if "dsh" in base.split("."):
-                    problems.append(f"{rel} 引宿主包 {name!r}（路线稿 §2 禁止项）")
-                # 反向依赖：kernel 引 govern/iface/adapter；govern 引 adapter
-                if layer == "kernel" and head in ("govern", "adapter"):
-                    problems.append(f"{rel} 内核层反向依赖上层 {name!r}")
-                if layer == "govern" and head in ("adapter",):
-                    problems.append(f"{rel} 治理层反向依赖适配层 {name!r}")
+            problems.extend(_violations(layer, rel, _imported_names(path), path))
     assert not problems, "导入图违规：\n        " + "\n        ".join(problems)
 
 
 def _test_import_guard_catches_violation():
-    """守卫自证：真的能在**夹具**里抓到反向依赖（防「恒绿断言」）。"""
-    with tempfile.TemporaryDirectory() as tmp:
-        pkg = os.path.join(tmp, "kernel")
-        os.makedirs(pkg)
-        bad = os.path.join(pkg, "bad.py")
-        io.open(bad, "w", encoding="utf-8").write(
-            "from mcp.server import x\nfrom ..govern import y\n"
-        )
-        names = _imported_names(bad)
-        assert any("mcp" in n for n in names), f"应解析出 mcp 导入，实得 {names}"
-        assert any("govern" in n for n in names), f"应解析出 govern 导入，实得 {names}"
+    """守卫自证：真的能在**夹具**里抓到反向依赖与宿主类型（防「恒绿断言」）。
+
+    关键：断言走的是**与真实扫描同一个 `_violations()`**，而不是「ast 能否
+    解析出 import 名」。因此把 `_HOST_MODULES` 或反向依赖判据整段删掉，本用例
+    必然转红——这正是它区别于恒真断言的地方。
+    """
+    kernel_dir = os.path.join(_REPO, "md_cg", "kernel")
+    cases = [
+        # (夹具源码, 夹具文件名, 期望违规关键词)
+        ("from mcp.server import x\n", "bad_mcp.py", "宿主类型"),
+        ("from md_cg.mcp_server import x\n", "bad_host.py", "宿主类型"),
+        ("from ..mcp_server import x\n", "bad_rel.py", "宿主类型"),
+        ("from ..govern import y\n", "bad_gov.py", "反向依赖"),
+        ("from ..iface import contracts\n", "bad_iface.py", "反向依赖"),
+        # 宿主包（`dsh`）判据的夹具：缺了它，把「dsh in segs」删掉也不会红
+        ("from ..dsh import plugin\n", "bad_dsh.py", "宿主包"),
+        # 多段穿透：首段是 md_cg，真正的宿主模块在第 2 段
+        ("from md_cg.hooks import inject\n", "bad_deep.py", "宿主类型"),
+        # 越过包根：md_cg/kernel/__init__.py 写 `from .. import x` → 合成后空段，
+        # 归属不可判。静默跳过即漏报，故按 fail-closed 记为违规。
+        ("from .. import x\n", "bad_overroot.py", "解析不出目标段"),
+        # `from . import govern` 解析为 md_cg.kernel.govern（同包内），
+        # 不是反向依赖、也不是空名——它**必须被判为干净**，
+        # 这样判据才不会把正常的同包引用误伤成违规。
+        ("from . import helpers\n", "ok_samepkg.py", None),
+    ]
+    for source, fname, want in cases:
+        relpath = "md_cg/kernel/" + fname
+        names = {
+            line.split(" import ")[0].replace("from ", "").strip()
+            for line in source.strip().splitlines()
+            if line.strip()
+        }
+        got = _violations("kernel", relpath, names, os.path.join(kernel_dir, fname))
+        joined = " | ".join(got)
+        if want is None:
+            assert not got, f"夹具 {fname}（{source.strip()!r}）应判为干净，实得 {got!r}"
+        else:
+            assert got and want in joined, (
+                f"夹具 {fname}（{source.strip()!r}）应判出「{want}」，实得 {got!r}"
+            )
 
 
 def _test_import_guard_clean_on_real_tree():
@@ -257,8 +398,10 @@ def _test_import_guard_clean_on_real_tree():
         pkg = os.path.join(_REPO, "md_cg", layer)
         assert os.path.isdir(pkg), f"W1 骨架缺失：md_cg/{layer}"
         for path in _iter_py(pkg):
-            for name in _imported_names(path):
-                assert "mcp" != name.split(".")[0], f"{path} 不该引 mcp"
+            rel = os.path.relpath(path, _REPO)
+            assert not _violations(layer, rel, _imported_names(path), path), (
+                f"{rel} 不该有导入图违规"
+            )
 
 
 def main():
@@ -266,6 +409,7 @@ def main():
     _check("契约恰好四个且顺序固定", _test_contract_names)
     _check("Write.provenance 必填（三态全红）", _test_write_requires_provenance)
     _check("WriteRequest 形状与指纹", _test_write_request_shape)
+    _check("WriteRequest 真不可变（指纹不可污染）", _test_write_request_immutable)
     _check("WriteReceipt 无账必红", _test_write_receipt_requires_ledger)
     _check("Read.why 必填（四态全红）", _test_read_requires_why)
     _check("打分层吐 state 必红（#111）", _test_read_state_only_from_govern)

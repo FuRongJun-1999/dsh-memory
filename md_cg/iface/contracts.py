@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from types import MappingProxyType
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Protocol, Tuple, runtime_checkable
 
 __all__ = [
@@ -119,9 +120,17 @@ def reject_state_in_scoring(items: Iterable[Mapping[str, Any]]) -> List[Mapping[
 
 
 class WriteRequest:
-    """``Write.write`` 的入参形状。不可变；``provenance`` 构造时即校验。"""
+    """``Write.write`` 的入参形状。**真正不可变**；``provenance`` 构造时即校验。
 
-    __slots__ = ("node_id", "content", "conditions", "provenance")
+    为什么不用「仅 ``__slots__``」：
+        ``__slots__`` 只阻止**新增**属性，不阻止**重新赋值**——
+        ``req.node_id = "x"`` 照样能改，而 ``digest()`` 每次重算，
+        于是指纹可被外部改写污染（实测：改完 digest 直接变）。
+        因此本类用 ``__setattr__`` 守卫封死赋值，并把两个 mapping 换成
+        ``MappingProxyType``（内层也是只读视图，堵住 ``provenance["k"]=1``）。
+    """
+
+    __slots__ = ("node_id", "content", "conditions", "provenance", "_frozen")
 
     def __init__(
         self,
@@ -134,10 +143,23 @@ class WriteRequest:
             raise ContractViolation("bad_node_id", "node_id 必须是非空白字符串")
         if not isinstance(content, str):
             raise ContractViolation("bad_content", f"content 必须是 str，收到 {type(content).__name__}")
-        self.node_id = node_id
-        self.content = content
-        self.conditions = dict(conditions or {})
-        self.provenance = dict(require_provenance(provenance))
+        # 构造期写入必须绕过 __setattr__ 守卫
+        object.__setattr__(self, "node_id", node_id)
+        object.__setattr__(self, "content", content)
+        object.__setattr__(self, "conditions", MappingProxyType(dict(conditions or {})))
+        object.__setattr__(self, "provenance", MappingProxyType(dict(require_provenance(provenance))))
+        object.__setattr__(self, "_frozen", True)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if getattr(self, "_frozen", False):
+            raise AttributeError(
+                f"WriteRequest 不可变：拒绝给 {name!r} 赋值。"
+                "指纹必须对同一份内容稳定——需要新内容请新建一个 WriteRequest。"
+            )
+        object.__setattr__(self, name, value)
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError(f"WriteRequest 不可变：拒绝删除 {name!r}")
 
     def as_dict(self) -> Dict[str, Any]:
         return {
