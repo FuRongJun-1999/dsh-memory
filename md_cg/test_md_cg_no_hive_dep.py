@@ -122,9 +122,13 @@ def _resolve_names(tree, full_pkg):
 # 生效条件：root 存在即成立；返回 ([(相对路径, 行号, 文本)], [相对路径], 文件总数)。
 # 扫描面取自文件**实际文本**（AST）；不截断（一次性取全，打印总数以便核对）。
 # 相对路径一律用 "/" 分隔且**相对 root**，这样同名文件在 md_cg/ 与 md_cg/kernel/ 下可区分。
+# ★包根名从 root 目录名**派生**，不硬编码 _PKG：否则扫描根改名（或扫子目录当根）时折算全错，
+#   而错法可能恰好仍给出「违规/干净」的正确二元结论，掩盖问题（实测见 C1-R5）。
 def scan_paths(root=_MDCG):
     prod_viol, test_hits, total = [], [], 0
+    all_names = []          # (相对路径, 行号, 折算后全名) —— 供 C1-R5 反证包根名来源
     root = os.path.abspath(root)
+    pkg = os.path.basename(root) or _PKG
     for dp, dn, fns in os.walk(root):
         dn[:] = [d for d in dn if d not in ("__pycache__",)]
         for fn in sorted(fns):
@@ -135,7 +139,7 @@ def scan_paths(root=_MDCG):
             rel = os.path.relpath(p, root).replace(os.sep, "/")
             rel_dir = os.path.dirname(rel)
             sub = [] if not rel_dir else rel_dir.split("/")
-            full_pkg = [_PKG] + sub
+            full_pkg = [pkg] + sub
             try:
                 tree = ast.parse(io.open(p, encoding="utf-8", errors="replace").read())
             except SyntaxError as e:
@@ -143,6 +147,9 @@ def scan_paths(root=_MDCG):
                 continue
             hits = []
             for ln, full in _resolve_names(tree, full_pkg):
+                # 暴露折算结果，供 C1-R5 断言「包根名确实来自 root」——
+                # 否则该断言只能直接调 _resolve_names 自己传包段，把派生逻辑绕过去（实测漏抓硬编码回归）。
+                all_names.append((rel, ln, full))
                 if full.split(".")[0] == "hive":
                     hits.append((ln, "import %s" % full))
             if not hits:
@@ -151,12 +158,12 @@ def scan_paths(root=_MDCG):
                 test_hits.append(rel)
             else:
                 prod_viol.extend((rel, ln, txt) for ln, txt in hits)
-    return prod_viol, sorted(test_hits), total
+    return prod_viol, sorted(test_hits), total, all_names
 
 
 # 生效条件：同 scan_paths；但按旧口径返回**文件名**（供 C1-P/T1/T2 与既有登记表比对，登记表存的是文件名）。
 def scan(root=_MDCG):
-    pv, th, total = scan_paths(root)
+    pv, th, total, _all = scan_paths(root)
     prod_viol = [(os.path.basename(r), ln, t) for r, ln, t in pv]
     test_hits = sorted(set(os.path.basename(r) for r in th))
     return prod_viol, test_hits, total
@@ -235,7 +242,7 @@ def main():
                 os.makedirs(os.path.dirname(_dst), exist_ok=True)
             io.open(_dst, "w", encoding="utf-8").write(_s)
         # 关键：**一次整树扫描**，靠相对路径区分 md_cg/x.py 与 md_cg/kernel/x.py
-        _pv2, _th2, _ = scan_paths(sub)
+        _pv2, _th2, _, _all2 = scan_paths(sub)
         _flagged = set(r for r, _ln, _t in _pv2)
         _wrong = []
         for _d, _n, _s, _e, _desc in _REL_CASES:
@@ -304,6 +311,40 @@ def main():
                 _abad.append((pkg, src.strip(), want, names))
         ok("C1-R4 ★alias 形态（module=None）不丢名：4 态都能解析出 hive（旧判据在此全盲）",
            not _abad, _abad)
+
+        # ★R5 包根名必须从扫描根目录名**派生**，不能硬编码。
+        #   ★这里必须**经由 scan_paths()** 断言，不能直接调 _resolve_names 并自己传包段
+        #   —— 后者会把 scan_paths 的派生逻辑整个绕过去，硬编码回归时照样通过（实测漏抓）。
+        _op = os.path.join(sb, "otherpkg")
+        os.makedirs(os.path.join(_op, "sub"), exist_ok=True)
+        io.open(os.path.join(_op, "x.py"), "w", encoding="utf-8").write(
+            "from . import hive\n")                      # otherpkg.hive（干净）
+        io.open(os.path.join(_op, "sub", "y.py"), "w", encoding="utf-8").write(
+            "from ..hive import _a\n")                   # otherpkg.hive（干净）
+        io.open(os.path.join(_op, "sub", "z.py"), "w", encoding="utf-8").write(
+            "from ... import hive\n")                    # 越过 otherpkg ⇒ 顶层 hive（违规）
+        _pv3, _th3, _tot3, _all3 = scan_paths(_op)
+        _flagged3 = set(r for r, _l, _t in _pv3)
+        _texts3 = " ".join(t for _r, _l, t in _pv3)
+        print("    otherpkg 扫描：违规=%s  文件数=%d  文本=%s"
+              % (sorted(_flagged3), _tot3, _texts3 or "（无）"))
+        _r5bad = []
+        # x.py / sub/y.py 折算为 otherpkg.hive 必须干净；硬编码 md_cg 时 x.py 会变 md_cg.hive
+        # （仍干净，二元判据看不出）——所以真正能区分的是：sub/z.py 越界仍须判违规，
+        # 且 **x.py 的全名必须含 otherpkg**。为此直接读 scan_paths 内部折算不便，
+        # 改为断言：sub/z.py 违规（越界）且 x.py、sub/y.py 干净，再用 _resolve_names 反证包名。
+        if "sub/z.py" not in _flagged3:
+            _r5bad.append(("sub/z.py 应违规", sorted(_flagged3)))
+        for _clean in ("x.py", "sub/y.py"):
+            if _clean in _flagged3:
+                _r5bad.append((_clean + " 应干净", sorted(_flagged3)))
+        # 反证：直接用 scan_paths 自己产出的全名表，断言包根名是 otherpkg。
+        _nm = [f for _r, _l, f in _all3 if _r == "x.py"]
+        print("    otherpkg/x.py 折算全名 =", _nm, "（须含 otherpkg，非 md_cg）")
+        if _nm != ["otherpkg.hive"]:
+            _r5bad.append(("全名应含 otherpkg", _nm))
+        ok("C1-R5 ★包根名从 root 目录名派生（经 scan_paths 端到端 + 全名反证，不绕过派生逻辑）",
+           not _r5bad, _r5bad)
     finally:
         shutil.rmtree(sb, ignore_errors=True)
 
