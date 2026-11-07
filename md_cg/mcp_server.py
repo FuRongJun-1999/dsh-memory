@@ -175,6 +175,102 @@ def _note_doc_filter(meta, dropped, enabled):
     return meta
 
 
+def norm_tags(value):
+    """#721：把调用方给的标签入参规范化成 tuple。
+
+    判据（与 op_table.read.params 的注释同一真源，改一处须改两处）：
+      · None / 缺省 / 空容器 => ()  —— 调用方「没提这个维度」，不是「要空集」
+      · 单个 str           => (str,) —— 允许省略列表，避免调用方为一个标签写数组
+      · list/tuple/set     => 逐项转 str 后去重保序
+      · 其他（int/dict/…）  => TypeError —— 显式报错，不静默当没传
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        v = value.strip()
+        return (v,) if v else ()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        out = []
+        for it in value:
+            if not isinstance(it, str):
+                raise TypeError("标签必须是字符串，收到 %s" % type(it).__name__)
+            s = it.strip()
+            if s and s not in out:
+                out.append(s)
+        return tuple(out)
+    raise TypeError("标签入参必须是字符串或字符串列表，收到 %s" % type(value).__name__)
+
+
+def filter_by_tags(items, tags_of, include_tags=(), exclude_tags=()):
+    """#721：按标签过滤检索结果（域隔离）。
+
+    语义（三条判据，显式声明，与 issue #721 的建议一致）：
+      · 多标签 = **OR**：命中所给任一标签即命中（include 保留 / exclude 剔除）；
+      · 匹配 = **全等**：不做前缀、不做大小写折叠以外的归一（见 _fold）；
+      · 无匹配 = **返回空集，不报错**：空集是合法检索答案，不是异常。
+    优先级：**exclude 先于 include** —— 同一节点两边都命中时被剔除。
+    缺省（两个都为空）=> 原样返回且 dropped=0，调用方行为逐位不变。
+    """
+    inc = tuple(include_tags or ())
+    exc = tuple(exclude_tags or ())
+    if not inc and not exc:
+        return items, 0
+    kept = []
+    dropped = 0
+    for it in items or []:
+        tags = set(tags_of(it) or ())
+        if exc and tags & set(exc):
+            dropped += 1
+            continue
+        if inc and not (tags & set(inc)):
+            dropped += 1
+            continue
+        kept.append(it)
+    return kept, dropped
+
+
+def _note_tag_filter(meta, dropped, include_tags, exclude_tags):
+    """#721：把标签过滤读数体现在 meta 上（不静默吞掉筛掉的条数）。"""
+    if not isinstance(meta, dict):
+        meta = {}
+    else:
+        meta = dict(meta)
+    meta["include_tags"] = list(include_tags or ())
+    meta["exclude_tags"] = list(exclude_tags or ())
+    meta["tag_filtered"] = dropped
+    return meta
+
+
+def tags_of_item(cg, item):
+    """#721：取一条结果所属节点的标签集合。
+
+    先看结果自带的（search 面的 node dict / recall 面的 pack 条目），缺了才回库取一次。
+    回库失败按「无标签」处理而**不抛**：读面不该因为一次 tags 查询炸掉整次检索
+    ——失败读数会体现在 meta.tag_filtered 上，而不是静默。
+    """
+    if isinstance(item, (list, tuple)):   # search 面： (node, score, qual)
+        item = item[0] if item else None
+    if not isinstance(item, dict):
+        return ()
+    fm = item.get("frontmatter")
+    if isinstance(fm, dict) and fm.get("tags") is not None:
+        return fm.get("tags") or ()
+    if item.get("tags") is not None:
+        return item.get("tags") or ()
+    nid = item.get("id") or item.get("node_id")
+    if nid and cg is not None:
+        try:
+            node = cg.get(nid)
+        except Exception:                 # noqa: BLE001 —— 见 docstring
+            node = None
+        if isinstance(node, dict):
+            nfm = node.get("frontmatter")
+            if isinstance(nfm, dict):
+                return nfm.get("tags") or ()
+            return node.get("tags") or ()
+    return ()
+
+
 def _p(t, desc, req=False, **extra):
     d = {"type": t, "description": desc}
     if req:
@@ -278,6 +374,11 @@ TOOLS = [
                           exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex ⑤ 断言"
                                                 "文档节点必须可被检索到；需要「只看真记忆卡」的调用方显式传 true）"),
+                          # issue #721（#802）：op_table 的 read 面登记了这两个参数，但 cg 的
+                          # schema 里没有 ⇒ check_op_table_parity 判「幻影参数」，并连带让
+                          # test_issue153b / test_issue71 的跨面对账红。此处补齐。
+                          include_tags=_p("array", "issue #721：检索期按标签过滤——只保留含任一标签的节点"),
+                          exclude_tags=_p("array", "issue #721：检索期按标签过滤——剔除含任一标签的节点"),
                           expand=_p("array", "LLM 查询侧扩展词：[{term,weight}] 或 [\"词\"]；"
                                              "仅在查询时刻生效，索引侧仍白箱"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
@@ -807,6 +908,11 @@ KERNEL_TOOLS = [
                                                          "DEFER、不冒充已确认；传 true 回严格闸门）"),                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex 断言"
                                                 "文档节点必须可被检索到；需要只看真记忆卡时显式传 true）"),
+                          # issue #721（#802）：op_table 的 read 面登记了 include_tags/exclude_tags，
+                          # 但 cg 的 schema 里没有 ⇒ check_op_table_parity 判「幻影参数」，
+                          # 并连带 test_issue153b / test_issue71 的跨面对账红。此处补齐。
+                          include_tags=_p("array", "issue #721：检索期按标签过滤——只保留含任一标签的节点"),
+                          exclude_tags=_p("array", "issue #721：检索期按标签过滤——剔除含任一标签的节点"),
             excerpt_strategy=_p("string", "read 超预算条目摘录方式：prefix（默认）或 query（查询相关原文片段）"),
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
@@ -2757,6 +2863,20 @@ def _cg_dispatch(cg, a):
         q = a.get("query") or a.get("intent") or ""
         # issue #303 O4：k 越界的信号单点（保留夹紧/切片行为，只在返回体加 warning）
         _kwarn = _k_warning(_int_arg(a, "k", 20))
+        # issue #721：检索期按标签过滤（域隔离）。
+        # 入参规范化放在**两条路径分叉之前**——recall(budget_tokens) 与 search 必须同口径，
+        # 否则同一个参数在两条路径上语义不同，正是本 issue 要消灭的那类「软约束」。
+        # 类型非法 -> 结构化 error（fail-closed），不静默当没传：静默会把调用方的
+        # 「域隔离」请求变成「全部域」返回，比报错危险得多。
+        try:
+            _inc_tags = norm_tags(a.get("include_tags"))
+            _exc_tags = norm_tags(a.get("exclude_tags"))
+        except TypeError as _e:
+            return {"ok": False, "error": "invalid_tags",
+                    "include_tags": a.get("include_tags"),
+                    "exclude_tags": a.get("exclude_tags"),
+                    "hint": "%s；标签须为字符串或字符串列表" % _e}
+        _tag_on = bool(_inc_tags or _exc_tags)
         # 显式 0 也是「显式」（2026-09-24 修复）：旧写法 `if a.get("budget_tokens")`
         # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
         if a.get("budget_tokens") is not None:
@@ -2781,6 +2901,15 @@ def _cg_dispatch(cg, a):
                     _out["pack"] = _pack2
                     _out["meta"] = _note_doc_filter(_out.get("meta"), _drop2,
                                                     a.get("exclude_doc", False))
+                # issue #721：标签过滤（recall 路径）。与 search 路径同一判据函数。
+                if _tag_on:
+                    _pack3, _drop3 = filter_by_tags(
+                        _out.get("pack") or [], lambda it: tags_of_item(cg, it),
+                        include_tags=_inc_tags, exclude_tags=_exc_tags)
+                    _out = dict(_out)
+                    _out["pack"] = _pack3
+                    _out["meta"] = _note_tag_filter(_out.get("meta"), _drop3,
+                                                    _inc_tags, _exc_tags)
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
@@ -2797,8 +2926,10 @@ def _cg_dispatch(cg, a):
                               if "strict_conditions" in a else {}),
                            **_tkw)
         _k_want = search_args["k"]
-        if _doc_filter_on:
-            # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）
+        if _doc_filter_on or _tag_on:
+            # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）。
+            # issue #721：标签过滤与 doc 过滤同理会吃配额——top-k 被反面域占满时
+            # 结果会假性空掉，故两者共用同一条超取规则。
             search_args["k"] = min(max(_k_want * 4, _k_want + 32), 400)
         if a.get("bm25", True) and hasattr(cg, "search_rrf"):
             ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
@@ -2810,10 +2941,19 @@ def _cg_dispatch(cg, a):
         # issue #653：判据收敛到 drop_doc_nodes（单一真源），不再就地手写第二条。
         res, _excluded_doc = drop_doc_nodes(
             res, lambda x: (x[0] or {}).get("id"), _doc_filter_on)
-        # 截回调用方要的 k（超取只为让 doc_ 不占配额，不改变对外语义）
-        if _doc_filter_on and len(res) > _k_want:
+        # issue #721：标签过滤（search 路径）。与 recall 路径同一判据函数 filter_by_tags，
+        # 语义见其 docstring：多标签 OR / 全等 / 无匹配返回空集 / exclude 优先于 include。
+        _tag_dropped = 0
+        if _tag_on:
+            res, _tag_dropped = filter_by_tags(
+                res, lambda x: tags_of_item(cg, x), include_tags=_inc_tags,
+                exclude_tags=_exc_tags)
+        # 截回调用方要的 k（超取只为让被过滤项不占配额，不改变对外语义）
+        if (_doc_filter_on or _tag_on) and len(res) > _k_want:
             res = res[:_k_want]
         meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
+        if _tag_on:
+            meta = _note_tag_filter(meta, _tag_dropped, _inc_tags, _exc_tags)
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"),
