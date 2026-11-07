@@ -266,7 +266,8 @@ def mode_p95(writes=300, seed_n=120, reader_mode="search", timeout_s=180):
         if not _read_prog(prog):
             print("!! 读者 30s 内无任何进展 —— 实验无效，不出结论")
             try:
-                open(stopf, "w").close()
+                with open(stopf, "w", encoding="utf-8"):
+                    pass
             except OSError:
                 pass
             proc.kill()
@@ -278,7 +279,8 @@ def mode_p95(writes=300, seed_n=120, reader_mode="search", timeout_s=180):
         t1 = time.time()
         cg.flush()
 
-        open(stopf, "w").close()
+        with open(stopf, "w", encoding="utf-8"):
+            pass
         try:
             _out, err = proc.communicate(timeout=timeout_s)
         except subprocess.TimeoutExpired:
