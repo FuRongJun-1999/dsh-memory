@@ -2333,6 +2333,9 @@ class MdCG:
                     log_dirs.add(os.path.dirname(str(_p).replace("\\", "/")))
             if not changed <= log_dirs:
                 return None
+
+        # ④'' **不在此处判**：盘面覆盖闸要在重放之后才判得准（见下方 `_covers_disk`
+        # 调用点）。此处留注释只为标明④' 不是最后一道闸。
         if not recs:
             # 无新增：**仍须返回新对象**。调用方 `_maybe_reload_index` 会在
             # 拿到的 idx["nodes"] 上就地重放 `_dirty`（`idx["nodes"][nid] = e`），
@@ -2345,6 +2348,10 @@ class MdCG:
             # 一轮会把同一批已核销的变化再判一次，无限回退全量。
             self._baseline_dir_fp = cur_fp
             _n = dict(base.get("nodes") or {})
+            # ④'' 同上：无新增日志时也必须判盘面覆盖（孤儿形态同样存在于
+            # 「零新增 + 盘上多一个 .md」这条路径上）。
+            if not self._covers_disk(_n):
+                return None
             _idx = {"schema": SCHEMA, "nodes": _n,
                     "buckets": self._count_buckets(_n)}
             if "_fingerprint" in base:
@@ -2367,6 +2374,18 @@ class MdCG:
                 nodes[nid] = e
         if skips:
             note_bad_payload_rows(skips)
+        # ④'' 盘面覆盖闸：**必须复用全量路径的 `_covers_disk`**，不得只靠目录
+        # 指纹。独立复核实测到的缺陷（改前可见 / 改后不可见）：
+        #   「他实例写已落盘、其索引增量还在其 `_dirty`」——盘上多出一个 .md，
+        #   日志里没有它。若它恰好和一条合作写入落在**同一子目录**，则
+        #   `changed == log_dirs` 成立、④' 放行，而快照里没有该节点 ⇒ 增量
+        #   继承快照的旧节点集 ⇒ **该节点在存活读者上要等到下次全量才可见**。
+        #   全量路径正是靠本闸挡住这种形态（`_covers_disk` 不过 ⇒ 宁重扫）。
+        # 不调它 = 两条路径对「盘面覆盖」各执一套口径，正好回到 #409 要消灭
+        # 的形态（该 issue 的收口纪律是判据单点）。
+        # 位置在**重放之后**：要判的是「重放完的节点集是否覆盖当前盘面」。
+        if not self._covers_disk(nodes):
+            return None
         idx = {"schema": SCHEMA, "nodes": nodes, "buckets": {}}
         idx["buckets"] = self._count_buckets(nodes)
         # 保留快照的指纹（④ 已判其仍与当前盘面一致，故逐位不变）
