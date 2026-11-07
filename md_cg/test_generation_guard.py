@@ -55,7 +55,11 @@ PINNED_INFO_KEYS = frozenset({
 
 NEW_INFO_KEYS = ("code_generation", "disk_generation", "stale_on_disk",
                  "restart_required", "hint",
-                 "write_gate")  # issue #708：分层写入闸的进程内计数（warn 观察期）
+                 "write_gate",   # issue #708：分层写入闸的进程内计数（warn 观察期）
+                 # issue #812（2026-11-07）：内存索引 vs 落盘索引的偏差面——纯增量扩键。
+                 # 因由：批量软删 1987 条后 node_count 不降反升，真因是本进程内存索引陈旧；
+                 # 没有这组键，调用方无法判定「数字到底信哪个」。
+                 "index_mtime", "node_count_scope")
 
 _FAILED = []
 
@@ -286,6 +290,10 @@ FAST_INFO_KEYS = set(NEW_INFO_KEYS) | {
 #: 快照模式**新增**的键（除 NEW_INFO_KEYS 外）——只允许这三个出现在 full 的「多出」里。
 FAST_ONLY_KEYS = {"flush_state", "full", "node_count"}
 
+#: issue #812：**只在 full 面**出现的键（快照面不解析 58MB 落盘索引，故不能要求快照齐备）。
+#: 它们仍需登记，否则「full 多出未登记键」会红——这正是扩键流程要的。
+FULL_ONLY_INFO_KEYS = {"index_node_count", "index_stale", "index_stale_error"}
+
 
 def _parse_info(stdout, rid):
     for line in stdout.splitlines():
@@ -346,7 +354,8 @@ def check_info_keys(tmp):
     if lost:
         _fail("五·键集", "full 丢失既有 20 键：%s" % lost)
         return
-    extra = sorted(set(full) - PINNED_INFO_KEYS - set(NEW_INFO_KEYS) - FAST_ONLY_KEYS)
+    extra = sorted(set(full) - PINNED_INFO_KEYS - set(NEW_INFO_KEYS) - FAST_ONLY_KEYS
+                   - FULL_ONLY_INFO_KEYS)
     if extra:
         _fail("五·键集", "full 多出未登记键：%s" % extra)
         return
