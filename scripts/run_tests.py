@@ -97,13 +97,27 @@ TEST_DIR_TESTS = ("hive_exec_test.py", "hive_wm_test.py",
 #: 而无入口）**不得**并入：`python <file>` 对它们只做 define、跑零个用例、RC 恒 0 ——
 #: 收进来就是新增一条永远打不红的假守卫，比不收更糟。
 #: 实测留档（2026-11-07，本清单首版差点踩的坑）：
-#:   tests/test_relation_type_whitelist_guard.py 是 **pytest-style** —— `python` 直跑
-#:   输出 0 字节 / RC=0；把它唯一的区间断言改成恒假（`assert 1.5 <= rate <= 1.6`）后
+#:   tests/test_relation_type_whitelist_guard.py 原本是 **pytest-style** —— `python`
+#:   直跑输出 0 字节 / RC=0；把它唯一的区间断言改成恒假（`assert 1.5 <= rate <= 1.6`）后
 #:   直跑**仍然 RC=0**，而 `-m pytest` 下是 8 passed 1 skipped。仓内 pytest **未**进
 #:   CI（.github/workflows 无 pytest 接线，且未声明为依赖），故收它必须先改 CI 依赖面。
-#:   ⇒ 该件**暂不收**，列为待作者裁决项（补 script-style 入口 或 给 CI 装 pytest）。
+#:   ⇒ 首版**暂不收**，列为待作者裁决项（补 script-style 入口 或 给 CI 装 pytest）。
+#:
+#: 裁决落地（2026-11-08，作者授权「最优方案执行」）：走**补 script-style 入口**这一支，
+#: 不新增 CI 依赖面（另一支要给两个 workflow 都装 pytest、且改依赖声明，成本与风险都更高）。
+#:   改造：模块顶层 `import pytest` 降级为**可选软导入**（无 pytest 环境也能 import，
+#:   否则收集面直接 ImportError）；两处 pytest 特有依赖做等价替换 ——
+#:     · pytest.approx      → 文件内 approx()（仅标量相对/绝对容差，够本件用）
+#:     · pytest.skip        → _skip()：有 pytest 时抛原生 Skipped（-m pytest 仍记 skipped），
+#:                            无 pytest 时抛本地 SkipCase，由 main() 打印 SKIP 不计入通过
+#:   补 `_ENTRY_CASES` + `main()` + `if __name__`，与 md_cg/test_issue192_* 同一形态。
+#:   实测（2026-11-08）：直跑 `8 passed, 1 skipped, 0 failed` RC=0，`-m pytest` 同为
+#:   8 passed 1 skipped RC=0 —— 两条路径**结果等价**。变异 M1（白名单断言恒假）/
+#:   M2（笔误判据改错）/ M3（approx 期望改错）各自精确打红 RC=1，还原后 SHA256 字节一致。
+#:   ⇒ 假绿已消除，本件可以收。
 ROOT_TESTS = ("test_hook_audit_summary.py",
-              "test_issue721_tag_filter.py")
+              "test_issue721_tag_filter.py",
+              "test_relation_type_whitelist_guard.py")
 
 
 # 生效条件：以模块级常量 _REPO 为根，返回全量套件实际执行的测试文件路径列表（相对 _REPO 的正斜杠路径）——md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py，按组序拼接。
