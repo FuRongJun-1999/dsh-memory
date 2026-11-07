@@ -50,8 +50,15 @@ def ok(cond, msg, detail=""):
           + (("  <- " + str(detail)) if detail and not cond else ""))
 
 
-def _run(*argv, timeout=900, script=None):
+def _run(*argv, timeout=900, script=None, strip_ci=False):
     env = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8"}
+    # strip_ci：run_tests.py 在 CI 环境下会把 `--gate fast` **强制升级为 strict**
+    # （防误用漏检，见其 main() 内 `if gate == "fast" and os.environ.get("CI")`）。
+    # 而 B6/B7 要测的正是 fast 档的分支——不剥掉 CI 变量，该分支在 CI 上根本不会
+    # 走到，断言必然假红（2026-11-08 CI 实测：本地绿、CI 红）。
+    if strip_ci:
+        for k in ("CI", "GITHUB_ACTIONS", "CONTINUOUS_INTEGRATION", "BUILD_NUMBER"):
+            env.pop(k, None)
     r = subprocess.run([sys.executable, "-X", "utf8", script or SCRIPT, *argv],
                        cwd=ROOT,
                        capture_output=True, text=True, encoding="utf-8",
@@ -95,7 +102,8 @@ def main(script=None):
     # 但它们**原先进不了 skipped 集**：若整批都是重质检项，就得到「零执行 + 零跳过」，
     # 于是「全跳过」门的前提 `(skipped or mod_skips)` 为假、门被绕过（rc=0 沉默通过）。
     # 修法是把 _heavy_skipped 并入 skipped；此二条锁死该行为。
-    out2c, rc2c = _run("--gate", "fast", "-k", HEAVY, script=script)
+    # 必须 strip_ci：CI 环境下 run_tests 会把 fast 强制升为 strict，该分支走不到。
+    out2c, rc2c = _run("--gate", "fast", "-k", HEAVY, script=script, strip_ci=True)
     ok(rc2c == 3, "B6 全被 --gate fast 移出 ⇒ rc=3（第四形态，同为零执行）", rc2c)
     ok("gate=fast" in out2c and "重质检" in out2c,
        "B7 报错信息点明是 fast 档移出（不误称「依赖缺失」）", out2c[-400:])
