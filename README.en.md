@@ -21,7 +21,7 @@
 > **Roadmap**: development now focuses on the **LINGSHU 1.0 architecture**; fixes for existing issues are **deferred**
 > (still accepted, but lower priority than 1.0).
 
-📖 **[Third-party getting-started tutorial](https://znsvdekx.vibedrop.site/)** - "LINGSHU dsh-memory Beginner Onboarding Research Report" (written independently by a third party, not official project documentation)
+📖 **[Official usage guide](docs/灵枢使用教程.md)** - layer selection / the six-element format / the three read faces / seven pitfalls you will hit (10-minute onboarding).
 
 </div>
 
