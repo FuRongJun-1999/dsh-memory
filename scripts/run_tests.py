@@ -565,9 +565,14 @@ def main():
         print(f"共 {len(targets)} 个")
         # issue #185：让「已发现数」与「磁盘递归数」的差额可见——差额即被静默
         # 丢弃的子目录测试数（修复后恒为 0；回退非递归 glob 时立刻 >0）。
-        _md_n = sum(1 for g, _n, _a in targets if g == "md_cg")
+        #
+        # 必须用**未经 -k/--module 过滤**的全量清单来算：本行的语义是「收集面对
+        # 不对得上磁盘」，与被看的那几个目标无关。早先误用 `targets`，于是
+        # `--list -k bench_swarm` 会打出「已发现 0 个 / 磁盘递归 621 个」——
+        # 一个永远不会为真的差值，读者会误判成收集面坏了（2026-11-08 实测）。
+        _md_n = sum(1 for _g, _n, _a in _discover() if _g == "md_cg")
         print(f"已发现 {_md_n} 个 / 磁盘递归 {_md_cg_disk_recursive_count()} 个"
-              f"（md_cg test_*.py）")
+              f"（md_cg test_*.py；本行不受 -k/--module 影响）")
         return 0
 
     # 门禁档位生效点（2026-10-27）：只在这里决定「跑不跑重质检」，守卫内部一律不改。

@@ -111,6 +111,22 @@ def main(script=None):
     ok(rc4 == 0, "D1 --list ⇒ rc=0", rc4)
     ok("共 " in out4, "D2 打印目标总数", out4[-200:])
 
+    # D3：--list 的「已发现 / 磁盘递归」诊断行**不得**受 -k 过滤影响。
+    # 该行的语义是「收集面对不对得上磁盘」，与被看的目标无关。早先误用过滤后的
+    # targets 计算，`--list -k bench_swarm` 会打出「已发现 0 个 / 磁盘递归 621 个」
+    # ——一个永远不为真的差值，读者会误判成收集面坏了（2026-11-08 实测）。
+    out4f, rc4f = _run("--list", "-k", "bench_swarm", script=script)
+    ok(rc4f == 0, "D3 带 -k 的 --list ⇒ rc=0", rc4f)
+    _m = [ln for ln in out4f.splitlines() if "已发现" in ln]
+    ok(bool(_m), "D4 诊断行存在", out4f[-300:])
+    if _m:
+        import re as _re
+        _g = _re.search(r"已发现\s+(\d+)\s+个\s*/\s*磁盘递归\s+(\d+)\s+个", _m[0])
+        ok(bool(_g) and _g.group(1) == _g.group(2),
+           "D5 过滤下两数仍相等（诊断行不受 -k 影响）", _m[0])
+    else:
+        ok(False, "D5 过滤下两数仍相等（诊断行不受 -k 影响）", "(无诊断行)")
+
     print("== E 判别力自证：旧实现（无全跳过门）对同一输入返回 0")
     # 旧实现的判据就是 `if bad: return 1` 否则 `return 0`——全跳过时 bad 为空 ⇒ 0。
     # 这里直接对源码做结构断言，证明「若无该门，rc 会是 0」这一路径确实存在。
