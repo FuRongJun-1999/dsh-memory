@@ -27,8 +27,11 @@
 from __future__ import annotations
 
 import ast
+import contextlib
 import io
 import os
+import shutil
+import tempfile
 import sys
 import tempfile
 
@@ -250,6 +253,17 @@ def _imported_names(path):
     形态：绝对导入保留全名（``md_cg.mcp_server``）；相对导入保留前导点
     （``..mcp_server`` / ``.``）。**空 module 的相对导入也保留**——它是
     ``from . import x`` 的形态，绝不能被静默丢掉（否则该形态完全不可见）。
+
+    别名必须一起保留——这是本函数曾经的致命缺陷。``from X import a`` 在语义上
+    等价于``import X.a``，被导入的是 ``X`` **加上** 别名 ``a``。只记 ``X`` 会
+    让「别名才是违规所在」的写法整段穿网：
+
+        from md_cg import mcp_server     记成 ``md_cg``        → 判据看不见 mcp_server
+        from .. import mcp_server        记成 ``..``           → 判据更看不见
+        from . import mcp_server         记成 ``.``            → 连目标包都丢失
+
+    三条都是「宿主模块在别名位、包名完全干净」的最自然写法，也正是路线稿 §2
+    要禁的东西。故对每个别名补一条 ``base + "." + alias``。
     """
     with io.open(path, "r", encoding="utf-8") as fh:
         source = fh.read()
@@ -261,14 +275,22 @@ def _imported_names(path):
                 names.add(a.name)
         elif isinstance(node, ast.ImportFrom):
             base = node.module or ""
-            if node.level:
-                names.add("." * node.level + base)
-            else:
-                names.add(base)
+            stem = "." * node.level + base if node.level else base
+            names.add(stem)
+            # 别名位才是真正的被导入对象：`from X import a` ⇒ X.a。
+            # 注意相对导入要**在去掉点之后再拼**，拼完再补回同样多的点：
+            #   level=2, base="" , alias="mcp_server"  → "..mcp_server"（2 点）
+            # 若天真地用 f"{stem}.{alias}"，会得到 "...mcp_server"（3 点），
+            # 层级多算一层，正是本函数要避免的那类偏移。
+            for alias in node.names:
+                if alias.name == "*":
+                    continue
+                tail = f"{base}.{alias.name}" if base else alias.name
+                names.add("." * node.level + tail if node.level else tail)
     return names
 
 
-def _resolve_fqn(rel_file, name):
+def _resolve_fqn(rel_file, name, root=None):
     """把一条 import 记录解析成**从 md_cg 起算的绝对全名**。
 
     相对导入按所在文件的位置合成：``md_cg/kernel/x.py`` 里的
@@ -279,15 +301,27 @@ def _resolve_fqn(rel_file, name):
     （``md_cg.mcp_server`` → ``["mcp_server"]``）；无法解析时返回 ([], name)。
     """
     # 文件相对仓根的路径 → 包段（去掉 md_cg 之前的部分与 .py）
-    rel = os.path.relpath(os.path.abspath(rel_file), _REPO).replace(os.sep, "/")
+    # 解析根可注入（`root`）：夹具要在**临时目录**里跑，绝不能在真树里写文件。
+    # 不变量：`x.py` 与 `__init__.py` 同属一个包，同一条相对导入必须解析一致。
+    root = _REPO if root is None else root
+    rel = os.path.relpath(os.path.abspath(rel_file), root).replace(os.sep, "/")
     parts = rel[:-3].split("/") if rel.endswith(".py") else rel.split("/")
-    if parts and parts[-1] == "__init__":
+    is_pkg_init = bool(parts) and parts[-1] == "__init__"
+    if is_pkg_init:
         parts = parts[:-1]
     # 定位 md_cg 在路径里的位置
     if "md_cg" not in parts:
         return [], name
     idx = parts.index("md_cg")
-    cur = parts[idx + 1:-1]          # 当前文件所在包（相对 md_cg）
+    # cur = **当前文件所在的包**（相对 md_cg）。
+    #   md_cg/kernel/x.py        → ['kernel']（文件所在的包）
+    #   md_cg/kernel/__init__.py → ['kernel']（同一个包，不能少这一层）
+    # 曾经一律写 `parts[idx+1:-1]`，对 `__init__.py` 会错误地再切掉一层变成 `[]`，
+    # 于是**同一个包内的同一条相对导入**在 `x.py` 与 `__init__.py` 里解析出不同结果：
+    #   `.foo` → x.py 得 md_cg.kernel.foo，__init__.py 却得 md_cg.foo
+    # 而 W1 骨架的 kernel/ 与 govern/ 目录下**恰好只有 __init__.py**，
+    # 即这条偏移对真树是百分之百命中，不是边角情形。
+    cur = parts[idx + 1:] if is_pkg_init else parts[idx + 1:-1]
     level = len(name) - len(name.lstrip("."))
     body = name.lstrip(".")
     if level == 0:                   # 绝对导入
@@ -302,7 +336,7 @@ def _resolve_fqn(rel_file, name):
     return base + tail, name
 
 
-def _violations(layer, relpath, names, file_path=None):
+def _violations(layer, relpath, names, file_path=None, root=None):
     """导入图判据**唯一实现**：给定层名与一组 import 记录，返回违规说明列表。
 
     这是**纯函数**（不做 IO），守卫与夹具自证共用它——因此「删掉判据就必红」，
@@ -317,7 +351,7 @@ def _violations(layer, relpath, names, file_path=None):
     rank = _LAYER_RANK.get(layer)
     for name in names:
         if file_path:
-            segs, _ = _resolve_fqn(file_path, name)
+            segs, _ = _resolve_fqn(file_path, name, root=root)
         else:                        # 夹具不落地时按字面分段
             segs = name.lstrip(".").split(".") if name.lstrip(".") else []
             # 与 `_resolve_fqn` 的绝对导入分支保持**同一口径**：剥掉包根 `md_cg`。
@@ -376,6 +410,25 @@ def _test_import_direction():
     assert not problems, "导入图违规：\n        " + "\n        ".join(problems)
 
 
+@contextlib.contextmanager
+def _fixture_repo():
+    """在**临时目录**里搭一个最小假仓（``md_cg/{kernel,govern,iface}/``）。
+
+    用于「夹具自证」类断言：这些断言需要真实文件系统上的包结构才能跑，
+    但**绝不能**在真树里建删文件——``run_tests.py`` 默认 ``--jobs 4`` 并行，
+    多线程同时建删同名路径会互相污染；且任何一次中断都会把临时文件留在仓里。
+    假仓每次新建、退出即删，天然并行安全。
+    """
+    repo = tempfile.mkdtemp(prefix="w1_fixture_")
+    try:
+        for layer in _LAYERS:
+            os.makedirs(os.path.join(repo, "md_cg", layer), exist_ok=True)
+        io.open(os.path.join(repo, "md_cg", "__init__.py"), "w", encoding="utf-8").write("")
+        yield repo
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
+
+
 def _test_import_guard_catches_violation():
     """守卫自证：真的能在**夹具**里抓到反向依赖与宿主类型（防「恒绿断言」）。
 
@@ -383,41 +436,59 @@ def _test_import_guard_catches_violation():
     解析出 import 名」。因此把 `_HOST_MODULES` 或反向依赖判据整段删掉，本用例
     必然转红——这正是它区别于恒真断言的地方。
     """
-    kernel_dir = os.path.join(_REPO, "md_cg", "kernel")
-    cases = [
-        # (夹具源码, 夹具文件名, 期望违规关键词)
-        ("from mcp.server import x\n", "bad_mcp.py", "宿主类型"),
-        ("from md_cg.mcp_server import x\n", "bad_host.py", "宿主类型"),
-        ("from ..mcp_server import x\n", "bad_rel.py", "宿主类型"),
-        ("from ..govern import y\n", "bad_gov.py", "反向依赖"),
-        ("from ..iface import contracts\n", "bad_iface.py", "反向依赖"),
-        # 宿主包（`dsh`）判据的夹具：缺了它，把「dsh in segs」删掉也不会红
-        ("from ..dsh import plugin\n", "bad_dsh.py", "宿主包"),
-        # 多段穿透：首段是 md_cg，真正的宿主模块在第 2 段
-        ("from md_cg.hooks import inject\n", "bad_deep.py", "宿主类型"),
-        # 越过包根：md_cg/kernel/__init__.py 写 `from .. import x` → 合成后空段，
-        # 归属不可判。静默跳过即漏报，故按 fail-closed 记为违规。
-        ("from .. import x\n", "bad_overroot.py", "解析不出目标段"),
-        # `from . import govern` 解析为 md_cg.kernel.govern（同包内），
-        # 不是反向依赖、也不是空名——它**必须被判为干净**，
-        # 这样判据才不会把正常的同包引用误伤成违规。
-        ("from . import helpers\n", "ok_samepkg.py", None),
-    ]
-    for source, fname, want in cases:
-        relpath = "md_cg/kernel/" + fname
-        names = {
-            line.split(" import ")[0].replace("from ", "").strip()
-            for line in source.strip().splitlines()
-            if line.strip()
-        }
-        got = _violations("kernel", relpath, names, os.path.join(kernel_dir, fname))
-        joined = " | ".join(got)
-        if want is None:
-            assert not got, f"夹具 {fname}（{source.strip()!r}）应判为干净，实得 {got!r}"
-        else:
-            assert got and want in joined, (
-                f"夹具 {fname}（{source.strip()!r}）应判出「{want}」，实得 {got!r}"
-            )
+    # 夹具落在**临时目录**里搭的假仓，绝不写进真树。
+    # 曾经的写法直接在 `md_cg/kernel/` 下建文件再删：`run_tests.py` 默认
+    # `--jobs 4` 并行，多线程同时建删同名路径会互相污染（A 删了 B 刚建的文件），
+    # 且任何一次中断都会把临时文件留在仓里。假仓 + 注入 root 两个问题一起消掉。
+    with _fixture_repo() as repo:
+        kernel_dir = os.path.join(repo, "md_cg", "kernel")
+        cases = [
+            # (夹具源码, 夹具文件名, 期望违规关键词)
+            ("from mcp.server import x\n", "bad_mcp.py", "宿主类型"),
+            ("from md_cg.mcp_server import x\n", "bad_host.py", "宿主类型"),
+            ("from ..mcp_server import x\n", "bad_rel.py", "宿主类型"),
+            ("from ..govern import y\n", "bad_gov.py", "反向依赖"),
+            ("from ..iface import contracts\n", "bad_iface.py", "反向依赖"),
+            # 宿主包（`dsh`）判据的夹具：缺了它，把「dsh in segs」删掉也不会红
+            ("from ..dsh import plugin\n", "bad_dsh.py", "宿主包"),
+            # 多段穿透：首段是 md_cg，真正的宿主模块在第 2 段
+            ("from md_cg.hooks import inject\n", "bad_deep.py", "宿主类型"),
+            # 越过包根：md_cg/kernel/__init__.py 写 `from .. import x` → 合成后空段，
+            # 归属不可判。静默跳过即漏报，故按 fail-closed 记为违规。
+            ("from .. import x\n", "bad_overroot.py", "解析不出目标段"),
+            # `from . import govern` 解析为 md_cg.kernel.govern（同包内），
+            # 不是反向依赖、也不是空名——它**必须被判为干净**，
+            # 这样判据才不会把正常的同包引用误伤成违规。
+            ("from . import helpers\n", "ok_samepkg.py", None),
+            # ---- 别名位盲区回归（本轮实测确认的 3 处穿网形态）----
+            # 三条的共同点：**包名本身完全干净**，违规的是别名。
+            # 旧 `_imported_names` 只记包名、丢掉别名，于是三条全绿。
+            # `from . import mcp_server`  → 旧: ['.']        → 0 条
+            ("from . import mcp_server\n", "bad_alias_dot.py", "宿主类型"),
+            # `from .. import mcp_server` → 旧: ['..']       → 仅靠「空段」碰巧兜住，
+            # 一旦按作者选项 3 放过空段就真穿网；修后由别名判据直接命中。
+            ("from .. import mcp_server\n", "bad_alias_up.py", "宿主类型"),
+            # `from md_cg import mcp_server` → 旧: ['md_cg'] → 靠「空段」兜住，同型。
+            ("from md_cg import mcp_server\n", "bad_alias_abs.py", "宿主类型"),
+        ]
+        for source, fname, want in cases:
+            relpath = "md_cg/kernel/" + fname
+            # 必须走**真实的** `_imported_names`，不能在这里另手写一套解析。
+            # 这里原先是 `line.split(" import ")[0]` 只看包名——等于把
+            # `_imported_names` 的「丢别名」缺陷在夹具里原样抄了一遍，
+            # 于是三条别名盲区夹具喂进去的仍然是干净包名，守卫再对也必绿。
+            # 夹具与被测路径共用同一个解析器，这个 bug 才不可能被夹具自己掩盖。
+            fixture = os.path.join(kernel_dir, fname)
+            io.open(fixture, "w", encoding="utf-8").write(source)
+            names = _imported_names(fixture)
+            got = _violations("kernel", relpath, names, fixture, root=repo)
+            joined = " | ".join(got)
+            if want is None:
+                assert not got, f"夹具 {fname}（{source.strip()!r}）应判为干净，实得 {got!r}"
+            else:
+                assert got and want in joined, (
+                    f"夹具 {fname}（{source.strip()!r}）应判出「{want}」，实得 {got!r}"
+                )
 
 
 def _test_import_guard_clean_on_real_tree():
@@ -430,6 +501,36 @@ def _test_import_guard_clean_on_real_tree():
             assert not _violations(layer, rel, _imported_names(path), path), (
                 f"{rel} 不该有导入图违规"
             )
+
+
+def _test_pkg_init_resolves_like_sibling_module():
+    """同一个包内的同一条相对导入，在 ``x.py`` 与 ``__init__.py`` 里必须解析一致。
+
+    为什么单列一条：变异测试显示，把 ``__init__.py`` 的定位改回
+    ``parts[idx+1:-1]``（即 ``cur=[]``），**13 条用例全绿**——因为没有任何
+    断言盯过这个分支。而 W1 骨架里 ``kernel/`` 与 ``govern/`` 目录下
+    **只有 __init__.py**，这条偏移对真树是百分之百命中，不是边角情形。
+
+    语义基准：``md_cg/kernel/x.py`` 与 ``md_cg/kernel/__init__.py`` 同属
+    ``md_cg.kernel`` 包，故 ``.foo`` 在两者中都应是 ``md_cg.kernel.foo``。
+    """
+    sibling = os.path.join(_REPO, "md_cg", "kernel", "_probe_sibling.py")
+    init = os.path.join(_REPO, "md_cg", "kernel", "__init__.py")
+    for name, want in (
+        (".foo", ["kernel", "foo"]),
+        ("..govern", ["govern"]),
+        ("..mcp_server", ["mcp_server"]),
+    ):
+        got_sibling = _resolve_fqn(sibling, name)[0]
+        got_init = _resolve_fqn(init, name)[0]
+        assert got_sibling == want, f"x.py 里 {name!r} 应解析为 {want}，实得 {got_sibling}"
+        assert got_init == want, (
+            f"__init__.py 里 {name!r} 应解析为 {want}（与同包的 x.py 一致），实得 {got_init}"
+            "—— __init__ 的相对定位偏了一层"
+        )
+        assert got_sibling == got_init, (
+            f"{name!r} 在 x.py 与 __init__.py 解析不一致：{got_sibling} vs {got_init}"
+        )
 
 
 def _test_guard_covers_every_internal_layer():
@@ -471,6 +572,7 @@ def main():
     _check("导入图单向（kernel/govern/iface）", _test_import_direction)
     _check("导入图守卫夹具自证", _test_import_guard_catches_violation)
     _check("守卫覆盖每个内层（防判据空转）", _test_guard_covers_every_internal_layer)
+    _check("__init__ 相对定位与同级模块一致", _test_pkg_init_resolves_like_sibling_module)
     _check("真树骨架干净", _test_import_guard_clean_on_real_tree)
 
     failed = [r for r in _results if not r[1]]
