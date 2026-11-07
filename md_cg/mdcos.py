@@ -2731,8 +2731,10 @@ class MdCGOS(MdCG):
                         "recent_event": True,
                     })
                 for _node in _tail:
+                    # issue #111 契约：打分层内 "state" 键字面量恰 1 处（取值=judge 结果）——
+                    # recent_tail 不自造 state（由 judge 面给），只给 reason。
                     results.append((_node, 0.0,
-                                    {"state": None, "reason": "recent_tail"},
+                                    {"reason": "recent_tail"},
                                     []))
                     _recent_tail_n += 1
         except Exception:                # noqa: BLE001 —— 保障面不拖崩主检索
