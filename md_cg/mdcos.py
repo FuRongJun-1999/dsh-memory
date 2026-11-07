@@ -2763,6 +2763,22 @@ class MdCGOS(MdCG):
     # ================= 7. budget-driven pack =================
 
 # 生效条件：query（配合 use_rrf 取 items）逐条按 budget_tokens 与 max_item_tokens 装包：若 used+t > budget_tokens，则 max_item_tokens 为真且 room=budget_tokens-used 不小于 min_excerpt（max_item_tokens 为真时取 max(1, min(50, max_item_tokens // 5))，否则为 0）时按 keep=min(max_item_tokens, room) 摘录，摘录后 est_tokens<=0 则该条以 excerpt_empty 进 skipped 并 continue；否则以 oversize_or_over_budget 进 skipped 并 continue；未超预算则计入 used 并 append，include_recent 为真时再按 left=budget_tokens-used 追加 recent_limit 条近期事件（逐条 est_tokens 不超过 left 才计入），最终返回含 pack/tokens_used/budget/skipped/recent/meta 的 dict；validity 真值时向候选层透传时效过滤（只排已过期）。
+    def _topic_aggregates(self, pack, query, min_members: int = 2,
+                          max_groups: int = 5) -> list:
+        """跨轮状态聚合（读取策略 A 项）：把同话题的命中条目排成状态时间线。
+
+        动机（Ornn8 终局报告）：答案状态常**散在多轮**里（轮9 报价 + 轮20 未安排制作），
+        search 只按单轮相关性交付，调用方拼不出完整状态。本方法**不改排序**，
+        只在装包后给一个「同话题 → 时间线」的聚合视图。
+
+        聚合键：优先用 tags 与 query 的亲和（`_tag_affinity`，与 entity 路同源），
+        无命中的条目归到 `__untagged__` 组（不输出，避免噪声）。
+        `state` 只读**既有字段**（qual 结果 / verification 状态），不自造——
+        遵守 issue #111「打分层不自造 state」的同一条纪律。
+        """
+        from .topicagg import aggregate as _agg      # noqa: PLC0415 —— 聚合实现单点
+        return _agg(pack, query, min_members=min_members, max_groups=max_groups)
+
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
@@ -2914,8 +2930,21 @@ class MdCGOS(MdCG):
                 recent.append({"role": ev.get("role"), "t": ev.get("t"),
                                "text": ev.get("text"), "tokens": t,
                                "tags": ev.get("tags") or []})
+        # ===== 读取策略改造 · A 项：跨轮状态聚合（Ornn8 测评建议①，+2~4 点最大头）=====
+        # 病灶（report 原文）：「答案状态散在轮9 和轮20 两条里，检索给了直接相关的一条，
+        # 拼不出完整状态」——这是**记忆组织**问题：search 只按单轮相关性给材料。
+        # 本段不改排序、不改打分，只在**装包之后**追加一个聚合视图：同一话题的命中条目
+        # 按时间排在一起，附「该话题的状态时间线」，让调用方能拼出完整状态。
+        # 关闭：MDCG_TOPIC_AGG=0。
+        aggregates = []
+        try:
+            if int(os.environ.get("MDCG_TOPIC_AGG", "1")) > 0 and len(pack) >= 2:
+                aggregates = self._topic_aggregates(pack, query)
+        except Exception:            # noqa: BLE001 —— 聚合面不拖崩装包
+            aggregates = []
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
-                "skipped": skipped, "recent": recent, "meta": meta}
+                "skipped": skipped, "recent": recent, "meta": meta,
+                "aggregates": aggregates}
 
     # ================= 1. Fix pairs 自动挖掘 =================
 
