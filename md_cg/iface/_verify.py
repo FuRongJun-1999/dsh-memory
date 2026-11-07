@@ -275,17 +275,21 @@ def _imported_names(path):
                 names.add(a.name)
         elif isinstance(node, ast.ImportFrom):
             base = node.module or ""
-            stem = "." * node.level + base if node.level else base
-            names.add(stem)
-            # 别名位才是真正的被导入对象：`from X import a` ⇒ X.a。
-            # 注意相对导入要**在去掉点之后再拼**，拼完再补回同样多的点：
-            #   level=2, base="" , alias="mcp_server"  → "..mcp_server"（2 点）
-            # 若天真地用 f"{stem}.{alias}"，会得到 "...mcp_server"（3 点），
-            # 层级多算一层，正是本函数要避免的那类偏移。
-            for alias in node.names:
-                if alias.name == "*":
-                    continue
-                tail = f"{base}.{alias.name}" if base else alias.name
+            star = any(a.name == "*" for a in node.names)
+            aliases = [a.name for a in node.names if a.name != "*"]
+            # `from X import a` 的被导入对象是 **X.a**，不是 X 本身。
+            # 只有「星号导入」或「没有别名」时，X 才单独构成一条导入记录。
+            # 若在此额外记一条裸 ``X``，像 `from md_cg import kernel` 这样的
+            # **合法**写法会因为裸 ``md_cg`` 解析不出目标段而被 fail-closed 误判成
+            # 违规——这是修别名盲区时自己引入的假红，实测确认过。
+            if star or not aliases:
+                names.add("." * node.level + base if node.level else base)
+            for alias in aliases:
+                tail = f"{base}.{alias}" if base else alias
+                # 相对导入要在**去掉点之后再拼**，拼完补回同样多的点：
+                #   level=2, base="", alias="mcp_server" → "..mcp_server"
+                # 天真地用 f"{stem}.{alias}" 会得到 "...mcp_server"（多一层），
+                # 层级多算一层正是本函数要避免的那类偏移。
                 names.add("." * node.level + tail if node.level else tail)
     return names
 
@@ -331,7 +335,13 @@ def _resolve_fqn(rel_file, name, root=None):
         return segs, name
     # 相对导入：level=1 指当前包，level=2 指父包
     up = level - 1
-    base = cur[:len(cur) - up] if up <= len(cur) else []
+    # 越过 md_cg 包根：`len(cur)` 不够上溯。此处**必须显式返回空段**，
+    # 不能像旧写法那样 `else []` 静默截成空列表——那样 `from ... import x`
+    # 在 md_cg/kernel/ 下会拼出 `['x']`，即被当成 `md_cg.x` 这份**合法**导入，
+    # 于是「越过包根」这个真正不可判的形态被伪装成了正常引用。
+    if up > len(cur):
+        return [], name
+    base = cur[:len(cur) - up] if up else list(cur)
     tail = body.split(".") if body else []
     return base + tail, name
 
@@ -453,9 +463,14 @@ def _test_import_guard_catches_violation():
             ("from ..dsh import plugin\n", "bad_dsh.py", "宿主包"),
             # 多段穿透：首段是 md_cg，真正的宿主模块在第 2 段
             ("from md_cg.hooks import inject\n", "bad_deep.py", "宿主类型"),
-            # 越过包根：md_cg/kernel/__init__.py 写 `from .. import x` → 合成后空段，
-            # 归属不可判。静默跳过即漏报，故按 fail-closed 记为违规。
-            ("from .. import x\n", "bad_overroot.py", "解析不出目标段"),
+            # 越过包根：md_cg/kernel/x.py 里写 `from ... import y` —— 上溯层数
+            # 超过 md_cg 包根，归属不可判。静默截断会把它伪装成 `md_cg.y`，
+            # 故按 fail-closed 记为违规。
+            ("from ... import y\n", "bad_overroot.py", "解析不出目标段"),
+            # `from .. import x`（kernel 下的文件）**是合法的**：level=2 恰好
+            # 指到 md_cg 包根，合成 `md_cg.x`。这条曾经被当作「越过包根」的
+            # 违规用例——那只是丢别名缺陷造成的假象，修好后必须放过。
+            ("from .. import x\n", "ok_rootpkg.py", None),
             # `from . import govern` 解析为 md_cg.kernel.govern（同包内），
             # 不是反向依赖、也不是空名——它**必须被判为干净**，
             # 这样判据才不会把正常的同包引用误伤成违规。
@@ -470,6 +485,12 @@ def _test_import_guard_catches_violation():
             ("from .. import mcp_server\n", "bad_alias_up.py", "宿主类型"),
             # `from md_cg import mcp_server` → 旧: ['md_cg'] → 靠「空段」兜住，同型。
             ("from md_cg import mcp_server\n", "bad_alias_abs.py", "宿主类型"),
+            # ---- 假红回归：修别名时必须**只记别名**，不能额外记一条裸包名 ----
+            # `from md_cg import kernel` 是合法写法（同层导入自己的包），
+            # 但裸 ``md_cg`` 解析不出目标段，会被 fail-closed 误判成违规。
+            # 下面两条一正一反，把「只记 X.a、不记 X」这个不变量钉死。
+            ("from md_cg import kernel\n", "ok_selfpkg.py", None),
+            ("from md_cg import iface\n", "bad_alias_layer.py", "反向依赖"),
         ]
         for source, fname, want in cases:
             relpath = "md_cg/kernel/" + fname
