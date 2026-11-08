@@ -88,6 +88,7 @@ RULES = {
     'MDCG_SPREAD_GAIN': {'max': 1.0, 'min': 0.0, 'type': 'float'},
     'MDCG_SPREAD_HOPS': {'min': 1, 'type': 'int'},
     'MDCG_STATUS_HEAD': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_STRUCT_BOOST': {'type': 'str'},
     'MDCG_SUSTAIN': {'bool_like': True, 'type': 'bool'},
     'MDCG_SUSTAIN_AUTOHEAL': {'bool_like': True, 'type': 'bool'},
     'MDCG_SUSTAIN_BEAT_THREAD': {'bool_like': True, 'type': 'bool'},
