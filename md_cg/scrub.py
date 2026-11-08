@@ -811,11 +811,41 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
             "t": now}
 
 
-# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）；【#444】detail 会进 verify 的 evidence（→ fm 明文面 / _trust.jsonl / 对端节点 .md），故**调用方传入的 detail 不得含正文原值**——contradiction 支已改为摘要，其它支传的是键名/日期类短值。
+#: `_weaken` 的**去重哨兵**（issue #827）：区分「这一条已经扣过」与
+#: 「`cg.verify` 因节点取不到而返回的 None」——两者都是 None 就没法在调用侧
+#: 分辨，于是本可以静默吞掉一条真实矛盾的处置。
+WEAKEN_DEDUPED = object()
+
+
+# 生效条件：steps 为 (kind, detail) 序列；**同一 (kind, detail) 只扣一次**——先查节点自己的 evidence_log，已有的证据串直接返回 WEAKEN_DEDUPED（issue #827）；否则循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened") 并返回最后一次结果（times≤0 按 1 次执行）。【#444】detail 会进 verify 的 evidence（→ fm 明文面 / _trust.jsonl / 对端节点 .md），故**调用方传入的 detail 不得含正文原值**——contradiction 支已改为摘要，其它支传的是键名/日期类短值。
 def _weaken(cg, nid, kind, detail, times=1):
+    """扣减 confidence，**同一矛盾只扣一次**（issue #827）。
+
+    为什么不能只靠 `_handled` 的账本判幂等：`_handled()` 读的是
+    `cg.root/_scrub.jsonl`，而 `sleep.iterate()` 在**影子工作树**上跑
+    `scrub.sweep`。影子每轮由 `lib.git` checkout 重建，而 `add_pathspecs`
+    只入册 `*.md`（见 sleep.add_pathspecs）——`_scrub.jsonl` 是 untracked，
+    每轮都是**空的**，于是 `_handled()` 恒返回 ∅，同一矛盾在每轮睡眠里被
+    再扣一次。实测（本仓活库 2026-11-08）：407 条负向证据只有 83 条不同
+    （重复率 4.90x），单条"同键不同值"被记 52 次，confidence 被压到 0.00
+    下限——它退化成"睡眠周期跑过几轮"的计数器。
+
+    判据收在这一层而不是账本：**节点自己的 `evidence_log` 是随 `.md` 一起
+    被追踪的**，所以它跟着节点走，账本丢了也不影响去重。读不到节点（已删）
+    时退回照扣——宁可按旧口径记一次，不静默吞掉一个真实矛盾。
+    """
+    want = f"scrub:{kind}:{str(detail)[:120]}"
+    try:
+        _fm = ((cg.get(nid) or {}).get("frontmatter") or {})
+        seen = {str(e.get("evidence") or "")
+                for e in (_fm.get("evidence_log") or [])}
+    except Exception:                                 # noqa: BLE001
+        seen = set()
+    if want in seen:
+        return WEAKEN_DEDUPED          # 这一条已经扣过 —— 幂等命中，零副作用
     res = None
     for _ in range(max(1, int(times))):
-        res = cg.verify(nid, f"scrub:{kind}:{str(detail)[:120]}", "weakened")
+        res = cg.verify(nid, want, "weakened")
     return res
 
 
@@ -876,11 +906,24 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             continue
 
         done = []
+        _deduped = False
         try:
-            _weaken(cg, nid, kind, issue["detail"], weaken_times)
-            done.append("weaken")
+            _w = _weaken(cg, nid, kind, issue["detail"], weaken_times)
+            # #827：`_weaken` 按节点 evidence_log 去重。命中即「这条矛盾此前
+            # 已扣过」，本批**没有任何动作**——不能计进 applied（否则账本丢了
+            # 就会把每轮都记成「又处置了 N 条」，读数虚增）；计入
+            # already_handled，与账本侧的幂等命中同一个口径。
+            _deduped = _w is WEAKEN_DEDUPED
+            if not _deduped:
+                done.append("weaken")
         except Exception as exc:                          # noqa: BLE001
             done.append(f"weaken_failed:{type(exc).__name__}")
+        if _deduped:
+            n_done += 1
+            actions.append({"node_id": nid, "kind": kind, "action": "skip",
+                            "detail": "已处置过（节点证据账本命中，幂等）",
+                            "applied": False})
+            continue
         if demote and issue["severity"] in ("high", "low"):
             try:
                 fm = _fm_of(cg, nid, None)
