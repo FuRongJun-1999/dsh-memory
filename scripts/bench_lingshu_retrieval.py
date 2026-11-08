@@ -13,9 +13,10 @@
   · 对话语料**没有配套题目**，故 conv 模式只能验机制是否工作，不能算端到端准确率。
 
 用法：
-  python scripts/bench_lingshu_retrieval.py chapter --bench D:/program/hive-memory-bench \
+  export HMB=/path/to/hive-memory-bench        # 或 --bench 显式给
+  python scripts/bench_lingshu_retrieval.py chapter \
       --configs baseline,det:tiebreak,det:window,det:replace
-  python scripts/bench_lingshu_retrieval.py conv --bench D:/program/hive-memory-bench \
+  python scripts/bench_lingshu_retrieval.py conv \
       --file 对话上下文续接方法.md
 """
 from __future__ import annotations
@@ -173,10 +174,14 @@ def run_conv(bench, fname):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('mode', choices=('chapter', 'conv'))
-    ap.add_argument('--bench', default=os.environ.get('HMB', 'D:/program/hive-memory-bench'))
+    ap.add_argument('--bench', default=os.environ.get('HMB', ''),
+                    help='hive-memory-bench 仓库根（也可用环境变量 HMB）')
     ap.add_argument('--configs', default='baseline,det:tiebreak,det:window,det:replace')
     ap.add_argument('--file', default='对话上下文续接方法.md')
     a = ap.parse_args()
+    if not a.bench or not os.path.isdir(a.bench):
+        print('需要 --bench 或环境变量 HMB 指向 hive-memory-bench 仓库根', file=sys.stderr)
+        return 2
     if a.mode == 'chapter':
         run_chapter(a.bench, [c.strip() for c in a.configs.split(',') if c.strip()])
     else:
