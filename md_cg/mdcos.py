@@ -846,8 +846,12 @@ class MdCGOS(MdCG):
     TRASH = "trash"
 
 # 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)；读缓存装配走 readcache.install_default（#370：自动装配的唯一入口，基类已装则为幂等空操作，MDCG_READ_CACHE=0 时不装配）。
-    def __init__(self, root: str, autoflush: int = 64, actor: str = "system"):
-        super().__init__(root, autoflush=autoflush)
+    def __init__(self, root: str, autoflush: int = 64, actor: str = "system",
+                 async_flush=None):
+        # async_flush 必须**显式转发**：本层用 **kw 之外的位置接参会让父类的
+        # 同名握手断链（实测 TypeError: MdCGOS.__init__() got an unexpected
+        # keyword argument 'async_flush'）。None = 随 env（含本层自有缺省）。
+        super().__init__(root, autoflush=autoflush, async_flush=async_flush)
         self.actor = actor
         self.audit_log = os.path.join(self.root, "_audit.jsonl")
         self.audit_archive = os.path.join(self.root, self.AUDIT_ARCHIVE)

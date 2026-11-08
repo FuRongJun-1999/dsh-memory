@@ -2123,7 +2123,7 @@ def _usable_index_snapshot(value):
 # 生效条件：构造须传入 root，经 os.path.abspath 后以 exist_ok=True 创建该目录及 LAYERS 各层子目录；autoflush 无论取值（默认 64）都原样赋给实例。
 class MdCG:
 # 生效条件：root 传参即被 os.path.abspath 绝对化并 makedirs(exist_ok=True) 建立 root 与模块级 LAYERS 各层目录，autoflush（默认 64，含 0 等假值）原样存入 self.autoflush，随后 _load_index() 载入索引并以 _index_signature() 记录 _index.json 签名到 self._index_sig（跨进程读面代际感知的基线，P1b-2）、sweep_stale_temps(self.root) 清扫，并把 self 登记进模块级 _LIVE_CGS，最后按 MDCG_READ_CACHE 装配读缓存（#370：readcache.install_default——自动装配的唯一入口，env 门 + 幂等，MDCG_READ_CACHE=0 时不装配）；
-    def __init__(self, root: str, autoflush: int = 64):
+    def __init__(self, root: str, autoflush: int = 64, async_flush=None):
         self.root = os.path.abspath(root)
         os.makedirs(self.root, exist_ok=True)
         for L in LAYERS:
@@ -2138,6 +2138,16 @@ class MdCG:
         # 近期事件滚动窗口（白箱第 5 篇第 3 章「近期事件」）
         self.recent_log = os.path.join(self.root, "_recent.jsonl")
         self.autoflush = autoflush
+        # 生效条件：async_flush 为 None 时本实例随 env `MDCG_ASYNC_FLUSH` 走（缺省异步，
+        # 与 #677 P2 逐位一致）；为 True/False 时**钉死**本实例的落盘模式，不再读 env。
+        # 为什么需要实例级开关（2026-11-08，issue #830）：`autoflush=1` 的既有承诺是
+        # 「写毕即落分片日志」——`review_cli._cg` 的注释据此写「任意退出形态下写入对
+        # 其它进程立即可见」，`test_review_cli_visibility` ③ 也据此断言。但 #677 P2
+        # 把 flush 改到后台线程后，`_request_flush` 只 `ev.set()` 即返回，写入**只是被
+        # 调度**、并未落盘；短命进程（review_cli 这类）在被 kill / `os._exit` 时后台
+        # 线程未必跑过 ⇒ 承诺失效。实例级开关让「我要同步语义」的调用点显式声明，
+        # 不必依赖进程级 env（env 是全局的，改它会波及同进程其它库实例）。
+        self._async_flush_forced = async_flush
         # issue #677 P2：后台索引落盘的状态（锁 / 事件 / 线程 / 停止标志）。
         # 锁在 __init__ 就绪——flush 可能在写路径、后台线程、close 三处被调。
         self._flush_lock = threading.RLock()
@@ -2929,8 +2939,11 @@ class MdCG:
         self._index_sig = self._index_signature()
         return idx
 
-# 生效条件：读 env MDCG_ASYNC_FLUSH（缺省开；=0 关）——关闭时 _request_flush 退回同步 flush。
+# 生效条件：本实例以 async_flush= 显式钉死模式时返回该值（True 异步 / False 同步），否则读 env MDCG_ASYNC_FLUSH（缺省开；=0 关）——关闭时 _request_flush 退回同步 flush。
     def _async_flush_on(self):
+        forced = getattr(self, "_async_flush_forced", None)
+        if forced is not None:
+            return bool(forced)
         return (os.environ.get("MDCG_ASYNC_FLUSH", "1") or "1").strip() != "0"
 
 # 生效条件：请求一次后台落盘——异步开时置事件并确保守护线程在跑（首次创建），重复请求合并为一次；
