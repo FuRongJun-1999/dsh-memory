@@ -18,12 +18,14 @@ override 的价值来自「可回滚」，拍不出前像就不该放行。
 """
 from __future__ import annotations
 
+import atexit
 import io
 import json
 import os
 import re
 import shutil
 import sys
+import tempfile
 import time
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -32,10 +34,41 @@ sys.path.insert(0, _REPO)
 
 # 沙箱用 gettempdir + makedirs（**不用 mkdtemp**）：受限宿主里 mkdtemp 目录带
 # 「拒绝再建子目录」的 ACL，会让本守卫整批 PermissionError（与代码无关）。
-_SB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+#
+# 两条硬约束（2026-11-08 修，实测泄漏形态）：
+#
+#   ① **锚点必须在系统临时目录，不得在仓根**。原先锚在 `dirname(dirname(__file__))`，
+#      即仓根，于是每跑一次就在仓根留一个 `_i413b_sandbox_<pid>_<ts>/`，`git status`
+#      每次多一条噪声且条数随跑测次数线性增长（实测 4 小时从 1 个涨到 16 个）。
+#
+#   ② **模块顶层不得做文件系统写**，只能算路径。残留的主因不是「忘了删」——
+#      `main()` 里确有收尾 rmtree；真因是 `-m` 跑法下**本模块被建两次**：runpy 先
+#      以真名 import（触发模块级 makedirs），再以 `__main__` 重新执行一遍（见 runpy
+#      的 `RuntimeWarning: ... found in sys.modules after import of package`）。
+#      两份 `_SB` 的 pid/时间戳不同，第一份从没有 `main()` 收尾 ⇒ 每跑必留一个。
+#      把建目录推迟到 `main()` 内的 `_ensure_sb()` 后，死掉的那份 import 只算了个
+#      字符串，不落盘，泄漏归零（Z1 断言钉住「导入本模块后仓根与临时目录都不得新增」）。
+#
+#   ③ **删目录前必须先把实例摘出 `_LIVE_CGS`**。`mdcg` 有进程退出兜底：
+#      `atexit` → `_atexit_flush_all()` → 对每个仍存活实例 `close()` → `rebuild_index()`
+#      → `atomic_write()` → `os.makedirs()`。所以「main() 删目录 → 解释器 atexit →
+#      close() 把 lib_a_1/… 原样建回来」，沙箱在盘上**复活**（实测复活 6 个文件）。
+#      删树不撤登记 = 白删。见 `_purge_and_rm()`，Z3 用**独立子进程**钉这条
+#      （在进程内断言看不见 atexit 之后的事，必须跨进程看）。
+_SB = os.path.join(tempfile.gettempdir(),
                    "_i413b_sandbox_%d_%d" % (os.getpid(), int(time.time() * 1000)))
-shutil.rmtree(_SB, ignore_errors=True)
-os.makedirs(_SB, exist_ok=True)
+_SB_READY = [False]
+
+
+def _ensure_sb():
+    """首次使用时才建沙箱目录（幂等）。模块顶层刻意不调它——见上面约束②。"""
+    if not _SB_READY[0]:
+        shutil.rmtree(_SB, ignore_errors=True)
+        os.makedirs(_SB, exist_ok=True)
+        _SB_READY[0] = True
+    return _SB
+
+
 os.environ.update({"MDCG_ROOT": os.path.join(_SB, "brain"),
                    "MDCG_STATE_ROOT": os.path.join(_SB, "state"),
                    "MDCG_AUX_ROOT": os.path.join(_SB, "auxstore"),
@@ -69,6 +102,7 @@ def _princ(role, clr, sess):
 
 def _fresh(tag):
     """新库：A 写 self 层 private 节点 V0；返回 root。（tag 自动加序号：R 腿会二次调用）"""
+    _ensure_sb()
     _N[0] += 1
     root = os.path.join(_SB, "lib_%s_%d" % (tag, _N[0]))
     os.environ["MDCG_ROOT"] = root
@@ -218,20 +252,124 @@ def leg_R():
         exec(compile(orig, p, "exec"), protect.__dict__)             # 恢复原文
 
 
+def _purge_and_rm():
+    """先摘登记，再删沙箱——**顺序是关键**（2026-11-08 修，实测泄漏链）。
+
+    `mdcg` 模块级有 `_LIVE_CGS = weakref.WeakSet()`：每个 `MdCGSecure` 实例在
+    `__init__` 里登记，进程退出时 `_atexit_flush_all()` 对**仍存活的每个**实例调
+    `close()`，而 `close()` 会 `rebuild_index()` → `atomic_write()` → `os.makedirs()`。
+    于是「main() 删目录 → 解释器跑 atexit → close() 把 lib_a_1/… 原样建回来」，
+    沙箱在磁盘上**复活**（实测复活 6 个文件）。这正是「明明有 rmtree 却每跑必留一个」
+    的最后一环：删目录只是把树砍了，登记还在，atexit 又把它栽回去。
+
+    故删之前必须把本沙箱的实例从 `_LIVE_CGS` 里摘掉，让 atexit 无从复活它。
+    """
+    from md_cg import mdcg as _M
+    sb_norm = os.path.normcase(os.path.abspath(_SB))
+    for cg in list(getattr(_M, "_LIVE_CGS", ())):
+        try:
+            r = os.path.normcase(os.path.abspath(getattr(cg, "root", "") or ""))
+        except Exception:                                                             # noqa: BLE001
+            continue
+        if r == sb_norm or r.startswith(sb_norm + os.sep):
+            _M._LIVE_CGS.discard(cg)
+    shutil.rmtree(_SB, ignore_errors=True)
+
+
+def _z3_child():
+    """Z3 的子进程：跑一遍 legs + 收尾，然后**正常退出**（让 atexit 钩子有机会复活沙箱）。
+
+    父进程看不到 atexit 之后的事，所以这条判据必须跨进程：子进程退出码不能说明
+    问题（它照样 rc=0），只有「子进程退干净后，它声明的沙箱还在不在盘上」才作数。
+    输出一行 `SANDBOX=<path>` 给父进程核对。
+    """
+    import contextlib
+    mute = contextlib.redirect_stdout(io.StringIO())
+    try:
+        with mute:
+            leg_A()
+            leg_C()
+    finally:
+        _purge_and_rm()
+    print("SANDBOX=" + _SB)
+    return 0
+
+
+def _z1_child():
+    """Z1 的子进程：**只 import、不跑 main**，随后正常退出。打印它看到的沙箱路径。
+
+    这就是 `-m` 跑法里那份「被丢弃的 import」的等价形态：真名 import 触发模块级
+    代码，若顶层建目录，此刻就落一个；`runpy` 随后以 `__main__` 再跑一遍并另建
+    一个，前一个没人收尾 ⇒ 每跑一次必泄漏一个。父进程据此检查该路径是否落在盘上。
+    """
+    print("SANDBOX=" + _SB)
+    print("READY=%d" % (1 if _SB_READY[0] else 0))
+    print("EXISTS=%d" % (1 if os.path.isdir(_SB) else 0))
+    return 0
+
+
+def _leg_z():
+    """Z 组：沙箱卫生。判据全部**跨进程**——进程内看不到 import 期与 atexit 后的事。"""
+    import subprocess
+
+    def _child(flag):
+        r = subprocess.run([sys.executable, "-X", "utf8", "-m",
+                            "md_cg.test_issue413_preimage_failclosed", flag],
+                           cwd=_REPO, capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", timeout=300)
+        kv = {}
+        for ln in (r.stdout or "").splitlines():
+            if "=" in ln and ln.split("=", 1)[0] in ("SANDBOX", "READY", "EXISTS"):
+                k, v = ln.split("=", 1)
+                kv[k] = v.strip()
+        kv["rc"] = r.returncode
+        return kv
+
+    # Z1：**import 期零副作用**。子进程只 import 本模块、不跑 main，然后退出；
+    # 若模块顶层就 makedirs，那个目录此刻一定在盘上（且没人会删它）。
+    z1 = _child("--z1-child")
+    z1_sb = z1.get("SANDBOX", "")
+    _check("Z1 只 import 不 main ⇒ 沙箱不得落盘（导入期零副作用）",
+           bool(z1_sb) and not os.path.exists(z1_sb),
+           "child_rc=%s sb=%s exists=%s" % (z1.get("rc"), z1_sb or "?",
+                                            os.path.exists(z1_sb) if z1_sb else "?"))
+    # Z3：**收尾之后盘上真没了**。子进程跑完整腿再正常退出，让 `_atexit_flush_all`
+    # 有机会把 lib_*/ 建回来；它照样 rc=0，只有目录是否复活能判。
+    z3 = _child("--z3-child")
+    z3_sb = z3.get("SANDBOX", "")
+    _check("Z3 子进程正常退出后其沙箱未复活（atexit 不得重建）",
+           bool(z3_sb) and not os.path.exists(z3_sb),
+           "child_rc=%s sb=%s exists=%s" % (z3.get("rc"), z3_sb or "?",
+                                            os.path.exists(z3_sb) if z3_sb else "?"))
+
+
 def main():
+    if "--z1-child" in sys.argv:
+        return _z1_child()
+    if "--z3-child" in sys.argv:
+        return _z3_child()
     mutate = "--mutate" in sys.argv
     print("=" * 72)
     print("md 认知图 · issue #413 站点2 守卫 · override 的前像 fail-closed")
     print("沙箱 =", _SB, "| mutate =", mutate)
     print("=" * 72)
-    leg_A()
-    leg_B()
-    leg_C()
-    if mutate:
-        leg_R()
+    # Z0：锚点不得落在仓根下（2026-11-08 实测泄漏形态：每跑一次在仓根留一个
+    # `_i413b_sandbox_*/`，`git status` 噪声随跑测次数线性增长）。锚点改回仓根即转红。
+    _repo_norm = os.path.normcase(os.path.abspath(_REPO)) + os.sep
+    _sb_norm = os.path.normcase(os.path.abspath(_SB))
+    _check("Z0 沙箱不在仓根下（仓根只许放源码，不放运行态）",
+           not _sb_norm.startswith(_repo_norm), _SB)
+    try:
+        leg_A()
+        leg_B()
+        leg_C()
+        if mutate:
+            leg_R()
+    finally:
+        _purge_and_rm()
+    _leg_z()
     print("\n" + ("全部 PASS（%d 项）" % _PASSED[0] if not FAILS
                   else "FAIL %d 项：%s" % (len(FAILS), FAILS)))
-    shutil.rmtree(_SB, ignore_errors=True)
     return 1 if FAILS else 0
 
 
