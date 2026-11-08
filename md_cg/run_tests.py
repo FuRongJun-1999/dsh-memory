@@ -203,11 +203,29 @@ def main(argv=None):
     groups = set(args.group or ()) or set(_known)
     targets = [(g, n, a) for g, n, a in _discover()
                if g in groups and (not args.k or args.k in n)]
+    # 零选中判定只算一次：--list 与执行路径都要用，两处各自判空会出现两份判断
+    #（形态漂移风险，也被守卫 E2 钉住）。
+    _no_targets = not targets
     if args.list:
         for g, n, _a in targets:
             print(f"{g:<9}{n}")
         print(f"共 {len(targets)} 个")
+        # --list 是「查看有什么」，零选中给 0，但**必须说明原因**，否则用户看到
+        # 「共 0 个」会以为自己拼对了而仓库里真的没有目标（静默缩面）。
+        if _no_targets:
+            print("无匹配目标：group=%s -k=%r —— 请检查选择器拼写"
+                  % (sorted(groups), args.k), flush=True)
         return 0
+
+    # 零选中不得返回 0（与 scripts/run_tests.py 的 #1910 门同口径，2026-11-08 补齐）：
+    # 本模块是**出货包入口**（安装态没有 scripts/，用户只能 `python -m md_cg.run_tests`），
+    # 此前只有 scripts/ 版修过零选中，包内版漏改 ⇒ 安装态用户拼错选择器会看到
+    # `SUMMARY 0/0 通过` + rc=0 的假绿。rc=2 与 scripts 版语义保持一致。
+    if not targets:
+        print("无匹配目标：group=%s -k=%r —— 拒绝以 0/0「通过」收场"
+              "（1_ai 会话报告的假绿缺陷（跨仓 #1910））" % (sorted(groups), args.k),
+              flush=True)
+        return 0 if args.list else 2
 
     # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
     skipped, runnable = [], []
@@ -233,12 +251,23 @@ def main(argv=None):
                 for ln in tail.splitlines()[-6:]:
                     print("      " + ln, flush=True)
 
-    print(f"\n===== SUMMARY {len(runnable) - len(bad)}/{len(runnable)} 通过，"
+    _passed = len(runnable) - len(bad)
+    print(f"\n===== SUMMARY {_passed}/{len(runnable)} 通过，"
           f"{len(skipped)} 跳过（依赖缺失/平台不符） =====")
     print(f"逐用例日志：{_LOG_DIR}")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1
+    # 全跳过不得以「通过」收场（2026-11-08，与 scripts/run_tests.py 同口径）：
+    # 目标选中了却一条都没真跑 ⇒ 没验到任何东西，不能报绿。rc=3 与之保持一致
+    # （rc=2 已被本仓占为「有跳过 / 零选中」语义）。
+    # 注：本模块的 _run_one 不识别模块内 SKIP（无 issue #284 那条路径），故只看 skipped。
+    if _passed == 0 and skipped:
+        print("全部跳过：%d 个目标无一真正执行（%d 依赖/平台跳过）"
+              % (len(skipped), len(skipped)), flush=True)
+        print("拒绝以 0 执行「通过」收场（与 #1910 零选中、#284 SKIP 冒充 PASS 同族）。",
+              flush=True)
+        return 3
     return 0
 
 

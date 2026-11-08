@@ -29,6 +29,7 @@ import argparse
 import re
 import concurrent.futures
 import os
+import shutil
 import subprocess
 import sys
 
@@ -72,6 +73,52 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEST_DIR_TESTS = ("hive_exec_test.py", "hive_wm_test.py",
                   "chaos_injection/run_all.py")
 
+#: 仓库根 `tests/`（复数）下**已逐文件裁决可收**、且在 `md_cg/` 里**没有同名副本**
+#: 的测试（= 若本清单漏收，该测试就完全不在 CI 里，没有任何其它流线兜底）。
+#:
+#: 为什么需要这份清单（2026-11-07 实测）：`_discovered_files()` 只收 `md_cg/`、
+#: `compiler|swarm/tests/`、`scripts/`、`hive/` 与 `test/`（单数）具名清单，
+#: **根 `tests/`（复数）整个不在收集面**。该目录 23 个文件里 19 个是「薄壳」
+#: （从 `md_cg.test_x` import main 再转发，源测试本身已在 CI），剩 4 个没有
+#: `md_cg/` 同名副本 —— 这 4 个自入库起从未在任何门禁上执行过。
+#:
+#: 判据（逐条实测，不是照抄目录清单）：
+#:   · test_hook_audit_summary.py —— #606 摘要守卫。真守卫：5 臂变异（M1..M5），
+#:     `--mutate` 下每臂都必须精确打红；base 走 node --test。依赖 node>=22.19 +
+#:     `npm ci --include=dev`（CI 的 python-tests job 已 `npm ci && npm run build`，
+#:     故可收）。本地无 node_modules 时应显式 SKIP 而非假绿 —— 见 _require_node()。
+#:   · test_issue721_tag_filter.py —— #721/#799 标签过滤守卫（8 例：多标签 OR /
+#:     exclude 优先 / 非法类型结构化 error / 不存在标签返回空集不报错 / 向后兼容）。
+#:     PR #799 带了它却在 CI 收集面之外，等于该 PR 的判据在门禁上不存在。
+#:     形态：script-style（自带 `_main()` + `VERDICT=` + `if __name__`）⇒ 直跑成立。
+#:
+#: **本清单只收 script-style 件**（判据：自带 `if __name__` 或 SystemExit/sys.exit，
+#: 使 `python <file>` 真的执行断言并据退出码定罪）。pytest-style 件（只有 `def test_*`
+#: 而无入口）**不得**并入：`python <file>` 对它们只做 define、跑零个用例、RC 恒 0 ——
+#: 收进来就是新增一条永远打不红的假守卫，比不收更糟。
+#: 实测留档（2026-11-07，本清单首版差点踩的坑）：
+#:   tests/test_relation_type_whitelist_guard.py 原本是 **pytest-style** —— `python`
+#:   直跑输出 0 字节 / RC=0；把它唯一的区间断言改成恒假（`assert 1.5 <= rate <= 1.6`）后
+#:   直跑**仍然 RC=0**，而 `-m pytest` 下是 8 passed 1 skipped。仓内 pytest **未**进
+#:   CI（.github/workflows 无 pytest 接线，且未声明为依赖），故收它必须先改 CI 依赖面。
+#:   ⇒ 首版**暂不收**，列为待作者裁决项（补 script-style 入口 或 给 CI 装 pytest）。
+#:
+#: 裁决落地（2026-11-08，作者授权「最优方案执行」）：走**补 script-style 入口**这一支，
+#: 不新增 CI 依赖面（另一支要给两个 workflow 都装 pytest、且改依赖声明，成本与风险都更高）。
+#:   改造：模块顶层 `import pytest` 降级为**可选软导入**（无 pytest 环境也能 import，
+#:   否则收集面直接 ImportError）；两处 pytest 特有依赖做等价替换 ——
+#:     · pytest.approx      → 文件内 approx()（仅标量相对/绝对容差，够本件用）
+#:     · pytest.skip        → _skip()：有 pytest 时抛原生 Skipped（-m pytest 仍记 skipped），
+#:                            无 pytest 时抛本地 SkipCase，由 main() 打印 SKIP 不计入通过
+#:   补 `_ENTRY_CASES` + `main()` + `if __name__`，与 md_cg/test_issue192_* 同一形态。
+#:   实测（2026-11-08）：直跑 `8 passed, 1 skipped, 0 failed` RC=0，`-m pytest` 同为
+#:   8 passed 1 skipped RC=0 —— 两条路径**结果等价**。变异 M1（白名单断言恒假）/
+#:   M2（笔误判据改错）/ M3（approx 期望改错）各自精确打红 RC=1，还原后 SHA256 字节一致。
+#:   ⇒ 假绿已消除，本件可以收。
+ROOT_TESTS = ("test_hook_audit_summary.py",
+              "test_issue721_tag_filter.py",
+              "test_relation_type_whitelist_guard.py")
+
 
 # 生效条件：以模块级常量 _REPO 为根，返回全量套件实际执行的测试文件路径列表（相对 _REPO 的正斜杠路径）——md_cg/test_*.py、compiler 与 swarm 下 tests/*.py（basename 以 "_" 开头者跳过）、scripts/test_*.py、hive/test_*.py，按组序拼接。
 def _discovered_files():
@@ -93,6 +140,9 @@ def _discovered_files():
     # test/（A6）：只收具名裁决清单（见 TEST_DIR_TESTS 注释——含不收件与理由）。
     # 不设 os.path.isfile 过滤：目标被改名/删除时须**响亮 FAIL**，不得静默缩面。
     files += [os.path.join(_REPO, "test", name) for name in TEST_DIR_TESTS]
+    # tests/（复数，根）：只收 ROOT_TESTS 具名裁决件（理由见其定义处注释）。
+    # 同样不设 os.path.isfile 过滤：被判收的目标被改名/删除时必须**响亮 FAIL**。
+    files += [os.path.join(_REPO, "tests", name) for name in ROOT_TESTS]
     return [os.path.relpath(f, _REPO).replace("\\", "/") for f in files]
 
 
@@ -137,6 +187,12 @@ def _discover():
             # Python 3.12 下 `-m test.x` 解析到 Lib\test\__init__.py）→ 只能直跑。
             # 显示名保子路径：test/chaos_injection/run_all.py → test.chaos_injection.run_all
             out.append(("test", "test." + rel[len("test/"):-3].replace("/", "."),
+                        [[sys.executable, "-X", "utf8", f]]))
+        elif rel.startswith("tests/"):
+            # tests/（复数，根）同样非包（无 __init__.py）→ 只直跑，不走 -m。
+            # 显示名带 `tests.` 前缀，与单数 `test.` 区分：两者是不同目录，
+            # 显示名撞了会让 --list 上两个目标看起来是同一个。
+            out.append(("tests", "tests." + rel[len("tests/"):-3].replace("/", "."),
                         [[sys.executable, "-X", "utf8", f]]))
         else:
             # hive/ 是包（有 __init__.py，与 md_cg 同形）→ -m 优先；测试内用
@@ -311,6 +367,26 @@ def _dep_pil():
     return None
 
 
+def _dep_node():
+    """TS 侧守卫（tests/test_hook_audit_summary.py）需要 node + 已装的 devDependencies。
+
+    两件缺一不可：`node` 可执行 ⊕ 仓内 `node_modules/.bin/tsx`（`npm ci --include=dev`
+    才有；CI 的 python-tests job 在跑套件前已 `npm ci && npm run build`）。
+
+    为什么必须探测而不是让它自己红：该件缺 node 时 `run()` 里 `shutil.which` 抛
+    RuntimeError → 子进程 traceback 退非 0 → 本入口记 FAIL。但「裸 clone 没跑过
+    npm ci」不是被测代码的问题，判 FAIL 是假红（外部复核建议 #3 的同一类）。
+    反过来，**探测到就真跑**：不把 rc 判据放宽成 rc∈{0,2}（见 _SKIPS 的总口径）。
+    """
+    if shutil.which("node") is None:
+        return ("依赖 node（TS 守卫走 node --test）——按 issue #84 口径 SKIP"
+                "（等价于该守卫自身的 rc=2『有跳过』语义）")
+    if not os.path.exists(os.path.join(_REPO, "node_modules", ".bin", "tsx")):
+        return ("依赖 node_modules/.bin/tsx（先 npm ci --include=dev）——"
+                "按 issue #84 口径 SKIP（等价于该守卫自身的 rc=2『有跳过』语义）")
+    return None
+
+
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
@@ -334,6 +410,10 @@ _SKIPS = {
     "md_cg.test_csre_correctness": _dep_numpy,
     "md_cg.test_csre_session": _dep_numpy,
     "md_cg.test_csre_mutations": _dep_numpy,
+    # tests/（复数，根）补收件 #1：TS 侧摘要守卫需要 node + node_modules（见 _dep_node）。
+    # 名字形态与本表其余项一致——用 _discover() 的**显示名**（tests.test_x），
+    # 不是路径形态；两者必须逐字相同，否则探测登记不上、缺依赖时仍会假红。
+    "tests.test_hook_audit_summary": _dep_node,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),
@@ -436,7 +516,7 @@ def main():
     # 注：不用 argparse choices——部分 Python 版本对 nargs="*" 无值时
     # 以空列表过 choices 校验会误报 invalid choice（bpo-27227 老行为）。
     ap.add_argument("group", nargs="*", default=None,
-                    help="只跑指定组，可多选：md_cg compiler swarm scripts hive test"
+                    help="只跑指定组，可多选：md_cg compiler swarm scripts hive test tests"
                          "（缺省全量）")
     ap.add_argument("-k", default="", help="按关键字过滤模块名")
     ap.add_argument("--jobs", type=int, default=4, help="并发数（默认 4）")
@@ -453,7 +533,7 @@ def main():
                     help="按模块名前缀过滤（如 md_cg/test_issue4 或 test_issue4）")
     args = ap.parse_args()
 
-    _known = ("md_cg", "compiler", "swarm", "scripts", "hive", "test")
+    _known = ("md_cg", "compiler", "swarm", "scripts", "hive", "test", "tests")
     _bad = [g for g in (args.group or ()) if g not in _known]
     if _bad:
         ap.error(f"invalid group: {', '.join(_bad)}（可选：{'/'.join(_known)}）")
@@ -485,9 +565,14 @@ def main():
         print(f"共 {len(targets)} 个")
         # issue #185：让「已发现数」与「磁盘递归数」的差额可见——差额即被静默
         # 丢弃的子目录测试数（修复后恒为 0；回退非递归 glob 时立刻 >0）。
-        _md_n = sum(1 for g, _n, _a in targets if g == "md_cg")
+        #
+        # 必须用**未经 -k/--module 过滤**的全量清单来算：本行的语义是「收集面对
+        # 不对得上磁盘」，与被看的那几个目标无关。早先误用 `targets`，于是
+        # `--list -k bench_swarm` 会打出「已发现 0 个 / 磁盘递归 621 个」——
+        # 一个永远不会为真的差值，读者会误判成收集面坏了（2026-11-08 实测）。
+        _md_n = sum(1 for _g, _n, _a in _discover() if _g == "md_cg")
         print(f"已发现 {_md_n} 个 / 磁盘递归 {_md_cg_disk_recursive_count()} 个"
-              f"（md_cg test_*.py）")
+              f"（md_cg test_*.py；本行不受 -k/--module 影响）")
         return 0
 
     # 门禁档位生效点（2026-10-27）：只在这里决定「跑不跑重质检」，守卫内部一律不改。
@@ -515,7 +600,9 @@ def main():
             print("[gate] fast 档：本批无重质检项，执行 %d 条" % len(targets), flush=True)
 
     # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
-    skipped, runnable = [], []
+    # 起点带上 fast 档已跳过的重质检项：它们同样是「选中了但没跑」，必须进同一个
+    # 跳过集，否则下方的「全跳过」门会被绕过（见 _heavy_skipped 处的说明）。
+    skipped, runnable = list(_heavy_skipped), []
     for g, n, a in targets:
         if n in _SERIAL_ONLY and max(1, args.jobs) > 1:
             reason = "负载敏感（性能阈值断言），并行争抢会假红——仅串行执行"
@@ -570,13 +657,49 @@ def main():
         print("模块内跳过（**不计入通过数**，issue #284）：", flush=True)
         for _n, _why in mod_skips:
             print(f"  SKIP  {_n}  （{_why}）", flush=True)
-    print(f"\n===== SUMMARY {len(runnable) - len(bad) - len(mod_skips)}/{len(runnable)} 通过，"
+    _passed = len(runnable) - len(bad) - len(mod_skips)
+    print(f"\n===== SUMMARY {_passed}/{len(runnable)} 通过，"
           f"{len(skipped) + len(mod_skips)} 跳过（依赖缺失/平台不符"
           + (f"；其中模块内跳过 {len(mod_skips)} 条" if mod_skips else "")
           + "） =====")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1
+    # 全跳过假绿（2026-11-08，与 #1910「零选中」、#284「SKIP 冒充 PASS」同族第三形态）：
+    # 上面两条已挡住「选中 0 个」与「模块内 SKIP 记 PASS」，但**选中了、却全部跳过**
+    # 仍会走到这里 ⇒ `SUMMARY 0/N 通过` + rc=0。此时**零个断言真正执行**，门禁却报绿。
+    #
+    # 与 hive/verify_runner.py:161 的 N9 门同源：那里早就写了「rc=0 不等于『跑了』」，
+    # 并自己补了 `passed > 0` 门。也就是说**下游消费方早就防着这件事**，而入口本身
+    # 不兜——修复方向应是把门移到入口，让所有消费方（CI、手跑、verify_runner）
+    # 一致受益，而不是每个消费方各补一遍。verify_runner 的 N9 门保留亦无害（双保险）。
+    #
+    # 与「部分跳过」严格区分：只要有一条真的跑过（_passed > 0）就正常返回 0——
+    # 依赖缺失导致个别件跳过是**设计内**的（裸 clone 友好，见 _SKIPS 口径），不追究。
+    # 判据用「声称通过数为 0 且确有跳过」，不引入任何比例阈值：阈值要靠猜，
+    # 而「零执行」是结构事实。
+    #
+    # 退出码选 3 而非 2：本仓 rc=2 已有既定语义「有跳过」（见 _SKIPS 上方口径，
+    # 被测守卫自身也用 rc=2 表 fail-closed 锚点漂移），复用它会让「零执行」与
+    # 「跑过但有跳过」在只看码的消费方眼里无法区分。rc=3 在本入口此前未使用。
+    if _passed == 0 and (skipped or mod_skips):
+        # 跳过原因分三类，必须分别点明：fast 档移出的重质检项（_heavy_skipped）
+        # 与依赖缺失/串行限定不是同一回事，混称「依赖缺失」会误导排障方向。
+        _n_heavy = len(_heavy_skipped)
+        _n_dep = len(skipped) - _n_heavy
+        print("全部跳过：%d 个目标无一真正执行（%d gate=fast 重质检 + %d 依赖/平台跳过"
+              " + %d 模块内跳过）"
+              % (len(skipped) + len(mod_skips), _n_heavy, _n_dep, len(mod_skips)),
+              flush=True)
+        print("拒绝以 0 执行「通过」收场（与 #1910 零选中、#284 SKIP 冒充 PASS 同族；"
+              "同 hive/verify_runner.py:161 的 N9 门口径）。", flush=True)
+        if _n_heavy:
+            print("注意：其中有 %d 条是被 --gate fast 移出的重质检项——"
+                  "用 --gate strict（或直接不传 --gate）会真跑它们。" % _n_heavy,
+                  flush=True)
+        print("若这是预期（如裸 clone 缺依赖），请显式用 --list 查看目标，或补齐依赖后重跑。",
+              flush=True)
+        return 3
     return 0
 
 
