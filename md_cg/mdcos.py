@@ -2945,7 +2945,10 @@ class MdCGOS(MdCG):
                            'content': e.get('content'),
                            'frontmatter': e.get('frontmatter')},
                            float(e.get('score') or 0.0), {}, []) for e in pack]
-                _ranked = _dr.rerank(_items, query, _rerank_clock, session=session)
+                # 模式可配（bench 用）：tiebreak（缺省，零风险）/ window（有界上浮）/ replace（v1，已被读数否决）
+                _mode = (os.environ.get('MDCG_DET_MODE') or 'tiebreak').strip().lower()
+                _ranked = _dr.rerank_v2(_items, query, _rerank_clock,
+                                        mode=_mode, session=session)
                 _order = {it[0][0]['id']: i for i, it in enumerate(_ranked)}
                 pack.sort(key=lambda e: _order.get(e.get('id'), len(pack)))
                 # 四信号读数随包透出（可审计：谁因为什么排在前面）
@@ -2973,6 +2976,7 @@ class MdCGOS(MdCG):
             meta["det_reranked"] = det_reranked
             if det_reranked:
                 meta["det_clock_source"] = _clock_source
+                meta["det_mode"] = _mode
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates}

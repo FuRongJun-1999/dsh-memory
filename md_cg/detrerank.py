@@ -30,6 +30,9 @@ WEIGHTS = {
 #: 时间衰减半衰期（天）——与 temporal 路同源口径，固定常量，不随环境变。
 TEMPORAL_HALF_LIFE_D = 30.0
 
+#: window 模式：只在融合前 WINDOW_SIZE 名内允许有界上浮（防弱条目顶上第一）。
+WINDOW_SIZE = 8
+
 
 def _terms(text) -> list:
     return [t.lower() for t in re.split(r"[\s,，、;；。！？:：()（）\[\]【】]+", text or "")
@@ -98,3 +101,37 @@ def rerank(results, query, now, session=None):
         scored.append((score(sig), str(node.get("id") or ""), sig, item))
     scored.sort(key=lambda x: (-x[0], x[1]))
     return [(item, det, sig) for det, _nid, sig, item in scored]
+
+
+def rerank_v2(results, query, now, mode="tiebreak", session=None):
+    """v2：**保留 RRF 为主序**，四信号只做有界修正。
+
+    bench 读数（hive-memory-bench · e2e-simple/蜂巢指南 38 题 · 块级词面覆盖）：
+      v1（replace，按 det 总分重排）：cov@1 **0.625 → 0.313**（g1 28 → 11）。
+      原因：词法计数奖励「长块/词多」，与「这段是否解答了问题」无关；
+      把 RRF 的候选质量丢掉，等于用一个更粗的信号覆盖更细的信号。
+
+    三种模式：
+      · `tiebreak`（**缺省**）：fused 相同才看四信号——零风险，只在并列时用证据说话；
+      · `window`：融合前 WINDOW_SIZE 名内、词法 ≥ 2 的条目允许上浮（有界）；
+      · `replace`：v1 行为，保留以便复现上述读数，**不建议**。
+    """
+    terms = _terms(query)
+    scored = []
+    for idx, item in enumerate(results or ()):
+        node = item[0]
+        sig = signals(node, terms, now, session=session)
+        fused = float(item[1]) if len(item) > 1 and isinstance(item[1], (int, float)) else 0.0
+        scored.append({"idx": idx, "id": str(node.get("id") or ""), "sig": sig,
+                       "det": score(sig), "fused": fused, "item": item})
+    if mode == "replace":
+        scored.sort(key=lambda x: (-x["det"], x["id"]))
+    elif mode == "window":
+        scored.sort(key=lambda x: (-x["fused"], x["idx"]))
+        head, tail = scored[:WINDOW_SIZE], scored[WINDOW_SIZE:]
+        head.sort(key=lambda x: (0 if x["sig"]["lexical"] >= 2 else 1,
+                                 -x["det"], -x["fused"], x["id"]))
+        scored = head + tail
+    else:                                   # tiebreak（缺省，零风险）
+        scored.sort(key=lambda x: (-x["fused"], -x["det"], x["id"]))
+    return [(x["item"], x["det"], x["sig"]) for x in scored]
