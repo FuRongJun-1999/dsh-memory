@@ -357,6 +357,8 @@ ENV_ROWS = [
     ('MDCG_STRUCT_BOOST', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_STRUCT_BOOST', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-09：结构信号重排（章节路由+元素覆盖），0=关；需入库期 ch:N 盖章'),
     ('MDCG_TIME_BOOST', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_TIME_BOOST', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-09：时间桶重排（主库章节=写入日期），0=关；需调用方显式给 now'),
     ('MDCG_BUCKET_SCOPE', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_BUCKET_SCOPE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-09：日/会话桶作用域召回（通用默认开，0=关），会话优先+日倒排'),
+    ('MDCG_BUCKET_AUTO', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_BUCKET_AUTO', 'value', 'env_literal', 'md_cg/bucketindex.py', '', 'uncalibrated', '2026-11-09：桶索引每日自动重建（info 触发），0=关'),
+    ('MDCG_BUCKET_INTERVAL_H', 'TUNE', 'tune', 'env', True, "'20'", 'str', 'value', 'MDCG_BUCKET_INTERVAL_H', 'value', 'env_literal', 'md_cg/bucketindex.py', '', 'uncalibrated', '2026-11-09：重建间隔小时（缺省 20；0=强制）'),
     ('MDCG_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 可配最低分（0=关）', 'unknown', ''),
     ('MDCG_RECALL_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'-1'", 'str', 'value', 'MDCG_RECALL_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 召回面最低分（-1=关）', 'unknown', ''),
 ]

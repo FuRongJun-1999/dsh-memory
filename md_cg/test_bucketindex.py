@@ -100,6 +100,27 @@ def main():
     finally:
         os.environ.pop("MDCG_BUCKET_SCOPE", None)
 
+    # ---------- 每日收尾自动重建 ----------
+    root3 = tempfile.mkdtemp(prefix="bia_")
+    g3 = MdCGOS(root3, actor="test")
+    g3.add("a1", ccg.format(n="甲", s="w", e="1", body="内容甲"), created_at=ts, session="s1")
+    os.environ.pop(bi.AUTO_ENV, None)
+    r1 = bi.maybe_auto_rebuild(g3, background=False)
+    ok(r1.get("rebuilt") is True and r1.get("reason") == "stale", "B15 首次（无 meta）⇒ 重建", r1)
+    ok(os.path.exists(os.path.join(root3, bi.META_FILE)), "B16 meta 落盘")
+    r2 = bi.maybe_auto_rebuild(g3, background=False)
+    ok(r2.get("rebuilt") is False and r2.get("reason") == "fresh",
+       "B17 新鲜期内不重建（每日一次而非每请求一次）", r2)
+    r3 = bi.maybe_auto_rebuild(g3, interval_h=0.0, background=False)
+    ok(r3.get("rebuilt") is True, "B18 间隔置 0 可强制（运维用）", r3)
+    os.environ[bi.AUTO_ENV] = "0"
+    try:
+        r4 = bi.maybe_auto_rebuild(g3, interval_h=0.0, background=False)
+        ok(r4.get("rebuilt") is False and r4.get("reason") == "disabled",
+           "B19 MDCG_BUCKET_AUTO=0 可关", r4)
+    finally:
+        os.environ.pop(bi.AUTO_ENV, None)
+
     print()
     print("bucketindex：%d 项失败" % len(FAILS) if FAILS else "bucketindex：全部通过")
     return 1 if FAILS else 0

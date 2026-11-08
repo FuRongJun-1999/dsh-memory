@@ -26,6 +26,8 @@ RULES = {
     'MDCG_AUTO_SCRUB': {'bool_like': True, 'type': 'bool'},
     'MDCG_AUTO_TIDY': {'bool_like': True, 'type': 'bool'},
     'MDCG_BM25': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_BUCKET_AUTO': {'type': 'str'},
+    'MDCG_BUCKET_INTERVAL_H': {'type': 'str'},
     'MDCG_BUCKET_MIN_SIM': {'max': 1.0, 'min': 0.0, 'type': 'float'},
     'MDCG_BUCKET_SCOPE': {'type': 'str'},
     'MDCG_BUCKET_TOPK': {'type': 'str'},

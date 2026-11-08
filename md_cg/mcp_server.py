@@ -2702,6 +2702,16 @@ def _cg_dispatch(cg, a):
         raise ValueError(f"link 未知 action：{act}")
 
     if op == "info":
+        # 桶索引的**每日收尾自动重建**（2026-11-09 使用者裁定）：
+        # info 是低温、天然被面板/诊断周期性调用的点，适合做「陈旧才重建 + 后台线程」。
+        # 重建 3–5 秒，绝不阻塞本请求：maybe_auto_rebuild 缺省 background=True。
+        # 开关：MDCG_BUCKET_AUTO=0 关；间隔：MDCG_BUCKET_INTERVAL_H（缺省 20 小时）。
+        _bucket_auto = None
+        try:
+            from . import bucketindex as _bki      # noqa: PLC0415
+            _bucket_auto = _bki.maybe_auto_rebuild(cg)
+        except Exception:            # noqa: BLE001 —— 自动重建失败不影响 info
+            _bucket_auto = {"rebuilt": False, "reason": "error"}
         from . import audit
         from . import nodefile
         from . import theory as _th
@@ -2737,6 +2747,7 @@ def _cg_dispatch(cg, a):
              "node_count": len(_nodes_info),
              # issue #812：口径写明——它是**内存索引条目数**，不是「磁盘上活节点数」
              "node_count_scope": "memory_index",
+            "bucket_auto": _bucket_auto,
              # issue #812：落盘索引的 mtime（零成本）。若它晚于本进程启动，说明索引被外部改过。
              "index_mtime": _idx_mtime,
              "audit_kinds": audit.kinds(),

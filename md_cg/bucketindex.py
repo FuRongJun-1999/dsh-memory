@@ -98,3 +98,87 @@ def session_ids(store, session):
 def all_days(store):
     """全部日桶键（升序未排序，调用方自行排序）。"""
     return list(_load(store, DAYS_FILE).keys())
+
+
+#: 自动重建：元数据文件（记录上次重建时间与规模）。
+META_FILE = "_bucketindex_meta.json"
+#: 缺省重建间隔（小时）：每日收尾一次 ⇒ 20 小时���给抖动余量）。
+DEFAULT_INTERVAL_H = 20.0
+#: 自动重建开关的环境变量（缺省开；0=关）。
+AUTO_ENV = "MDCG_BUCKET_AUTO"
+INTERVAL_ENV = "MDCG_BUCKET_INTERVAL_H"
+
+_RUNNING = {"on": False}
+
+
+def _meta_path(store):
+    root = getattr(store, "root", None)
+    return os.path.join(root, META_FILE) if root else None
+
+
+def last_build_ts(store):
+    p = _meta_path(store)
+    if not p or not os.path.exists(p):
+        return 0.0
+    try:
+        with open(p, encoding="utf-8") as fh:
+            return float(json.load(fh).get("ts") or 0.0)
+    except (OSError, json.JSONDecodeError, TypeError, ValueError):
+        return 0.0
+
+
+def _write_meta(store, stats, ts):
+    p = _meta_path(store)
+    if not p:
+        return
+    try:
+        payload = dict(stats)
+        payload["ts"] = ts
+        tmp = p + ".tmp"
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(payload, fh, ensure_ascii=False)
+        os.replace(tmp, p)
+    except OSError:
+        pass
+
+
+def maybe_auto_rebuild(store, interval_h=None, background=True):
+    """每日收尾式自动重建：距上次重建超过 interval 小时才重建。
+
+    为什么这样设计：主库重建 3–5 秒，**不能**卡在写入或查询路径上，
+    故（a）只在「陈旧」时触发，（b）缺省放后台线程跑；
+    并有模块级 `_RUNNING` 防重入（同一进程内不会并发重建）。
+
+    返回 {"rebuilt": bool, "reason": str, "age_h": float, ...}，便于调用方审计。
+    """
+    if os.environ.get("MDCG_BUCKET_AUTO", "1") == "0":
+        return {"rebuilt": False, "reason": "disabled"}
+    if interval_h is not None:          # 显式参数优先（0 = 强制重建）
+        interval = float(interval_h)
+    else:
+        try:
+            interval = float(os.environ.get("MDCG_BUCKET_INTERVAL_H", "20"))
+        except ValueError:
+            interval = DEFAULT_INTERVAL_H
+    age_h = (time.time() - last_build_ts(store)) / 3600.0
+    if last_build_ts(store) > 0 and age_h < interval:
+        return {"rebuilt": False, "reason": "fresh", "age_h": round(age_h, 2)}
+    if _RUNNING["on"]:
+        return {"rebuilt": False, "reason": "running", "age_h": round(age_h, 2)}
+
+    def _job():
+        _RUNNING["on"] = True
+        try:
+            stats = build(store, write=True)
+            _write_meta(store, stats, time.time())
+        except Exception:          # noqa: BLE001 —— 后台失败不得影响主流程
+            pass
+        finally:
+            _RUNNING["on"] = False
+
+    if background:
+        import threading
+        threading.Thread(target=_job, daemon=True).start()
+        return {"rebuilt": True, "reason": "stale", "age_h": round(age_h, 2), "async": True}
+    _job()
+    return {"rebuilt": True, "reason": "stale", "age_h": round(age_h, 2), "async": False}
