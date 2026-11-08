@@ -2178,7 +2178,7 @@ class MdCGOS(MdCG):
                    early_stop_threshold=None,
                    start_time=None, end_time=None, start_operator=None,
                    end_operator=None, time_axis=None, view=None,
-                   strict_conditions: bool = True):
+                   strict_conditions: bool = True, now=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
@@ -2505,7 +2505,15 @@ class MdCGOS(MdCG):
         # 结构重排需要**先超取再截断**：实测（476 题）在 k=10 的池子里重排，gold@3 不动；
         # 在 2×k 池子里重排再截到 k，gold@3 71.9%→85.5%。池子宽窄决定这条信号有没有用。
         _struct_on = (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0)
-        _k_fetch = min(k * 2, 200) if (_struct_on and k) else k
+        # 注意：**不要**复用 `_time_on`——那是上面「时间算子启用」的既有变量，
+        # 覆盖它会让「时间算子查询绕开热缓存」失效（实测：默认查询被污染成 11 条）。
+        _timeboost_on = (int(os.environ.get("MDCG_TIME_BOOST", "0")) > 0)
+        # 时间重排的时钟：**复用**本函数内既有的唯一 time 调用点（#111 契约：打分层时钟恰 1 处），
+        # 新增 time.time() 会直接让契约守卫转红（实测：新增后「时钟调用 2 次」）。
+        # 故这里只派生，不取时钟：`_validity_clock` 未启用时由 _candidates 侧时钟兜底（见下）。
+        # `now` 由调用方显式给（缺省回落既有唯一时钟点）；None ⇒ 时间重排不启用（不猜「今天」）。
+        _rerank_now = now if now is not None else _validity_clock
+        _k_fetch = min(k * 2, 200) if ((_struct_on or _timeboost_on) and k) else k
         early_stopped = False
         if early_stop_threshold is not None and len(fused_all) >= k:
             top1_score = fused_all[0][1]
@@ -2703,11 +2711,23 @@ class MdCGOS(MdCG):
                     and results and q):
                 from . import structboost as _sb      # noqa: PLC0415
                 results = _sb.rerank(results, q)
-                if k:
-                    results = results[:k]      # 超取 → 重排 → 截回 k（对外语义不变）
                 _struct_boosted = True
         except Exception:            # noqa: BLE001 —— 重排失败回退原序，绝不拖崩检索
             _struct_boosted = False
+        # ===== 时间桶重排（主库「章节=写入日期」）：缺省关，超取路径与 struct 共用 =====
+        # 读数（主库 k=20 池）：同日期在 top-5 的占比 10% → 37.5%；池内含该日期时有候选的日期到 100%。
+        # 边界（实测）：候选里**没有**那天的节点时重排无效——那需要「按日期二次召回」，
+        # 当前实现（timeboost.scoped_recall）在主库实测 2–17 秒且只有 0–4/6 命中，**未接线**。
+        _time_boosted = False
+        try:
+            if _timeboost_on and results and q and _rerank_now:
+                from . import timeboost as _tb      # noqa: PLC0415
+                results = _tb.rerank(results, q, _rerank_now, k=k)
+                _time_boosted = True
+        except Exception:            # noqa: BLE001
+            _time_boosted = False
+        if (_struct_boosted or _time_boosted) and k:
+            results = results[:k]        # 超取 → 重排 → 截回 k（对外语义不变）
         # issue #814 后续 / Ornn8 测评建议②（读取策略立项单 A 之外的最小项）：
         # **cutoff 邻近保障**——检索完成后，把「最近 N 条用户轮次」中与 query
         # 有词法交集、且尚未出现在结果里的事件，按 0 分追加到结果**尾部**。
@@ -2769,6 +2789,7 @@ class MdCGOS(MdCG):
                          "paths": per_path, "fused": len(results),
                          "recent_tail": _recent_tail_n,
                          "struct_boost": _struct_boosted,
+                         "time_boost": _time_boosted,
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
