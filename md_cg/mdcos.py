@@ -2505,13 +2505,15 @@ class MdCGOS(MdCG):
         # 结构重排需要**先超取再截断**：实测（476 题）在 k=10 的池子里重排，gold@3 不动；
         # 在 2×k 池子里重排再截到 k，gold@3 71.9%→85.5%。池子宽窄决定这条信号有没有用。
         _struct_on = (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0)
-        _time_on = (int(os.environ.get("MDCG_TIME_BOOST", "0")) > 0)
+        # 注意：**不要**复用 `_time_on`——那是上面「时间算子启用」的既有变量，
+        # 覆盖它会让「时间算子查询绕开热缓存」失效（实测：默认查询被污染成 11 条）。
+        _timeboost_on = (int(os.environ.get("MDCG_TIME_BOOST", "0")) > 0)
         # 时间重排的时钟：**复用**本函数内既有的唯一 time 调用点（#111 契约：打分层时钟恰 1 处），
         # 新增 time.time() 会直接让契约守卫转红（实测：新增后「时钟调用 2 次」）。
         # 故这里只派生，不取时钟：`_validity_clock` 未启用时由 _candidates 侧时钟兜底（见下）。
         # `now` 由调用方显式给（缺省回落既有唯一时钟点）；None ⇒ 时间重排不启用（不猜「今天」）。
         _rerank_now = now if now is not None else _validity_clock
-        _k_fetch = min(k * 2, 200) if ((_struct_on or _time_on) and k) else k
+        _k_fetch = min(k * 2, 200) if ((_struct_on or _timeboost_on) and k) else k
         early_stopped = False
         if early_stop_threshold is not None and len(fused_all) >= k:
             top1_score = fused_all[0][1]
@@ -2718,7 +2720,7 @@ class MdCGOS(MdCG):
         # 当前实现（timeboost.scoped_recall）在主库实测 2–17 秒且只有 0–4/6 命中，**未接线**。
         _time_boosted = False
         try:
-            if _time_on and results and q and _rerank_now:
+            if _timeboost_on and results and q and _rerank_now:
                 from . import timeboost as _tb      # noqa: PLC0415
                 results = _tb.rerank(results, q, _rerank_now, k=k)
                 _time_boosted = True
