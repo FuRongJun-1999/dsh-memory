@@ -9,7 +9,7 @@
   ⑤ 固化：验证通过代码 → 固化 JSON → 同任务直出
 零 LLM：全部白箱确定性生成 + 自校验（语法/测试是物理基底裁决）。
 """
-import sys, json, os, ast
+import sys, json, os, ast, tempfile
 sys.stdout.reconfigure(encoding='utf-8')
 
 
@@ -596,8 +596,7 @@ def domain_solidify(question, domain=None, uid=None):
              "source": "domain_solidified", "domain": domain}
     CODE_SOLIDIFIED[key] = entry
     try:
-        json.dump(CODE_SOLIDIFIED, open(_SOL_FILE, "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=1)
+        _save_solidified()
     except Exception:
         pass
     return entry
@@ -802,6 +801,36 @@ if os.path.exists(_SOL_FILE):
         CODE_SOLIDIFIED = {}
 
 
+def _save_solidified():
+    """把 `CODE_SOLIDIFIED` 落盘——**必须以 LF 写**（`newline="\\n"`）。
+
+    `code_solidified.json` 是**入库文件**，仓内它的规范换行是 LF（`\n`）。
+    文本模式 `open(..., "w")` 不声明 `newline=` 时，Windows 上 `json.dump`
+    会把每个 `\n` 写成 `\r\n` ⇒ 跑一次相关测试，`git status` 就多一条
+    「12390 行全改」的噪声（实测：6195 行 LF 全变 CRLF，JSON 语义不变）。
+    这种改动既无意义又会被误提交，故在写侧一次性钉死换行。
+
+    写入用 `atomic_write` 语义的临时文件 + `os.replace`，避免半写坏档：
+    固化表是 `code_route` 的直出面，读侧遇到坏 JSON 会静默清空（见上面
+    `except: CODE_SOLIDIFIED = {}`），那会把已固化的条目整批丢掉。
+    """
+    d = os.path.dirname(_SOL_FILE)
+    fd, tmp = tempfile.mkstemp(prefix=".code_solidified.", suffix=".tmp", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(CODE_SOLIDIFIED, fh, ensure_ascii=False, indent=1)
+            # 不补尾部换行：入库基线 `code_solidified.json` 末尾**无换行**
+            # （`git show` 上是 "\ No newline at end of file"）。补一行会让每次
+            # 落盘都产生一条 1 行的 diff，等于把 CRLF 噪声换成另一种噪声。
+        os.replace(tmp, _SOL_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
 def code_solidify(question, task=None, uid=None, fn=None):
     """固化：组合生成 + 自校验通过 → 固化（自举纪律：未验证代码不固化）"""
     lang = detect_language(question)
@@ -816,8 +845,7 @@ def code_solidify(question, task=None, uid=None, fn=None):
              "source": "code_solidified", "lang": lang}
     CODE_SOLIDIFIED[key] = entry
     try:
-        json.dump(CODE_SOLIDIFIED, open(_SOL_FILE, "w", encoding="utf-8"),
-                  ensure_ascii=False, indent=1)
+        _save_solidified()
     except Exception:
         pass
     return entry

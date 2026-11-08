@@ -206,7 +206,10 @@ def role_solidify(question, role="鲸鱼娘"):
              "direction": r.get("direction"), "source": "role_solidified"}
     ROLE_SOLIDIFIED[key] = entry
     try:
-        json.dump(ROLE_SOLIDIFIED, open(_SOL_FILE, "w", encoding="utf-8"),
+        # `role_solidified.json` 是**入库文件**，仓内规范换行是 LF。文本模式不声明
+        # `newline=` 时 Windows 上 `\n` 会被翻成 `\r\n`，产生全文件假 diff
+        # （同 `code_compose._save_solidified` 的病象，2026-11-08 一并修）。
+        json.dump(ROLE_SOLIDIFIED, open(_SOL_FILE, "w", encoding="utf-8", newline="\n"),
                   ensure_ascii=False, indent=1)
     except Exception:
         pass

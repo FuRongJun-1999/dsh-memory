@@ -184,3 +184,14 @@ scripts/*.bak-*
 
 # UI 安装器在本机生成的备份（含个性化改动，只用于回退，不进仓库）
 .lingshu-ui-backup-*/
+
+# issue #413 站点2 守卫的沙箱（md_cg/test_issue413_preimage_failclosed.py）在 2026-11-08 前锚在仓根，
+# 每跑一次留一个 _i413b_sandbox_<pid>_<ts>/；锚点已改到系统临时目录，此规则只为兜住
+# 旧版本/其他 worktree 的历史残留（通配：目录名带 pid+时间戳，写死单路径无效）。
+/_i413b_sandbox_*/
+
+# PR/issue 往返的个人工作草稿（292 文件 / 3.3 MB：一次性探针及其输出、
+# _*.py 内部小工具、*.bak 备份、__pycache__/ + .pyc、含本机路径字面量的
+# 草稿）。同 .zcode/ 一节的性质：本机工具产物，正文含本机路径，不入库。
+# 只忽略**仓根**这一份；docs/dsh-memory-upstream-pr/ 是 4 份可复用核查结论，已入库。
+/dsh-memory-upstream-pr/
