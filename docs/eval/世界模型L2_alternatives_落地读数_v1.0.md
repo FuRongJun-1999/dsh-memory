@@ -100,7 +100,7 @@ M3 才被捕获。
 ## 五、边界（诚实）
 
 1. **生产库零数据**。本机真实数据根
-   `C:\Users\LU\.dsh\.dsh-memory\data\mdcg` 下 **`_state_events.jsonl` 不存在**
+   `<家目录>\.dsh\.dsh-memory\data\mdcg` 下 **`_state_events.jsonl` 不存在**
    （旁边 `_audit`/`_trust`/`_reconcile` 等 20+ 个 jsonl 都在），
    `state_slots --status` 读数 `events=0 / subjects=0 / slots=0`。
    ⇒ **本批改动在真实库上暂时零可观测效果**，它只在有台账时才产生值。
