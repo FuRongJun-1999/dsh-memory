@@ -66,3 +66,66 @@ def session_scope(store, query, session, cap=CAP):
     if not ids:
         return None
     return _pick(store, ids, _terms(query), cap)
+
+
+#: 通用默认：桶作用域**默认开启**（日期 + 会话是记忆的基本坐标，不是可选优化）。
+DEFAULT_ON = True
+#: 桶召回默认条数（会话桶 + 日桶合计）。
+DEFAULT_CAP = 8
+#: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
+DAY_LOOKBACK = 14
+
+
+def _recency_key(node):
+    """桶内排序键：created_at 降序（最近的在前）。"""
+    fm = node.get("frontmatter") or {}
+    try:
+        return -float(fm.get("created_at") or fm.get("valid_from") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def scope_recall(store, query, session, now, cap=DEFAULT_CAP):
+    """**默认口径**的桶作用域召回：会话桶优先 → 日桶按日期倒排 → 都按时间降序。
+
+    使用者口径（2026-11-09）：
+      「日期、会话是默认就应该开启的；会话优先使用会话桶，然后按日期倒排，
+        优先取自己最近的。条件才是筛选方式。」
+
+    故本函数与「重排」无关——它只**补召回**：返回的每条 score=0.0，
+    不抢正排名次，但一定进入候选（调用方可按预算追加）。
+    """
+    terms = _terms(query)
+    out = []
+    seen = set()
+    # ① 会话桶优先（自己的最近记录）
+    sid = str(session or "")
+    if sid and sid != _bi.UNATTRIBUTED:
+        ids = _bi.session_ids(store, sid)
+        picked = _pick(store, ids, terms, cap)
+        for node, score, qual, prov in picked:
+            qual = dict(qual)
+            qual["bucket"] = "session"
+            out.append((node, score, qual, prov))
+            seen.add(node.get("id"))
+    # ② 日桶按日期**倒排**（最近的日子优先）
+    if len(out) < cap:
+        days = sorted(_bi.all_days(store), reverse=True)[:DAY_LOOKBACK]
+        for day in days:
+            if len(out) >= cap:
+                break
+            picked = _pick(store, _bi.day_ids(store, day), terms, cap - len(out))
+            for node, score, qual, prov in picked:
+                if node.get("id") in seen:
+                    continue
+                qual = dict(qual)
+                qual["bucket"] = "day:%s" % day
+                out.append((node, score, qual, prov))
+                seen.add(node.get("id"))
+    # ③ 排序：**会话桶整体优先**，再按时间降序；日桶同样按时间降序。
+    # 使用者口径「会话优先使用会话桶，然后按日期倒排」——只按时间排会让日桶插到会话前面（实测发生过）。
+    def _key(it):
+        bucket = ((it[2] or {}).get("bucket") or "")
+        return (0 if bucket == "session" else 1, _recency_key(it[0]))
+    out.sort(key=_key)
+    return out[:cap]

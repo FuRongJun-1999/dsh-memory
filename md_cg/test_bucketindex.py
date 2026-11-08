@@ -66,6 +66,40 @@ def main():
     ok([x[0]["id"] for x in r1] == [x[0]["id"] for x in r2], "B7 确定性")
     ok(bs.MAX_SCAN == 800, "B8 扫描预算常量固定（快/全取舍显式）", bs.MAX_SCAN)
 
+    # ---------- 通用默认口径（使用者 2026-11-09 裁定）----------
+    base = time.mktime(time.strptime("2026-11-01 10:00:00", "%Y-%m-%d %H:%M:%S"))
+    g2 = MdCGOS(tempfile.mkdtemp(prefix="bsc_"), actor="test")
+    g2.add("s_old", ccg.format(n="本会话早", s="w", e="1", body="检索 索引 陈旧"),
+           created_at=base, session="sess_A")
+    g2.add("s_new", ccg.format(n="本会话新", s="w", e="2", body="检索 索引 修复"),
+           created_at=base + 86400 * 3, session="sess_A")
+    g2.add("d_recent", ccg.format(n="近日", s="w", e="3", body="检索 索引 迁移"),
+           created_at=base + 86400 * 5, session="sess_B")
+    g2.add("d_older", ccg.format(n="更早", s="w", e="4", body="检索 索引 回滚"),
+           created_at=base - 86400 * 5, session="sess_B")
+    bi.build(g2, write=True)
+    out = bs.scope_recall(g2, "检索 索引", "sess_A", time.time(), cap=8)
+    ids = [n["id"] for n, _s, _q, _p in out]
+    ok(ids[:2] == ["s_new", "s_old"],
+       "B9 会话桶整体优先且按时间降序", ids)
+    ok(ids[2:] == ["d_recent", "d_older"], "B10 日桶按日期倒排", ids[2:])
+    ok(bs.DEFAULT_ON is True, "B11 通用默认开启（不是可选优化）")
+    ok(all(s == 0.0 for _n, s, _q, _p in out), "B12 桶召回 score=0（不抢正排）")
+
+    os.environ.pop("MDCG_BUCKET_SCOPE", None)
+    pk = g2.recall("检索 索引", budget_tokens=4000, k=5, session="sess_A")
+    n_scope = sum(1 for e in pk["pack"]
+                  if (e.get("metadata") or {}).get("reason") == "bucket_scope")
+    ok(n_scope >= 1, "B13 缺省即生效（recall 包里出现桶召回条目）", n_scope)
+    os.environ["MDCG_BUCKET_SCOPE"] = "0"
+    try:
+        pk0 = g2.recall("检索 索引", budget_tokens=4000, k=5, session="sess_A")
+        ok(sum(1 for e in pk0["pack"]
+               if (e.get("metadata") or {}).get("reason") == "bucket_scope") == 0,
+           "B14 MDCG_BUCKET_SCOPE=0 可关")
+    finally:
+        os.environ.pop("MDCG_BUCKET_SCOPE", None)
+
     print()
     print("bucketindex：%d 项失败" % len(FAILS) if FAILS else "bucketindex：全部通过")
     return 1 if FAILS else 0

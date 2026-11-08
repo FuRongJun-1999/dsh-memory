@@ -93,3 +93,8 @@ def day_ids(store, day):
 
 def session_ids(store, session):
     return list(_load(store, SESSIONS_FILE).get(str(session)) or ())
+
+
+def all_days(store):
+    """全部日桶键（升序未排序，调用方自行排序）。"""
+    return list(_load(store, DAYS_FILE).keys())
