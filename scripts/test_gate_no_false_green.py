@@ -47,6 +47,25 @@
     script-style 件把断言写在顶层语句里。
 不满足即为假绿，必须点名。
 
+## 第三/四形态：SKIP 不得冒充 PASS
+
+上面两种形态的前提是「目标**跑起来**了，只是没执行断言」。还有一类是目标
+**根本没跑**，门禁却报绿——同族，危害方式不同：
+
+- **第三形态（#284 已修）**：模块内打印 `SKIP` 后 `return 0`。修前判据只有
+  `rc == 0` ⇒ 汇总记 PASS、SKIP 行不进日志 ⇒ CI 假绿。现判据改为
+  「`rc==0` **且** stdout/stderr 里有**行首** `SKIP` 行」⇒ 记 SKIP，不计入通过数。
+- **第三形态补（全跳过）**：目标**选中了**却**全部跳过** ⇒
+  `SUMMARY 0/N 通过` + `rc=0`，零个断言执行。现返回 `rc=3`（不复用 `rc=2`，
+  因其在本仓已有「有跳过」语义）。
+- **第四形态**：`--gate fast` 把重质检项从 `targets` 摘出时，必须**并入
+  `skipped`**。否则整批皆是重质检项时 `skipped` 为空 ⇒ 全跳过门的
+  `(skipped or mod_skips)` 前置为假 ⇒ **绕过该门**。
+
+本组把上述三条钉成机器可判的静态断言：读 `run_tests.py` 源码，要求
+`_heavy_skipped` 必须并入 `skipped`、全跳过门必须存在且返回非 0、
+`_module_skip_reason` 必须用**行首**正则。
+
 ## 反恒真
 
 本守卫自身也接受判别力检验（`--mutate`）：把某个已知合格件的入口摘掉后
@@ -199,6 +218,35 @@ def main():
     mainy = ("def test_a(tmp_path):\n    assert False\n\n"
              "if __name__ == '__main__':\n    raise SystemExit(1)\n")
     ok("E3 补了 __main__ 后即被认可", executes_assertions(mainy)[0] is True)
+
+    print("== F SKIP 不得冒充 PASS（第三/四形态，issue #284 同族）")
+    _rtsrc = open(RUN_TESTS, encoding="utf-8", errors="replace").read()
+
+    # F1/F2 第四形态：--gate fast 移出的项必须并入 skipped。
+    # 只钉「_heavy_skipped 被消费」这个结构事实——具体写法可变，
+    # 但不能是「收集了却没人用」，那正是绕过全跳过门的形态。
+    ok("F1 run_tests 里存在 _heavy_skipped 收集", "_heavy_skipped" in _rtsrc)
+    _merged = re.search(r"skipped\s*,\s*runnable\s*=\s*list\(\s*_heavy_skipped\s*\)", _rtsrc) is not None
+    ok("F2 _heavy_skipped 已并入 skipped（否则绕过全跳过门）", _merged,
+       "未找到 `skipped, runnable = list(_heavy_skipped), []` 形态的并入")
+
+    # F3/F4 全跳过门：必须存在，且不返回 0。
+    _gate = re.search(
+        r"if\s+_passed\s*==\s*0\s+and\s*\(\s*skipped\s+or\s+mod_skips\s*\)",
+        _rtsrc) is not None
+    ok("F3 全跳过门存在（_passed==0 and (skipped or mod_skips)）", _gate)
+    _rc3 = re.search(r"return\s+3\b", _rtsrc) is not None
+    ok("F4 全跳过门以非 0 收场（rc=3，不复用 rc=2 的『有跳过』语义）", _rc3)
+
+    # F5 模块内 SKIP 必须用行首正则——正文里出现「SKIP」不得误判。
+    _anchored = re.search(r'_SKIP_LINE_RE\s*=\s*re\.compile\(\s*r?"\^', _rtsrc) is not None
+    ok("F5 _SKIP_LINE_RE 锚定行首（防正文提及 SKIP 被误判）", _anchored)
+
+    # F6 判别力自证：把并入那行做掉，F2 判据必须转红。
+    _mut = _rtsrc.replace("skipped, runnable = list(_heavy_skipped), []",
+                          "skipped, runnable = [], []", 1)
+    _mut_merged = re.search(r"skipped\s*,\s*runnable\s*=\s*list\(\s*_heavy_skipped\s*\)", _mut) is not None
+    ok("F6 判别力自证：删掉并入 ⇒ F2 判据转红", _mut_merged is False)
 
     print("")
     print("门禁假绿元守卫：%d 通过 / %d 失败" % (len(PASS), len(FAIL)))
