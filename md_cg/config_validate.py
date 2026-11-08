@@ -94,6 +94,7 @@ RULES = {
     'MDCG_SUSTAIN_BEAT_THREAD': {'bool_like': True, 'type': 'bool'},
     'MDCG_TEMPORAL_GAMMA': {'min': 0.0, 'type': 'float'},
     'MDCG_TENANT': {'type': 'str'},
+    'MDCG_TIME_BOOST': {'type': 'str'},
     'MDCG_TOOL_FACE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_TOPIC_AGG': {'type': 'str'},
     'MDCG_TOPIC_AGG_TAGFALLBACK': {'type': 'str'},
