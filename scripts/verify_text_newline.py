@@ -2,10 +2,10 @@
 # -*- coding: utf-8 -*-
 # 功能名：仓内文本文件的换行守卫——受控文件不得混入 CRLF；仓内写侧必须声明 newline
 # 生效条件：提交前 / 门禁；任何会写 md_cg、scripts、hive、compiler 下文件的改动，或新增受控文本文件时
-# 子功能：A=事实面（git ls-files 里全部文本类受控文件，逐字节查 CRLF；命中即报文件名与处数）；B=写侧面（AST 找「目标为仓内常量/__file__ 相对 + 文本写 + 未声明 newline」的调用点，仅限已知会写仓内文件的那种形态）；R=变异自证（造 CRLF 夹具必红、造 LF 夹具必绿）
+# 子功能：A=事实面（git 索引里全部文本类受控 blob，逐字节查 CRLF；命中即报文件名与处数）；B=写侧面（AST 找「目标为仓内常量/__file__ 相对 + 文本写 + 未声明 newline」的调用点，仅限已知会写仓内文件的那种形态）；R=变异自证（造 CRLF 夹具必红、造 LF 夹具必绿）
 # 执行：python -X utf8 scripts/verify_text_newline.py [--self-test]
 # 验证方式：两问全绿退出 0；有违例退出 1；锚点漂移退出 2
-# 不适用条件：不判临时目录（tempfile/mkdtemp/TEMP 下 CRLF 无害）；不判二进制；不判读侧；不要求把历史既存 CRLF 一次性转 LF（那 3 个文件是特例，靠 WHITELIST 显式登记）
+# 不适用条件：不判临时目录（tempfile/mkdtemp/TEMP 下 CRLF 无害）；不判二进制；不判读侧；不要求把历史既存 CRLF 一次性转 LF（那 3 个文件是特例，靠 WHITELIST 显式登记）；不判工作树的 checkout 形态（core.autocrlf=true 会把工作树转 CRLF，那是本地环境不是仓库缺陷）
 """`verify_text_newline.py` · 换行守卫（事实面 + 写侧面）。
 
 ## 病象（实测，2026-11-08）
@@ -26,10 +26,32 @@
 
 ## 判据（两问，A 是主判据、B 是预防判据）
 
-**A｜事实面（主）**：`git ls-files` 里全部文本类受控文件，逐字节读，**不得含 `\r\n`**。
-仓内换行约定就是 LF——这不是「要求」，是仓库现状（实测 3044 个受控文本文件里
-只有 3 个含 CRLF，且都是历史遗留，已在 `WHITELIST` 显式登记理由）。
-新出现的 CRLF 一定是某次写入没声明 `newline=`。
+**A｜事实面（主）**：全部文本类受控文件，逐字节读**git 索引里的 blob**，
+**不得含 `\r\n`**。仓内换行约定就是 LF——这不是「要求」，是仓库现状
+（实测 3054 个受控文本文件里只有 3 个 blob 含 CRLF，且都是历史遗留，
+已在 `WHITELIST` 显式登记理由）。新出现的 CRLF 一定是某次写入没声明 `newline=`。
+
+### 为什么必须读 git 对象，而不是工作树（本条是 2026-11-08 的返工点）
+
+初版按工作树逐字节读。在 `core.autocrlf=false` 的机器上全绿，
+但在 `core.autocrlf=true` 的机器上**全红**：checkout 时 git 把每个 LF 翻成 CRLF，
+3054 个受控文本文件里 3019 个「命中」，连 `CHANGELOG.md` `README.md` 都在列
+（实测：`compiler/api.py` 一个文件就报 399 处）。
+
+这 3019 处**不是仓库缺陷**，是本地环境：
+`git config --system core.autocrlf` 在 Windows 默认安装下就是 `true`，
+而 `git ls-files` 枚举的是索引、读的却是被 checkout 改写过的工作树副本。
+同一份提交在两台机器上一个全绿一个全红，判据就没有分辨力——
+更要命的是它红得「言之凿凿」（还给出 399 处这种精确数字），
+让人以为真有存量问题去大改换行，转移了真正的注意力。
+
+故 A 面统一走 `git cat-file --batch` 读 `:path`（索引 blob）：
+判据锚在**仓库内容**上，与 checkout 转换、`core.eol`、`.gitattributes`
+这些本地配置全部无关。同一提交在任何机器上读数一致。
+
+（`.gitattributes` 只管 `*.sh` / `*.yml` / `ui/minimal/payload/**` 这几类强制 `eol=lf`；
+仓内 `*.py` `*.md` `*.json` 没有被它钉住，所以在 autocrlf=true 下照转不误——
+这也解释了为什么缺口只出在「非 attributes 管辖」的文件上。）
 
 **B｜写侧面（防）**：AST 找**内联** `json.dump(...)` / `.write(...)` 且
 `open(目标, "w"...)` 未声明 `newline=` 的调用点——但只在目标能确认是**仓内受控常量**
@@ -39,7 +61,10 @@
 ## ANCHOR（漂移即报，退出 2，fail-closed）
 
 - 受控文本文件数下限（枚举失效 ⇒ 不得当假绿）；
-- `code_solidified.json` 必须在受控清单里（本守卫的立项目的，掉了说明扫描面坏了）。
+- `code_solidified.json` 必须在受控清单里（本守卫的立项目的，掉了说明扫描面坏了）；
+- **索引 blob 必须逐个读到**（读不全 ⇒ 不得静默跳过当假绿）。初版对
+  `OSError` 是 `continue`，不校验 `checked == len(files)`——少读 N 个文件
+  和「N 个文件都干净」在输出上完全同形，这是同一类假绿。
 
 用法：
   python -X utf8 scripts/verify_text_newline.py
@@ -97,20 +122,73 @@ def _tracked_text_files() -> list:
         if not f:
             continue
         name = f.decode("utf-8", "replace")
+        # 含换行的路径无法安全地走 cat-file --batch 的逐行协议；
+        # 仓内实测为 0 个，若哪天出现则在此显式丢弃（不是静默漏扫——
+        # 下面 ANCHOR 只核对「本清单全部读到」，故丢弃后计数自洽）。
+        if "\n" in name or "\r" in name:
+            continue
         if name.lower().endswith(TEXT_EXT):
             out.append(name)
     return out
 
 
-def _audit_crlf(files: list) -> tuple:
-    """返回 (命中列表, 检查数)。命中 = [(rel, crlf_count)]，已剔除白名单。"""
+def _index_blobs(files: list, root: str = None) -> dict:
+    """读 git 索引里的 blob 内容（rel → bytes）。
+
+    用 `git cat-file --batch` 一次喂完整清单，避免逐文件起进程（3054 个文件
+    逐个调用要几分钟）。`:` 前缀表示「按索引取」，即仓库内容本体，
+    不含 checkout 时的换行转换。
+
+    与工作树的差别是**判据级**的，不是性能级：见模块 docstring
+    「为什么必须读 git 对象，而不是工作树」。
+    """
+    root = root or ROOT
+    if not files:
+        return {}
+    payload = ("\n".join(":" + f for f in files) + "\n").encode("utf-8")
+    p = subprocess.run(["git", "cat-file", "--batch"], cwd=root,
+                       input=payload, capture_output=True)
+    if p.returncode != 0:
+        raise AnchorMiss("git cat-file --batch 失败（rc=%d）：%s"
+                         % (p.returncode,
+                            p.stderr.decode("utf-8", "replace")[:300]))
+    blob, i = {}, 0
+    for f in files:
+        nl = p.stdout.find(b"\n", i)
+        if nl < 0:
+            break
+        parts = p.stdout[i:nl].decode("utf-8", "replace").split()
+        i = nl + 1
+        if len(parts) < 3 or parts[-1] == "missing":
+            continue
+        try:
+            size = int(parts[2])
+        except ValueError:
+            continue
+        blob[f] = p.stdout[i:i + size]
+        i += size + 1
+    return blob
+
+
+def _audit_crlf(files: list, blobs: dict = None) -> tuple:
+    """返回 (命中列表, 检查数)。命中 = [(rel, crlf_count)]，已剔除白名单。
+
+    `blobs` 给出时按 blob 内容判（主判据，见 `_index_blobs`）；
+    为 None 时按 `ROOT` 下的工作树文件判——**仅供夹具自证**使用，
+    主流程一律传 blobs。
+    """
     hits = []
     checked = 0
     for rel in files:
-        try:
-            raw = open(os.path.join(ROOT, rel), "rb").read()
-        except OSError:
-            continue
+        if blobs is not None:
+            raw = blobs.get(rel)
+            if raw is None:
+                continue
+        else:
+            try:
+                raw = open(os.path.join(ROOT, rel), "rb").read()
+            except OSError:
+                continue
         checked += 1
         if b"\r\n" not in raw:
             continue
@@ -174,7 +252,11 @@ def _mode_and_nl(call: ast.Call):
 
 
 def _audit_writers() -> list:
-    """B｜写侧面：内联 open(仓内常量, "w") 无 newline 的调用点。"""
+    """B｜写侧面：内联 open(仓内常量, "w") 无 newline 的调用点。
+
+    这里读工作树是**对的**：B 面问的是「实际会执行的源码怎么写文件」，
+    而 `core.autocrlf` 转换不影响 AST 结构（CRLF 的 .py 照样解析）。
+    """
     bad = []
     for d in SCAN_DIRS:
         base = os.path.join(ROOT, d)
@@ -221,7 +303,7 @@ def _audit_writers() -> list:
 
 
 def _self_test() -> int:
-    """变异自证：造含 CRLF 的文件必红、造纯 LF 必绿。"""
+    """变异自证：造含 CRLF 的文件必红、造纯 LF 必绿 + 仓内 blob 基线干净。"""
     import tempfile
     miss = []
     tmp = tempfile.mkdtemp(prefix="nl_selftest_")
@@ -238,7 +320,14 @@ def _self_test() -> int:
             miss.append("夹具②混入了 CRLF")
         # 用真实受控文件面确认「干净基线」成立（否则判据无分辨力）
         files = _tracked_text_files()
-        hits, checked = _audit_crlf(files)
+        try:
+            blobs = _index_blobs(files)
+        except AnchorMiss as e:
+            miss.append(str(e))
+            blobs = {}
+        if blobs and len(blobs) != len(files):
+            miss.append("索引 blob 读取不完整：%d/%d" % (len(blobs), len(files)))
+        hits, _checked = _audit_crlf(files, blobs)
         if hits:
             miss.append("当前仓内已存在未登记 CRLF：%s（守卫会一直红，需先清理或登记）"
                         % hits[:3])
@@ -250,7 +339,7 @@ def _self_test() -> int:
         for m in miss:
             print("   -", m)
         return 2
-    print("✔ 自检通过：CRLF 夹具可检、LF 夹具不误报、仓内基线干净")
+    print("✔ 自检通过：CRLF 夹具可检、LF 夹具不误报、仓内 blob 基线干净")
     return 0
 
 
@@ -268,29 +357,28 @@ def main() -> int:
                              % (len(files), _FLOOR_TRACKED_TEXT))
         if _MUST_BE_TRACKED not in files:
             raise AnchorMiss("立项目的文件不在受控清单：%s" % _MUST_BE_TRACKED)
+        blobs = _index_blobs(files)
+        if len(blobs) != len(files):
+            lacking = [f for f in files if f not in blobs]
+            raise AnchorMiss("索引 blob 读取不完整 %d/%d，缺失如 %s"
+                             "（读不全不得当假绿）"
+                             % (len(blobs), len(files), lacking[:3]))
     except AnchorMiss as e:
         print("✘ ANCHOR-MISS：%s" % e)
         return 2
 
-    hits, checked = _audit_crlf(files)
+    hits, checked = _audit_crlf(files, blobs)
     writers = _audit_writers()
 
-    print("A 事实面：检查受控文本文件 %d 个；含 CRLF %d 个（白名单 %d 个已登记）"
+    print("A 事实面：检查受控文本 blob %d 个；含 CRLF %d 个（白名单 %d 个已登记）"
           % (checked, len(hits), len(WHITELIST)))
     print("B 写侧面：内联写仓内常量且未声明 newline 的调用点 %d 处" % len(writers))
 
-    # 白名单双向核对
-    wh_hit = {rel for rel, _c in hits}
+    # 白名单双向核对：登记了但文件其实已无 CRLF ⇒ 提示可移除（不留僵尸豁免）
     wh_bad = []
-    all_crlf = set()
-    for rel in files:
-        try:
-            if b"\r\n" in open(os.path.join(ROOT, rel), "rb").read():
-                all_crlf.add(rel)
-        except OSError:
-            pass
     for rel, why in WHITELIST.items():
-        if rel not in all_crlf:
+        raw = blobs.get(rel)
+        if raw is None or b"\r\n" not in raw:
             wh_bad.append(("白名单有而文件已无 CRLF（可从清单移除）", rel, why))
 
     if hits or writers or wh_bad:
@@ -307,7 +395,7 @@ def main() -> int:
             print("\n… %s：%s（%s）" % (kind, rel, why))
         return 1
 
-    print("\n✔ A 全部受控文本文件换行均为 LF（%d 个白名单外的 0 个例外）"
+    print("\n✔ A 全部受控文本 blob 换行均为 LF（%d 个白名单外的 0 个例外）"
           % len(WHITELIST))
     print("✔ B 无「写仓内文件却不声明 newline」的调用点")
     return 0
