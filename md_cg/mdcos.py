@@ -2971,6 +2971,39 @@ class MdCGOS(MdCG):
                 recent.append({"role": ev.get("role"), "t": ev.get("t"),
                                "text": ev.get("text"), "tokens": t,
                                "tags": ev.get("tags") or []})
+        # ===== 桶作用域召回（日期 + 会话是默认坐标；会话优先，日桶按日期倒排）=====
+        # 使用者口径（2026-11-09）：这两类是**默认开启**的通用设置，不是可选优化；
+        # 「条件才是筛选方式」，故桶召回只按查询词面筛选 + 时间降序，**不改正排名次**（score=0）。
+        # 关闭：MDCG_BUCKET_SCOPE=0。预算从同一包预算里扣（诚实口径：附了就是占了）。
+        _bucket_scope_n = 0
+        try:
+            if (os.environ.get("MDCG_BUCKET_SCOPE", "1") != "0"
+                    and pack is not None):
+                from . import bucketscope as _bs      # noqa: PLC0415
+                _extra = _bs.scope_recall(self, query, session,
+                                          _rerank_clock if '_rerank_clock' in dir() else time.time())
+                _have = {e.get("id") for e in pack}
+                for _node, _score, _qual, _prov in _extra:
+                    if _node.get("id") in _have:
+                        continue
+                    _txt = str(_node.get("content") or "")
+                    _t = est_tokens(_txt)
+                    if used + _t > budget_tokens:
+                        continue
+                    fm = _node.get("frontmatter") or {}
+                    pack.append({"id": _node.get("id"), "score": 0.0,
+                                 "state": (_qual or {}).get("state"),
+                                 "tokens": _t, "content": _txt,
+                                 "frontmatter": fm, "provenance": _prov or [],
+                                 "metadata": {"state": (_qual or {}).get("state"),
+                                              "reason": "bucket_scope",
+                                              "bucket": (_qual or {}).get("bucket")}})
+                    used += _t
+                    _bucket_scope_n += 1
+                    if _bucket_scope_n >= _bs.DEFAULT_CAP:
+                        break
+        except Exception:            # noqa: BLE001 —— 桶召回失败不拖崩装包
+            _bucket_scope_n = 0
         # ===== 检索裁定：结论必须由确定性规则裁决（structural: mem_ruling_vector_ref_deterministic）=====
         # 向量/语义相似度只提供候选参考；**最终名次由词法·时间·空间·交互四类可数信号重排**，
         # 且必须确定性可回放。纯后处理：不改 pack 内容、不改 fused 分数，只调整交付顺序。
