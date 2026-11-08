@@ -292,7 +292,10 @@ FAST_ONLY_KEYS = {"flush_state", "full", "node_count"}
 
 #: issue #812：**只在 full 面**出现的键（快照面不解析 58MB 落盘索引，故不能要求快照齐备）。
 #: 它们仍需登记，否则「full 多出未登记键」会红——这正是扩键流程要的。
-FULL_ONLY_INFO_KEYS = {"index_node_count", "index_stale", "index_stale_error"}
+#: 只在 full=true 时出现的 info 键（新增键必须登记，否则「快照缺键/多键」守卫会红）。
+#: `bucket_auto`：桶索引每日自动重建的读数（2026-11-09 引入，info 触发点）。
+FULL_ONLY_INFO_KEYS = {"index_node_count", "index_stale", "index_stale_error",
+                       "bucket_auto"}
 
 
 def _parse_info(stdout, rid):
