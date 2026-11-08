@@ -352,6 +352,7 @@ ENV_ROWS = [
     ('MDCG_RECENT_TAIL', 'TUNE', 'tune', 'env', True, "'6'", 'str', 'value', 'MDCG_RECENT_TAIL', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-07：search_rrf 的 cutoff 邻近保障（Ornn8 测评建议②），0=关'),
     ('MDCG_TOPIC_AGG', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_TOPIC_AGG', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-07：跨轮状态聚合（Ornn8 测评建议①），0=关'),
     ('MDCG_DET_RERANK', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_DET_RERANK', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-07：确定性四信号重排（向量只给参考），0=关'),
+    ('MDCG_DET_MODE', 'TUNE', 'tune', 'env', True, "'tiebreak'", 'str', 'value', 'MDCG_DET_MODE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-08：确定性重排模式 tiebreak|window|replace（缺省 tiebreak）'),
     ('MDCG_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 可配最低分（0=关）', 'unknown', ''),
     ('MDCG_RECALL_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'-1'", 'str', 'value', 'MDCG_RECALL_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 召回面最低分（-1=关）', 'unknown', ''),
 ]
