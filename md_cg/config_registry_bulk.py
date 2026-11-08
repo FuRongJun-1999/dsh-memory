@@ -354,6 +354,7 @@ ENV_ROWS = [
     ('MDCG_DET_RERANK', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_DET_RERANK', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-07：确定性四信号重排（向量只给参考），0=关'),
     ('MDCG_DET_MODE', 'TUNE', 'tune', 'env', True, "'tiebreak'", 'str', 'value', 'MDCG_DET_MODE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-08：确定性重排模式 tiebreak|window|replace（缺省 tiebreak）'),
     ('MDCG_TOPIC_AGG_TAGFALLBACK', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_TOPIC_AGG_TAGFALLBACK', 'value', 'env_literal', 'md_cg/topicagg.py', '', 'uncalibrated', '2026-11-08：topicagg 的 tag 召回兜底（缺省关；开启需接受泛词噪声）'),
+    ('MDCG_STRUCT_BOOST', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_STRUCT_BOOST', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-11-09：结构信号重排（章节路由+元素覆盖），0=关；需入库期 ch:N 盖章'),
     ('MDCG_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 可配最低分（0=关）', 'unknown', ''),
     ('MDCG_RECALL_MIN_SCORE', 'TUNE', 'tune', 'env', True, "'-1'", 'str', 'value', 'MDCG_RECALL_MIN_SCORE', 'value', 'env_literal', 'md_cg/mdcos.py', '', 'uncalibrated', '2026-10-23 手补：issue #637 召回面最低分（-1=关）', 'unknown', ''),
 ]

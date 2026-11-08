@@ -2502,6 +2502,10 @@ class MdCGOS(MdCG):
         # 温路径早停判据（2026-09-19 热温冷分层）：
         # top-1 RRF 分 >= threshold 且 top-k 全部来自 >=2 路共识 → 提前返回
         # 不改 RRF 核心算法，只在融合后判断
+        # 结构重排需要**先超取再截断**：实测（476 题）在 k=10 的池子里重排，gold@3 不动；
+        # 在 2×k 池子里重排再截到 k，gold@3 71.9%→85.5%。池子宽窄决定这条信号有没有用。
+        _struct_on = (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0)
+        _k_fetch = min(k * 2, 200) if (_struct_on and k) else k
         early_stopped = False
         if early_stop_threshold is not None and len(fused_all) >= k:
             top1_score = fused_all[0][1]
@@ -2519,7 +2523,7 @@ class MdCGOS(MdCG):
         filtered = 0
         if early_stopped:
             # 早停：直接取 top-k，不做 judge_ranking
-            fused = fused_all[:k]
+            fused = fused_all[:_k_fetch]
             judge = False  # 早停时跳过资格判定
             judge_ranking = False
         elif judge and judge_ranking:
@@ -2531,7 +2535,7 @@ class MdCGOS(MdCG):
                 # qualified result (including the deterministic id tie).
                 # A fixed oversampling window can run out of safe candidates.
                 upper = max(fs, fs * 0.5)
-                if (k > 0 and len(kept) == k
+                if (_k_fetch > 0 and len(kept) == _k_fetch
                         and (-upper, nid) >= (-kept[-1][1], kept[-1][0])):
                     break
                 node, s = node_by_id[nid]
@@ -2544,14 +2548,14 @@ class MdCGOS(MdCG):
                     continue
                 kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
                 kept.sort(key=lambda x: (-x[1], x[0]))
-                if k > 0:
-                    kept = kept[:k]
+                if _k_fetch > 0:
+                    kept = kept[:_k_fetch]
             kept.sort(key=lambda x: (-x[1], x[0]))
             if _ta_tier:
                 kept.sort(key=lambda x: _ta_tier.get(x[0], 2))   # 稳定排序：交集者前置
-            fused = kept[:k]
+            fused = kept[:_k_fetch]
         else:
-            fused = fused_all[:k]
+            fused = fused_all[:_k_fetch]
 
         results = []
         # P2-2（§5.2）：默认召回路径上的**拒绝域双语义**——与 `MdCG._emit` 同款
@@ -2689,6 +2693,21 @@ class MdCGOS(MdCG):
                          view=view, extra=_cache_extra, clock_window=_query_window)
         if _rrf_dropped:
             stat["min_score"] = _rrf_min
+        # ===== 结构信号重排（章节路由 + 元素覆盖）：bench 读数驱动，缺省关 =====
+        # 读数（六元素判断题 476，gold=evidence 行号）：gold@1 49.6→52.5 / @3 71.9→85.7 / @10 92.0→96.2。
+        # 只在**已召回候选集内**重排（不改候选集、不过滤）⇒ 无召回损失风险；
+        # 与 recent_tail 的顺序无关（tail 是 0 分补尾，重排在补尾之前更干净）。
+        _struct_boosted = False
+        try:
+            if (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0
+                    and results and q):
+                from . import structboost as _sb      # noqa: PLC0415
+                results = _sb.rerank(results, q)
+                if k:
+                    results = results[:k]      # 超取 → 重排 → 截回 k（对外语义不变）
+                _struct_boosted = True
+        except Exception:            # noqa: BLE001 —— 重排失败回退原序，绝不拖崩检索
+            _struct_boosted = False
         # issue #814 后续 / Ornn8 测评建议②（读取策略立项单 A 之外的最小项）：
         # **cutoff 邻近保障**——检索完成后，把「最近 N 条用户轮次」中与 query
         # 有词法交集、且尚未出现在结果里的事件，按 0 分追加到结果**尾部**。
@@ -2749,6 +2768,7 @@ class MdCGOS(MdCG):
                          **(_rrf_note or {}),
                          "paths": per_path, "fused": len(results),
                          "recent_tail": _recent_tail_n,
+                         "struct_boost": _struct_boosted,
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
