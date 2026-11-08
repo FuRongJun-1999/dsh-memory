@@ -1517,7 +1517,11 @@ def solidify(query, triggers=None, scene=None):
              "source": "compose_solidified"}
     SOLIDIFIED[key] = entry
     try:
-        _json.dump(SOLIDIFIED, open(_SOLIDIFY_FILE, "w", encoding="utf-8"),
+        # 落盘到**仓内**路径 `solidified_knowledge.json`：文本模式不声明 `newline=`
+        # 时 Windows 上 `\n` 会翻成 `\r\n`（同 `code_compose._save_solidified`
+        # 的病象，2026-11-08 一并修）。该文件当前既不存在也不受控，此处是预防：
+        # 一旦有人把它入库，写侧已不会产生全文件假 diff。
+        _json.dump(SOLIDIFIED, open(_SOLIDIFY_FILE, "w", encoding="utf-8", newline="\n"),
                    ensure_ascii=False, indent=1)
     except Exception:
         pass
