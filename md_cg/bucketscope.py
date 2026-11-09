@@ -35,30 +35,41 @@ def _terms(q):
 MAX_SCAN = 800
 
 
-def _pick(store, ids, terms, cap):
-    """桶内按词面命中筛选（确定性）：命中词数降序，同分按 id；取前 cap。"""
+def _pick(store, ids, terms, cap, validity=False, now=None):
+    """桶内按词面命中筛选（确定性）：命中词数降序 → **时间降序** → id；取前 cap。
+
+    【#842】排序键必须**在截断之前**含时间：早先只按 (-hits, nid) 排再截 cap，
+    9 条同等命中 + cap=8 时被 id 序丢掉的那条可能正是最新的（后置的时间排序
+    已经拿不回来）。现在把 created_at 提到截断前，截断即保留「同分里最新的」。
+
+    【#843】validity=True 时必须在此处就过滤过期节点：桶补召回是**在候选检索
+    之后**追加的，若不在源头过滤，调用方显式要求的「排除过期」会被补召回推翻。
+    """
     scored = []
     for nid in list(ids)[:MAX_SCAN]:
         node = store.get(nid)
         if not node:
             continue
+        if validity and _is_expired(node, now):
+            continue
         text = str(node.get("content") or "").lower()
         hits = sum(1 for t in terms if t in text)
         if hits:
-            scored.append((-hits, nid, node))
+            scored.append((-hits, _recency_key(node), nid, node))
     scored.sort()
-    return [(node, 0.0, {"reason": "bucket_scope"}, []) for _h, _nid, node in scored[:cap]]
+    return [(node, 0.0, {"reason": "bucket_scope"}, [])
+            for _h, _r, _nid, node in scored[:cap]]
 
 
-def day_scope(store, query, day, cap=CAP):
+def day_scope(store, query, day, cap=CAP, validity=False, now=None):
     """日桶召回：day 桶内按查询词筛选。索引缺失返回 None（调用方据此区分「无桶」与「空桶」）。"""
     ids = _bi.day_ids(store, day)
     if not ids:
         return None
-    return _pick(store, ids, _terms(query), cap)
+    return _pick(store, ids, _terms(query), cap, validity=validity, now=now)
 
 
-def session_scope(store, query, session, cap=CAP):
+def session_scope(store, query, session, cap=CAP, validity=False, now=None):
     """会话桶召回；`unattributed` 明确拒绝（会话身份不可知，不冒充）。"""
     sid = str(session or "")
     if not sid or sid == _bi.UNATTRIBUTED:
@@ -66,7 +77,7 @@ def session_scope(store, query, session, cap=CAP):
     ids = _bi.session_ids(store, sid)
     if not ids:
         return None
-    return _pick(store, ids, _terms(query), cap)
+    return _pick(store, ids, _terms(query), cap, validity=validity, now=now)
 
 
 #: 通用默认：桶作用域**默认开启**（日期 + 会话是记忆的基本坐标，不是可选优化）。
@@ -75,6 +86,26 @@ DEFAULT_ON = True
 DEFAULT_CAP = 8
 #: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
 DAY_LOOKBACK = 14
+
+
+def _is_expired(node, now=None):
+    """节点是否已过期（valid_until 早于 now）。
+
+    判据与检索面一致：只认 frontmatter.valid_until（ISO 日期/时间），解析失败不算过期
+    （宁放过不错杀——过期是显式字段，不是推断）。
+    """
+    fm = node.get("frontmatter") or {}
+    until = fm.get("valid_until") or fm.get("validUntil")
+    if not until:
+        return False
+    t = now if now is not None else time.time()
+    raw = str(until).strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return time.mktime(time.strptime(raw[:19], fmt)) < float(t)
+        except ValueError:
+            continue
+    return False
 
 
 def _recency_key(node):
@@ -86,7 +117,7 @@ def _recency_key(node):
         return 0.0
 
 
-def scope_recall(store, query, session, now, cap=DEFAULT_CAP):
+def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     """**默认口径**的桶作用域召回：会话桶优先 → 日桶按日期倒排 → 都按时间降序。
 
     使用者口径（2026-11-09）：
@@ -103,7 +134,7 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP):
     sid = str(session or "")
     if sid and sid != _bi.UNATTRIBUTED:
         ids = _bi.session_ids(store, sid)
-        picked = _pick(store, ids, terms, cap)
+        picked = _pick(store, ids, terms, cap, validity=validity, now=now)
         for node, score, qual, prov in picked:
             qual = dict(qual)
             qual["bucket"] = "session"
@@ -128,7 +159,8 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP):
         for day in days:
             if len(out) >= cap:
                 break
-            picked = _pick(store, _bi.day_ids(store, day), terms, cap - len(out))
+            picked = _pick(store, _bi.day_ids(store, day), terms, cap - len(out),
+                           validity=validity, now=now)
             for node, score, qual, prov in picked:
                 if node.get("id") in seen:
                     continue

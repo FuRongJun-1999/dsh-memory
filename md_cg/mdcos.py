@@ -2984,8 +2984,11 @@ class MdCGOS(MdCG):
             if (os.environ.get("MDCG_BUCKET_SCOPE", "1") != "0"
                     and pack is not None):
                 from . import bucketscope as _bs      # noqa: PLC0415
+                # 【#843】validity 必须透传：桶补召回在候选检索**之后**追加，
+                # 不传就会把调用方显式排除的过期记忆重新装回 pack（issue #843 复现）。
                 _extra = _bs.scope_recall(self, query, session,
-                                          _rerank_clock if '_rerank_clock' in dir() else time.time())
+                                          _rerank_clock if '_rerank_clock' in dir() else time.time(),
+                                          validity=bool(validity))
                 _have = {e.get("id") for e in pack}
                 for _node, _score, _qual, _prov in _extra:
                     if _node.get("id") in _have:
