@@ -2998,13 +2998,20 @@ class MdCGOS(MdCG):
                     if used + _t > budget_tokens:
                         continue
                     fm = _node.get("frontmatter") or {}
+                    # 【外测 v2.1】metadata 必须带上 resolved_dates：早先只复制 state/reason/bucket，
+                    # 调用方在 pack 里取不到解析出的绝对日期，第 3 条建议等于没生效。
+                    _bm = {"state": (_qual or {}).get("state"),
+                           "reason": "bucket_scope",
+                           "bucket": (_qual or {}).get("bucket")}
+                    if (_qual or {}).get("resolved_dates"):
+                        _bm["resolved_dates"] = _qual["resolved_dates"]
+                    if (_qual or {}).get("fallback"):
+                        _bm["fallback"] = _qual["fallback"]
                     pack.append({"id": _node.get("id"), "score": 0.0,
                                  "state": (_qual or {}).get("state"),
                                  "tokens": _t, "content": _txt,
                                  "frontmatter": fm, "provenance": _prov or [],
-                                 "metadata": {"state": (_qual or {}).get("state"),
-                                              "reason": "bucket_scope",
-                                              "bucket": (_qual or {}).get("bucket")}})
+                                  "metadata": _bm})
                     used += _t
                     _bucket_scope_n += 1
                     if _bucket_scope_n >= _bs.DEFAULT_CAP:

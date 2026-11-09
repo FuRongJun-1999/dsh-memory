@@ -111,6 +111,11 @@ def session_scope(store, query, session, cap=CAP, validity=False, now=None):
 DEFAULT_ON = True
 #: 桶召回默认条数（会话桶 + 日桶合计）。
 DEFAULT_CAP = 8
+
+#: **会话桶独占条数**（2026-11-10 外测 v2.1）：早先会话桶与日桶共享 cap=8，
+#: 会话桶先取满 ⇒ 日桶一条都挤不进去（P17 的锚点日已被选中却 0 条进 pack）。
+#: 现按会话 4 + 日 4 分配：日桶保证拿到 DEFAULT_CAP - SESSION_QUOTA 个名额。
+SESSION_QUOTA = 4
 #: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
 DAY_LOOKBACK = 14
 
@@ -130,9 +135,13 @@ def _early_days(all_days, limit=EARLY_SCAN_DAYS):
     if n <= limit:
         return list(all_days)
     head = list(all_days[:4])                       # 最早几天（问「最初」时最可能）
-    rest = limit - len(head)
-    step = max(1, n // max(1, rest))
-    picked = head + [all_days[i] for i in range(0, n, step)][:rest]
+    tail = list(all_days[-2:])                      # **末日强制入池**：写入顺序≠事件顺序，
+    #                                                「最早那回」可能落在库内最后一天（P16 实测）
+    head = sorted(set(head) | set(tail))
+    rest = max(0, limit - len(head))
+    step = max(1, n // max(1, rest)) if rest else n
+    uniform = [d for d in all_days[::step] if d not in head][:rest]
+    picked = head + uniform
     return sorted(set(picked))
 
 
@@ -195,7 +204,7 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     sid = str(session or "")
     if sid and sid != _bi.UNATTRIBUTED:
         ids = _bi.session_ids(store, sid)
-        picked = _pick(store, ids, terms, cap, validity=validity, now=now)
+        picked = _pick(store, ids, terms, min(cap, SESSION_QUOTA), validity=validity, now=now)
         for node, score, qual, prov in picked:
             qual = dict(qual)
             qual["bucket"] = "session"
