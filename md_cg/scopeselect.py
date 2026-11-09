@@ -144,8 +144,13 @@ def cooc_bucket_scores(store, query, min_terms=2, min_term_len=2):
         return []
     df = {t: sum(1 for _b, blob in skel.items() if t in blob) for t in ts}
     keys = [t for t in ts if df.get(t, 0) > 0]
-    if len(keys) < min_terms:
+    # 稀有词不足时的**降档**：外测发现「江北回声那回」「我最早说…」这类题只有 1 个强实体、
+    # 没有日期词，min_terms=2 会直接返回空 ⇒ 上层回落「最近 14 天」⇒ 老锚点必被排除。
+    # 故仅剩 1 个稀有词时仍按它打分（仍要 hit ≥ 该词数，不会凭空造证据）。
+    if not keys:
         return []
+    if len(keys) < min_terms:
+        min_terms = len(keys)
     scored = []
     for bucket, blob in skel.items():
         kind, _, key = str(bucket).partition(':')
