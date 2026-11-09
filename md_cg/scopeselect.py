@@ -175,7 +175,7 @@ def _skel_table(store):
     return _SKEL_CACHE["table"]
 
 
-def pick_scopes(store, query, session=None, limit=3):
+def pick_scopes(store, query, session=None, limit=3, now=None):
     """选范围：**声明优先**（会话 > 显式日期），否则按共现打分取前 limit 个桶。
 
     声明优先的理由：声明是任务的一部分（「那天」「本会话」是用户给定的范围），
@@ -187,7 +187,11 @@ def pick_scopes(store, query, session=None, limit=3):
         picked.append(("session", sid, 1.0))
     try:
         from . import timeboost as _tb
-        for day in sorted(_tb.query_dates(query, __import__("time").time()), reverse=True):
+        # 逻辑时钟必须由调用方注入（#111 契约同纪律）：早先取真实 time.time()，
+        # 外部复测把逻辑时间推进到题干 now 时，「三天前」永远指向错的那一天，
+        # 时间类增益根本测不出来（2026-11-10 测评反馈 + 修）。
+        _now = now if now is not None else __import__("time").time()
+        for day in sorted(_tb.query_dates(query, _now), reverse=True):
             if _bi.day_ids(store, day):
                 picked.append(("day", day, 1.0))
     except Exception:          # noqa: BLE001 —— 日期解析失败不影响共现推断

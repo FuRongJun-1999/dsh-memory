@@ -147,7 +147,8 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     try:
         if os.environ.get("MDCG_SCOPE_SELECT", "1") != "0":
             from . import scopeselect as _ss      # noqa: PLC0415
-            _picked = _ss.pick_scopes(store, query, session=session, limit=DAY_LOOKBACK)
+            _picked = _ss.pick_scopes(store, query, session=session,
+                                      limit=DAY_LOOKBACK, now=now)
             _ordered_days = [key for kind, key, _s in _picked if kind == "day"]
     except Exception:          # noqa: BLE001 —— 推断失败回落最近优先
         _ordered_days = None
