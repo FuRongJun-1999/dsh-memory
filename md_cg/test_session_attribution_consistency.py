@@ -662,9 +662,15 @@ _MUTATIONS = (
      '    _eff_session = _attribution_session_of(self, '
      'kw.get("sensitivity"))',
      {"B7", "B8", "B9", "B10"}),
+    # 2026-11-08（issue #831）：锚点随源码更新——原串 `...autoflush=1)` 在
+    # `review_cli._cg` 补 `async_flush=False` 后不再命中，`str.replace` 会静默
+    # 变成 no-op ⇒ 变异体与原件同构、红项照旧，本条自证**永远绿但不再检任何
+    # 东西**（同上一条 #829 的教训：验证不能只看「跑了」，要看真的生效）。
+    # 变异意图不变：抽回 autoflush=1（两条一起抽，逐位回到 P1b 修前的构造）。
     ("$④b", "去掉 review_cli._cg 的 autoflush=1",
      _rv_pkg._cg,
-     'return MdCGSecure(_root(args), principal=p, autoflush=1)',
+     'return MdCGSecure(_root(args), principal=p, autoflush=1, '
+     'async_flush=False)',
      'return MdCGSecure(_root(args), principal=p)',
      {"C3"}),
     # ④a：让 scripts 版再自带实现（不再是薄壳）→ C1 应红（文本变异）
@@ -745,6 +751,22 @@ def _self_proof():
     if base_red:
         bad.append("未变异基线即转红：%s" % sorted(base_red))
     for tag, name, host_fn, old, new, expect in _MUTATIONS:
+        # 生效性前置（fail-closed）：`str.replace` 找不到 old 时**静默不替换**，
+        # 变异体与原件同构 ⇒ 红项照旧等于期望 ⇒ 该腿空过。锚点漂移必须显式
+        # 报出来，不能让它伪装成 PASS（2026-11-08，#831 实测 $④b 已漂）。
+        if host_fn is not None:
+            _hsrc = _src_of(host_fn)
+            if old not in _hsrc:
+                bad.append("变异%s 锚点失配（源码中找不到变异串，"
+                           "变异未生效）：%r" % (tag, old[:60]))
+                print("  %-4s %-44s **ANCHOR-MISS** 变异串未命中" % (tag, name))
+                continue
+        else:
+            if old not in _scripts_src():
+                bad.append("变异%s 锚点失配（脚本源码中找不到变异串）：%r"
+                           % (tag, old[:60]))
+                print("  %-4s %-44s **ANCHOR-MISS** 变异串未命中" % (tag, name))
+                continue
         try:
             if host_fn is None:                            # 文本变异（内存源）
                 red = _mutate_scripts_and_run(old, new)

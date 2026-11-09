@@ -117,7 +117,12 @@ def _cg(args):
     # 链路断，在役旧读面 `_load_index` 盲信既有快照即 read null。逐条落
     # 日志后任意退出形态下写入对其它进程立即可见（review_decide 自身的
     # 显式 flush 只覆盖其目标/审计节点，且与节点文件落盘之间仍有窗口）。
-    return MdCGSecure(_root(args), principal=p, autoflush=1)
+    # 生效条件：以 async_flush=False 构造时，上述「逐条落日志」才是**真的**——
+    # #677 P2（2026-10-26）把阈值触发的 flush 挪到后台线程后，只设 autoflush=1
+    # 已经不够：`_request_flush` 只 set 事件即返回，写入只是**被调度**、未落盘；
+    # 本 CLI 是短命进程，被 kill / 崩溃时后台线程未必跑过 ⇒「任意退出形态可见」
+    # 落空（实测：两个 add 后 os._exit，分片日志 0 条）。同步模式把它兑现。
+    return MdCGSecure(_root(args), principal=p, autoflush=1, async_flush=False)
 
 
 # 生效条件：rec 支持 .get 时，取 rec.get("content") 为假值则取 rec.get("statement")、再为假值则取空串，把其中的换行替换为空格，并按 width（缺省 66）切片后仅当 len(text) > width 才追加 "…"，返回该字符串。
