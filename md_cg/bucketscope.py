@@ -25,8 +25,28 @@ CAP = 8
 
 
 def _terms(q):
-    return [t.lower() for t in re.split(r"[\s,，、;；。！？:：()（）\[\]【】]+", q or "")
-            if len(t) >= 2]
+    """查询切词：先按标点/空白切段，再对**中文长段补 2 元**。
+
+    为什么要补二元：中文查询通常没有空格（「江北回声那回到了哪里」是**一个**段），
+    整段做子串匹配几乎不可能命中任何节点 ⇒ 桶内 `_pick` 恒返回空 ⇒ 上层回落
+    「最近 14 天」。补 2 元后「江北」「回声」都能匹配；排序仍按命中数降序，
+    长段本身也算一个词，故整段命中者权重更高。
+    """
+    out, seen = [], set()
+    for seg in re.split(r"[\s,，、;；。！？:：()（）\[\]【】]+", q or ""):
+        seg = seg.lower()
+        if len(seg) < 2:
+            continue
+        if seg not in seen:
+            seen.add(seg)
+            out.append(seg)
+        if len(seg) >= 4 and re.search(r"[\u4e00-\u9fff]", seg):
+            for i in range(len(seg) - 1):
+                bg = seg[i:i + 2]
+                if bg not in seen:
+                    seen.add(bg)
+                    out.append(bg)
+    return out
 
 
 #: 桶内扫描预算：桶可能上万条（主库 2026-11-08 有 14,217 条），逐条读盘会拖到秒级；
@@ -86,6 +106,19 @@ DEFAULT_ON = True
 DEFAULT_CAP = 8
 #: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
 DAY_LOOKBACK = 14
+
+#: 「早段意图」标记：问的是很早以前的事，回落「最近优先」必然错过。
+#: 依据（2026-11-10 外测）：10 个稳定失败全是这类——「江北回声那回」「我最早说…」「我最初说…」。
+_EARLY_RE = re.compile(r"最早|最初|第一次|头一次|头回|初次|当初|以前|从前|很久以前|"
+                       r"上次|上一回|上回|那回|那次|当年|那时候")
+
+#: 早段意图下向前扫多少个日桶（成本上界：每桶 ≤ MAX_SCAN 条读盘）。
+EARLY_SCAN_DAYS = 12
+
+
+def _early_intent(query):
+    """query 是否表达了「早段意图」（要很早的记忆，而不是最近的）。"""
+    return bool(_EARLY_RE.search(str(query or "")))
 
 
 def _is_expired(node, now=None):
@@ -153,7 +186,15 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     except Exception:          # noqa: BLE001 —— 推断失败回落最近优先
         _ordered_days = None
     if not _ordered_days:
-        _ordered_days = sorted(_bi.all_days(store), reverse=True)[:DAY_LOOKBACK]
+        # 【2026-11-10 外测反馈】「最早 / 最初 / 上次 / 那回」这类**时间副词**查询，
+        # query 里没有可解析的绝对日期 ⇒ 选桶为空 ⇒ 若一路回落「最近 14 天」，
+        # 3–5 个月前的锚点必然被排除（实测 10/17 稳定失败属此类）。
+        # 故：早段意图优先扫**最早的日子**，其余仍回落最近优先。
+        _all_days = sorted(_bi.all_days(store))
+        if _early_intent(query) and _all_days:
+            _ordered_days = _all_days[:EARLY_SCAN_DAYS]
+        else:
+            _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
     # ② 日桶按上述顺序取
     if len(out) < cap:
         days = _ordered_days
