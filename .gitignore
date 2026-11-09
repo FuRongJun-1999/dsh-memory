@@ -7,8 +7,12 @@ node_modules/
 /.codebuddy/*
 !/.codebuddy/rules/
 
-# AGENTS.md 本地使用（CodeBuddy 会话起始注入，不共享）
+# AGENTS.md 原为「本地使用，CodeBuddy 会话起始注入，不共享」——2026-11-09 起例外入库：
+# 该文件承载「服务器 mdcg 不许就地改，上线只走 lingshu-src → deploy-mdcg.mjs」这条
+# 硬规则（判据 ssh aliyun 'cd /home/ubuntu/mdcg && git status --porcelain' 须为空）。
+# 规则不随环境丢失才有意义，故加白名单。
 /AGENTS.md
+!/AGENTS.md
 
 # md_cg 运行时数据（含 _keys.json 密钥，绝不入库）
 /data/mdcg/
