@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import os
 import re
 
 from . import bucketindex as _bi
@@ -108,9 +109,22 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP):
             qual["bucket"] = "session"
             out.append((node, score, qual, prov))
             seen.add(node.get("id"))
-    # ② 日桶按日期**倒排**（最近的日子优先）
+    # ② 桶顺序：**范围选择优先**（状态追踪式共现推断），否则按日期倒排。
+    #    MDCG_SCOPE_SELECT=1（缺省）→ 用 scopeselect 排序；=0 回落「最近优先」。
+    #    依据：bench 实测共现推断时间桶 94.20%（字面无关），词面消融仅 90.76%。
+    _ordered_days = None
+    try:
+        if os.environ.get("MDCG_SCOPE_SELECT", "1") != "0":
+            from . import scopeselect as _ss      # noqa: PLC0415
+            _picked = _ss.pick_scopes(store, query, session=session, limit=DAY_LOOKBACK)
+            _ordered_days = [key for kind, key, _s in _picked if kind == "day"]
+    except Exception:          # noqa: BLE001 —— 推断失败回落最近优先
+        _ordered_days = None
+    if not _ordered_days:
+        _ordered_days = sorted(_bi.all_days(store), reverse=True)[:DAY_LOOKBACK]
+    # ② 日桶按上述顺序取
     if len(out) < cap:
-        days = sorted(_bi.all_days(store), reverse=True)[:DAY_LOOKBACK]
+        days = _ordered_days
         for day in days:
             if len(out) >= cap:
                 break
