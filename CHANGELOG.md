@@ -4,6 +4,29 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)；版本号遵循语义化版本。
 
+## [Unreleased]
+
+### 修复：`calibration` 在分母无正例时恒判 overconfident（issue #829）
+- 判据是 `Σ正例 / Σ(正例+负例)`，而 `confirmed` 只由外部裁决产生；活库
+  407→409 条证据**正例恒为 0** ⇒ `actual_accuracy` 数学上恒 `0.0`、
+  `gap` 恒等于 `expected_accuracy` ⇒ `verdict` **恒为 overconfident**。
+  该字段此前不携带信息，下游 `self_state` / `report` 却当真读数消费。
+- 现 `Σ正例==0` ⇒ `calibration_defined=False` / `verdict="insufficient_data"`
+  / `reason="no_positive_evidence"`，**方向三值一律不判**；
+  `expected_accuracy` / `actual_accuracy` / `gap` / `ece` 仍如实透出（不隐藏、不编造）。
+- 新增 `n_positive` / `n_negative` / `n_by_layer`：分母构成在读数面可见
+  （`grep n_by_layer` 此前零命中）。三层不变量：`n_nodes`、`n_positive`、
+  `n_negative` 分别等于 `n_by_layer` 各层求和。
+- `scrub.calibrate()` 在 `calibration_defined=False` 时**拒绝出偏置**：
+  返回 `ok=False` / `suggested_offset=0.0` / `n_adjusted=0`，`apply=True`
+  也零写回。修前该路径会据退化的 `gap` 把全库 confidence 一律下调——
+  一个不携带信息的读数直接改写事实层。
+- `_advise()` 不判方向时不产出 `overconfident`/`underconfident` 建议，
+  改产出 `no_positive_evidence`（带 why/action，可复核）。
+- 有正例时判据**一字不改**（正向对照：全正例 → `actual=1.0` 且方向可判）。
+- 守卫 `md_cg/test_issue829_calibration_positive_gate.py`：A/B/C/D/E 五组
+  21 项，定点变异 **5/5 全杀**（含「M1 退回恒 overconfident」修前病象复现）。
+
 ## [0.9.23] - 2026-11-05
 
 ### 修复：`cg(op=read)` 自然问法普遍 DEFER（issue #722，Q1=A / Q2=A）

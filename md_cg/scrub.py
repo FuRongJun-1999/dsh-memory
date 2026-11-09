@@ -1053,16 +1053,30 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
     return adjusted, skipped
 
 
-# 生效条件：cg 和 apply/override/actor/max_offset/min_evidence 传入后，若 metacognition.calibration(cg) 返回 ok 假，则返回 {'ok':False,'reason':cal.get('reason') or 'insufficient_data',...}；若 ok 真，则用 gap=float(cal.get('gap') or 0.0) 和 max_offset 计算 offset=round(max(-max_offset,min(max_offset,-gap)),4)，对 cal.get('bins') or [] 中 accuracy 非 None 的 bin 生成 bins_bias 并排序；仅当 apply 为真且 abs(offset)>1e-9 时调用 _apply_offset(cg,offset,override=override,min_evidence=min_evidence) 并写日志，最后返回 ok True 及 verdict/gap/建议 offset 等字段；
+# 生效条件：cg 和 apply/override/actor/max_offset/min_evidence 传入后，若 metacognition.calibration(cg) 返回 ok 假或 calibration_defined 假（issue #829：分母无正例，gap 恒等于 expected、不携带方向信息），则返回 {'ok':False,'reason':...} 且 **不产出 suggested_offset、零写回**；若 ok 真且 calibration_defined 真，则用 gap=float(cal.get('gap') or 0.0) 和 max_offset 计算 offset=round(max(-max_offset,min(max_offset,-gap)),4)，对 cal.get('bins') or [] 中 accuracy 非 None 的 bin 生成 bins_bias 并排序；仅当 apply 为真且 abs(offset)>1e-9 时调用 _apply_offset(cg,offset,override=override,min_evidence=min_evidence) 并写日志，最后返回 ok True 及 verdict/gap/建议 offset 等字段；
 def calibrate(cg, *, apply: bool = False, override: bool = False, actor=None,
               max_offset: float = MAX_OFFSET, min_evidence: int = 1) -> dict:
-    """校准偏差：自报置信 vs 实测正确率 → 偏置建议（`apply=True` 才写回）。"""
+    """校准偏差：自报置信 vs 实测正确率 → 偏置建议（`apply=True` 才写回）。
+
+    issue #829：`calibration_defined=False`（分母里正例为 0）时**拒绝出偏置**。
+    修前：该情形的 gap 恒等于 expected（因为 actual 数学上恒 0），
+    `apply=True` 会据此把全库 confidence 一律下调 —— 即「一个不携带信息的
+    读数」直接改写事实层。恒红比不报更有害的同一道理，这里恒偏置比不调更有害。
+    """
     from . import metacognition
     cal = metacognition.calibration(cg)
-    if not cal.get("ok"):
-        return {"ok": False, "reason": cal.get("reason") or "insufficient_data",
+    if not cal.get("ok") or not cal.get("calibration_defined", True):
+        reason = (cal.get("reason") or
+                  ("no_positive_evidence"
+                   if cal.get("ok") and not cal.get("calibration_defined", True)
+                   else "insufficient_data"))
+        return {"ok": False, "reason": reason,
                 "calibration": cal, "applied": False, "n_adjusted": 0,
-                "hint": "先 verify() 积累证据，校准才有样本"}
+                "suggested_offset": 0.0,
+                "hint": ("分母里没有正例（无 confirmed 裁决）：actual 恒 0、"
+                         "gap 不携带方向信息，拒绝出偏置。先补 verify(confirmed)"
+                         if reason == "no_positive_evidence"
+                         else "先 verify() 积累证据，校准才有样本")}
     gap = float(cal.get("gap") or 0.0)
     offset = round(max(-float(max_offset), min(float(max_offset), -gap)), 4)
     bins_bias = []

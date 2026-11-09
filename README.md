@@ -166,6 +166,13 @@ DeepSeek Harness (cordis)
 `scrub.calibrate()` 默认 `apply=False`，只返回 `suggested_offset`；
 真写回需要显式 `apply=True`（`applied` 与 `suggested_offset` 在返回体里**分列**，不会混淆）。
 
+⚠ **分母里没有正例时不出偏置**（issue #829）：判据是 `Σ正例 / Σ(正例+负例)`，
+而 `confirmed` 只由外部裁决产生。若全库一条正例都没有，`actual_accuracy`
+数学上恒 `0`、`gap` 恒等于 `expected_accuracy` —— 此时 `calibration_defined=False`、
+`verdict="insufficient_data"`、`reason="no_positive_evidence"`，`calibrate()`
+返回 `ok=False` 且 `suggested_offset=0.0`（**拒绝改写事实层**）。
+期望/实际/gap/ece 四个数仍如实透出，另给 `n_by_layer` 让分母构成可见。
+
 ### 4. 会话窗口的「重叠」是设计，不是冗余
 
 `contextWindow` 注入的是**最近 N 轮**，轮与轮之间必然大量重叠。
