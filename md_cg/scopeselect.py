@@ -99,6 +99,59 @@ def score_buckets(store, query, max_nodes_per_bucket=None):
     return scored
 
 
+def _table_and_df(store, ts):
+    """取桶词表 + 每词的 df（多少桶含它）。两条打分路共用。"""
+    root = getattr(store, "root", None) or ""
+    path = (root + "/" + _bi.TERMS_FILE) if root else ""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)
+    except OSError:
+        key = None
+    if _TABLE_CACHE["key"] != key or _TABLE_CACHE["table"] is None:
+        _TABLE_CACHE["table"] = _bi._load(store, _bi.TERMS_FILE) or {}
+        _TABLE_CACHE["key"] = key
+    table = _TABLE_CACHE["table"]
+    total = max(1, len(table))
+    doc_hits = {t: 0 for t in ts}
+    for _bucket, bag in table.items():
+        for t in ts:
+            if t in bag:
+                doc_hits[t] += 1
+    return table, total, doc_hits
+
+
+def cooc_bucket_scores(store, query, min_terms=2):
+    """槽位共现打分：桶得分 = 该桶里同时出现的「稀有查询项」个数（idf 只作平局裁决）。
+
+    bench 实测（rubric92 · 552 断言 · 章节解析修复后）：
+      · 词项 idf 求和：消融下 top-1 91–92%；
+      · 槽位共现计数（子串语义）：消融下 top-1 **99.28%**。
+    本函数是生产侧的共现实现，**默认关**（MDCG_SCOPESEL_COOC=1 才启用）——
+    因生产桶词表的 token 是整句片段，与查询短词做整词精确匹配对不上（实测 34%），
+    要复现 bench 读数需先把词表粒度换成 n-gram/实体层。
+    """
+    ts = terms(query)
+    table, total, doc_hits = _table_and_df(store, ts)
+    if not table or not ts:
+        return []
+    cut = max(2, int(total * 0.2))
+    keys = [t for t in ts if 0 < doc_hits.get(t, 0) <= cut]
+    if len(keys) < min_terms:
+        return []
+    scored = []
+    for bucket, bag in table.items():
+        kind, _, key = str(bucket).partition(':')
+        hit = sum(1 for t in keys if t in bag)
+        if hit < min_terms:
+            continue
+        tie = sum(math.log(1.0 + total / max(1, doc_hits[t])) for t in keys if t in bag)
+        scored.append((float(hit), -tie, kind, key))
+    scored.sort()
+    scored.reverse()
+    return [(h, k, kk) for h, _tie, k, kk in scored]
+
+
 def pick_scopes(store, query, session=None, limit=3):
     """选范围：**声明优先**（会话 > 显式日期），否则按共现打分取前 limit 个桶。
 
@@ -117,7 +170,10 @@ def pick_scopes(store, query, session=None, limit=3):
     except Exception:          # noqa: BLE001 —— 日期解析失败不影响共现推断
         pass
     if len(picked) < limit:
-        for s, kind, key in score_buckets(store, query):
+        ranked = score_buckets(store, query)
+        if os.environ.get("MDCG_SCOPESEL_COOC", "0") == "1":
+            ranked = cooc_bucket_scores(store, query) or ranked
+        for s, kind, key in ranked:
             if (kind, key) in [(k, kk) for _x, k, kk in picked]:
                 continue
             picked.append((kind, key, s))

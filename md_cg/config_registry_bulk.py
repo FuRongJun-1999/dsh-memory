@@ -360,6 +360,7 @@ ENV_ROWS = [
 
 
     ('MDCG_SCOPE_SELECT', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_SCOPE_SELECT', 'value', 'env_literal', 'md_cg/bucketscope.py', '', 'uncalibrated', '2026-11-09：范围选择（槽位共现推断时间桶），0=回落最近优先'),
+    ('MDCG_SCOPESEL_COOC', 'TUNE', 'tune', 'env', True, "'0'", 'str', 'value', 'MDCG_SCOPESEL_COOC', 'value', 'env_literal', 'md_cg/scopeselect.py', '', 'uncalibrated', '2026-11-09：共现打分路（默认关——生产词表粒度与查询短词不匹配，实测 34%）'),
     ('MDCG_BUCKET_AUTO', 'TUNE', 'tune', 'env', True, "'1'", 'str', 'value', 'MDCG_BUCKET_AUTO', 'value', 'env_literal', 'md_cg/bucketindex.py', '', 'uncalibrated', '2026-11-09：桶索引每日自动重建（info 触发），0=关'),
     ('MDCG_BUCKET_INTERVAL_H', 'TUNE', 'tune', 'env', True, "'20'", 'str', 'value', 'MDCG_BUCKET_INTERVAL_H', 'value', 'env_literal', 'md_cg/bucketindex.py', '', 'uncalibrated', '2026-11-09：重建间隔小时（缺省 20；0=强制）'),
 
