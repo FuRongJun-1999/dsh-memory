@@ -25,6 +25,7 @@ import time
 
 DAYS_FILE = "_days.json"
 SESSIONS_FILE = "_sessions.json"
+TERMS_FILE = "_bucketterms.json"
 UNATTRIBUTED = "unattributed"
 
 
@@ -43,9 +44,10 @@ def _fm(rec):
     return fm if isinstance(fm, dict) and fm else rec
 
 
-def build(store, write=True):
+def build(store, write=True, with_content=False, content_limit=400):
     """从索引面重建两个桶。返回 {days, sessions, nodes, unattributed}。"""
     idx = getattr(store, "index", {}) or {}
+    content_terms = 0
     nodes = idx.get("nodes") or {}
     days = {}
     sessions = {}
@@ -59,12 +61,47 @@ def build(store, write=True):
         if sid == UNATTRIBUTED:
             unattributed += 1
         sessions.setdefault(sid, []).append(nid)
-    out = {"days": len(days), "sessions": len(sessions),
+    # 桶词表：{bucket_key: {term: 次数}} —— 供 scopeselect 打分（查询期只做字典运算）
+    terms = {}
+    if with_content:
+        import re as _re
+        _split = _re.compile(r"[\s,，、;；。！？:：()（）\[\]【】]+")
+    for nid, rec in nodes.items():
+        fm = _fm(rec)
+        d0 = day_of(fm.get("created_at"))
+        sid0 = str(fm.get("session") or "") or UNATTRIBUTED
+        names = []
+        if d0:
+            names.append("day:" + d0)
+        if sid0 != UNATTRIBUTED:
+            names.append("session:" + sid0)
+        if not names:
+            continue
+        blob = []
+        for key in ("tags", "bucket_zh", "bucket", "role", "content_kind"):
+            val = fm.get(key)
+            if isinstance(val, (list, tuple)):
+                blob.extend(str(x) for x in val)
+            elif val:
+                blob.append(str(val))
+        toks = [t for t in " ".join(blob).lower().split() if len(t) >= 2]
+        if with_content:
+            node = store.get(nid)
+            text = str((node or {}).get("content") or "")[:content_limit * 8].lower()
+            if text:
+                toks.extend(t for t in _split.split(text) if len(t) >= 2)
+                content_terms += 1
+        for bucket in names:
+            bag = terms.setdefault(bucket, {})
+            for t in toks[:content_limit]:
+                bag[t] = bag.get(t, 0) + 1
+    out = {"content_enriched": content_terms, "days": len(days), "sessions": len(sessions),
            "nodes": len(nodes), "unattributed": unattributed}
     if write:
         root = getattr(store, "root", None)
         if root:
-            for name, data in ((DAYS_FILE, days), (SESSIONS_FILE, sessions)):
+            for name, data in ((DAYS_FILE, days), (SESSIONS_FILE, sessions),
+                              (TERMS_FILE, terms)):
                 path = os.path.join(root, name)
                 tmp = path + ".tmp"
                 with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
