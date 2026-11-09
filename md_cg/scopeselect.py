@@ -53,6 +53,7 @@ def _meta_blob(store, nid):
 
 #: 桶词表缓存（按文件 mtime 失效）：1.6MB JSON 每次 _load 要 0.5s，缓存后毫秒级。
 _TABLE_CACHE = {"key": None, "table": None}
+_SKEL_CACHE = {"key": None, "table": None}
 
 
 def score_buckets(store, query, max_nodes_per_bucket=None):
@@ -121,35 +122,57 @@ def _table_and_df(store, ts):
     return table, total, doc_hits
 
 
-def cooc_bucket_scores(store, query, min_terms=2):
-    """槽位共现打分：桶得分 = 该桶里同时出现的「稀有查询项」个数（idf 只作平局裁决）。
+def _bi_bucket_order(bucket):
+    """桶序（同日/同会话按 key 升序）——只用于平局裁决，越小越优先。"""
+    return str(bucket)
 
-    bench 实测（rubric92 · 552 断言 · 章节解析修复后）：
-      · 词项 idf 求和：消融下 top-1 91–92%；
-      · 槽位共现计数（子串语义）：消融下 top-1 **99.28%**。
-    本函数是生产侧的共现实现，**默认关**（MDCG_SCOPESEL_COOC=1 才启用）——
-    因生产桶词表的 token 是整句片段，与查询短词做整词精确匹配对不上（实测 34%），
-    要复现 bench 读数需先把词表粒度换成 n-gram/实体层。
-    """
-    ts = terms(query)
-    table, total, doc_hits = _table_and_df(store, ts)
-    if not table or not ts:
+
+def cooc_bucket_scores(store, query, min_terms=2, min_term_len=2):
+    """**槽位共现打分（bench 同口径）**：桶得分 = 「查询里的短词」在该桶文本骨架里
+    出现的**个数**（子串语义），idf 仅作平局裁决。
+
+    为什么必须是子串而不是整词：bench（`bench_state_track.py`，99.28%）用
+    `value in chapter_text` 判共现；生产若按标点切整句再整词匹配，实测只有 34%；
+    换成汉字 n-gram 也只有 73.5%——**只有子串语义能对齐**，故按桶落一份文本骨架。
+"""
+    ts = [t for t in terms(query) if len(t) >= min_term_len]
+    if not ts:
         return []
-    cut = max(2, int(total * 0.2))
-    keys = [t for t in ts if 0 < doc_hits.get(t, 0) <= cut]
+    skel = _skel_table(store)
+    table, total, _doc = _table_and_df(store, ts)
+    if not skel:
+        return []
+    df = {t: sum(1 for _b, blob in skel.items() if t in blob) for t in ts}
+    keys = [t for t in ts if df.get(t, 0) > 0]
     if len(keys) < min_terms:
         return []
     scored = []
-    for bucket, bag in table.items():
+    for bucket, blob in skel.items():
         kind, _, key = str(bucket).partition(':')
-        hit = sum(1 for t in keys if t in bag)
+        hit = sum(1 for t in keys if t in blob)
         if hit < min_terms:
             continue
-        tie = sum(math.log(1.0 + total / max(1, doc_hits[t])) for t in keys if t in bag)
-        scored.append((float(hit), -tie, kind, key))
-    scored.sort()
-    scored.reverse()
-    return [(h, k, kk) for h, _tie, k, kk in scored]
+        # 平局规则与 bench 对齐：**同分取桶序最早**（bench 是取章号最小）。
+        # 早先用 idf 和做平局裁决，实测把 top-1 从 99.28% 压到 94.20%。
+        scored.append((float(hit), _bi_bucket_order(str(bucket)), kind, key))
+    # 注意：不能 sort 再 reverse——那会把平局裁决的桶序也一起翻转（实测 94% vs 99%）。
+    scored.sort(key=lambda x: (-x[0], x[1], x[2]))
+    return [(h, k, kk) for h, _t, k, kk in scored]
+
+
+def _skel_table(store):
+    """读桶文本骨架（`_bucketskel.json`），带 mtime 缓存。"""
+    root = getattr(store, "root", None) or ""
+    path = (root + "/" + _bi.SKEL_FILE) if root else ""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime, st.st_size)
+    except OSError:
+        key = None
+    if _SKEL_CACHE["key"] != key or _SKEL_CACHE["table"] is None:
+        _SKEL_CACHE["table"] = _bi._load(store, _bi.SKEL_FILE) or {}
+        _SKEL_CACHE["key"] = key
+    return _SKEL_CACHE["table"]
 
 
 def pick_scopes(store, query, session=None, limit=3):
@@ -171,7 +194,7 @@ def pick_scopes(store, query, session=None, limit=3):
         pass
     if len(picked) < limit:
         ranked = score_buckets(store, query)
-        if os.environ.get("MDCG_SCOPESEL_COOC", "0") == "1":
+        if os.environ.get("MDCG_SCOPESEL_COOC", "1") == "1":
             ranked = cooc_bucket_scores(store, query) or ranked
         for s, kind, key in ranked:
             if (kind, key) in [(k, kk) for _x, k, kk in picked]:

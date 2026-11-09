@@ -23,10 +23,16 @@ import json
 import os
 import time
 
+from .bm25 import tokenize as _bm25_tokenize
+
 DAYS_FILE = "_days.json"
 SESSIONS_FILE = "_sessions.json"
 TERMS_FILE = "_bucketterms.json"
+SKEL_FILE = "_bucketskel.json"
 UNATTRIBUTED = "unattributed"
+#: 桶骨架：每节点/每桶保留的字符数（供子串共现，bench 口径）
+SKEL_CHARS_PER_NODE = 600
+SKEL_CHARS_PER_BUCKET = 20000
 
 
 def day_of(ts):
@@ -63,9 +69,7 @@ def build(store, write=True, with_content=False, content_limit=400):
         sessions.setdefault(sid, []).append(nid)
     # 桶词表：{bucket_key: {term: 次数}} —— 供 scopeselect 打分（查询期只做字典运算）
     terms = {}
-    if with_content:
-        import re as _re
-        _split = _re.compile(r"[\s,，、;；。！？:：()（）\[\]【】]+")
+    skel = {}
     for nid, rec in nodes.items():
         fm = _fm(rec)
         d0 = day_of(fm.get("created_at"))
@@ -84,14 +88,20 @@ def build(store, write=True, with_content=False, content_limit=400):
                 blob.extend(str(x) for x in val)
             elif val:
                 blob.append(str(val))
-        toks = [t for t in " ".join(blob).lower().split() if len(t) >= 2]
+        # 与检索面**同口径**分词（bm25.tokenize：汉字单字 + 相邻二元）。
+        # 早期版本按标点切整句，查询里的短词（「商人」「蒙德城广场」）整词匹配不上，
+        # 生产共现实测只有 34%；换成 n-gram 粒度后才可能与 bench 的「子串语义」对齐。
+        text = " ".join(blob).lower()
         if with_content:
             node = store.get(nid)
-            text = str((node or {}).get("content") or "")[:content_limit * 8].lower()
-            if text:
-                toks.extend(t for t in _split.split(text) if len(t) >= 2)
+            body = str((node or {}).get("content") or "")[:content_limit * 8].lower()
+            if body:
+                text = text + " " + body
                 content_terms += 1
+        toks = list(_bm25_tokenize(text))
+        skel_part = (body if with_content else text)[:SKEL_CHARS_PER_NODE]
         for bucket in names:
+            skel[bucket] = (skel.get(bucket, "") + "　" + skel_part)[:SKEL_CHARS_PER_BUCKET]
             bag = terms.setdefault(bucket, {})
             for t in toks[:content_limit]:
                 bag[t] = bag.get(t, 0) + 1
@@ -101,7 +111,7 @@ def build(store, write=True, with_content=False, content_limit=400):
         root = getattr(store, "root", None)
         if root:
             for name, data in ((DAYS_FILE, days), (SESSIONS_FILE, sessions),
-                              (TERMS_FILE, terms)):
+                              (TERMS_FILE, terms), (SKEL_FILE, skel)):
                 path = os.path.join(root, name)
                 tmp = path + ".tmp"
                 with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
