@@ -30,6 +30,7 @@ import os
 import time
 
 from . import protect
+from . import fsutil
 from .fsutil import append_jsonl
 
 INSIGHT_LOG = "_insight.jsonl"
@@ -44,7 +45,10 @@ STATE_FALSIFIED = "falsified"
 
 C1_WINDOW_MIN = 0.6                # C1 可检索度开窗门槛
 V1_MIN_EVIDENCE = 3                # V1（可检索/被引用）需 ≥3 条才成立
-IMPORTANCE_FLOOR = 0.9             # verified 后的重要度保底（对齐工具表）
+#: verified 后的重要度**保底**（对齐工具表）。
+#: ★ 与「高重要度」保护门槛是**两个语义**：后者是全仓单点 `protect.AUTO_PROTECT_IMPORTANCE`=0.70。
+#: 共用过一个常量名 `IMPORTANCE_FLOOR`（#433：改一个会改两个）⇒ 本批拆名归位。
+VERIFY_IMPORTANCE_FLOOR = 0.9
 CER_MIN_SAMPLES = 20               # 样本 < 20 不判定层状态
 
 PRESSURES = ("low", "medium", "high")
@@ -68,8 +72,13 @@ def log_path(cg):
 # 生效条件：向 log_path(cg) 追加 JSONL 的调用若抛任何异常都会被 except Exception 吞掉，无论成败最终都返回 rec。
 def _append(cg, rec):
     """留痕（best-effort）：审计不该反过来打断主流程。"""
+    # issue #443：调用方可控字段可无限长 ⇒ 单条记录先过总字节闸；超限跳过写入
+    # 并记失败（不抛——本函数是 best-effort 审计路径，抛错会被下面 except 吞掉）。
+    if not fsutil.bounded_record(rec):
+        fsutil._note_append_failure(log_path(cg), ValueError("record_too_large: issue #443"))
+        return rec
     try:
-        append_jsonl(log_path(cg), rec)
+        fsutil.append_jsonl_ledger(log_path(cg), rec)
     except Exception:                              # noqa: BLE001
         pass
     return rec
@@ -233,7 +242,7 @@ def _normalize_evidence(evidence=None, v_types=None):
     return out
 
 
-# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED；裁决分支落盘前经 protect.guard_overwrite（层闸 + 保护闸），写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=ent，推进读缓存代际与索引增量日志）。
+# 生效条件：_read_event(cg,node_id) 取不到事件节点、或 verdict 经 str(verdict or "").strip().lower() 后非空且不是 verified/falsified 时抛 ValueError；verdict 为 None 或空白时按 v3 → v2 → v1 条数 ≥ V1_MIN_EVIDENCE 的顺序定 verified，有证据但不达门槛或无证据则保持 STATE_PENDING 并附 reason；显式 verdict 直接采信，verified 分支重要度保底 VERIFY_IMPORTANCE_FLOOR 并置保护位，falsified 分支打 TAG_FALSIFIED；裁决分支落盘前经 protect.guard_overwrite（层闸 + 保护闸），写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=ent，推进读缓存代际与索引增量日志）。
 def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
            actor=None, note=""):
     """用 V1/V2/V3 外部证据裁决洞见事件。
@@ -243,7 +252,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
       · V3 外部确证 或 V2 实践重复 → verified；
       · V1 可检索/被引用 需 **≥ V1_MIN_EVIDENCE 条** 才成立；
       · 其余（无证据 / V1 不足）→ **保持 pending 并给出原因**，不判定。
-    verified 后：重要度保底 0.9（``IMPORTANCE_FLOOR``）并置保护位。
+    verified 后：重要度保底 0.9（``VERIFY_IMPORTANCE_FLOOR``）并置保护位。
     裁决分支落盘前过 ``protect.guard_overwrite``（层闸 + 保护闸），写盘后同步
     内存索引条目并**标脏**（``cg._dirty[node_id]``，C-1）——否则读缓存默认开时
     同进程「verify 后读」拿旧 insight_state/tags/importance。
@@ -291,7 +300,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     tg = [t for t in (fm.get("tags") or []) if t not in (TAG_VERIFIED, TAG_FALSIFIED)]
     if final == STATE_VERIFIED:
         tg.append(TAG_VERIFIED)
-        fm["importance"] = max(float(fm.get("importance") or 0.0), IMPORTANCE_FLOOR)
+        fm["importance"] = max(float(fm.get("importance") or 0.0), VERIFY_IMPORTANCE_FLOOR)
         fm["protected"] = True
         fm["protection_reason"] = "insight_verified"
         fm["verification_basis"] = "data"
@@ -304,24 +313,31 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     # （sustain layers=('self',) verify 他人的 contextual 事件）+ 保护腿
     # （self/anchor/immutable 节点被无痕覆写、无快照无审计）都由这一处补闸收口。
     # 层与敏感度取**本节点已读到的 frontmatter 真值**（不靠索引缺字段时的回落）。
+    _disk = os.path.join(cg.root, node["path"])
+    _content = node.get("content") or ""
     protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
                             sensitivity=fm.get("sensitivity"), actor=actor)
-    cg._write_node(node_id, os.path.join(cg.root, node["path"]), fm,
-                   node.get("content") or "")
-    ent = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
-    if isinstance(ent, dict):
-        ent["importance"] = fm.get("importance")
-        ent["tags"] = list(tg)
-        ent["insight_state"] = final
-        # 标脏（N133 修复，对照先例 md_cg/mdcg.py 的 update_tags / verify 直写
-        # 分支 `self._dirty[node_id] = e`）：只改内存 entry 时读缓存（默认开）
-        # 的 path_gen 不推进 ⇒ `_fresh` 继续判旧 fm 新鲜，同进程「verify 后读」
-        # 拿到旧 insight_state/tags/importance；标脏同时让本写进
-        # `_dirty → flush → _index_log` 重放。**不下沉进 `_write_node`**（该口
-        # 另有「只对账索引不落盘」的调用方，下沉会凭空产生写入代际与自重载）。
-        _dirty = getattr(cg, "_dirty", None)
-        if isinstance(_dirty, dict):
-            _dirty[node_id] = ent
+    cg._write_node(node_id, _disk, fm, _content)
+    _ent = cg._node_entry(_disk, fm.get("layer"), fm, _content)
+    # 写点专有键：真源不含它，重建后叠加（不是「凭记忆补几键」）。
+    _ent["insight_state"] = final
+    # 落库走 `cg._stage`——索引条目写入的**单点**（`_dirty` + `_set_index_entry`
+    # 的桶计数与 stg 同钩）。旧形态手写两处（ent + _dirty），两处必然漂开；N133
+    # 当年的标脏诉求（读缓存 path_gen 不推进 ⇒ 同进程「verify 后读」拿旧值）由
+    # `_stage` 一并满足。
+    # **不下沉进 `_write_node`**（该口另有「只对账索引不落盘」的调用方，下沉会
+    # 凭空产生写入代际与自重载）。
+    cg._stage(node_id, _ent)
+    # issue #416（2026-10-16 DSH 端）：索引条目**由真源重建**，不再手写键子集。
+    # 旧形态只补 importance/tags/insight_state 三键，而 fm 刚写下的
+    # protected=True / protection_reason="insight_verified"（:295-296）**没有**
+    # 同步进条目 ⇒ `protect._fm` 对**非受保护层**不回退读文件（N213 逐字：恒落
+    # 三键 ⇒ 「缺键」判据恒假 ⇒ 100% 信任索引）⇒ 条目里的 None 被当「未标记」
+    # 采信 ⇒ 盘面写着 protected: true 的节点判 (False, '')，`cg.forget` 无需
+    # override 即软删（零前像、零保护审计行），且跨重启存活（走快照+日志）。
+    # **真源 ＝ MdCG._node_entry**（自述「_scan_nodes 与定向 upsert 共用的唯一
+    # 真源」）——由它重建整条 entry，真源将来加键本写点**自动跟上**；手写子集
+    # 无论补成 3 键还是 4 键，都只是「下一次漏」的形态（#192 同款教训）。
     _append(cg, {"action": "verify", "node_id": node_id, "state": final,
                  "decided": True, "reason": reason or "显式裁决",
                  "evidence": ev, "importance": fm.get("importance"),
@@ -331,7 +347,7 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
             "evidence_count": len(fm["insight_evidence"]),
             "importance": fm.get("importance"),
             "protected": bool(fm.get("protected")),
-            "note": "verified 后重要度保底 %s 并置保护位" % IMPORTANCE_FLOOR}
+            "note": "verified 后重要度保底 %s 并置保护位" % VERIFY_IMPORTANCE_FLOOR}
 
 
 # ---------------------------------------------------------------- list / report
@@ -448,9 +464,12 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
         except (TypeError, ValueError):
             iv = 0.0
         imps.append(iv)
-        if e.get("protected"):
+        # #433：① `d1.protected` 此前只认 `protected` 位（窄：漏层保护与按分保护）⇒ 走条目口径单点；
+        # ② 「高重要度」门槛改引全仓单点 protect.AUTO_PROTECT_IMPORTANCE（0.70），
+        #    **不再用私有 0.9**（那会把 [0.70,0.90) 的受保护节点漏掉）。
+        if protect.is_protected_entry(e or {})[0]:
             protected += 1
-        elif iv >= IMPORTANCE_FLOOR:
+        elif iv >= protect.AUTO_PROTECT_IMPORTANCE:
             hi_imp_unprotected.append(nid)
         if not e.get("has_neg_conditions"):
             no_neg += 1

@@ -17,6 +17,7 @@ import uuid
 import errno
 import json
 import tempfile
+import threading
 
 IS_WIN = sys.platform == "win32"
 if IS_WIN:
@@ -130,44 +131,182 @@ class FileLock:
 
 # 生效条件：先按 self.path 建父目录并 open(self.path, "a+b")，再在 self.timeout 到期前每 self.poll 秒尝试加锁（IS_WIN 用 msvcrt.locking(LK_NBLCK)，否则 fcntl.flock(LOCK_EX|LOCK_NB)）；成功即置 self.acquired=True 并返回 self；OSError 的 errno 不在 (EACCES, EAGAIN, EDEADLK) 时直接 raise，超时后 self.strict 为真抛 TimeoutError、否则返回 self 放行。
     def __enter__(self):
+        # issue #740：**进入前先清掉可能的旧句柄**（重复 enter / 上次未 exit）——
+        # 否则旧 fd 静默泄漏；POSIX 下还会与自己的旧 fd 互斥（表现为「卡到超时」）。
+        if getattr(self, "_f", None) is not None:
+            self._close_fd()
+        self.acquired = False
         os.makedirs(os.path.dirname(os.path.abspath(self.path)) or ".", exist_ok=True)
         self._f = open(self.path, "a+b")
-        deadline = time.time() + self.timeout
-        while True:
-            try:
-                if IS_WIN:
-                    self._f.seek(0)
-                    msvcrt.locking(self._f.fileno(), msvcrt.LK_NBLCK, 1)
-                else:
-                    fcntl.flock(self._f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self.acquired = True
-                return self
-            except OSError as e:
-                if e.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
-                    raise
-                if time.time() > deadline:
-                    if self.strict:
-                        raise TimeoutError(
-                            f"FileLock 超时未获锁（strict）：{self.path}")
-                    return self          # 放行，不阻断写路径
-                time.sleep(self.poll)
+        try:
+            # #740：`try` **必须紧贴 open 之后**——`time.time() + self.timeout` 本身就可能
+            # 抛（timeout 为 None/字符串时 TypeError），那时 fd 已打开而 `__exit__` 不会
+            # 被调用（with 的清理只在 __enter__ 正常返回后才注册）。
+            deadline = time.time() + self.timeout
+            while True:
+                try:
+                    if IS_WIN:
+                        self._f.seek(0)
+                        msvcrt.locking(self._f.fileno(), msvcrt.LK_NBLCK, 1)
+                    else:
+                        fcntl.flock(self._f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    self.acquired = True
+                    return self
+                except OSError as e:
+                    if e.errno not in (errno.EACCES, errno.EAGAIN, errno.EDEADLK):
+                        raise
+                    if time.time() > deadline:
+                        if self.strict:
+                            raise TimeoutError(
+                                f"FileLock 超时未获锁（strict）：{self.path}")
+                        # 非 strict：放行且**显式**标记未持锁（实例复用时靠它区分）。
+                        self.acquired = False
+                        return self
+                    time.sleep(self.poll)
+        except BaseException:
+            # #740：任何异常路径（含 KeyboardInterrupt / SystemExit / TypeError）都先关 fd
+            # 再原样上抛——清理本身绝不抛（否则会遮蔽原始异常）。
+            self._close_fd()
+            raise
+
+    def _close_fd(self):
+        """关句柄并复位状态（#740：**单点关闭**，幂等、绝不抛）。
+
+        - `getattr` 兜底：`__init__` 之前的异常/兼容旧实例时不出现 AttributeError；
+        - 吞 `(OSError, ValueError)`：重复 close（ValueError: I/O operation on closed file）
+          与平台错误都不该冒泡——清理函数抛异常会遮蔽原始异常。
+        """
+        f = getattr(self, "_f", None)
+        self._f = None
+        self.acquired = False
+        if f is None:
+            return
+        try:
+            f.close()
+        except (OSError, ValueError):
+            pass
 
 # 生效条件：self.acquired 为真时按 IS_WIN 用 msvcrt.locking(LK_UNLCK) 或 fcntl.flock(LOCK_UN) 解锁（OSError 被吞掉）；finally 中只要 self._f 为真就 close，随后 self._f=None、self.acquired=False。
     def __exit__(self, *exc):
         try:
-            if self.acquired:
+            # #740：`_f` 可能已是 None（进入失败/已关）——显式判空，别让 finally 崩。
+            if self.acquired and getattr(self, "_f", None) is not None:
                 if IS_WIN:
                     self._f.seek(0)
                     msvcrt.locking(self._f.fileno(), msvcrt.LK_UNLCK, 1)
                 else:
                     fcntl.flock(self._f.fileno(), fcntl.LOCK_UN)
-        except OSError:
+        except (OSError, ValueError):
             pass
         finally:
-            if self._f:
-                self._f.close()
-            self._f = None
-            self.acquired = False
+            self._close_fd()          # 单点关闭（幂等，绝不抛）
+
+
+# 生效条件：作为 `with` 的空上下文——进入返回自身、退出返回 False（不吞异常）。
+class _NullContext:
+    """空上下文（无 root 的纯内存实例：无需跨进程互斥）。"""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+#: 本进程内**已持有**的跨进程锁（key -> 重入深度）。为什么需要：写面有两个天然的
+#: 嵌套关系——`writepipe.execute`（整条链：判存在/保护闸/落盘/可见性）与它内部的
+#: `MdCGOS.add`（同一 node_id）、以及 `remember_gated` 与它内部的 `add`。OS 级文件锁
+#: 在同一进程内对同一文件**第二次**获取会自我阻塞（Windows msvcrt 锁同一字节范围、
+#: POSIX flock 换 fd 亦互斥）⇒ 必须按「同线程重入」记账，否则修复本身变成死锁。
+#: 只按线程记账（threading.local）：跨线程仍各自排队，跨进程永远走 OS 锁。
+_LOCK_TLS = threading.local()
+
+# 生效条件：返回本线程的 key->深度字典（首次访问时创建），不触盘、不加锁。
+def _held_locks():
+    d = getattr(_LOCK_TLS, "held", None)
+    if d is None:
+        d = {}
+        _LOCK_TLS.held = d
+    return d
+
+# 生效条件：作为 `with` 使用——同线程已持有同 key 时只加深度并返回自身（不重复获取 OS 锁）；
+# 否则按 path 建 FileLock(timeout, strict=True) 并进入，成功后记深度 1；FileLock 抛错时
+# 不记账（失败不留下「已持有」的假象），异常原样上抛。退出时深度递减，归零才真正释放。
+class _ReentrantFileLock:
+    """`FileLock` 的同线程重入包装（跨进程互斥语义完全由内层 FileLock 提供）。"""
+
+    def __init__(self, path: str, timeout: float):
+        self.path = path
+        self.key = os.path.normcase(os.path.abspath(path))
+        self.timeout = timeout
+        self._inner = None
+
+    def __enter__(self):
+        held = _held_locks()
+        if held.get(self.key):
+            held[self.key] += 1
+            return self
+        inner = FileLock(self.path, timeout=self.timeout, strict=True)
+        inner.__enter__()
+        self._inner = inner
+        held[self.key] = 1
+        return self
+
+    def __exit__(self, *exc):
+        held = _held_locks()
+        depth = held.get(self.key, 0)
+        if depth > 1:
+            held[self.key] = depth - 1
+            return False
+        held.pop(self.key, None)
+        if self._inner is not None:
+            inner, self._inner = self._inner, None
+            return inner.__exit__(*exc)
+        return False
+
+# 生效条件：cg 具备非空 root 时返回以 `<root>/_node_locks/<node_id>` 为锁文件（FileLock 自动补 `.lock`）的跨进程排它锁（timeout 秒内未获锁抛 TimeoutError，strict 语义：「不能丢的写」宁可显式失败也不无锁放行；同线程重入按深度计数）；root 为假值返回不做任何事的空上下文；node_id 含路径分隔符/`..`/`:` 等不安全字符时改用其 sha256 前 32 位作锁名——同一 id 在任何进程里都映射到同一把锁，但绝不把调用方可控串拼进路径。
+def node_write_lock(cg, node_id, timeout: float = 30.0):
+    """同一 `node_id` 的写入跨进程串行化（issue #322）。
+
+    **不得用进程内锁冒充**：多智能体共享同一 root 时，写者可能是不同进程；
+    threading.Lock 对它们零作用。本函数一律走 `FileLock`（OS 级字节范围锁）。
+
+    锁粒度按 **node_id**：不同 id 的写入互不阻塞（写面瓶颈 S2/S4），而同一 id
+    的「判存在 → 保护闸 → 落盘 → 索引可见（flush）」必须在同一临界区内完成——
+    否则两个写者都判「不存在」，后写整份覆盖前写，两边都回执 committed:true
+    （#322 的静默丢正文）；anchor/knowledge 同 id 并发时两份文件并存，保护闸
+    在两侧都判不到对方（#322 的绕过 anchor）。
+    """
+    root = getattr(cg, "root", None)
+    if not root:
+        return _NullContext()
+    # 非字符串/空 id 一律由 add 的既有白名单 fail-closed 拒绝（它们根本走不到
+    # 落盘），此处不为它们造锁文件——空锁名还会把目录本身当文件打开。
+    if not isinstance(node_id, str) or not node_id:
+        return _NullContext()
+    name = node_id
+    if ("/" in name or "\\" in name or ".." in name or ":" in name):
+        import hashlib
+        name = "sha256_" + hashlib.sha256(
+            name.encode("utf-8", "replace")).hexdigest()[:32]
+    return _ReentrantFileLock(os.path.join(root, "_node_locks", name),
+                              timeout)
+
+
+def merge_rmw_lock(cg, timeout: float = 30.0):
+    """MERGE/CONVERGE 目标「读 → 聚合 → 整份覆写」的跨进程锁（issue #348-B）。
+
+    按**根**一把：`forgetting.reinforce` 与 `writelimit.converge_into` 的目标
+    由近重复判定选出、可能不同，但读改写窗口只有一处语义（目标正文 + merge_count），
+    根级锁让所有聚合落点共用同一临界区，避免「按目标加锁」在选目标阶段就漏掉
+    竞态。锁文件 `_merge_rmw.lock` 在 `sleep.FORBIDDEN_SUFFIXES` 内，不进版本库。
+
+    `strict=True`：锁竞争超时显式失败（调用方/重试层可见），绝不退化为无锁并发
+    ——后者正是本缺陷的形态（后写者用旧正文整份覆盖前者刚追加的聚合行）。
+    """
+    root = getattr(cg, "root", None)
+    if not root:
+        return _NullContext()
+    return _ReentrantFileLock(os.path.join(root, "_merge_rmw"), timeout)
 
 
 # 生效条件：os.path.getsize(path) 为 0 时返回 False；否则二进制打开 path 并从 size-1 处读 1 字节，返回 f.read(1) != b"\n"；getsize/open/seek/read 抛 OSError 时返回 False。
@@ -185,9 +324,46 @@ def ends_mid_line(path: str) -> bool:
         return False
 
 
-# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭。
-def append_jsonl(path: str, record: dict):
-    """向 append-only 日志追加一条记录（best-effort 语义）。
+# 生效条件：record 序列化为 json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"；若 ends_mid_line(path) 为真则在行首再补一个 "\n"；
+# 随后建父目录并以 O_CREAT|O_WRONLY|O_APPEND、权限 0o600 打开 path 写入该行 UTF-8 字节后关闭；成功返回 True；
+# **durable=True 时整段「追加」收进 FileLock(path, strict=True) 临界区**（issue #549：审计账本等不可丢的写面）；
+# os.makedirs/os.open/os.write 抛 OSError（磁盘满/只读介质/权限拒绝/路径过长）时**兜住并返回 False**
+# （best-effort 契约：簿记写入失败不得升级为业务路径失败，issue #326-④）；KeyboardInterrupt/SystemExit 是
+# BaseException、不在兜住面内，照常上抛。
+# 参数关系（两批改动正交，合并保留）：strict=「失败是否上抛」(#326-④) · durable=「是否进临界区」(#549)。
+#: 写失败累计计数 + **有界**样本（issue #326-④ B 面）。
+#: 为什么在源头记账：`append_jsonl` 的失败契约是**返回值**（不上抛）——若无本地捕获的
+#: 调用点只是忽略返回值，失败就**静默**了（本仓 121 个调用点属此类）。把失败信号收成
+#: 本模块的**单点可观测项**后，「静默」在结构上不再可能（运维/守卫读 APPEND_FAILURES
+#: 与 _APPEND_FAIL_SAMPLES 即可；口径同 crypto._note_audit_write_failure 的 N126）。
+APPEND_FAILURES = 0            # 累计**写失败次数**（非按路径去重）
+_APPEND_FAIL_SAMPLES = []      # 有界样本：(path, 异常类型名, 截断文本)
+_APPEND_FAIL_SAMPLE_CAP = 8
+_APPEND_FAIL_WARN_CAP = 8      # stderr 告警同样有界（防刷屏）
+
+
+# 生效条件：path/exc 给定时把 APPEND_FAILURES 累加 1、在样本未满 _APPEND_FAIL_SAMPLE_CAP 时
+# 追加一条 (path, 类型名, 文本[:120])、并在累计不超 _APPEND_FAIL_WARN_CAP 时向 stderr 写一行
+# 告警；**无条件返回 False**（供 append_jsonl 直接 `return`）。不抛任何异常。
+def _note_append_failure(path, exc):
+    """登记一次 append_jsonl 写失败 + 有界告警（容忍 ≠ 静默）。"""
+    global APPEND_FAILURES
+    APPEND_FAILURES += 1
+    if len(_APPEND_FAIL_SAMPLES) < _APPEND_FAIL_SAMPLE_CAP:
+        _APPEND_FAIL_SAMPLES.append((str(path), type(exc).__name__, str(exc)[:120]))
+    if APPEND_FAILURES <= _APPEND_FAIL_WARN_CAP:
+        sys.stderr.write(
+            "[fsutil] append_jsonl 写失败（best-effort 已容忍，返回 False）%s：%s: %s"
+            "——进程内累计 %d 次；已登记 fsutil.APPEND_FAILURES / "
+            "_APPEND_FAIL_SAMPLES 供审计读取。排查方向：磁盘满 / 只读介质 / "
+            "权限拒绝 / 路径过长。\n"
+            % (path, type(exc).__name__, str(exc)[:120], APPEND_FAILURES))
+    return False
+
+
+def append_jsonl(path: str, record: dict, strict: bool = False,
+                 durable: bool = False) -> bool:
+    """向 append-only 日志追加一条记录（best-effort 语义）：成功 True、写失败 False。
 
     注意 O_APPEND 的原子性是**平台相关**的：POSIX 保证「定位到末尾 + 写入」是
     一个原子操作，Windows CRT 的 _O_APPEND 则是 lseek(END) + write 两步，并发下
@@ -195,17 +371,152 @@ def append_jsonl(path: str, record: dict):
 
     因此本函数只用于**丢一条无所谓**的簿记（访问计数）。任何不能丢的东西
     （比如索引增量）必须用 ShardedLog——每个写者独占一个分片，不共享写入点。
+
+    失败契约（issue #326-④）：本文档自陈「丢一条无所谓」，原实现却只有
+    try/finally——os.makedirs/os.open/os.write 的 OSError（磁盘满、只读介质、
+    权限拒绝、路径过长）会**击穿**调用方，把**簿记写入失败升级为业务路径失败**。
+    现按本文档兜住 OSError 并返回 False；**只**兜 OSError——KeyboardInterrupt /
+    SystemExit 是 BaseException，Type/ValueError（如 record 不可 JSON 序列化）
+    是编程错误，一概照常上抛，不把「写失败」与「用错」混为一谈。
+
+    strict（issue #426-C，2026-10-17 U06 槽内回触 U05 面）：默认 False ⇒ **既有 129 处
+    调用点行为逐位不变**（含不可写路径下「返回 False 且不抛」的旧语义）。
+    `strict=True` 供**不能丢**的队列写入（inbox / decisions）使用：失败时**先记账**
+    （_note_append_failure，保证「不静默」）**再上抛 OSError**，让调用方无法把
+    「没落盘」当成功回执发出去。**不新增第四种失败编码**：上抛的异常由工具面按仓内
+    既有三种编码（业务失败 isError=false+JSON / 异常 isError=true+JSON / read 缺失
+    null）中的「异常」形态呈现，不自创形态。
+
+    因此**缺省**（`durable=False`）仍只用于**丢一条无所谓**的簿记（访问计数）；
+    任何不能丢的东西（索引增量）**首选** ShardedLog——每个写者独占一个分片，
+    不共享写入点，物理上无从冲突。
+
+    issue #549（2026-10-14）：但**审计账本**（`MdCGOS._audit` 的 `_audit.jsonl`）
+    此前也走本函数缺省路径，实测 6 进程 × 20 条在多写者下静默丢
+    **29.2% / 36.7% / 39.2%**（三轮），且 `add` 仍返回成功、worker 零报错 ——
+    而该账本被 `admission` 等消费做状态推断，缺行使审计追溯出现
+    **无法察觉的空洞**（「发生过」与「没发生过」不可区分）。
+    审计账本的写点分散且要参与轮转，改 ShardedLog 需动读面与轮转器；
+    故此处提供 **`durable=True`**：把「判半截行 + 追加」整段收进
+    `FileLock(strict=True)` 临界区（该锁的既有语义即「不能丢的写」），
+    以最小改动关掉静默丢行。
+
+    `durable=True` 的代价是**锁定串行化**（并发写审计会排队）。
+    按既有价值序（`FileLock` 注释：写被拒绝的代价大于一次竞态，而**不能丢的写**
+    宁可让写入者等一下）——审计账本属「不能丢」，故取 strict 语义：
+    锁竞争超时**显式抛错**给调用方，而不是静默退化为无锁并发再丢行。
     """
     line = json.dumps(record, ensure_ascii=False, separators=(",", ":")) + "\n"
-    if ends_mid_line(path):
-        line = "\n" + line
     d = os.path.dirname(os.path.abspath(path)) or "."
-    os.makedirs(d, exist_ok=True)
-    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+    try:
+        os.makedirs(d, exist_ok=True)
+        if durable:
+            # issue #549：整段临界区——判半截行与追加必须原子（否则两个写者可同时
+            # 判定「上一行完整」而各自直接追加，交错仍会丢）。
+            # 注：不加 ".lock" 后缀的第二把锁——FileLock 内部即以 path + ".lock" 命名，
+            # 与本文件其他写点（inbox/decisions）同构。
+            # 失败契约与下方共用：临界区内抛 OSError 同样落到 _note_append_failure；
+            # `strict=True` 时同一条腿再上抛（两参数正交，见上方契约注释）。
+            with FileLock(path, strict=True):
+                if ends_mid_line(path):
+                    line = "\n" + line
+                fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+                try:
+                    os.write(fd, line.encode("utf-8"))
+                finally:
+                    os.close(fd)
+            return True
+        if ends_mid_line(path):
+            line = "\n" + line
+        fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+    except OSError as e:
+        _note = _note_append_failure(path, e)
+        if strict:
+            raise                      # strict：失败必须让调用方看见（先记账，再上抛）
+        return _note
     try:
         os.write(fd, line.encode("utf-8"))
+        return True
+    except OSError as e:
+        _note = _note_append_failure(path, e)
+        if strict:
+            raise                      # strict：同上（记账在 _note_append_failure 内完成）
+        return _note
     finally:
-        os.close(fd)
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+
+
+# issue #546：审计/台账面的**独立写入点**（每进程一个分片）+ 读面合并。
+#
+# 为什么不是给 append_jsonl 加锁：它的 docstring 已规定「本函数只用于**丢一条
+# 无所谓**的簿记；任何不能丢的东西必须用 ShardedLog——每个写者独占一个分片，
+# **不共享写入点**」。所以病在「调用面选错了函数」，不在「这个函数缺锁」。
+#
+# 实测（6 写者 × 400 行）：共享单文件丢 538 行（22.4%）且全部报成功；
+# 每写者独立文件丢 0 行（0.0%）。唯一变量就是写入点是否共享。
+def ledger_shard_path(base: str, pid=None) -> str:
+    """单写者的分片路径：<base 去掉扩展名>.<pid><扩展名>。"""
+    root, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".jsonl"
+    return "%s.%d%s" % (root, os.getpid() if pid is None else int(pid), ext)
+
+
+# 生效条件：base 为台账基准路径；把记录追加到**本进程独占的分片**，复用 append_jsonl
+# 的既有失败契约（best-effort 返回 bool；strict 由调用方决定）。与 append_jsonl 同族：
+# **调用方必须消费返回值**（E11 钉子同时覆盖两者，issue #546）。
+def append_jsonl_ledger(base: str, record: dict, strict: bool = False) -> bool:
+    """追加到本进程独占分片（issue #546）。"""
+    return append_jsonl(ledger_shard_path(base), record, strict=strict)
+
+
+# 生效条件：base 为台账基准路径；读面**同时**读旧单文件 base 与全部分片
+# <stem>.<pid><ext>（旧单文件 + 新分片共存时历史不断代）。返回按**时间序**拼接的记录
+# 列表（旧单文件在最前——它是旧版本写的、必早于任何分片；分片按 pid **数值**升序）；
+# 单文件/单分片的读失败不阻断其它（各自 try）。
+#
+# issue #556 修两处错（病象：旧库升级后 `self_state.refresh(strict=True)` 恒
+# `chain_broken`；非 strict 时版本号倒退、两条 version=2）：
+#   ① **旧单文件被读两次** —— 旧匹配条件 `<stem>.` 前缀 + `.jsonl` 后缀把 `<stem>.jsonl`
+#      自己也算了进去（它同时满足两者）。改为「前缀之后必须是纯数字 pid」，base 自身
+#      因而不命中。
+#   ② **分片按文件名字典序** —— `_self_state.10000.jsonl` 排在 `_self_state.9999.jsonl`
+#      之前，于是「最新一条」取错。改为解析 pid 后**按数值**排序。
+#   两处都只在「旧单文件与分片共存」或「pid 跨位数」时显形，全新单进程库看不出来。
+def read_jsonl_ledger(base: str) -> list:
+    """读旧单文件 + 全部分片（issue #546 的读面合并；#556 修重复读与排序）。"""
+    out = []
+    try:
+        out.extend(read_jsonl(base))
+    except OSError:
+        pass
+    root, ext = os.path.splitext(base)
+    if not ext:
+        ext = ".jsonl"
+    d = os.path.dirname(os.path.abspath(base)) or "."
+    try:
+        names = os.listdir(d)
+    except OSError:
+        return out
+    prefix = os.path.basename(root) + "."
+    shards = []
+    for name in names:
+        if not (name.startswith(prefix) and name.endswith(ext)):
+            continue
+        mid = name[len(prefix):len(name) - len(ext)]
+        if not mid.isdigit():          # #556 ①：排除旧单文件与任何非 <pid> 形态
+            continue
+        shards.append((int(mid), name))
+    shards.sort()                       # #556 ②：按 pid 数值升序，非字典序
+    for _pid, name in shards:
+        try:
+            out.extend(read_jsonl(os.path.join(d, name)))
+        except OSError:
+            continue
+    return out
 
 
 # 生效条件：os.path.exists(path) 为假时生成器直接结束不产出；否则逐行 strip，空行跳过，json.loads 成功则 yield 该对象，抛 ValueError 的行跳过，其余异常不捕获。
@@ -224,24 +535,19 @@ def read_jsonl(path: str):
                 continue
 
 
-# 生效条件：os.path.exists(path) 为假时返回 ([], None)；否则以二进制只读打开并 seek 到 offset 后一次性读到 EOF，按 b"\n" 切行逐段 decode("utf-8","replace") 再 strip，空行跳过，json.loads 成功的收入列表，ValueError 跳过；返回 (对象列表, offset+读到的字节数)——EOF 偏移是真实消费位置（stat 与 read 之间并发 append 的字节已计入），供增量缓存作水位。
+# 生效条件：文件不存在返回 ([], None)；从 offset 读到 EOF，但只解析最后一个换行之前的完整记录；完整坏行跳过，未完成尾行留待后续重读。返回记录与已消费的完整行字节水位，不以读前或读后的 stat size 代替。
 def read_jsonl_tail(path: str, offset: int):
-    """从字节偏移 offset 起**增量**读 append-only jsonl → `(records, end_offset)`。
+    """Incremental JSONL records and the last committed newline offset.
 
-    存在理由（issue #32）：propose 等高频对账每次全量重读 inbox/decisions
-    是 O(M+D)/条、批量 O(M²)；append-only 契约（写点全部经 append_jsonl，
-    无轮转/截断）下「上次扫描到的 size」必为行边界，从该偏移起只解析新增
-    字节即可。上一次写入中断在行中间（ends_mid_line 补 \\n 场景）时，残行
-    前半已在上一轮装载中被跳过、增量窗口读到的是补写的换行与新行——与
-    全量 read_jsonl 的容错结果一致。
+    A writer may still be completing JSON/UTF-8 when this reader reaches EOF.
+    Advancing beyond that suffix permanently loses the eventual record in the
+    four inbox/decisions caches. Keep the cursor at its starting line boundary.
+    Complete corrupt lines still advance the cursor; append_jsonl's crash
+    resynchronization newline therefore cannot block later valid records.
 
-    返回值（水位口径，竞态修复）：end_offset 是**实际读到的 EOF 位置**。
-    调用方若把「读前 stat 的 size」当水位，stat→read 窗口内的跨进程
-    append 会在本轮被并入、而水位偏小——下一轮增量从旧水位重读，同一条
-    记录在列表型缓存里重复并入且永不自愈。存本函数返回的 end_offset
-    即可精确续读。**读后再 stat 不可取**：re-stat 可能大于已消费位置，
-    下轮会跳过未读记录（丢账比重复更糟）。文件不存在返回 (list, None)，
-    调用方自行回落。
+    A complete append that races with the initial stat is consumed exactly
+    once: the returned cursor is measured from bytes actually read. A JSON
+    object without its terminating newline is pending, even if parseable.
     """
     if not os.path.exists(path):
         return [], None
@@ -249,7 +555,11 @@ def read_jsonl_tail(path: str, offset: int):
     with open(path, "rb") as f:
         f.seek(offset)
         data = f.read()
-    for b in data.split(b"\n"):
+    # Only complete lines are committed. A concurrent writer may still be in
+    # the middle of JSON or a UTF-8 code point: retain that suffix for the next
+    # read, rather than permanently advancing the consumer beyond it.
+    committed = data.rfind(b"\n") + 1
+    for b in data[:committed].split(b"\n"):
         line = b.decode("utf-8", "replace").strip()
         if not line:
             continue
@@ -257,7 +567,7 @@ def read_jsonl_tail(path: str, offset: int):
             recs.append(json.loads(line))
         except ValueError:
             continue
-    return recs, offset + len(data)
+    return recs, offset + committed
 
 
 _COUNT_CACHE = {}          # abspath -> (bytes_scanned, mtime_ns, lines)
@@ -727,6 +1037,30 @@ class ShardedLog:
                                   separators=(",", ":")) + "\n")
         self._fh.flush()
 
+# 生效条件：records 为 list[dict]（空列表直接返回 0）；句柄按需打开，**一次 write + 一次 flush**
+#   （#677 C 根治：把「每条 flush」降为「每批一次」——锁内 IO 次数从 O(N) 降为 O(1)，
+#   而整批仍在调用方的同一个 FileLock 内，与 compact 的 read→clear 互斥语义不变）。
+    def append_many(self, records):
+        recs = list(records or [])
+        if not recs:
+            return 0
+        if self._fh is None:
+            ensure_shard_dir(self.dir, "append")
+            self._fh = open(self.path, "a", encoding="utf-8", newline="\n")
+        # #677 C 复核：上次崩溃可能留下**残尾**（末字节不是换行）。不补一个换行就追加，
+        # 新批第 1 条会与残尾粘成一行——语法完整但解析失败，重放游标照样推进 ⇒
+        # 残尾与那条好记录一起永久丢失（与 append_jsonl 的 ends_mid_line 同一防线）。
+        if ends_mid_line(self.path):
+            self._fh.write("\n")
+        out = []
+        for record in recs:
+            self._seq += 1
+            out.append(json.dumps(dict(record, _t=time.time(), _s=self._seq),
+                                  ensure_ascii=False, separators=(",", ":")))
+        self._fh.write("\n".join(out) + "\n")
+        self._fh.flush()
+        return len(out)
+
 # 生效条件：幂等；self._fh 为真值时 flush 并关闭句柄、再把 self._fh 置 None，为 None 时直接返回不报错；
     def close(self):
         if self._fh:
@@ -822,3 +1156,52 @@ class ShardedLog:
                 os.remove(p)
             except OSError:
                 pass
+
+#: issue #443：审计/台账记录单条的**总字节上限**（调用方可控字段可无限长 ⇒ 1:1 写入放大）。
+#: 与 state_events._MAX_FIELD_BYTES（8192/字段）不同：这里的落点是「整条记录」，
+#: 故按序列化后的总字节判；取 65536 B（单条簿记不该接近一页文本）。
+_MAX_RECORD_BYTES = 65536
+
+
+# 生效条件：rec 可 json 序列化时按其 UTF-8 字节数判：<= _MAX_RECORD_BYTES 返回 True；
+# 超限或序列化失败返回 False（调用方据此**跳过写入**，不抛——本函数的调用点全是
+# best-effort 审计路径，抛错会被上层 except 吞掉从而变静默）。
+def bounded_record(rec) -> bool:
+    """issue #443：单条台账记录的总字节闸（返回可否写入）。"""
+    try:
+        raw = json.dumps(rec, ensure_ascii=False, default=str).encode('utf-8')
+    except Exception:                              # noqa: BLE001
+        return False
+    return len(raw) <= _MAX_RECORD_BYTES
+
+
+
+# ── 属主随目录（2026-11-05 补丁，由 pack_stage2.py 每次 stage 重放）──────────
+# 病象：写盘处一律 os.chmod(p, 0o600)，属主留在执行者身上。服务 mdcg.service 以
+# ubuntu 运行，任何以 root 身份执行的维护写入（签发令牌、写理论、写证据、写密钥
+# 表、写 salt）都会产出 root:root 0600，服务随即读不到；而读失败又会被 _load_raw
+# 的 OSError 分支说成「令牌不存在」，排查方向彻底跑偏。修法：把权限位与属主一起
+# 收口——只在以 root 执行、且当前属主与所在目录不同时改回目录属主。
+def chown_like_dir(p: str):
+    """把 p 的属主/属组对齐到所在目录（仅 root 执行时生效）。返回是否改动。"""
+    try:
+        if os.geteuid() != 0:
+            return False
+        d = os.path.dirname(os.path.abspath(p)) or "."
+        st = os.stat(d)
+        cur = os.stat(p)
+        if (cur.st_uid, cur.st_gid) == (st.st_uid, st.st_gid):
+            return False
+        os.chown(p, st.st_uid, st.st_gid)
+        return True
+    except OSError:
+        return False
+
+
+def chmod_owned(p: str, mode: int = 0o600):
+    """chmod 之后再 chown 随目录：写盘收口的唯一入口。"""
+    try:
+        os.chmod(p, mode)
+    except OSError:
+        pass
+    return chown_like_dir(p)

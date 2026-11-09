@@ -36,7 +36,7 @@ from collections import OrderedDict
 from contextlib import contextmanager
 
 from .datapath import aux_root
-from .fsutil import FileLock, atomic_write
+from .fsutil import FileLock, atomic_write, chmod_owned
 from .security import Principal, TenantRegistry, _rank
 
 TOKEN_ENV = "MDCG_TOKEN"
@@ -107,6 +107,75 @@ ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "
            "audit", "state_event")
 
 
+# 设计者令牌**应覆盖**的面：读面 + 裁决面（「能不能查看、能不能裁决」）。
+#
+# 由来（2026-10-27，使用者裁定）：线上曾签发一枚 designer 令牌，ops 被收窄成
+#   10 个（info/route/read/write/recent/goal/identity/whitebox/verify/task），
+#   于是 DSH 端 UI 的「自我认知」「审核与维护」两页多项被 AccessDenied ——
+#   报错自己写着「角色 designer 本身**含**该 op，是签发时被收窄」。
+#   **设计者令牌却看不了、裁不了**，是角色语义与签发现实自相矛盾。
+#
+# 边界（刻意只收「查看与裁决」）：不含 forget/scrub/consolidate/index_*/export
+#   等破坏性或管理级 op —— 按最小权限刻意不给它们**是合理用法**，
+#   不列入本判据的失败面。故本常量只用于**告警与体检**，不作为签发阻断。
+DESIGNER_COVERAGE_OPS = (
+    "info", "help", "status", "edges",          # 元信息 / 验证态 / 三元组反查
+    "read", "route", "recent",                  # 读面
+    "identity", "self_state", "metacognition",  # 自我认知
+    "review",                                   # 审核面（查看候选/记录；**裁决本身不在此**——
+    #   2026-10-27 使用者裁定：设计者只读，裁决须由反思单元与验证单元复核，
+    #   故 `verify` 刻意不列、`review` 只用于 list/records 类查看)
+    "protect", "evolution", "sustain",          # 审核与维护
+    "goal", "task",                             # 目标与任务
+)
+
+
+# 生效条件：ops_allow 为 None 或含 "*" 时返回空列表（视为全覆盖）；否则按 DESIGNER_COVERAGE_OPS 的常量顺序返回其中缺失的 op。
+def coverage_gap(ops_allow):
+    """设计者令牌的覆盖面缺口 → 缺失的读面/裁决面 op（按常量顺序）。
+
+    返回空列表＝覆盖完整。`["*"]`（角色默认全集）与 None 都视为全覆盖；
+    None 只出现在「未收窄」的调用点，语义与 "*" 等同（见 `_narrow`）。
+    """
+    if ops_allow is None or "*" in ops_allow:
+        return []
+    allow = set(ops_allow)
+    return [op for op in DESIGNER_COVERAGE_OPS if op not in allow]
+
+
+# 高风险 op：给自动驾驶/界面用的令牌**不该**带上这些面——「全权限在不可靠的情况下
+# 就是灾难」（2026-10-27 使用者裁定）。两类都算：
+#   · 不可逆/批量：forget（删）、scrub（净化）、consolidate（合并固化）、
+#     index_code/index_doc（重建派生索引）、export（全库导出）、
+#     maintain（apply 类批量改写）、link（放宽签名策略/覆写）、state_event（记账写）；
+#   · 写入与裁决：write、verify（裁决）、ccg（编译器落库）、insight、session、
+#     ingest、audit、predict、causal、theory。
+# 本表只用于**签发告警**，不做阻断：人手主令牌按需全权是合法的，
+# 但要让人看见「我刚给出去的是什么」。
+HIGH_RISK_OPS = (
+    "forget", "scrub", "consolidate", "index_code", "index_doc", "export",
+    "maintain", "link", "state_event",
+    "write", "verify", "ccg", "insight", "session", "ingest", "audit",
+    "predict", "causal", "theory",
+)
+
+
+# 生效条件：ops_allow 为 None 时返回空列表；含 "*" 时返回 ["*"]（全权单列）；否则按 HIGH_RISK_OPS 常量顺序返回其中出现的项。
+def high_risk_granted(ops_allow):
+    """设计者令牌里被放开的**高风险面** → 命中的 op（`["*"]` 原样单列）。
+
+    与 `coverage_gap` 互为两面：那个查「缺了该有的读/裁面」，这个查
+    「给了不该轻易给的面」。签发时两者都报，才不会出现「设计者看不了」
+    与「设计者能删库」这两种相反的灾难。
+    """
+    if ops_allow is None:
+        return []
+    if "*" in ops_allow:
+        return ["*"]
+    allow = set(ops_allow)
+    return [op for op in HIGH_RISK_OPS if op in allow]
+
+
 class TokenError(Exception):
     """令牌无效 / 过期 / 越权派生。"""
 
@@ -151,9 +220,13 @@ ROLE_SPECS = OrderedDict([
         #     其准入不靠 admin 闸而靠签章机械闸（E040/E041/E042）——编译者不得自证
         # task=结构层任务台账（工程做到哪一步/结果是什么）——记录单元本职：
         #     保存过程与结果；「不得自证」由 done 时的结果必填闸承接
+        # ref（2026-10-21 采纳外部用户 miyu 的修复二）：记录单元要能 prune
+        # 派生索引（带 code/doc 标签的索引节点，软删进 trash 可 restore）。
+        # 不算放大权限：不动 can_admin、不动 delegable；判据只覆盖索引节点，
+        # 记忆节点带 session 标签天然不在清退范围。
         "ops_allow": ["info", "route", "read", "write", "goal", "task", "recent",
                       "session", "ingest", "maintain", "insight", "ccg", "status",
-                      "edges"],
+                      "edges", "ref"],
         "delegable": False,
         "forbidden": ["self/anchor 层", "private/secret 密级", "裁决与删除"],
     }),
@@ -363,6 +436,11 @@ def _load_raw(p: str):
                     "顶层 tokens 不是映射（版本漂移？）")
         return ({"schema": SCHEMA, "tokens": {}},
                 "顶层不是对象（版本漂移？）")
+    except PermissionError as e:
+        # A1（2026-11-05）：文件存在但读不到 ≠ 文件坏了。权限位错误若落到下面的
+        # OSError 分支，调用方只会看到「令牌不存在」，排查方向全错。
+        return ({"schema": SCHEMA, "tokens": {}},
+                f"PermissionError（文件存在但读取被拒，查属主/权限位）: {e}")
     except (OSError, ValueError) as e:
         return {"schema": SCHEMA, "tokens": {}}, f"{type(e).__name__}: {e}"
 
@@ -408,10 +486,7 @@ def _save(data: dict, path: str = None):
         if _tid not in _tk:
             _tk[_tid] = _rec
     atomic_write(p, json.dumps(data, ensure_ascii=False, indent=1))
-    try:
-        os.chmod(p, 0o600)          # 令牌摘要文件不可被其他用户读
-    except OSError:
-        pass
+    chmod_owned(p, 0o600)       # B1（2026-11-05）：权限位与属主一起收口
 
 
 # 生效条件：secret 经 encode("utf-8") 后取 sha256 的 hexdigest；secret 非 str 时按其 encode 失败抛出。
@@ -465,18 +540,103 @@ def parse_token(token: str):
 # 签发 / 校验 / 派生 / 吊销
 # --------------------------------------------------------------------------
 
-# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None，随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典。
+# 生效条件：无入参；恒返回是否显式放行首启自举的布尔值——环境变量 MDCG_ALLOW_ROOT_ISSUE 去空白转小写后属 {"1","true","yes","on"} 即真，其余（未设/空串/"0"/"false" 等）为假。
+def _allow_root_issue_env() -> bool:
+    """`MDCG_ALLOW_ROOT_ISSUE` 是否显式打开（issue #543 的显式自举开关）。"""
+    return (os.environ.get("MDCG_ALLOW_ROOT_ISSUE", "") or "").strip().lower() \
+        in ("1", "true", "yes", "on")
+
+
+# 生效条件：spec["can_admin"] 为假时直接返回（非管理级角色不受本闸约束）；为真时——allow_bootstrap 显式为真、或环境开关打开、或 authorized_by 具 can_admin 时放行；否则读 _load(path) 的 tokens 映射，为空（空库首启）时放行自举；非空时抛 TokenError（含既定凭据数与两条放行方式指路）。
+def _authorize_issue(role: str, spec: dict, *, path=None,
+                     authorized_by=None, allow_bootstrap=None) -> None:
+    """签发**授权闸**（issue #543）：管理级角色不得被「谁都能签」。
+
+    判据顺序（任一满足即放行）：
+      ① 非管理级角色（`can_admin` 为假）—— 本闸只管最高权；
+      ② `allow_bootstrap=True` 显式传入（供测试/初始化路径显式表态）；
+      ③ `MDCG_ALLOW_ROOT_ISSUE` 环境开关打开（运维显式放行）；
+      ④ `authorized_by` 是一个**既有管理级 Principal**（委派，推荐路径）；
+      ⑤ **凭据库为空** —— 全新安装的首启自举，保留既有体验。
+
+    fail-closed：库**非空**且以上皆不满足 ⇒ 拒绝（不给「换个空目录就能自铸」留门）。
+    """
+    if not spec.get("can_admin"):
+        return
+    if allow_bootstrap is True:
+        return
+    if _allow_root_issue_env():
+        return
+    if authorized_by is not None and getattr(authorized_by, "can_admin", False):
+        return
+    existing = (_load(path).get("tokens") or {})
+    if not existing:
+        return                                   # 空库首启自举（既有体验）
+    raise TokenError(
+        "拒绝签发管理级令牌（role=%s）：凭据库非空（已有 %d 条），"
+        "而本次签发未出示既有管理级凭据。三条放行方式："
+        "① 由既有 designer 令牌经 tokens derive --role %s 派生；"
+        "② 显式设 MDCG_ALLOW_ROOT_ISSUE=1（运维放行）；"
+        "③ 全新安装（凭据库为空）时本闸自动放行。"
+        "（issue #543：签发此前无授权门，叠加 MDCG_AUX_ROOT 可换库 ⇒ 自铸最高权身份）"
+        % (role, len(existing), role))
+
+
+# 生效条件：role 经 normalize_role+role_spec（未知角色抛 TokenError），clearance 为假值时取 spec["clearance_cap"] 再经 _clamp_level 收窄到该 cap，layers_allow/ops_allow 经 _narrow 与 spec 默认求交，actor 为假值时取 role，delegable is None 时取 spec["delegable"]、否则按所传值取 bool，ttl 为真值时 expires_at=now+float(ttl)、为假值（None/0）时 None；**先过 _authorize_issue() 授权闸**（issue #543：管理级角色在**凭据库非空**时须由既有管理级凭据委派或显式开关 MDCG_ALLOW_ROOT_ISSUE=1；空库首启允许自举），随后在 _store_lock(path) 临界区内把记录写入 token_file(path)（N199：读-改-写无锁会被并发写者用陈旧快照整份覆盖）并返回含明文 token 的字典；sessions_read（issue #712 签发侧接线）为 None 时 rec 落盘 None（不限读面，旧行为零变），否则 str 化 + dict.fromkeys 保序去重后以 list 落盘，返回值同步携带。
 def issue(role: str, actor: str = None, clearance: str = None,
           tenant: str = "default", ttl: float = None, label: str = "",
           issued_by: str = "root", parent: str = None, delegable: bool = None,
-          layers_allow=None, ops_allow=None, path: str = None):
-    """签发一枚令牌。明文 token 只在返回值里出现一次，不落盘。"""
+          layers_allow=None, ops_allow=None, path: str = None,
+          sessions_read=None,
+          _authorized_by=None, _allow_bootstrap=None):
+    """签发一枚令牌。明文 token 只在返回值里出现一次，不落盘。
+
+    issue #543（安全性）：签发动作此前**没有任何授权门** —— 只要求目标目录可写，
+    不校验调用者身份、也不看是否已有更高权凭据。叠加「凭据库位置由
+    `MDCG_AUX_ROOT` 决定」（datapath.aux_root），构成提权原语：
+    **换一个空目录 + 设一个环境变量 = 拿到 designer 全权身份**
+    （实测可写入 anchor/self 受保护层）。故补 `_authorize_issue()` 授权闸。
+
+    兼容性（刻意保守，避免破坏文档化的首启流程）：
+      · **空库首启允许自举**最高角色（全新安装的既有体验不变）；
+      · **库非空**时要再签 `can_admin` 角色，必须能出示既有管理级凭据
+        （`_authorized_by` 传 Principal）、或显式设 `MDCG_ALLOW_ROOT_ISSUE=1`；
+      · 非管理级角色（recorder 等）**不受影响**。
+    """
     role = normalize_role(role)
     spec = role_spec(role)
+    _authorize_issue(role, spec, path=path, authorized_by=_authorized_by,
+                     allow_bootstrap=_allow_bootstrap)
     clearance = _clamp_level(clearance or spec["clearance_cap"],
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])
     ops = _narrow(ops_allow, spec["ops_allow"])
+    # 一致性**告警**（不阻断）——注意分层：库函数只**返回** warnings，不写 stderr。
+    #
+    # 为什么不在库里打印（2026-10-27 CI 反馈）：`test_n198_tokens_corrupt_failclosed`
+    # 的判据是「合法库全流程零 stderr 告警（不误报）」——库函数往 stderr 写会让
+    # **正常签发**看起来像故障。这与 `hive/serve_start.py` 的既有口径同源：
+    # 「start() 只返回 dict 不打印——stdio 通道上多打一行即污染协议；打印只发生在
+    # CLI 入口」。故：库层进 `warnings` 字段，CLI 入口负责打印。
+    warnings = []
+    if role == "designer":
+        _risky = high_risk_granted(ops)
+        if _risky == ["*"]:
+            warnings.append(
+                "警告：本次签发的 designer 令牌是**全权**（[\"*\"]），含写入/裁决/"
+                "删除/批量维护全部面——全权限在不可靠的情况下就是灾难。若这是给界面或"
+                "自动化用的，请改用只读面令牌（见 DESIGNER_COVERAGE_OPS）或 derive 子令牌。")
+        elif _risky:
+            warnings.append(
+                "警告：本次签发的 designer 令牌含 %d 个高风险 op：%s —— 写入/裁决/"
+                "删除面已对外开放，确认这是刻意授权。" % (len(_risky), "/".join(_risky)))
+        _gap = coverage_gap(ops)
+        if _gap:
+            warnings.append(
+                "注意：本次签发的 designer 令牌 ops 被收窄，缺少 "
+                "%d 个读面/裁决面 op：%s —— 用该令牌的界面会出现 AccessDenied"
+                "（写入面不受影响）。若这不是刻意的最小权限，去掉 --ops-allow"
+                " 即可按角色默认全集（[\"*\"]）签发。" % (len(_gap), "/".join(_gap)))
     token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     now = time.time()
     rec = {
@@ -485,6 +645,9 @@ def issue(role: str, actor: str = None, clearance: str = None,
         "can_write": bool(spec["can_write"]),
         "can_admin": bool(spec["can_admin"]),
         "layers_allow": layers, "ops_allow": ops,
+        # issue #712：读面随令牌落盘（None=不限，旧行为）；归一化口径与 Principal 同构。
+        "sessions_read": (None if sessions_read is None
+                          else list(dict.fromkeys(str(x) for x in sessions_read))),
         "delegable": bool(spec["delegable"] if delegable is None else delegable),
         "parent": parent, "issued_by": issued_by, "issued_at": now,
         "expires_at": (now + float(ttl)) if ttl else None,
@@ -500,14 +663,22 @@ def issue(role: str, actor: str = None, clearance: str = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": clearance, "layers_allow": layers, "ops_allow": ops,
-            "expires_at": rec["expires_at"], "token_file": token_file(path)}
+            "sessions_read": rec["sessions_read"],
+            "expires_at": rec["expires_at"], "token_file": token_file(path),
+            "warnings": warnings}
 
 
-# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）。
+# 生效条件：token 先经 parse_token（格式非法即抛 TokenError），其后 _load(path) 的 tokens 中该 token_id 无记录、rec 的 role 与解析出的 role 不等、revoked_at 为真、hash 与 _hash(secret) 经 hmac.compare_digest 不等、expires_at 为真且小于当前时间、或沿 parent 链上溯（seen 集合防环；链上父记录缺失时仅向 stderr 告警不阻断——吊销已由 revoke 级联物化，此处只补过期维度，文件写权不在令牌威胁模型内）任一祖先 expires_at 为真且小于当前时间中任一成立即抛 TokenError；否则返回 Principal，tenant=tenant or rec.get("tenant") or "default"、actor=rec.get("actor") or role、clearance=rec.get("clearance") or "internal"、can_write/can_admin 取对应 rec 值的 bool；返回前 rec["tenant"] 与非空形参 tenant 去空白后不等时先向 stderr 写「租户绑定被入参覆盖」告警；rec["tenant"] 与非空形参 tenant 去空白后不等时抛 TokenError 拒绝（N62②，2026-09-27 第 5 轮：告警改 fail-closed——原告警文案已定性「若非有意迁移请校正 MDCG_TENANT」），clearance 先取 rec 值再按登记租户上限夹紧（N62①：MDCG_TENANT_REGISTRY 登记表（与 _resolve_root 同源）在册租户 _rank(clearance) 高于其 clearance_cap 时夹紧为 cap；未登记租户/登记表缺失或损坏零闸变）；重建 Principal 另传 sessions_read=rec.get("sessions_read")（issue #712 签发侧接线：存量 rec 无此键 → None → 不限读面，行为零变）。
 def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     """校验令牌 → Principal。任何异常都抛 TokenError（fail-closed）。"""
     role, token_id, secret = parse_token(token)
-    tokens_map = _load(path).get("tokens") or {}
+    _data = _load(path)
+    if _data.get("load_error"):
+        raise TokenError(
+            f"令牌库不可读（{_data['load_error']}）：{token_file(path)}"
+            "——不是缺记录，先查属主/权限位；_save/_write_secret 会 chmod 0600，"
+            "服务若非 root 运行，签发必须以同一用户执行")
+    tokens_map = _data.get("tokens") or {}
     rec = tokens_map.get(token_id)
     if not rec:
         raise TokenError("令牌不存在（可能已吊销或来自其他令牌文件）")
@@ -581,13 +752,15 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
         can_admin=bool(rec.get("can_admin")),
         role=role, token_id=token_id, parent=rec.get("parent"),
         expires_at=exp, layers_allow=rec.get("layers_allow"),
-        ops_allow=rec.get("ops_allow"), auth_mode="token")
+        ops_allow=rec.get("ops_allow"), auth_mode="token",
+        # issue #712：旧库 rec 无此键 → None = 不限读面（行为零变，同 layers 兼容口径）
+        sessions_read=rec.get("sessions_read"))
 
 
-# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功，随后在 _store_lock(path) 临界区内复核父令牌**落盘态**：父记录 delegable 为假抛 TokenError，父记录已并发吊销（revoked_at 为真，N199）同样抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时过期候选=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at，候选与父记录 expires_at 均非空时取 min（N123：派生在时间维度同样只能收窄，父无界时取候选），被父夹紧时向 clamped 追加 "expires_at"；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，_save 后返回含明文 token 与 clamped 的字典。
+# 生效条件：parent_token 经 verify_token(parent_token, path=path) 成功，随后在 _store_lock(path) 临界区内复核父令牌**落盘态**：父记录 delegable 为假抛 TokenError，父记录已并发吊销（revoked_at 为真，N199）同样抛 TokenError；role 经 normalize_role+role_spec，clearance 为假值时取 spec["clearance_cap"] 再 _clamp_level，若仍高于 parent.clearance 则降为 parent.clearance 并向 clamped 追加 "clearance"；layers/ops 先与 spec 求交再与父记录求交；can_write/can_admin 取 spec 与父对应值的与；ttl 为真值时过期候选=now+float(ttl)、为假值（None/0）时沿用父记录 expires_at，候选与父记录 expires_at 均非空时取 min（N123：派生在时间维度同样只能收窄，父无界时取候选），被父夹紧时向 clamped 追加 "expires_at"；新记录 delegable 恒 False、parent/issued_by 为 parent.token_id，_save 后返回含明文 token 与 clamped 的字典；sessions_read（issue #712）按「派生只能收窄」同构夹紧：子未指定=继承父界；父无界（None 或含 '*'）=子自设界生效；子请求含 '*' 而父有界=夹紧为父界并记 clamped；否则取交集（保持父界序），交集为空抛 TokenError（fail-closed，宁可拒签不发什么都读不到的凭据），部分落入记 clamped；新记录与返回均含该字段。
 def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
            label: str = "", path: str = None, clearance: str = None,
-           layers_allow=None, ops_allow=None):
+           layers_allow=None, ops_allow=None, sessions_read=None):
     """设计者令牌派生受限子令牌：权限只能收窄，子令牌默认不可再派生。"""
     parent = verify_token(parent_token, path=path)
     # N199：本函数的「读-改-写」必须与父令牌的**落盘态复核**同处一个临界区
@@ -616,6 +789,27 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
                          prec.get("layers_allow"))
         ops = _narrow(_narrow(ops_allow, spec["ops_allow"]),
                       prec.get("ops_allow"))
+        # issue #712（签发侧接线）：读面「派生只能收窄」，与 N123 过期夹紧同构。
+        p_sr = prec.get("sessions_read")
+        want_sr = (None if sessions_read is None
+                   else list(dict.fromkeys(str(x) for x in sessions_read)))
+        p_all = (p_sr is None) or ("*" in [str(x) for x in p_sr])
+        if want_sr is None:
+            final_sr = p_sr                          # 未指定 → 继承父界（不放宽）
+        elif p_all:
+            final_sr = want_sr                       # 父无界 → 子自设任意界
+        elif "*" in [str(x) for x in want_sr]:
+            final_sr = p_sr                          # 子请求「全部」而父有界 → 夹紧为父界
+            clamped.append("sessions_read")
+        else:
+            _inter = [x for x in p_sr if x in {str(y) for y in want_sr}]
+            if not _inter:
+                raise TokenError(
+                    "派生拒绝：sessions_read 与父令牌读面交集为空（fail-closed——"
+                    "宁可拒签，不签发一枚什么都读不到的凭据）")
+            if set(_inter) != {str(y) for y in want_sr}:
+                clamped.append("sessions_read")
+            final_sr = _inter
         can_write = bool(spec["can_write"]) and bool(parent.can_write)
         can_admin = bool(spec["can_admin"]) and bool(parent.can_admin)
         # N123（2026-09-25 止血）：「派生只能收窄」补上时间维度——子令牌有效期
@@ -637,6 +831,7 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
             "clearance": final_clear, "can_write": can_write,
             "can_admin": can_admin,
             "layers_allow": layers, "ops_allow": ops,
+            "sessions_read": final_sr,
             "delegable": False, "parent": parent.token_id,
             "issued_by": parent.token_id, "issued_at": now,
             "expires_at": final_exp,
@@ -647,12 +842,20 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
     return {"ok": True, "token": make_token(role, token_id, secret),
             "token_id": token_id, "role": role, "actor": rec["actor"],
             "clearance": final_clear, "layers_allow": layers, "ops_allow": ops,
+            "sessions_read": final_sr,
             "can_write": can_write, "can_admin": can_admin,
             "parent": parent.token_id, "clamped": clamped,
             "expires_at": rec["expires_at"]}
 
 
-# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）。
+# 生效条件：normalize_role(unit) 结果不在 POSITION_ROLES 时抛 TokenError；否则返回 Principal：unit/role=u、can_admin 恒 False、clearance=_clamp_level(spec["clearance_cap"], p.clearance)、can_write=bool(spec["can_write"]) and bool(p.can_write)、layers_allow/ops_allow=_narrow(spec 对应值, p 对应值)，tenant/actor/session/harness/token_id/parent/expires_at/auth_mode/theory 等沿用 p，session_auto 来源标记同款传导（getattr(p, "session_auto", False)）；sessions_read 原样传导（issue #712 附带 bug fix：此前构造 Principal 漏传，owner 带读面限制时被收窄静默放宽为不限——fail-open，与「只能变小」矛盾）。
+#: issue #730（D）：**收窄型字段**单点清单——`narrowed_principal` 必须逐项处理；
+#: 新增任一收窄维度时**同步此表与函数体**（守卫 test_issue730_narrowing_audit 钉住）。
+#: 判据：「交给请求方自选后，伪造的最坏结果是否仍 ≤ owner 权限」——是即收窄型。
+NARROWING_FIELDS = ("clearance", "can_write", "can_admin", "layers_allow",
+                    "ops_allow", "sessions_read")
+
+
 def narrowed_principal(p: Principal, unit: str) -> Principal:
     """按「单元」收窄 principal 权限（**请求级**身份，只能变小不能变大）。
 
@@ -686,6 +889,9 @@ def narrowed_principal(p: Principal, unit: str) -> Principal:
         ops_allow=_narrow(spec["ops_allow"], p.ops_allow),
         token_id=p.token_id, parent=p.parent, expires_at=p.expires_at,
         auth_mode=p.auth_mode,
+        # issue #712 附带 bug fix：读面限制随身份传导——此前未传，owner 带限制时
+        # as_unit 请求级收窄静默产出 sessions_read=None（不限）的 principal，fail-open。
+        sessions_read=p.sessions_read,
         theory_ok=p.theory_ok, theory_version=p.theory_version)
     # 2026-10-07 三态：session 值被**复制**（非空）不等于「声明来源」——来源
     # 标记必须原样传导，否则写归因三态收口（MdCGSecure._attributed_session）
@@ -731,6 +937,7 @@ def list_tokens(path: str = None, include_revoked: bool = False):
                     "can_admin": r.get("can_admin"),
                     "layers_allow": r.get("layers_allow"),
                     "ops_allow": r.get("ops_allow"),
+                    "sessions_read": r.get("sessions_read"),
                     "delegable": r.get("delegable"), "parent": r.get("parent"),
                     "label": r.get("label"), "issued_at": r.get("issued_at"),
                     "expires_at": r.get("expires_at"),
@@ -765,10 +972,7 @@ def _write_secret(path: str, text: str) -> None:
     # N199：原先写 p + ".tmp"（固定共享名）再 publish——两进程同写一个目标时
     # 互截内容（半截文件可能被 rename 到位）。atomic_write 用唯一临时名。
     atomic_write(p, text)
-    try:
-        os.chmod(p, 0o600)
-    except OSError:
-        pass
+    chmod_owned(p, 0o600)       # B2（2026-11-05）：同 _save，属主随目录
 
 
 # 生效条件：argv 为 None 时取 sys.argv[1:]；经 argparse 解析（--token-file 与必填子命令 issue/verify/revoke/list/roles 等）；参数非法时经 argparse 退出，写盘失败抛 OSError；
@@ -791,6 +995,9 @@ def main(argv=None):
                           "见 `roles` 子命令）")
     p_i.add_argument("--layers-allow", dest="layers_allow", default=None,
                      help="收窄可写层白名单（逗号分隔；越界项被忽略）")
+    p_i.add_argument("--sessions-read", dest="sessions_read", default=None,
+                     help="收窄会话读面（逗号分隔 session id；'*'=全部；缺省=不限，"
+                          "issue #712）")
 
     p_d = sub.add_parser("derive", help="设计者令牌派生子令牌（权限只能收窄）")
     p_d.add_argument("--token", default=None, help="父令牌明文")
@@ -805,6 +1012,8 @@ def main(argv=None):
                      help="收窄可写层白名单（逗号分隔；越界项被忽略）")
     p_d.add_argument("--clearance", default=None,
                      help="收窄密级（默认取角色上限，且不超过父令牌）")
+    p_d.add_argument("--sessions-read", dest="sessions_read", default=None,
+                     help="收窄会话读面（逗号分隔；与父读面求交，只能收窄，issue #712）")
 
     p_o = sub.add_parser(
         "orch",
@@ -830,11 +1039,17 @@ def main(argv=None):
     a = ap.parse_args(argv)
     try:
         if a.cmd == "issue":
-            _print(issue(a.role, actor=a.actor, clearance=a.clearance,
-                         tenant=a.tenant, ttl=a.ttl, label=a.label,
-                         layers_allow=_csv_list(a.layers_allow),
-                         ops_allow=_csv_list(a.ops_allow),
-                         path=a.token_file))
+            _r = issue(a.role, actor=a.actor, clearance=a.clearance,
+                       tenant=a.tenant, ttl=a.ttl, label=a.label,
+                       layers_allow=_csv_list(a.layers_allow),
+                       ops_allow=_csv_list(a.ops_allow),
+                       sessions_read=_csv_list(a.sessions_read),
+                       path=a.token_file)
+            # 覆盖面/高风险告警在**接口层**打印（库函数只返回 warnings，见 issue 注释）：
+            # stdout 保持纯 JSON（协议面），告警走 stderr（诊断面），两流不混。
+            for _w in (_r.get("warnings") or []):
+                sys.stderr.write("[tokens] %s\n" % _w)
+            _print(_r)
         elif a.cmd == "derive":
             tok = a.token
             if a.token_file_in:
@@ -844,7 +1059,8 @@ def main(argv=None):
                           label=a.label, path=a.token_file,
                           clearance=a.clearance,
                           layers_allow=_csv_list(a.layers_allow),
-                          ops_allow=_csv_list(a.ops_allow)))
+                          ops_allow=_csv_list(a.ops_allow),
+                          sessions_read=_csv_list(a.sessions_read)))
         elif a.cmd == "orch":
             tok = a.token
             if a.token_file_in:
@@ -867,8 +1083,13 @@ def main(argv=None):
                 with open(a.token_file_in, encoding="utf-8") as f:
                     tok = f.read().strip()
             p = verify_token(tok, path=a.token_file)
-            _print({"ok": True, "principal": p.as_dict(),
-                    "role_label": role_spec(p.role)["label"]})
+            _out = {"ok": True, "principal": p.as_dict(),
+                    "role_label": role_spec(p.role)["label"]}
+            # designer 令牌的覆盖面体检：非空即「用了设计者令牌却缺读/裁面」，
+            # 供插件启动日志与运维体检直接看见（不影响校验结论本��）。
+            if p.role == "designer":
+                _out["designer_coverage_gap"] = coverage_gap(p.ops_allow)
+            _print(_out)
         elif a.cmd == "revoke":
             _print(revoke(a.token_id, path=a.token_file))
         elif a.cmd == "list":

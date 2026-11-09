@@ -30,13 +30,15 @@
   ——「一次调用堵死通道」不在轮转路径上复现。
 """
 from __future__ import annotations
+import sys
+import io
 
 import json
 import os
 import time
 
 from .fsutil import (FileLock, append_jsonl, atomic_write, count_jsonl,
-                     publish)
+                     publish, read_jsonl)
 
 
 # 生效条件：path 为日志路径、count_max_bytes 为规模阈值、est_sample 为尾部采样字节数、counter 为行数计数器（缺省 count_jsonl）时，先 os.stat；OSError 返回 {'bytes':0,'mtime':None,'events':0,'exact':True}；size 不超过 count_max_bytes 时返回 counter(path) 的精确条数与 exact=True；否则读末尾 est_sample 字节估算 events、exact=False 并附 note（不触发任何全量计数）。
@@ -77,6 +79,8 @@ def _default_clock():
 
 
 # 生效条件：以 root/basename/archive_name 及可选阈值与回调构造实例；active/archive/lock 路径由 root 与基名拼接，_index 缓存与 writes 计数初值为 None/0；不读盘、不建目录、不抛异常。
+PRUNE_LEDGER = "_prune_ledger.jsonl"   #: #472：剪枝对账单（**不在 shards() 命名空间内**）
+
 class Rotator:
     """参数化分片轮转器：一次实现，审计面与 crypto 面共用。
 
@@ -102,8 +106,11 @@ class Rotator:
         self.active = os.path.join(root, basename + ".jsonl")
         self.archive = os.path.join(root, archive_name)
         self.index_name = index_name
+        # issue #521：`FileLock` 自己会补 ".lock"（fsutil.py:124）⇒ 此处**只给不含 .lock 的基名**，
+        # 否则 `basename.rotate.lock` + `.lock` = `…rotate.lock.lock`（后缀拼接职责重叠）。
+        # ★ 形态（本条正文自带）：「不在清单里 ≠ 不存在；做差集前必须先判『清单是否穷举』」。
         self.lock_path = os.path.join(root, lock_name or
-                                      (basename + ".rotate.lock"))
+                                      (basename + ".rotate"))
         self.rotate_bytes = rotate_bytes
         self.keep_shards = keep_shards
         self.probe_every = probe_every
@@ -129,6 +136,23 @@ class Rotator:
         prefix = self.basename + "."
         return sorted(n for n in names
                       if n.startswith(prefix) and n.endswith(".jsonl"))
+
+# 生效条件：无必需形参；按 shards() 的字典序（== 时间序）逐个读归档分片、最后读活动
+# 文件，返回记录列表；limit 为真时只取尾部 limit 条；单个文件不可读时按空计。
+    def read_records(self, limit=0):
+        """活动文件 + 全部分片的记录（**归档感知**读面，#212 缺口 4）。
+
+        为什么放在 Rotator 而不是各账本各写一份：shards() 已把「序号零填充 ⇒
+        字典序 == 时间序」这条口径钉在这里，读面必须与它同源，否则又会长出
+        「写侧按分片序号、读侧按 mtime」的第二口径。
+        """
+        recs = []
+        for name in self.shards():
+            recs.extend(read_jsonl(os.path.join(self.archive, name)))
+        recs.extend(read_jsonl(self.active))
+        if limit:
+            recs = recs[-int(limit):]
+        return recs
 
 # 生效条件：self._index 为 None 时尝试读取 archive 中 index_name 并过滤 value 为 dict，读取失败或数据非 dict 时为空字典，随后缓存并返回；非 None 时不重读直接返回。
     def load_index(self) -> dict:
@@ -200,6 +224,24 @@ class Rotator:
         if not gone:
             return []
         idx = self.load_index()
+        # issue #472 站点 3：剪前写**独立对账单**（被剪分片名 + 各自行数 + 汇总）。
+        # **文件名不得落在 self.shards() 命名空间内**（否则会被同一 prune 剪掉 —— 那正是原病）。
+        _led = os.path.join(self.archive, PRUNE_LEDGER)
+        try:
+            _lines = {}
+            for _n in gone:
+                try:
+                    _lines[_n] = sum(1 for _l in io.open(                        os.path.join(self.archive, _n), encoding="utf-8") if _l.strip())
+                except OSError:
+                    _lines[_n] = None
+            _rec = {"t": time.time(), "kept": keep, "pruned": list(gone),
+                    "lines": _lines,
+                    "lines_total": sum(v for v in _lines.values() if v)}
+            with io.open(_led, "a", encoding="utf-8") as _f:
+                _f.write(json.dumps(_rec, ensure_ascii=False) + chr(10))
+        except Exception as _e:      # #472 站点 3：**对账单失败不静默**（与站点 2 同精神）
+            sys.stderr.write("[rotate] prune 对账单写入失败（剪枝继续）：%s: %s"
+                             % (type(_e).__name__, _e) + chr(10))
         for n in gone:
             try:
                 os.remove(os.path.join(self.archive, n))
@@ -253,7 +295,10 @@ class Rotator:
                 mark = (self._mark(name, size, events, pruned, reason)
                         if self._mark is not None else None)
                 if mark is not None:
-                    append_jsonl(self.active, mark)
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+                    _ok = append_jsonl(self.active, mark)
             except OSError:
                 pass
             return {"shard": name, "bytes": size, "events": events,

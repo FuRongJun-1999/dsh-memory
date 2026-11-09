@@ -298,9 +298,27 @@ def _classify(cg, e, nid, basis_text=None):
     if fm is None:
         return "unreadable", None
     if crypto.is_encrypted(content):
-        return "locked", None
+        # P1（2026-11-06）：存量 private/internal 节点是**密文落盘**，
+        # `direct_read` 读的是原始盘面，于是 568 条「待整形」节点对所有
+        # 确定性工具表现为「加密，跳过」。改走 cg.get() 取解密正文再派生；
+        # 写回仍走 MdCGSecure.add（按密级自动重加密 + 审计）。
+        _got = {}
+        try:
+            _got = cg.get(nid, probe=True) or {}
+        except Exception:                          # noqa: BLE001
+            _got = {}
+        _plain = _got.get("content") or ""
+        if not _plain:
+            return "locked", None
+        content = _plain
+        fm = _got.get("frontmatter") or fm
     tags = fm.get("tags") or []
     if e.get("layer") in SKIP_LAYERS or any(t in SKIP_TAGS for t in tags):
+        return "derived", None
+    # P0（2026-11-06）：口径按 kind 分层——豁免类不参与回填（补它等于
+    # 逼流水写成规范文档）。
+    from . import ccg_scope as _scope2
+    if _scope2.is_exempt(fm):
         return "derived", None
     cpl = nodefile.ccg_completeness(content)
     if cpl["complete"]:

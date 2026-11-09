@@ -39,14 +39,153 @@ write 的六道闸（audit 校验 / consistency 冲突 / review 审核 / gated �
 覆盖不经本链的写入路径）。根因取证见 `_commit_visibility` 文档串。
 """
 
-from . import twophase, trust
+# #142②（2026-10-12 DSH 端）：尝试账本的模块级依赖 —— 记账点要用 os / sys / time 与
+# fsutil.append_jsonl（追加原语，不另写第二份）。
+import os
+import re
+import sys
+import time
 
-__all__ = ["WritePipeline", "default_pipeline"]
+from . import protect, twophase, trust
+from .fsutil import append_jsonl, node_write_lock
+
+__all__ = ["WritePipeline", "default_pipeline", "oversize_response",
+           "attempt_history"]
 
 
-# 生效条件：调用即对 cg 执行 flush()（无脏数据时为 no-op），且仅当该调用抛异常而 out 是 dict 时在 out 写入 "flush_error"，异常本身不外抛；
+#: #142②（2026-10-12 DSH 端）· **写入尝试账本**（issue §3.3(e) 方案 1「另立一本账」）。
+#: 被修的面：`_write_2pc.jsonl` 只覆盖「闸门全放行」与 gated 两条**真实落盘**路径，
+#: 闸门短路出口（审核 REJECT / 入队 DEFER / 超限）在两段式账本上**零覆盖** ⇒
+#: 「一次写入到底发生了什么」在短路面上无从回答。
+#: 为什么**不**把短路补进 `_write_2pc.jsonl`（两条在役守卫各钉一条，改任一侧即红）：
+#:   · `md_cg/test_twophase.py` ⑧2「未落盘的分支不产生 intent」——补进去即 34/1；
+#:   · `md_cg/test_write_return_shape.py::g_142_halt_2pc`「短路出口 2pc delta == 0」。
+#: ⇒ 两本账各记各的：两段式（崩溃一致性）零漂移，尝试账本（出口可观测性）新增覆盖。
+ATTEMPT_BASENAME = "_write_attempts"
+#: 活动账本文件名（落在 cg.root 下，随记忆库一起备份/迁移）。
+ATTEMPT_LOG_FILE = ATTEMPT_BASENAME + ".jsonl"
+#: 归档分片目录（轮转＝本账**有界性**的来源）。
+ATTEMPT_ARCHIVE_DIR = "_write_attempts_archive"
+#: 轮转阈值（字节）的 env 名与默认值：默认与审计面同口径 64 MiB，<=0 表示不轮转。
+ATTEMPT_ROTATE_ENV = "MDCG_WRITE_ATTEMPT_ROTATE_BYTES"
+ATTEMPT_ROTATE_DEFAULT = 64 << 20
+#: outcome 三态（issue §3.3(e) 方案 1 的取值集）。与两段式四态**不同源**：
+#: 本账回答「这次尝试停在哪个出口」，不回答「落盘是否完成」。
+ATTEMPT_COMMITTED = "committed"
+ATTEMPT_SHORT_CIRCUIT = "short_circuit"
+ATTEMPT_ERROR = "error"
+
+#: #212 缺口 3（2026-10-13 DSH 端）：尝试账本的**总开关**。此前本账常开——
+#: 运行时显式设 MDCG_WRITE_ATTEMPT_LEDGER=0，账本仍写一行（该 env 名全仓 0 命中，
+#: 确实无效），且四个记账调用点全无条件 ⇒ 每次写入无条件付这笔开销（实测落盘
+#: 1,013.3 B/次、短路 303.2 B/次）。
+#: 缺省**开**：本账是**留痕面**（不改裁决/排序/资格），与 _audit.jsonl /
+#: _write_2pc.jsonl 同口径；「默认关」纪律的适用对象是**行为性改动**（会改变
+#: 裁决结果的那类，如 MDCG_PROPOSAL_EMOTION）。停用只停留痕，**不改写入语义**。
+ATTEMPT_LEDGER_ENV = "MDCG_WRITE_ATTEMPT_LEDGER"
+#: 有效缺省（G2 锚点符号，见 md_cg/config_registry_bulk.py 的登记行）。
+ATTEMPT_LEDGER_DEFAULT = True
+
+# 生效条件：env ATTEMPT_LEDGER_ENV 未设或为空白时返回 ATTEMPT_LEDGER_DEFAULT（True）；
+# 取值去空白并 lower 后属 0/false/no/off 时返回 False；其余取值一律 True。
+def _attempt_ledger_enabled() -> bool:
+    """尝试账本总开关（缺省开，仅显式关闭值停用）。"""
+    raw = os.environ.get(ATTEMPT_LEDGER_ENV)
+    if raw is None or not str(raw).strip():
+        return bool(ATTEMPT_LEDGER_DEFAULT)
+    return str(raw).strip().lower() not in ("0", "false", "no", "off")
+
+
+# 生效条件：env ATTEMPT_ROTATE_ENV 缺席或为空白时返回 ATTEMPT_ROTATE_DEFAULT；为可解析整数时返回该整数（<=0 表示不轮转）；不可解析时回落 ATTEMPT_ROTATE_DEFAULT，配置坏值不导致丢账；
+def _attempt_rotate_bytes() -> int:
+    """尝试账本的轮转阈值（字节）——env 可调，缺省与审计面同口径。"""
+    raw = os.environ.get(ATTEMPT_ROTATE_ENV)
+    if raw is None or not str(raw).strip():
+        return ATTEMPT_ROTATE_DEFAULT
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return ATTEMPT_ROTATE_DEFAULT
+
+
+# 生效条件：ATTEMPT_LEDGER_ENV 未停用（缺省开）时；按 outcome 组装一行尝试记录（t/outcome/id/resp_id ＋ 非 None 的 content_kind/layer/halted_by/error/rotate_error），阈值>0 且活动账本已达阈值时先经 Rotator.rotate 切分活动账本、再 append_jsonl 追加；轮转失败**不丢账**（本行照记并如实留 rotate_error）；**自身绝不外抛**——out 是 dict 时写 out["attempt_ledger_error"]、否则写 stderr（不静默、不改写写入语义）；
+def _append_attempt(cg, nid, a, outcome, halted_by=None, out=None, error=None):
+    """#142② 尝试账本的**唯一写入点**：把一次写入尝试的出口如实落一行（append-only）。
+
+    两个 id 都在场（本字段集是本批的判据面，改一处即红）：
+      · `id`      —— **请求 id**（`ctx["nid"]`）。四个出口一律同源，故同一请求
+        无论停在哪条出口，账本行都用同一个键可循；
+      · `resp_id` —— **调用方看到的响应 id**（`out["id"]`）。落盘 / 入队（DEFER）/
+        超限三出口与请求 id 相同；`_gate_audit` 的 REJECT 出口则**不同** —— 那里
+        响应 id 是「负记忆记录 id」（`cg.add_rejected` 自铸，是调用方取回该记录的
+        句柄，既有响应契约、本批不改）。只记请求 id 会让该出口的账本行**无法与
+        调用方记录 join**；故两个都留，且不做合并。
+
+    为什么收敛成单点：四处出口（超限 / 闸门短路 / 执行器异常 / 落盘成功）各写各的
+    会让「字段集 + 轮转接线」随出口漂移。为什么失败不外抛：写入内容已落盘（或已被
+    闸门正常拒绝），记账故障不得把「写入成功」改写成「写入失败」诱使调用方重试 ——
+    与本模块 `_commit_visibility` 同口径：如实标记、不静默、不改写语义。
+    """
+    if not _attempt_ledger_enabled():
+        return
+    try:
+        ck = a.get("content_kind")
+        lyr = a.get("layer")
+        rec = {"t": time.time(), "outcome": outcome, "id": nid,
+               "resp_id": out.get("id") if isinstance(out, dict) else None,
+               "content_kind": ck.strip() if isinstance(ck, str) and ck.strip() else None,
+               "layer": lyr if isinstance(lyr, str) and lyr else None,
+               "halted_by": halted_by, "error": error}
+        rb = _attempt_rotate_bytes()
+        if rb > 0:
+            active = os.path.join(cg.root, ATTEMPT_LOG_FILE)
+            try:
+                full = os.path.getsize(active) >= rb
+            except OSError:
+                full = False
+            if full:
+                # 复用共享件、不自造分片名（撞 test_audit_rotate_parity ③d）。
+                # 不用 maybe_rotate：本处无跨调用实例（writes 计数每次归零），
+                # Rotator.rotate 自带「size < rotate_bytes 即早退」，口径更严。
+                try:
+                    from .rotate import Rotator
+                    Rotator(cg.root, ATTEMPT_BASENAME, ATTEMPT_ARCHIVE_DIR,
+                            rotate_bytes=rb).rotate()
+                except Exception as exc:               # noqa: BLE001
+                    # 轮转失败**不丢账**：本行照记，失败如实带在行里（不静默）。
+                    rec["rotate_error"] = "%s: %s" % (type(exc).__name__, exc)
+        rec = {k: v for k, v in rec.items() if v is not None}
+        append_jsonl(os.path.join(cg.root, ATTEMPT_LOG_FILE), rec)
+    except Exception as exc:                           # noqa: BLE001
+        # 记账故障不改写写入语义，也不静默 —— 与 _commit_visibility 同口径。
+        if isinstance(out, dict):
+            out["attempt_ledger_error"] = "%s: %s" % (type(exc).__name__, exc)
+        else:
+            print("[writepipe] 尝试账本记账失败（写入语义未受影响）：%s: %s"
+                  % (type(exc).__name__, exc), file=sys.stderr)
+
+
+# 生效条件：cg 可解析出 root 时，返回尝试账本的记录（**归档感知**：先按时间序读全部
+# 归档分片，再读活动文件），limit 为真时只取尾部 limit 条；文件不可读时按空计。
+def attempt_history(cg, limit=100):
+    """尝试账本的读面（issue #212 缺口 4，2026-10-13 DSH 端）。
+
+    为什么必须有它：本账此前**只有写面、没有任何读面**（全仓对 _write_attempts
+    的引用只有写入点与注释）。而轮转把活动文件整份 publish 进归档目录 ⇒
+    **只读活动文件的读面在轮转后看到的是空历史**（不是「最近 N 个分片」，是全部
+    消失）。本函数走 Rotator.read_records，故「轮转与否」对调用方透明；被淘汰的
+    只是超出 keep_shards 的旧分片（有界保留＝设计），不是全部历史。
+    """
+    from .rotate import Rotator
+    return Rotator(cg.root, ATTEMPT_BASENAME, ATTEMPT_ARCHIVE_DIR,
+                   rotate_bytes=_attempt_rotate_bytes()).read_records(limit=limit)
+
+
+
+
+# 生效条件：cg 有 request_flush 时走**异步**通道（置事件即返回，不在返回路径上等落盘；env MDCG_ASYNC_FLUSH=0 时该方法自身退化为同步 flush），无该能力时回落同步 flush()；两条路径在无脏数据时都是 no-op；同步路径抛异常而 out 是 dict 时在 out 写入 "flush_error"（异常本身不外抛），异步路径在 out 写入 "index_flush"="async" 如实标记「索引派生物尚未保证落盘」；
 def _commit_visibility(cg, out):
-    """写提交边界（2026-09-16）：把内存脏索引落分片日志，使本次写入对其他进程立即可见。
+    """写提交边界（2026-09-16 起同步；**issue #677 P2 起改为异步**）。
 
     根因（第4条取证）：写入只经 `_stage` 入内存 + `_dirty`，须达 `autoflush`
     （默认 64）或 `close()` 才 `flush()` 落 `_index_log/`；MCP server 常驻、
@@ -55,13 +194,37 @@ def _commit_visibility(cg, out):
     症状即第16条「写入后读回确认」在跨进程读面上系统性误报（写入返回
     committed=true，读回却检索不到）。
 
-    边界（如实）：无脏数据时 `flush()` 是 no-op，成本只在「确有落盘」时产生；
-    失败**不抛异常**——写入内容已落盘，抛出去会让调用方误判「写入失败」而
-    重试（两段式账本已记 committed，重试即重复写入）。改为在响应里如实标记
-    `flush_error`，不静默。
+    **#677 P2（2026-10-26）：这条「读回确认」同步执行时正是超时的病灶**——
+    它在 `FileLock(index_path)` 下逐条 append 分片日志并开关句柄，客户端 60s
+    超时衡量整条链，卡在这里就把「已落盘但没回话」读成失败，重试即新增重复
+    条目（#677 三条实证）。故改为走 `cg.request_flush()`：**后台线程落盘，
+    返回值不再等它**。
+
+    语义代价（如实）：本笔写入对其他进程的可见性从「返回即已落盘」变为
+    「后台尽快落盘」。要「确定已落盘」的调用方走 `cg(op=maintain,
+    action="flush")`（同步落盘并带回执）；批量/跨进程读之前也可先 `route`
+    查一次（#677 的「先查后写」用法）。`MDCG_ASYNC_FLUSH=0` 回逐位旧行为。
+
+    边界（如实）：无脏数据时两条路径都是 no-op，成本只在「确有落盘」时产生；
+    同步路径失败**不抛异常**——写入内容已落盘，抛出去会让调用方误判「写入
+    失败」而重试（两段式账本已记 committed，重试即重复写入），故在响应里如实
+    标记 `flush_error`；异步路径的失败由 `cg.flush_state()["last_error"]` +
+    一次 stderr 告警留痕（不静默，见 `MdCG._flush_loop`）。
     """
+    req = getattr(cg, "request_flush", None)
+    _enabled = getattr(cg, "async_flush_enabled", None)
+    _async = bool(_enabled()) if callable(_enabled) else callable(req)
     try:
-        cg.flush()
+        if _async and callable(req):
+            req()
+            if isinstance(out, dict):
+                # 如实标记：索引派生物此刻**未保证已落盘**（跨进程可见性为
+                # 「后台尽快」）。要与响应面区分同步/异步时看这个键。
+                out["index_flush"] = "async"
+        else:
+            cg.flush()
+            if isinstance(out, dict):
+                out["index_flush"] = "sync"
     except Exception as exc:  # noqa: BLE001 —— 索引可见性故障不得改写写入语义
         if isinstance(out, dict):
             out["flush_error"] = "%s: %s" % (type(exc).__name__, exc)
@@ -69,6 +232,187 @@ def _commit_visibility(cg, out):
 
 # issue #82.3：写入硬上限（全 content_kind 统一）。
 MAX_WRITE_BYTES = 1048576        # 1 MiB
+
+# 生效条件：a['content'] 的 UTF-8 字节数 > MAX_WRITE_BYTES，或**其余字段**的 UTF-8 序列化
+# 总字节 > MAX_WRITE_BYTES（issue #324），或 a['node_id'] 不满足既有 1..128 契约
+# （mdcg._NODE_ID_RE，延迟 import 复用同一真源）时，返回超限出口响应体（protocol 形态
+# gate_hard_reject：WRITE_TRIO + gate/field/error/verdict/hint）；否则返回 None。
+def _utf8_len(v):
+    """v 的 UTF-8 字节数（str 直量；其余按 JSON 序列化量；不可序列化记 0）。"""
+    if isinstance(v, str):
+        return len(v.encode("utf-8"))
+    try:
+        import json as _json
+        return len(_json.dumps(v, ensure_ascii=False, default=str).encode("utf-8"))
+    except Exception:                        # noqa: BLE001 —— 量不出来不当作超限
+        return 0
+
+
+def _oversize_body(nid, a, n, limit, field, error=None, hint=None, reason="size"):
+    """写入硬上限的唯一响应体构造点（#82.3 统一形态；#324 起带 field；
+    #355 起可覆写 error/hint——类型面拒收的文案与「超上限」不同）。"""
+    _f = field or "content"
+    _what = ("正文" if _f == "content" else "入参字段 " + _f)
+    return {"ok": False, "id": nid, "committed": False,
+            "gate": "writelimit_size",
+            "error": (error or ("content 超过写入硬上限（issue #82.3）"
+                      if _f == "content" else
+                      "入参字段 " + _f + " 超过写入硬上限（issue #324）")),
+            "bytes": n, "limit": limit, "field": _f,
+            "verdict": {"state": "REJECT",
+                        "kind": (a.get("content_kind") or "text"),
+                        "evidence": ("%s %d 字节 > 上限 %d" % (_f, n, limit)
+                         if reason == "size" else
+                         "%s 不匹配字符类契约（issue #545：非尺寸问题，%d 字节 <= 上限 %d）"
+                         % (_f, n, limit))},
+            "hint": (hint or ("写入被拒（硬上限，不是工具故障）：%s %d 字节 > 上限 %d 字节。"
+                     "本上限全 content_kind 统一（issue #82.3），重试同样结果——"
+                     "请缩短后重写。" % (_what, n, limit)))}
+
+
+def oversize_response(nid, a):
+    """写入硬上限的**唯一构造点**（issue #212 缺口 1，2026-10-13 DSH 端）。
+
+    缺陷现场：动词面（本模块 execute 入口）判这道闸、工具面（mcp_server 的
+    mdcg_remember）**完全不判** ⇒ 同一内容两条通路结论相反——走 cg(op=write)
+    被硬拒（gate='writelimit_size'），走 mdcg_remember 却 committed=True 落盘
+    （实测 1,048,677 字节）。根因不是「判据写错」，而是「判据 + 字段集」被写了
+    两份、只有动词面那份被接线。本函数把判据与响应体收敛成**一份实现**，两个
+    调用点只传 (nid, a)，故两面读数逐键相等（守卫 W2a 断言这一点）。
+
+    位置口径与动词面一致：按**原始入参**判，不打码后再判——打码只减不增，
+    故本闸不会因打码而漏放。
+    """
+    a = a or {}
+    c = a.get("content")
+    # issue #355（2026-10-16 DSH 端）：content 非 str 时修前两条字节判据都漏——
+    # isinstance 直取 0、下面的总字节循环又把 content 排除在外 ⇒ 大体积 dict/list
+    # 过闸后击穿库层裸异常（.split），且尝试账本零痕迹。此处非 str 且非 None
+    # 直接结构化拒收（field=content，error 点名类型），不再等库层抛裸异常。
+    if c is not None and not isinstance(c, str):
+        return _oversize_body(
+            nid, a, _utf8_len(c), MAX_WRITE_BYTES, "content",
+            error="content 须为字符串（issue #355）：收到 " + type(c).__name__,
+            hint="写入被拒（入参类型，不是工具故障）：content 须为字符串，收到 "
+                 + type(c).__name__ + "。请改为字符串后重写。")
+    n = _utf8_len(c) if c is not None else 0
+    if n > MAX_WRITE_BYTES:
+        return _oversize_body(nid, a, n, MAX_WRITE_BYTES, "content")
+    # issue #324（2026-10-15 DSH 端）：判据此前只量 content——其余字段完全不受
+    # 约束（实测超长 node_id 单次落盘 4,994,888 B；_write_attempts.jsonl 还是无上限
+    # 增长账本 ⇒ 磁盘耗尽型 DoS）。此处补齐两面，不新增常量、只复用既有真源：
+    #   ① 其余字段的 UTF-8 序列化总字节 > MAX_WRITE_BYTES 即拒；
+    #   ② node_id 复用 mdcg._NODE_ID_RE 与 1..128 契约（既有唯一真源，延迟 import
+    #      防环——写面比库层早加载）。二者都只是提前拦住 add() 本就会拒的入参，
+    #      不改任何合法调用的受理结论。
+    worst_k, worst_b, total = None, 0, 0
+    for _k, _v in a.items():
+        if _k == "content":
+            continue
+        _b = _utf8_len(_v)
+        total += _b
+        if _b > worst_b:
+            worst_k, worst_b = _k, _b
+    if total > MAX_WRITE_BYTES:
+        return _oversize_body(nid, a, total, MAX_WRITE_BYTES, worst_k)
+    _nv = a.get("node_id")
+    if isinstance(_nv, str) and _nv:
+        try:
+            from .mdcg import _NODE_ID_RE as _RE   # 延迟 import 防环；复用同一真源
+        except Exception:                        # noqa: BLE001 —— 不可用则不新增闸
+            _RE = None
+        # issue #545：尺寸与字符类是**两个不同的拒绝理由**，此前合成一个 or 后统一报
+        # 「字节 > 上限」，于是字符类违规被报成 `31 字节 > 上限 128` 这种可被读者
+        # 验算为假的命题，且 hint 指向错误修法（「请缩短」而缩了仍拒）。此处拆开：
+        # 尺寸走 size 口径，字符类走 charset 口径（不编造算术命题）。
+        if _RE is not None:
+            _nb = len(_nv.encode("utf-8"))
+            if len(_nv) > 128 or _nb > 128:
+                return _oversize_body(nid, a, _nb, 128, "node_id")
+            if not _RE.match(_nv):
+                return _oversize_body(
+                    nid, a, _nb, 128, "node_id", reason="charset",
+                    error=("入参字段 node_id 不匹配字符类契约（issue #545）：只允许 "
+                           "字母/数字/下划线/点/@/中文/逗号/连字符，收到 " + repr(_nv[:40])),
+                    hint=("写入被拒（入参字符类，不是工具故障、也不是长度问题）：node_id "
+                          "只允许字母/数字/下划线/点/@/中文/逗号/连字符，斜杠等字符会被拒。请改字符后重写。"))
+    return None
+
+
+# =============================================================================
+# 写入口补全：缺「# 功能名：」时按正文补一行标题（P4，2026-11-06）
+# =============================================================================
+#: 这些是**附属字段**的标签，不能拿来当标题（首行常常就是它们之一）。
+_TITLE_SKIP_LABELS = (
+    "验证方式", "生效条件", "执行", "子功能", "不适用条件", "条件空间",
+    "证据", "来源", "假设", "主题", "功能名", "依赖", "标签",
+)
+#: 正文里已出现功能名（中/英文冒号、或仅标题行）即视为「有标题」。
+_TITLE_PRESENT = re.compile(r"(?m)^\s*#\s*功能名\s*[：:]?")
+
+
+# 生效条件：content 为 str（None 记 ""）时按行扫描——去掉行首 # 与空白后，
+# 若该行冒号前的标签（<=8 字）落在 _TITLE_SKIP_LABELS 内则跳过，否则作为候选；
+# 取字符最长的一条候选（并列取先出现者）；一行候选都没有时回落首个非空行；
+# 结果截到 limit 字符。返回 str（可能为空串）。
+def derive_title(content: str, limit: int = 40) -> str:
+    """从正文里挑一行最像标题的散文（确定性，不猜、不改写原文）。"""
+    best = ""
+    for raw in (content or "").splitlines():
+        s = (raw or "").strip().lstrip("#").strip()
+        if len(s) < 2:
+            continue
+        head = re.split(r"[：:]", s, 1)[0].strip()
+        if len(head) <= 8 and head in _TITLE_SKIP_LABELS:
+            continue
+        if len(s) > len(best):
+            best = s
+    if not best:
+        for raw in (content or "").splitlines():
+            if (raw or "").strip():
+                best = raw.strip().lstrip("#").strip()
+                break
+    return best[:limit].strip()
+
+
+# 生效条件：a 为 dict；content 非空、且 _TITLE_PRESENT 在正文中**不**命中时，
+# 用 derive_title 算标题并在正文最前面插入一行 `# 功能名：<标题>`，同时把
+# a["_title_derived"] 置 True 并返回**新的 dict**（不改入参）；其余情况原样返回 a。
+# _meta_patch 路径（正文由盘面取回、本次只补元数据）**不补标题**——它根本不改正文。
+def _fill_title(a: dict) -> dict:
+    content = a.get("content") or ""
+    if not content or a.get("_meta_patch"):
+        return a
+    if _TITLE_PRESENT.search(content):
+        return a
+    title = derive_title(content)
+    if not title:
+        return a
+    out = dict(a)
+    out["content"] = "# 功能名：" + title + "\n" + content
+    out["_title_derived"] = True
+    return out
+
+
+# 生效条件：a["_title_derived"] 为真时返回 {"title_basis": "derived"}，否则返回 {}；
+# 该 kw 经 cg.add 的 **kw 落进 frontmatter（与 role/session 同一通道）。
+def _title_extra(a: dict) -> dict:
+    return {"title_basis": "derived"} if a.get("_title_derived") else {}
+
+
+# 生效条件：a 为 dict；layer == "contextual"（流水层，网关三元组/日卡/索引切片）
+# 且调用方未显式给 content_kind 时，补 content_kind = "work_log" 并返回新 dict。
+# 其余情况原样返回（knowledge/anchor/structural/goals 等语义层**不猜** kind）。
+# 为什么放在写入口而不是摄取端：摄取端有多条路径（hook / ingest / consolidate /
+# 批量导入），只改一处会漏；写入口是唯一收口。
+def _fill_kind(a: dict) -> dict:
+    if (a.get("content_kind") or "").strip():
+        return a
+    if (a.get("layer") or "").strip() != "contextual":
+        return a
+    out = dict(a)
+    out["content_kind"] = "work_log"
+    return out
 
 
 class WritePipeline:
@@ -131,6 +475,15 @@ class WritePipeline:
         形态逐字节一致）；链尾执行器产生落盘响应，after 链只观测不改写。
         """
         a = a or {}
+        # ★ P4（2026-11-06）：正文缺「# 功能名：」时在此补一行（派生态，见
+        # derive_title/_fill_title）。位置刻意在**一切闸之前**：audit 闸读的就是
+        # a["content"]，补在闸后等于闸判的是一份、落盘的是另一份。
+        a = _fill_title(a)
+        # ★ P0（2026-11-06）：流水层缺省落 kind。这一层是网关三元组/日卡，
+        # 天生没有 CCG 六要素；不标 kind 就会被当 text 卡六要素（或落成
+        # 「未知内容类型」BLINDSPOT 且 kind 不进 fm），整库 content_kind 全 null、
+        # policy 的 required_kinds 空转。口径单点在 ccg_scope。
+        a = _fill_kind(a)
         # ---- issue #82.2（2026-10-09 DSH 端实施）：work_wip 属过程件，
         # 缺省不得进 knowledge 层（否则分桶/条件路由被过程件稀释）。
         # 单点规范化：仅当未显式给 layer 且 content_kind==work_wip 时改路由到
@@ -138,28 +491,87 @@ class WritePipeline:
         if not a.get("layer") and (a.get("content_kind") or "").strip() == "work_wip":
             a = dict(a)
             a["layer"] = "contextual"
+        # #142①（2026-10-12 DSH 端）：id 的铸造**前移到本闸之前**——超限出口同受
+        # WRITE_TRIO 铁律约束（protocol.py:59「任一形态必含 ok/id/committed」，
+        # 客户端据此判定是否落盘）；且 id 必须与 ctx 同源，否则同一请求两条出口
+        # 报不同 id。铸造的唯一实现仍是 mdcg.mint_auto_id（见下方 B1），此处只提前
+        # 调用，不另写判据。
+        from .mdcg import mint_auto_id
+        _nid = a.get("node_id") or mint_auto_id(cg)
         # ---- issue #82.3（同批）：写入硬上限（全 kind 统一）。
         # 判据：存量最大 463KB、P999=17KB ⇒ 1 MiB 约 60 倍余量、零存量阻断。
         # 超限如实报（当前大小 + 上限），不截断、不静默。
-        _wc = a.get("content") or ""
-        _wbytes = len(_wc.encode("utf-8")) if isinstance(_wc, str) else 0
-        if _wbytes > MAX_WRITE_BYTES:
-            return {"ok": False, "error": "content 超过写入硬上限（issue #82.3）",
-                    "bytes": _wbytes, "limit": MAX_WRITE_BYTES,
-                    "verdict": {"state": "REJECT", "kind": (a.get("content_kind") or "text"),
-                                "evidence": "content %d 字节 > 上限 %d" % (_wbytes, MAX_WRITE_BYTES)}}
+        # #142①：返回体补齐 id/committed（三键铁律）＋ gate/hint，命中协议声明
+        # 形态 gate_hard_reject（protocol.VERB_SPECS["write"]["shapes"]）——
+        # 此前该出口只有 ok/bytes/error/limit/verdict，三键缺二、不属任何声明形态。
+        # #212 缺口 1（2026-10-13 DSH 端）：超限判据与响应体**收敛到唯一构造点**
+        # oversize_response——工具面此前完全不过这道闸，根因是「判据 + 字段集」
+        # 各写一份、只有本面被接线。本处改为调用同一份实现，两个面因此逐键相等。
+        # 响应体逐字节不变（仍命中协议形态 gate_hard_reject）；AST 判据覆盖不丢：
+        # 含 gate 的字典字面量 return 落在 oversize_response 内，仍在本文件扫描面内。
+        _over = oversize_response(_nid, a)
+        if _over is not None:
+            # #142②：超限出口也是「一次尝试的出口」——落一行尝试账本再原样返回。
+            _append_attempt(cg, _nid, a, ATTEMPT_SHORT_CIRCUIT,
+                            halted_by="writelimit_size", out=_over)
+            return _over
         # B1（2026-09-30）：自动 id 的铸造**只有一份实现**（mdcg.mint_auto_id）
         # ——原先此处 `"mem_" + 毫秒` 与 mcp_server 的 mdcg_remember 分支各写一份，
         # 同毫秒自动写入铸出同一 id，被 add 的 upsert 语义静默顶替（无失败信号）。
         # 本处只委托，不复制判据。
-        from .mdcg import mint_auto_id
-        ctx = {"cg": cg, "a": a,
-               "nid": a.get("node_id") or mint_auto_id(cg),
-               "verdict": None, "cvd": None}
+        # **元数据补丁**：由 mcp_server 的 write 分派在「调用方没给 content」时
+        # 打上 `_meta_patch` 标记（正文由盘面取回）。只有这一条显式路径放宽内容
+        # 类闸（audit / consistency）与自治档位闸：
+        #   · 内容闸判的是「这段正文能不能入库」，而补丁根本不改正文——重跑等于
+        #     用**今天的**规则否决一条早已合法入库的旧正文（实测
+        #     mem_1792393765836_305c32：旧格式正文缺 `# 功能名`，一次只加
+        #     domain: 标签的补丁被整条拒收并写进负记忆）；
+        #   · 档位闸保护的是「正文被替换」，正文没被替换就不该出单。
+        # 刻意**不**按「正文是否相同」推断：普通 write 即便正文一样，也走原有
+        # 全套闸（幂等重放、REJECT 存根密级继承等既有语义依赖这些闸被执行）。
+        ctx = {"cg": cg, "a": a, "nid": _nid, "verdict": None, "cvd": None,
+               "meta_only": bool(a.get("_meta_patch"))}
+        # ★ issue #322（P0，多实例共根）：**同一 node_id 的整条写链**必须在同一把
+        # **跨进程**锁内——`_gate_autonomy` 的存在性判定、`_gate_gated` 的遗忘闸、
+        # 链尾 `cg.add` 的保护闸/落盘、以及出口的 `_commit_visibility`（flush）
+        # 此前全在锁外：两个进程都判「不存在」⇒ 都按新增落盘、后写整份盖前写，
+        # 两边回执 committed:true 而输的那份正文在 root 里消失；anchor/knowledge
+        # 同 id 并发时两份文件并存，保护闸在两侧都看不到对方（绕过 anchor）。
+        # 锁粒度按 node_id（不同 id 互不阻塞，写面是 S2/S4 瓶颈）；不得用进程内锁
+        # 冒充——多实例共享 root 时写者本来就是不同进程（fsutil.node_write_lock 走
+        # OS 级 FileLock，同线程重入按深度计数，见其文档串）。
+        with node_write_lock(cg, _nid):
+            return self._run_chain(ctx, a)
+
+# 生效条件：ctx 已就绪（cg/a/nid 三键齐）时按注册序跑 before 链——任一非 None 即记
+# halted_by、写尝试账本、提交可见性并短路返回；全放行则先落两段式意图、跑链尾执行器
+# （异常记 STATUS_ERROR 后原样重抛）、记 committed、跑 after 链并提交可见性后返回。
+# 调用方（execute）必须已持有该 node_id 的跨进程写锁（#322）——本函数自身不再加锁，
+# 否则「链内 add」会与外层锁形成第二份口径。
+    def _run_chain(self, ctx, a):
+        cg = ctx["cg"]          # #322：链体从 execute 移出后，cg 经 ctx 取（同一实例）
         for name, fn in self._before:
             out = fn(ctx)
             if out is not None:
                 ctx["halted_by"] = name
+                # #142②（2026-10-12 DSH 端）**未采纳**：原拟在短路出口补两段式账
+                # （修前只覆盖「全放行」与 gated 两段），使 abort 也可对账。
+                # 实测该改法与既有**已被守卫钉死**的不变量冲突：
+                # md_cg/test_twophase.py:9/⑧2「未落盘的分支（闸门拒绝 / 入队）
+                # 不产生 intent——没打算写就不记账」。改后 test_twophase 34/1（⑧2 红），
+                # 而该守卫文件不在本件写面（task-35：写面仅 writepipe.py + 本批守卫）
+                # ⇒ 按纪律**回退改动、把口径冲突上报**，不在本件单方面改语义。
+                # 详见 _team/writepipe/report.md ① ②与「需裁定」段。
+                # #142②【选项丙，2026-10-12 DSH 端】：上面「未采纳」的是**把短路
+                # 写进 _write_2pc.jsonl**——⑧2 不变量 + test_twophase 34/0 证明那条
+                # 改法必须回退。本批改走 issue §3.3(e) 方案 1：**另立**
+                # _write_attempts.jsonl，短路出口由此可观测，而两段式账本零漂移
+                # （test_write_return_shape::g_142_halt_2pc 的 delta==0 一字不动）。
+                # 响应 id 与请求 id 不同源时（如 _gate_audit 的 REJECT 出口：响应 id
+                # 是**负记忆记录 id**，即调用方取回该记录的句柄），账本仍两个 id 都留：
+                # id=请求 id（ctx 同源、四出口一致）、resp_id=调用方看到的 id（可 join）。
+                _append_attempt(cg, ctx["nid"], a, ATTEMPT_SHORT_CIRCUIT,
+                            halted_by=name, out=out)
                 _commit_visibility(cg, out)
                 return out
         # ③ 两段式：闸门**全部放行**（确认要写）→ 先落意图，再执行落盘，
@@ -175,10 +587,20 @@ class WritePipeline:
             # 异常照抛不吞（两段式只记账，不改写既有错误语义）。
             twophase.commit(cg, tok, status=twophase.STATUS_ERROR,
                             reason=type(exc).__name__)
+            # #142②：执行器抛异常也是「一次尝试的出口」——先如实落一行再原样重抛，
+            # 不改既有错误语义（_append_attempt 自身不外抛；该出口无响应体，
+            # 故只有 id、无 resp_id）。
+            _append_attempt(cg, ctx["nid"], a, ATTEMPT_ERROR,
+                            error=type(exc).__name__)
             raise
         ctx["out"] = out
         twophase.commit(cg, tok, status=twophase.STATUS_COMMITTED,
                         reason="executor_ok")
+        # #142②：落盘成功也记一行（尝试账本回答「这次写入停在哪个出口」，
+        # 三态齐全才可对账；两段式账本照旧零漂移）。记账调用落在**语句边界**上
+        # ——上一版把锚点截在 `twophase.commit(...` 那一行、语句还没闭合就追加，
+        # 整份文件因此解析失败（last round: invalid syntax, line 320）。
+        _append_attempt(cg, ctx["nid"], a, ATTEMPT_COMMITTED, out=out)
         for _name, fn in self._after:
             fn(ctx, out)
         _commit_visibility(cg, out)
@@ -218,6 +640,63 @@ def _reject_hint(verdict):
             "拒绝依据见 verdict.evidence")
 
 
+
+# 生效条件：a 里 dedupe 为真（_as_flag 语义）且正文与**同层**既有节点内容指纹
+# （nodefile.content_hash，sha256 前 12）逐字相等时，短路返回 ok=True/id=既有节点/
+# committed=False/deduped=True（不落盘、不建边）；dedupe 为假或无同层同指纹节点时返回 None。
+def _gate_dedupe(ctx):
+    """内容指纹幂等闸（issue #677）——**opt-in**，缺省关。
+
+    背景：cg(op=write) 是一次完整 RPC 往返（落盘 → 冲突检测 → 建索引 → 返回）。
+    客户端超时衡量整条链，于是「已落盘但没回话」会被调用方读成失败；缺省自生成
+    node_id 时，重试就是新增一条（实测同内容三条，importance 0.86）。
+
+    本闸给调用方一个**不改既有语义**的幂等开关：写请求带 dedupe=true 时，若同层已有
+    内容指纹逐字相同的节点，直接返回既有 id 并标 deduped=True。
+      · 缺省关 ⇒ 现有调用方与全部既有契约不受影响；
+      · 只比对**同层**（跨层同文本是不同语义，不能并）；
+      · 不建边、不传播（未落盘，与短路闸语义一致）；
+      · 比对走索引条目里的 content_hash，不读盘。
+    """
+    a = ctx["a"]
+    _d = a.get("dedupe")
+    # 布尔收敛（与 mcp_server._as_flag 同口径，但不在本模块导入它——避免
+    # writepipe ← mcp_server 的反向依赖）：布尔原样、数字按 0/非 0、字符串只认 true/1/yes/on。
+    if isinstance(_d, bool):
+        _den = _d
+    elif isinstance(_d, (int, float)):
+        _den = _d != 0
+    elif _d is None:
+        _den = False
+    else:
+        _den = str(_d).strip().lower() in ("1", "true", "yes", "on")
+    if not _den:
+        return None
+    content = a.get("content")
+    if not isinstance(content, str) or not content:
+        return None
+    from . import nodefile
+    want = nodefile.content_hash(content)
+    layer_want = str(a.get("layer") or "knowledge")
+    # #677 @1：**同会话才幂等**。自动记忆默认开 dedupe；若只比 content_hash，
+    # 两个会话写同一句（如「继续」）会互相顶掉——叠加 sessionPrivate 时，
+    # 后写方会「命中」前一会话的 private 节点却读不到 ⇒ 记忆静默消失。
+    # 声明了 session 的写入要求 session 相等；未声明（旧 cg(op=write) 用法）保持原口径。
+    sess_want = str(a.get("session") or "").strip()
+    nodes = ((getattr(ctx["cg"], "index", None) or {}).get("nodes") or {})
+    for nid, e in list(nodes.items()):
+        if str(e.get("layer") or "") != layer_want:
+            continue
+        if str(e.get("content_hash") or "") == want:
+            if sess_want and str(e.get("session") or "").strip() != sess_want:
+                continue                 # 跨会话不幂等（#677 @1）
+            return {"ok": True, "id": nid, "committed": False, "deduped": True,
+                    "content_sha": want, "dedupe_of": nid, "verdict": None,
+                    "hint": ("同层已存在内容指纹相同的节点 %s（issue #677 幂等闸）："
+                             "本次未落盘、未建边。**本条已在库中，重试是安全的、无需再写**；"
+                             "若确需另存一份，请不带 dedupe 重试，或显式指定不同 node_id。") % nid}
+    return None
+
 # 生效条件：先经 audit.resolve_rulebook() 判策略可用性——不可用（env 显式坏路径 / env 未设且包内默认也拿不到）即返回 ok=False/moved_to="policy_unavailable" 与结构化 error（含 code/reason/hint），**不进 audit、不 propose、不落任何节点**；可用则把规则经 ctx["rules"] 下传（含 forbidden=0 且 required=0 的空规则，空规则仍走 _rule_check 的 DEFER 分支），其后 ctx["a"] 经 audit.audit 得出的 state 为 ACCEPT 时返 None 放行，为 REJECT 时经 cg.add_rejected（正文先经 audit.redact_forbidden 把禁表命中替换为占位符、再截前 200 字）返回 ok=False/moved_to="rejected"（hint 由 _reject_hint 按「可修正的缺要素 / 政策违规」分型生成），其余 state 经 cg.propose 返回 moved_to="review_queue"（pr 带 dedup 时再附 dedup/dup_of/dup_status 并改写 hint）；
 def _gate_audit(ctx):
     """校验闸：先判策略可用性（fail-closed），再按 audit.audit 四态分派。
@@ -228,20 +707,31 @@ def _gate_audit(ctx):
     分支）。故策略不可用时在**提案入队之前**返回结构化错误：moved_to=
     "policy_unavailable"，响应体只带错误码/原因/hint，**不含正文**。
     """
+    if ctx.get("meta_only"):
+        # 正文未变 ⇒ 不重判内容合规（见 execute 里 _meta_only 的注释）
+        return None
     a = ctx["a"]
     cg = ctx["cg"]
     from . import audit
     rules, source, perr = audit.resolve_rulebook()
     ctx["policy"] = {"source": source}
     if perr is not None:
+        # 协议 gate_short_circuit 需 verdict：策略不可用 ⇒ 校验根本没跑，故 None
+        # （不编造裁决；键必在场，客户端据此知道「本次无裁决结论」）
         return {"ok": False, "id": ctx["nid"], "committed": False,
-                "moved_to": "policy_unavailable",
+                "moved_to": "policy_unavailable", "verdict": None,
                 "policy": {"source": source}, "error": perr,
                 "hint": "写入被拒（fail-closed）：策略不可用——%s。%s"
                         % (perr["reason"], perr["hint"])}
+    # 条件空间/标签/层随载荷下传（第3步先决条件，2026-10-24）：
+    # 此前 payload 只有 content/action/sensitivity/topic，验收器**根本看不到**
+    # condition_space，于是「按条件空间验收」在设计上就无法实现——不是验收器没写，
+    # 是它拿不到原料。四键均为只读附加字段，既有验证器只用 content，多传无害。
     payload = {"content": a.get("content", ""), "action": a.get("action"),
                "sensitivity": a.get("sensitivity"),
-               "topic": a.get("query") or a.get("intent")}
+               "topic": a.get("query") or a.get("intent"),
+               "condition_space": a.get("condition_space"),
+               "tags": a.get("tags"), "layer": a.get("layer")}
     if (a.get("content_kind") or "").strip() == "hyperedge":
         # 超边验证器（回放比对）需要锚与结构键：fm 键平铺在 a 顶层，
         # 经 hyperedge.audit_payload 装配三键载荷（缺锚由验证器 fail-closed）。
@@ -266,10 +756,32 @@ def _gate_audit(ctx):
         tags = a.get("tags")
         if isinstance(tags, (list, tuple)):
             tags = [audit.redact_forbidden(t) if isinstance(t, str) else t for t in tags]
+        # issue #214：调用方**声明的密级**必须原样透传——与同函数的 DEFER 出口
+        # （:423-427，#186 已修）和 ACCEPT 落盘面（:766-773，B2 已修）同口径。
+        # 此前不传 ⇒ MdCGSecure.add_rejected 取 DEFAULT_SENSITIVITY=internal，
+        # 声明 private 的正文前 200 字以**明文**写进 rejected/rej_*.md，无令牌
+        # 访客经 stg(op=timeline) / cg(op=read, node_id) / mdcg_get 三处可读；
+        # 回执还写着「本条未入库」，写入方不会察觉。
+        # 未声明（None）时行为不变：仍按 internal（#87 已裁的缺省）。
+        # issue #557 R5（#294 T4 残余，2026-10-19 复跑）：未声明密级时**继承被改写
+        # 节点**的密级，与 #297/#439 同口径。此前 None 原样下传，而
+        # `add_rejected` 是对**新铸的 `rej_*` id** 调 `_write_sensitivity`——该 id
+        # 下没有旧节点 ⇒ 回落 internal ⇒ 一份 private 正文的 200 字头以明文落进
+        # `rejected/`，无令牌访客 `mdcg_get` 可读（报告实测 T4）。判不了（无该钩子/
+        # 读闸拒绝）时保持旧行为（None ⇒ internal），不把「继承失败」升级成拒绝。
+        _sens_r5 = a.get("sensitivity")
+        if _sens_r5 is None:
+            _ws = getattr(cg, "_write_sensitivity", None)
+            if callable(_ws):
+                try:
+                    _sens_r5 = _ws(ctx.get("nid"), None)
+                except Exception:            # noqa: BLE001 —— 继承不了按未声明
+                    _sens_r5 = None
         rid = cg.add_rejected(audit.redact_forbidden(a.get("content") or "")[:200],
                               verdict["evidence"],
                               verification_basis=verdict.get("basis") or "test",
-                              tags=tags)
+                              tags=tags,
+                              sensitivity=_sens_r5)
         return {"ok": False, "id": rid, "committed": False,
                 "moved_to": "rejected", "verdict": verdict,
                 "hint": _reject_hint(verdict)}
@@ -308,6 +820,10 @@ def _gate_consistency(ctx):
     defer=转入审核队列。BLINDSPOT（无可比对节点，检测前提不存在）恒放行，
     cvd 审计经链尾透出（issue #26：无法比对 ≠ 冲突，入队是死胡同）。
     """
+    if ctx.get("meta_only"):
+        # 正文未变 ⇒ 冲突检测的输入没变，结论也不会变（且旧正文可能早于现行
+        # 判据入库）。同一 o 理由见 execute 里 _meta_only 的注释。
+        return None
     a = ctx["a"]
     cg = ctx["cg"]
     if not bool(a.get("consistency", True)):
@@ -320,7 +836,13 @@ def _gate_consistency(ctx):
                                  else "knowledge"),
         condition_space=a.get("condition_space"),
         non_applicable_conditions=a.get("non_applicable_conditions"),
-        tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True)
+        tags=a.get("tags"), exclude=ctx["nid"], auto_flywheel=True,
+        # issue #193：写入面把写入层当成了比对范围——contextual 写入因此
+        # 看不到 knowledge 的同条件结论槽矛盾。
+        write_scope=True,
+        # issue #294：cg(op=write) 入口同样要透传声明密级（缺了这条，
+        # 冲突闸 → 飞轮那条出口对动词面照旧泄明文）。
+        sensitivity=a.get("sensitivity"))
     ctx["cvd"] = cvd
     v = cvd.get("verdict")
     # issue #26（2026-09-23）：BLINDSPOT ≠ REJECT——冲突闸的 BLINDSPOT 唯一出口
@@ -368,7 +890,145 @@ def _gate_consistency(ctx):
     return out
 
 
-# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时按 cg.remember_gated（a.get("sensitivity") 一并透传——同一漏传族，B2）返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
+# ---------------------------------------------------------------- 写链实参真源（#414）
+# 「同一入口、两条出口、两张实参表」是本族的形态：cg(op=write) 有两条**真实落盘**
+# 出口——_gate_gated（gated=true，主动遗忘闸自己落盘）与 _executor（链尾直连）——
+# 两张表各写一遍，于是**同一份声明在一条出口落盘、在另一条静默丢弃**。本仓已在同
+# 一族上修过三次（B2 sensitivity / #186 session / A1 check_strength），第四次
+# （#414）补齐后仍会复发，故本批把两张表收成**一份真源**：
+#   · _write_values(ctx) —— 语义键 → 落盘值的**唯一取值点**（两出口都只许调它）；
+#   · _OUTLET_PARAMS    —— 语义键 → 两出口各自的**形参名**；
+#   · _OUTLET_ONLY      —— 值为 None 的格（该出口无此形参）必须在此登记理由。
+# 守卫 md_cg/test_issue414_write_args_parity.py 用 **AST 抽取两处调用的实参名**，
+# 与 _OUTLET_PARAMS 做全表**双向**断言：漏传 / 新增未登记 / 登记了却没有 —— 三者都红。
+#
+# ★importance vs importance_hint 的等价性判定（#414 报告把 importance 列进差集，
+#   本端实测**不成立**，故它不进漏传集）：
+#   · **拼写等价成立**（callee 面证据）：mdcos.remember_gated 里
+#     hint = kw.pop("importance_hint", kw.get("importance")) ⇒ 二者是同一语义键的
+#     两个拼写，importance_hint 优先。
+#   · **落盘值不等价（设计差异，不是缺陷）**：gated 面的 importance 经
+#     forgetting.assess 裁决（issue50-d：落盘 importance 恒＝裁决 imp["score"]，
+#     并落 importance_source="hint"|"heuristic"）；直连面按**声明值**落、缺省 0.5。
+#   ⇒ 本表把两者作为**两条语义键**分别归属出口，并**禁止**后来者「看到两个值不同就
+#     顺手补齐」——补齐会把 gated 面的裁决语义拆掉（守卫有一条专门断言钉住这点）。
+def _write_values(ctx) -> dict:
+    """语义键 → 落盘值：写链两出口的**唯一取值点**（#414）。
+
+    只在这里读 a / ctx；出口侧只做「形参名映射」（_outlet_kwargs），不再各自
+    a.get(...)——「同一份声明两条出口两张表」正是本族的根因形态。
+    """
+    a = ctx["a"]
+    _imp = a.get("importance")
+    _hint = a.get("importance_hint")
+    if _hint is None and _imp is not None:
+        _hint = float(_imp)
+    return {
+        # B2（2026-09-30）：密级透传。不透传则声明 private 的正文以明文 + fm
+        # internal 落盘（纯漏传，非设计取舍）；**不得**在此自行 _seal_content
+        # （会绕过 fm 与 _write_node 的单一密封点）。
+        "sensitivity": a.get("sensitivity"),
+        # 出口专有（见 _OUTLET_ONLY）：gated 面传给 writelimit 记账用。
+        "role": a.get("role"),
+        "tags": a.get("tags"),
+        # issue #722 反馈：`cg(op=write, aliases=...)` 曾静默丢弃——读侧 `_like`
+        # 早已把 aliases 并进召回串，写侧这条唯一取值点漏了它。
+        "aliases": a.get("aliases"),
+        "condition_space": a.get("condition_space"),
+        "verification_basis": (a.get("verification_basis")
+                               or (ctx.get("verdict") or {}).get("basis")),
+        "non_applicable_conditions": a.get("non_applicable_conditions"),
+        # gated 专有：**hint 语义**（None ＝ 未声明 ⇒ 交 forgetting 启发式裁决）。
+        "importance_hint": _hint,
+        # direct 专有：**声明值语义**（None ＝ 未声明 ⇒ 缺省 0.5，与 add 缺省同口径；
+        # 显式 0/0.0 等合法 falsy 数值照传）。与上一条**不等价**，理由见文件头注释。
+        # 注：元数据补丁要「继承旧 importance」时，由 mcp_server 的分派把旧值填进
+        # a["importance"]（见那里的注释）——不在此处放宽，两个出口的缺省语义不变。
+        "importance": 0.5 if _imp is None else float(_imp),
+        "override": bool(a.get("override")),
+        "consistency": False,
+        "derived_from": _split_ids(a.get("derived_from")),
+        "relation": a.get("relation"),
+        # —— 以下 7 项为 #414 本批补齐（此前只有 _executor 侧有；remember_gated 的
+        #    **kw 原样转发给 add，故「add 侧已支持」不等于「写链已透传」）：
+        # issue #186：显式声明优先（与 mdcos.propose 的单点同口径）；漏传会让同一份
+        # 显式声明在两条路上落成两个不同的 fm.session。
+        "session": a.get("session"),
+        # 可验证记忆单元：依赖边（缺失 ⇒ 上游被证伪时本节点不被判受影响，传播断裂）。
+        "depends_on": trust.as_deps(a.get("depends_on")),
+        # 双时间轴（缺失 ⇒ scrub 的 expired 判据失效：该过期的不判过期、该生效的无起点）。
+        "valid_from": a.get("valid_from"),
+        "valid_until": a.get("valid_until"),
+        # 信任态声明（缺省被 add 写成 unverified —— 方向保守，但同样是声明被静默改写）。
+        "verification_state": a.get("verification_state"),
+        # A1（2026-10-05）：检验强度透传（此前 add 层已支持、写链实参表漏传）。
+        "check_strength": a.get("check_strength"),
+        # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承）。
+        # 取值面在 ctx（由 _gate_ghostref 写入，链序上早于本闸与执行器）——
+        # 故两出口都能取到同一个值，不是「gated 面取不到」。
+        "uncertain_refs": ctx.get("ghost_phrases") or None,
+    }
+
+
+#: 语义键 → (gated 出口形参名, direct 出口形参名)。None ＝ 该出口**无此形参**，
+#: 必须在 _OUTLET_ONLY 登记理由（守卫对该 None 面做**双向**核对）。
+_OUTLET_PARAMS = (
+    ("sensitivity", "sensitivity", "sensitivity"),
+    ("role", "role", None),
+    ("tags", "tags", "tags"),
+    ("condition_space", "condition_space", "condition_space"),
+    ("verification_basis", "verification_basis", "verification_basis"),
+    ("non_applicable_conditions", "non_applicable_conditions",
+     "non_applicable_conditions"),
+    ("importance_hint", "importance_hint", None),
+    ("importance", None, "importance"),
+    ("override", "override", "override"),
+    ("consistency", "consistency", "consistency"),
+    ("derived_from", "derived_from", "derived_from"),
+    ("relation", "relation", "relation"),
+    ("session", "session", "session"),
+    ("depends_on", "depends_on", "depends_on"),
+    ("valid_from", "valid_from", "valid_from"),
+    ("valid_until", "valid_until", "valid_until"),
+    ("verification_state", "verification_state", "verification_state"),
+    ("check_strength", "check_strength", "check_strength"),
+    ("uncertain_refs", "uncertain_refs", "uncertain_refs"),
+    # issue #722 反馈（yunluo4444 实测）：`cg(op=write, aliases=...)` 曾静默丢弃——
+    # 本条表是两出口形参的唯一真源，缺此格则 `_outlet_kwargs` 不产出该键。
+    # 两列都填 `"aliases"`（不填 None）⇒ 不进 `_OUTLET_ONLY` 的双向核对范围。
+    ("aliases", "aliases", "aliases"),
+)
+
+#: 值为 None 的格（＝该出口无此形参）的**登记理由**。守卫双向核对：
+#: ① 每个 None 格必须在此有登记（新增 None 格不登记即红）；
+#: ② 每条登记必须对应一个真实 None 格（补上/删格后不撤登记即红）——
+#:    只有单向登记会退化成「登记一次永久免死」。
+_OUTLET_ONLY = {
+    ("role", "direct"): (
+        "MdCG.add 无 role 形参（role 由 frontmatter 承载）；gated 面传它是给 "
+        "writelimit 记账用（remember_gated 只 kw.get 不 pop，故它同时随 **kw 进 add）。"
+        "属**出口专有**，不是漏传——不得「补齐」。"),
+    ("importance_hint", "direct"): (
+        "直连面走 importance（声明值语义），不用 hint 语义。两名在 callee 面等价"
+        "（remember_gated 的 kw.pop 双拼写），但**缺省语义不同**："
+        "hint=None 交启发式裁决 / importance=None 落 0.5。"
+        "不得因「两个值可能不同」而把 gated 面也改成 importance。"),
+    ("importance", "gated"): (
+        "gated 面走 importance_hint（上一条的镜像）；理由同。"),
+}
+
+
+# 生效条件：outlet 为 "gated"/"direct" 时，按 _OUTLET_PARAMS 把 _write_values(ctx) 映射为该出口的形参 dict（形参名为 None 的格跳过，其理由见 _OUTLET_ONLY）；其余 outlet 值抛 ValueError（出口名拼错即编程错误，不做静默回落，避免「以为选了口」而实际落空）；
+def _outlet_kwargs(outlet: str, ctx) -> dict:
+    """按真源表把语义键映射为**该出口**的形参 dict（#414 单点）。"""
+    if outlet not in ("gated", "direct"):
+        raise ValueError("未知写链出口：%r（只认 'gated' / 'direct'）" % (outlet,))
+    idx = 1 if outlet == "gated" else 2
+    vals = _write_values(ctx)
+    return {p[idx]: vals[p[0]] for p in _OUTLET_PARAMS if p[idx] is not None}
+
+
+# 生效条件：ctx["a"] 的 gated 为假值时返 None 放行；为真值时以 _write_values(ctx) 的单点取值经 _outlet_kwargs("gated", ctx) 展开为形参调 cg.remember_gated(...)（#414：两出口共用一张真源表），返回的 verdict 落两段式账，且仅 verdict 为 ACCEPT 时 ok/committed 为 True，verdict 为 MERGE 时记 committed 并置 moved_to="merged_into:"+merged_into，verdict 为 DROP/DEFER 时记 aborted 且 moved_to 为其小写值；
 def _gate_gated(ctx):
     """主动遗忘闸（gated=true 时启用）：writelimit 限流 + forgetting 三问四态。
 
@@ -379,29 +1039,19 @@ def _gate_gated(ctx):
     cg = ctx["cg"]
     if not a.get("gated"):
         return None
-    hint = a.get("importance_hint")
-    if hint is None and a.get("importance") is not None:
-        hint = float(a["importance"])
+    # #414：hint 的取值（含 importance 回落）已收进 _write_values 单点。
     # ③ 两段式：本闸是**替代执行路径**（自己落盘），意图必须由它先记——
     # 若等 execute 在链后统一记，intent 会晚于本闸内部的写盘，「先行持久化」
     # 就不成立了。落盘前的窗口因此仍然被账本覆盖。
     tok = twophase.begin(cg, ctx["nid"], a.get("content", ""),
                          layer=a.get("layer") or "contextual",
                          actor="writepipe:gated")
+    # #414：gated 面同理——实参表由 _OUTLET_PARAMS 单点生成（remember_gated 只
+    # pop 走 importance_hint/gated/override/consistency/on_conflict，其余 **kw
+    # 原样转发给 add ⇒ 本表补的 7 项在 add 侧本就支持，无需改 mdcos.py）。
     res = cg.remember_gated(
         ctx["nid"], a.get("content", ""), layer=a.get("layer") or "contextual",
-        # B2（2026-09-30）：同一漏传族——gated 分支也是**落盘路径**
-        # （remember_gated → add），不透传则声明 private 在此静默降级 internal。
-        sensitivity=a.get("sensitivity"),
-        role=a.get("role"), tags=a.get("tags"),
-        condition_space=a.get("condition_space"),
-        verification_basis=(a.get("verification_basis")
-                            or (ctx.get("verdict") or {}).get("basis")),
-        non_applicable_conditions=a.get("non_applicable_conditions"),
-        importance_hint=hint, override=bool(a.get("override")),
-        consistency=False,
-        derived_from=_split_ids(a.get("derived_from")),
-        relation=a.get("relation"))
+        **_outlet_kwargs("gated", ctx))
     v = res.get("verdict")
     committed = v == "ACCEPT"
     # 结局如实记：ACCEPT=落盘完成；MERGE=内容并入既有节点（不再以本次内容成
@@ -522,7 +1172,13 @@ def _gate_deps(ctx):
                            "若该行只是描述本单元内部构成（自述），去掉 "
                          + nodefile.DEP_REF_MARK + " 引用或改填「无」即可。"
                            "本闸是契约闸门的正常行为，不是工具故障。")}
-    known = set((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # #415（2026-10-16）：判「依赖目标是否存在」**必须先探活**——原实现裸读
+    # `set((getattr(cg, "index", None) or {}).get("nodes") or {})`，判前无 `_maybe_reload_index`
+    # ⇒ 他进程（serve 常驻 / 另一实例）刚建的依赖目标在陈旧条目里查不到 ⇒ **合法写入被硬拒**
+    # （E051）。与 #403「陈旧 ⇒ 误放行覆写」同族、后果相反。
+    # 判据单点：`protect.known_nodes(cg)`（与 `protect._entry` 同形：一次代际探活 + 返回同一
+    # 数据面），不再在本闸内自写一份裸读。
+    known = protect.known_nodes(cg)
     missing = [d for d in deps if d not in known]
     if missing:
         return {"ok": False, "id": ctx["nid"], "committed": False,
@@ -587,7 +1243,44 @@ def _hyperedge_extra(a):
     return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
 
 
-# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；落盘前另取「同内容已存在」与「覆写既有同 id 节点」两个读数（P-9b ⑥），命中即在返回体附 dup_of/dup_ratio/dup_compared/dup_hint 与 overwrite_of/overwrite_ratio——**只加提示，不改落盘行为、不改 verdict**；
+#: #492 观测读数调用计数：把「有没有算」从耗时读数变成可断言的整数。
+#: 缺省写入恒不增；显式开启（a["include_dup_readout"] 为真）时每次 +1。
+#: 仅供守卫/诊断（守卫据此断言「缺省不算」），不参与任何判定、不落盘。
+READOUT_CALLS = 0
+
+
+def readout_calls():
+    """返回进程内累计的观测读数计算次数（#492；守卫用，零副作用）。"""
+    return READOUT_CALLS
+
+
+# 生效条件：仅由 `_executor` 在 a["include_dup_readout"] 为真时调用；
+# 不适用条件：本函数不参与落盘与 verdict（返回值只填返回体的提示字段）。
+def _dup_readout(cg, a, nid):
+    """#492：两组纯观测读数（prior/self_coverage + redundancy）的**唯一计算入口**。
+
+    子功能：取「覆写既有同 id 节点」读数（forgetting.prior_node + self_coverage）
+    与「同内容已存在」读数（forgetting.redundancy），复用 forgetting 既有实现，
+    不另写一份重复度算法。必须在 `cg.add` **之前**调用（add 后索引必有 nid：
+    覆写判据恒真、覆盖度恒 1.0）。
+    执行：调用即 `READOUT_CALLS += 1`（成本可观测），随后三次 forgetting 调用。
+    验证方式：`md_cg.test_issue492_dup_readout_opt_in`（A/E 组）+ `readout_calls()`
+    在缺省写入上的增量为 0。
+    """
+    global READOUT_CALLS
+    from . import forgetting as _forgetting
+    READOUT_CALLS += 1
+    _content = a.get("content", "")
+    prior = _forgetting.prior_node(cg, nid)
+    cov = (_forgetting.self_coverage(cg, prior, _content)
+           if prior is not None else None)
+    dup = _forgetting.redundancy(cg, _content,
+                                 layer=a.get("layer") or "knowledge",
+                                 exclude=nid)
+    return prior, cov, dup
+
+
+# 生效条件：由链尾以含 cg 与 a 的 ctx 调用即无条件执行 cg.add 落盘（a.get("sensitivity") 一并透传——落盘面丢字段＝上游声明静默失效，B2）并返回 ok=True/committed=True，ctx["cvd"] 非 None 时附加 consistency 字段；**仅当 a["include_dup_readout"] 为真**时，落盘前另取「同内容已存在」与「覆写既有同 id 节点」两个读数（P-9b ⑥，计算入口 `_dup_readout`），命中即在返回体附 dup_of/dup_ratio/dup_compared/dup_hint 与 overwrite_of/overwrite_ratio——**只加提示，不改落盘行为、不改 verdict**；缺省路径（含 hooks 自动记忆）不付该成本，两族键不出现；
 def _executor(ctx):
     """链尾执行器（常驻不可卸载）：cg.add 直写落盘。
 
@@ -596,56 +1289,50 @@ def _executor(ctx):
     """
     a = ctx["a"]
     cg = ctx["cg"]
-    # importance 显式 null（JSON null→None）时 get 的缺省值不生效，直接
-    # float(None) 抛 TypeError 崩主写路径——回退默认 0.5（与 add 缺省同口径）；
-    # 0 / 0.0 等合法 falsy 数值照传（_gate_gated :304 已是同款 None 判定）。
-    _imp = a.get("importance")
+    # importance 的 None 判定（含 0/0.0 等合法 falsy 照传）已收进
+    # _write_values 单点——与 gated 面同一处取值，不再各写一遍。
     # ⑥（P-9b）：本执行器是**直写落盘点**之一（另一处 = mcp_server 的
     # mdcg_remember 非 gated 分支）。直写不去重是文档化现状（writelimit.py
     # 模块头注 :9-12：限流/同构聚合只作用 contextual 层，knowledge 等手动纪律
     # 写入不受限）——故**不改落盘行为、不改 verdict**，只在返回体补
     # 「同内容已存在」（dup_of/dup_ratio）与「本次是覆写」（overwrite_of/
-    # overwrite_ratio）两个读数。判据复用 forgetting 的同一实现
+    # overwrite_ratio）两个读数（**#492 起缺省不算**：须 a["include_dup_readout"]
+    # 为真；缺省路径这两族键不出现）。判据复用 forgetting 的同一实现
     # （redundancy/prior_node/self_coverage）；两个读数都必须在 cg.add **之前**
     # 取（add 后索引必有 nid：覆写判据恒真、覆盖度恒 1.0）。
     from . import forgetting as _forgetting
     _content = a.get("content", "")
-    _prior = _forgetting.prior_node(cg, ctx["nid"])
-    _prior_cov = (_forgetting.self_coverage(cg, _prior, _content)
-                  if _prior is not None else None)
-    _dup = _forgetting.redundancy(cg, _content,
-                                  layer=a.get("layer") or "knowledge",
-                                  exclude=ctx["nid"])
-    cg.add(ctx["nid"], _content,
-           # B2（2026-09-30）：密级透传。此前本实参表**缺 sensitivity**，而
-           # 同文件 _gate_audit 的 payload（:219）带着它交给审核闸——两面口径
-           # 分叉：审核闸按调用方声明的密级判，落盘闸按 DEFAULT_SENSITIVITY
-           # 回落 internal，声明 private 的正文以明文 + fm internal 落盘
-           # （纯漏传，非设计取舍）。透传即修好，**不得**在此自行 _seal_content
-           # （会绕过 fm 与 _write_node 的单一密封点）。
-           sensitivity=a.get("sensitivity"),
-           layer=a.get("layer") or "knowledge",
-           tags=a.get("tags"), condition_space=a.get("condition_space"),
-           importance=0.5 if _imp is None else float(_imp),
-           verification_basis=a.get("verification_basis")
-           or (ctx.get("verdict") or {}).get("basis"),
-           non_applicable_conditions=a.get("non_applicable_conditions"),
-           override=bool(a.get("override")), consistency=False,
-           derived_from=_split_ids(a.get("derived_from")),
-           relation=a.get("relation"),
-           # 可验证记忆单元（裁定 D）：依赖/双时间轴/验证态随写入落 fm。
-           # 透传而非丢弃——落盘面丢字段＝上游声明静默失效（比报错难发现）。
-           depends_on=trust.as_deps(a.get("depends_on")),
-           valid_from=a.get("valid_from"), valid_until=a.get("valid_until"),
-           verification_state=a.get("verification_state"),
-           # A1 补接（2026-10-05，路线 C 动工时经 audit 现值面发现）：检验强度
-           # 透传。此前 add 层已支持该形参，但**写链实参表漏传**——经 MCP
-           # op=write 声明 check_strength 一律静默丢弃（与 B2 sensitivity 漏传
-           # 同族：上游声明、落盘面丢字段，比报错难发现）。
-           check_strength=a.get("check_strength"),
-           # A2 幽灵引用标记（正文属性：每次写入按当次检测重算，不继承——
-           # 与 check_strength 的声明继承相反；缺省 None 不落键）。
-           uncertain_refs=ctx.get("ghost_phrases") or None,
+    # ★ issue #492：两组读数（overwrite_of / dup_of 族）**默认不算** —— 它们是纯观测提示，
+    #   而 `forgetting.redundancy` 在 4000 节点库上中位 **12.24 ms**（占写入链净开销 89%），
+    #   而 `src/hooks.ts` 的 `memorize()`（:597-616）**从不消费** `dup_of`/`overwrite_of`。
+    #   ⇒ 改为**显式开启**：`a.get("include_dup_readout")` 为真才算（缺省跳过）。**不是删功能**。
+    # ★ 不变式（由 test_issue492 的 A 组钉住）：**跳过观测不得影响落盘与 verdict**。
+    # ★ 形态变更（已在提交信息与回帖显式声明）：缺省路径上 `dup_of`/`overwrite_of` 由「有值」变「缺键」。
+    # ★ 成本不变量（#492）：缺省路径上**一次都不调用** `_dup_readout`——守卫据
+    #   `readout_calls()` 的增量断言「没算」，而不是只断言 6 个键不出现（后者
+    #   无法区分「没算」与「算完再藏」，成本回归会漏过）。
+    _want_readout = bool(a.get("include_dup_readout"))
+    _prior = _prior_cov = _dup = None
+    if _want_readout:
+        _prior, _prior_cov, _dup = _dup_readout(cg, a, ctx["nid"])
+    # #414：与 _gate_gated 共用同一张真源表（_OUTLET_PARAMS）——本出口的形参名
+    # 由该表给出，取值为 _write_values(ctx) 单点。逐键语义（密级/session/依赖/
+    # 双时间轴/验证态/检验强度/幽灵标记）见 _write_values 内的注释。
+    # ★ P4：派生标题的来由落 fm.title_basis（真源：a["_title_derived"]）。
+    # 只加一个 frontmatter 键，不改返回体形态（test_write_return_shape 63 条不涉及 fm）。
+    _extra_fm = _title_extra(a)
+    # P0（2026-11-06）：`content_kind` 此前**没有**进 fm——`add()` 的 `fm.update(extra)`
+    # 本可以承接它，但写链从没把它放进 kwargs，于是存量 859/859 节点 `content_kind: null`，
+    # policy 的 `required_kinds: ["text"]` 在整个库上空转：调用方传了 kind 就按 text 卡六要素、
+    # 不传就一律放行。这里补上唯一一条转发（空值不写，保持缺键语义）。
+    _ck = (a.get("content_kind") or "").strip()
+    _ck_kw = {"content_kind": _ck} if _ck else {}
+    cg.add(ctx["nid"], _content, layer=a.get("layer") or "knowledge",
+           **_outlet_kwargs("direct", ctx),
+           **_extra_fm,
+           **_ck_kw,
+           # 超边写入的 fm 扩展键（content_kind=hyperedge 时非 None 者）——
+           # 出口专有，登记见守卫（与 7 项漏传的处置不同，理由在汇报里）。
            **_hyperedge_extra(a))
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}
@@ -671,10 +1358,10 @@ def _executor(ctx):
             "时间轴）；请核对两条时间轴：若引用意图成立可忽略，若是回填/转写"
             "产生的时序错觉，请修正 valid_from。")
     # ⑥：直写提示（不改落盘行为、不改 verdict；见本函数开头注释）
-    if _prior is not None:
+    if _want_readout and _prior is not None:
         out["overwrite_of"] = _prior
         out["overwrite_ratio"] = _prior_cov
-    if _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
+    if _want_readout and _dup and _dup["with"] and _dup["max"] >= _forgetting.DUP_MERGE:
         out["dup_of"] = _dup["with"]
         out["dup_ratio"] = round(_dup["max"], 4)
         out["dup_compared"] = _dup["compared"]
@@ -701,7 +1388,10 @@ _AUTONOMY_META_KEYS = ("tags", "condition_space", "verification_basis",
                        # confirm 档出单 → accept 重放会丢该声明（与
                        # verification_state 同款的「两条路径元数据不等价」坑）。
                        "check_strength",
-                       "override")
+                       "override",
+                       # issue #722 反馈（yunluo4444 实测）：确认档出单 → accept 重放时曾丢 aliases
+                       # （直写有、走审核队列后没有），与 issue50-c F1「两条路径元数据不等价」同族。
+                       "aliases")
 
 
 # 生效条件：ctx 的 a/cg/nid 就绪时以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）并交 autonomy_modes.decide 判定——ALLOW 返回 None 放行（与改动前同一条链）；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（复用既有 propose 单点）并返回 ok=True/committed=False/moved_to="review_queue" 的终态（**不落盘**）；
@@ -739,6 +1429,11 @@ def _gate_autonomy(ctx):
     from . import forgetting as _forgetting
     prior = _forgetting.prior_node(cg, nid)
     action = _am.C_REWRITE if prior is not None else _am.A_ADD
+    if prior is not None and a.get("_meta_patch"):
+        # 元数据补丁（正文由盘面取回、逐字不变）不是「改写」：出单只会让 #732
+        # 那类迁桶场景卡在为「没有发生的内容变更」点确认上。资格闸（层闸、写
+        # 保护闸）住在 cg.add 内部，不因本放行而减少。
+        return None
     if prior is not None:
         # 资格在先（纯加严）：覆写的层闸/写保护闸住在 `cg.add` 内部，若档位闸
         # 先出单，一次本该 `AccessDenied`/`ProtectionError` 的覆写会变成静默入队
@@ -766,11 +1461,13 @@ def _gate_autonomy(ctx):
     pr = _am.propose_mutation(cg, action, nid, payload=pay,
                               layer=a.get("layer") or "knowledge",
                               sensitivity=a.get("sensitivity"), info=True)
-    return {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
-            "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
-            "verdict": ctx.get("verdict"),
-            "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
-                     % (dec["hint"], pr["pid"], nid))}
+    # issue #426-A：入队回执透出 dedup 归因。
+    return _am.apply_dedup(
+        {"ok": True, "id": nid, "pid": pr["pid"], "committed": False,
+         "moved_to": "review_queue", "autonomy": _aut, "mutation": pay,
+         "verdict": ctx.get("verdict"),
+         "hint": ("%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                  % (dec["hint"], pr["pid"], nid))}, pr)
 
 
 # 生效条件：value 传入即无条件延迟导入并转调 mcp_server._split_ids 后原样返回其结果（本符号无自身分支）；
@@ -825,6 +1522,12 @@ def install_default_gates(pipe):
     # 短语层标记；回指是现实写作常态，拒收会把正常记忆挡在门外）。
     pipe.register_before("ghostref", _gate_ghostref, position=1)
     pipe.register_before("deps", _gate_deps)
+    # 条件空间闸（统一架构 v1.1 §2.4 / §9.1）：字段域规范化 + 可观测性。
+    # 默认 observe（放行并记读数），MDCG_CONDGATE=off|observe|enforce 三档。
+    # 置于 audit 之前：条件空间是**字段域**（同 deps），先规范化，后续闸与落盘看到同一份值；
+    # 它不做内容裁决（裁决归 audit），只碰 condition_space 一个键。
+    from . import condgate
+    pipe.register_before("condspace", condgate.before_hook())
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
     pipe.register_before("gated", _gate_gated)
@@ -836,6 +1539,10 @@ def install_default_gates(pipe):
     pipe.register_before("autonomy", _gate_autonomy)
     pipe.register_after("linkref", linkref.after_hook())
     pipe.register_after("trust", _after_trust)
+    # issue #677：内容指纹幂等闸插到**链首**（最后注册 ⇒ insert 到 0，不影响既有相对次序）：
+    # 短路必须发生在解析引用/建边之前（未落盘就不该产生副作用）；opt-in（dedupe=true 才生效），
+    # 缺省路径与改动前逐位一致。
+    pipe.register_before("dedupe", _gate_dedupe, position=0)
     return pipe
 
 

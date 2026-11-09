@@ -215,65 +215,6 @@ def serve_state(jobs: str = "", fresh_s: float = FRESH_S) -> dict:
     return out
 
 
-# 生效条件：jobs 经 jobs_dir(jobs) 解析；exe_present 只看 exe_path() 是否为文件；jobs_present 只看该目录是否存在；job_dirs 数该目录下子目录个数；units_log_lines 数 _units.jsonl 行数（文件不在则 0）；systemd_unit 只在 /etc/systemd/system 下按 hive*.service 找，非 Linux 或找不到即空串；alive 仅当 exe_present 且 jobs_present 且 (job_dirs>0 或 units_log_lines>0)；任一缺失都进 missing 列表，绝不把「没跑过」当成「跑过且干净」。
-def liveness(jobs: str = "") -> dict:
-    """生产活性读数（病灶 K7）：兄弟树三块契约复制成立，但**零活性**。
-
-    契约面（区块表 37 项 / 保留名 22 项 / `FRESH_S` 三处一致）与「真的在生产里
-    跑过」是两件事：`jobs/` 与 `target/release/hive` 都不在时，通道静默落
-    `configure`，读起来与「配好了但暂时没任务」同形。本函数把「有没有活性」
-    单独读数化，零活性就显式报，不静默。
-    """
-    exe = exe_path()
-    jd = jobs_dir(jobs)
-    exe_present = os.path.isfile(exe)
-    jobs_present = os.path.isdir(jd)
-    job_dirs = 0
-    if jobs_present:
-        try:
-            job_dirs = sum(1 for n in os.listdir(jd) if os.path.isdir(os.path.join(jd, n)))
-        except OSError:
-            job_dirs = 0
-    log_lines = 0
-    logp = os.path.join(jd, LOG_NAME)
-    if os.path.isfile(logp):
-        try:
-            with open(logp, encoding="utf-8", errors="replace") as f:
-                log_lines = sum(1 for _ in f)
-        except OSError:
-            log_lines = 0
-    sysd = ""
-    unit_dir = "/etc/systemd/system"
-    if os.path.isdir(unit_dir):
-        try:
-            for n in sorted(os.listdir(unit_dir)):
-                if n.startswith("hive") and n.endswith(".service"):
-                    sysd = os.path.join(unit_dir, n)
-                    break
-        except OSError:
-            sysd = ""
-    missing = []
-    if not exe_present:
-        missing.append("构建产物 %s 不存在（未 cargo build --release）" % exe)
-    if not jobs_present:
-        missing.append("任务目录 %s 不存在（serve 从未启动过）" % jd)
-    if not missing and job_dirs == 0 and log_lines == 0:
-        missing.append("任务目录 %s 里 0 个 job、%s 0 行（从未派发过）" % (jd, LOG_NAME))
-    return {
-        "exe": exe,
-        "exe_present": exe_present,
-        "jobs_dir": jd,
-        "jobs_present": jobs_present,
-        "job_dirs": job_dirs,
-        "units_log": logp,
-        "units_log_lines": log_lines,
-        "systemd_unit": sysd,
-        "served_state": serve_state(jobs),
-        "alive": not missing,
-        "missing": missing,
-    }
-
-
 # 生效条件：jobs 仅经 jobs_dir(jobs) 用于填充指引里的 jobs 路径；reason 为假值时文案首行取“serve 未存活”，否则取 reason 原文；返回模板固定嵌入 exe_path() 的目录与路径、ENV_API_KEY、ENV_MODEL、jd、jd 下的 SERVE_FILE 与 int(FRESH_S)。
 def setup_hint(jobs: str = "", reason: str = "") -> str:
     """不可用时给使用者看的**配置指引**（含降级指引）——提示即责任，须可照着做。"""
@@ -301,22 +242,18 @@ def probe(jobs: str = "", model: str = "", fresh_s: float = FRESH_S,
     """
     st = serve_state(jobs, fresh_s)
     mdl = model_name(model)
-    live = liveness(jobs)
     if st["alive"] and mdl:
         return {"state": HIVE, "transport": HIVE, "model": mdl, "jobs_dir": st["jobs_dir"],
-                "serve": st, "channel": "", "hint": "", "liveness": live}
+                "serve": st, "channel": "", "hint": ""}
     why = st["reason"] if not st["alive"] else "serve 存活但未配置复核模型（%s）" % ENV_MODEL
-    if not live["alive"]:
-        # 病灶 K7：零活性必须显式说出口，否则「没配」与「配了但没跑过」同形
-        why = "%s；生产零活性：%s" % (why, "；".join(live["missing"]))
     if allow_degrade:
         return {"state": SUBAGENT, "transport": SUBAGENT, "model": mdl,
                 "jobs_dir": st["jobs_dir"], "serve": st,
-                "channel": channel or "harness-subagent", "liveness": live,
+                "channel": channel or "harness-subagent",
                 "hint": "已按 allow_degrade 降级到 harness 端子代理：请把 prompt 交给宿主子代理，"
                         "裁决经 verdicts 回填（蜂巢不可用原因：%s）" % why}
     return {"state": CONFIGURE, "transport": None, "model": mdl,
-            "jobs_dir": st["jobs_dir"], "serve": st, "channel": "", "liveness": live,
+            "jobs_dir": st["jobs_dir"], "serve": st, "channel": "",
             "hint": setup_hint(jobs, why)}
 
 
@@ -918,36 +855,16 @@ def autostart_serve(jobs: str = "", wait_s: float = 5.0) -> dict:
     return {"started": True, "note": "serve 已拉起（心跳未就绪，稍后自愈）"}
 
 
-# 生效条件：返回 dict 的 ok=p["state"]==HIVE 且 live["alive"]（生产活性，病灶 K7）；state/serve_alive/serve_age_s/chain/hint/model 取自 p=plan(jobs)；jobs_dir 取 jobs_dir(jobs)，exe_found 取 exe_path() 是否被 isfile 命中，model_set=bool(model_name())，api_key_set=bool(os.environ.get(ENV_API_KEY))；env 记录 ENV_JOBS_DIR 与 ENV_MODEL 原值；liveness 原样透出 live=liveness(jobs)（含 missing 逐条原因）。
+# 生效条件：返回 dict 的 ok=p["state"]==HIVE，其中 p=plan(jobs)（model/fresh_s/allow_degrade/channel 全走默认），state/serve_alive/serve_age_s/chain/hint/model 取自该 p；jobs_dir 取 jobs_dir(jobs)，exe_found 与 exe_path 取 exe_path() 是否被 isfile 命中，model_set=bool(model_name())（无参，读 ENV_MODEL），api_key_set=bool(os.environ.get(ENV_API_KEY))，env 记录 ENV_JOBS_DIR 与 ENV_MODEL 的原值。
 def doctor(jobs: str = "") -> dict:
-    """能力体检（形态对齐 hive_doctor）：判活 + exe + 模型 + 优先级链 + **生产活性**。
-
-    `ok` 此前只等于「通道选到 HIVE」，于是「契约齐备、可执行文件在、但从未跑过任何
-    job」也能报 ok=True（病灶 K7：生产零活性与「配好了」同形）。现在 ok 还要求
-    `liveness()["alive"]`，零活性时 `liveness["missing"]` 给出逐条原因。
-    """
+    """能力体检（形态对齐 hive_doctor）：判活 + exe + 模型 + 优先级链。"""
     jd = jobs_dir(jobs)
     p = plan(jobs)
-    live = liveness(jobs)
-    return {"ok": p["state"] == HIVE and live["alive"], "state": p["state"], "jobs_dir": jd,
+    return {"ok": p["state"] == HIVE, "state": p["state"], "jobs_dir": jd,
             "serve_alive": p["serve"]["alive"], "serve_age_s": p["serve"]["age_s"],
             "exe_found": os.path.isfile(exe_path()), "exe_path": exe_path(),
             "model_set": bool(model_name()), "model": p["model"],
             "api_key_set": bool(os.environ.get(ENV_API_KEY)),
             "env": {"HIVE_JOBS_DIR": os.environ.get(ENV_JOBS_DIR, ""),
                     "MDCG_UNIT_MODEL": os.environ.get(ENV_MODEL, "")},
-            "liveness": live,
             "chain": p["chain"], "hint": p["hint"]}
-
-
-if __name__ == "__main__":
-    import json as _json
-    import sys as _sys
-
-    if "--liveness" in _sys.argv[1:]:
-        # 生产活性读数（病灶 K7）：任务目录/构建产物/_units.jsonl/systemd 单元在不在场
-        print(_json.dumps(liveness(), ensure_ascii=False, indent=1))
-        _sys.exit(0)
-    if "--doctor" in _sys.argv[1:]:
-        print(_json.dumps(doctor(), ensure_ascii=False, indent=1))
-        _sys.exit(0)

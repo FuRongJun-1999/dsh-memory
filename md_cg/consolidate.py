@@ -29,7 +29,10 @@
                          「负条件一票否决」因子，过严误杀共享主题词的合格负条件，
                          已撤销——自否定职责由 no_conflict 承担）；
          · neg_separated 以「不适用条件」为查询 → 应触发条件级负路由，且负条件与正文
-                         低相关（负条件必须是「域外」的，不能把知识本身否定掉）；
+                         低相关（负条件必须是「域外」的，不能把知识本身否定掉）。
+                         ★ issue #278：该「域外」与闸门 1 的 grounding>=0.34 方向相反，
+                         二者夹出**窄缝**——负条件须「复用正文领域名词 + 换场景短语」，
+                         **完全域外会被闸门 1 丢光**（neg_dropped_all）。详见 replay_check；
          · no_conflict   生效条件与不适用条件不得互相覆盖。
        三者同时成立才算「条件稳定」。（对应「回放 / 断言 / 回归」）
        闸门 2 前另设**负条件两态拦截**（issue #64，见 consolidate 主流程）：
@@ -88,7 +91,7 @@ import time
 import urllib.error
 import urllib.request
 
-from . import crypto, evolution, nodefile, routing
+from . import crypto, evolution, nodefile, protect, routing
 from .fsutil import append_jsonl
 from .mdcg import BUCKETED_LAYERS, bigrams, expand_query_terms_weighted
 from .readcache import direct_read
@@ -326,10 +329,19 @@ def http_llm(prompt: str, model: str = None, base: str = None, key: str = None,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
     }).encode("utf-8")
+    # P5（2026-11-06）：中转站（OpenCode Go）前面有 Cloudflare，urllib 默认 UA
+    # `Python-urllib/3.x` 会被判成脚本直接 403（实测 error code 1010，curl 带 UA
+    # 就 200）。这里显式给 UA，并按上游建议带稳定会话头（同一次蒸馏一个会话 id，
+    # 便于对方做提示缓存与路由）。两者都可用 env 覆盖，缺省值不依赖任何私货。
+    _ua = os.environ.get("MDCG_LLM_UA") or "lingshu-mdcg/0.9.23"
+    _sess = (os.environ.get("MDCG_LLM_SESSION")
+             or "lingshu-consolidate-%s" % (role or "llm"))
     req = urllib.request.Request(
         base.rstrip("/") + "/chat/completions", data=payload,
         headers={"Authorization": f"Bearer {key}",
-                 "Content-Type": "application/json"})
+                 "Content-Type": "application/json",
+                 "User-Agent": _ua,
+                 "x-opencode-session": _sess})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             data = json.loads(resp.read().decode("utf-8"))
@@ -518,6 +530,73 @@ def grounding_filter(cand: dict, body: str, thresholds: dict = None):
     return kept, detail
 
 
+#: 词面覆盖率阈值（issue #278）。**本阈值现在只管 L2（与生效条件/已有知识重复），
+#: 不再管「与正文域外」** —— 修前它同时充当「负条件必须域外」的闸，与 prompt 的「邻近易混」
+#: 互斥；#278 (c) 分层后该语义移到 L2（no_conflict）。原文见下方 replay_check 内注释。
+#: 原说明：neg_separated 的「负条件与正文最大词面覆盖率」阈值。本模块自己的注释
+#: （见下方 replay_check 内 `⚠ 改 0.34 …或下面这个 0.5 都会平移窗口`）**已承认它是旋钮**，
+#: 却硬编码在函数体内 ⇒ 按库特性调参必须改源码。此处暴露为环境变量，**默认仍 0.5**
+#: （取值不变 ⇒ 行为逐位不变；只把「调参要改源码」变成「调参要设环境变量」）。
+_REPLAY_NEG_MAX_DEFAULT = 0.5
+_REPLAY_NEG_MAX_ENV = "MDCG_REPLAY_NEG_MAX_COVERAGE"
+
+
+# 生效条件：环境变量 MDCG_REPLAY_NEG_MAX_COVERAGE 可解析为正浮点时返回它，否则返回默认 0.5；
+# 不做 IO、不看库内容。
+def _neg_max_coverage() -> float:
+    """neg_separated 的覆盖率阈值（issue #278：唯一读取点）。"""
+    raw = os.environ.get(_REPLAY_NEG_MAX_ENV)
+    if raw:
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            return _REPLAY_NEG_MAX_DEFAULT
+        if v > 0:
+            return v
+    return _REPLAY_NEG_MAX_DEFAULT
+
+
+
+# 生效条件：neg_terms 非空且 body 非空时，把负条件与正文各自归一（小写、去空白与标点）后比对——
+# 归一后的负条件长度 ≥ 4 且**是正文的连续子串**，或二者的最长连续公共子串覆盖负条件的
+# ≥ 90% 且长度 ≥ 6 时返回 True（＝复述）；否则返回 False。
+def _neg_echo(neg_terms, body: str) -> bool:
+    """负条件是否是**正文里的一整句/整分句**（issue #278 的漏拒面，2026-10-18）。
+
+    判据（理论口径）：不适用条件必须是**可独立陈述的外部情境**——它对条件空间 C 的
+    排除效力来自「它描述的情境有别于 C」。若它等于正文的某个完整分句（或整段正文），
+    那它排除的就是正文自己的断言：形式上「有负条件」，实际零信息——属 T0 ③
+    「静默错误」类（判据在位但不起作用，且从读数看不出）。
+
+    为什么是**整分句相等**而不是「出现在正文里」：短名词短语做负条件是合法形态
+    （「依赖写 caret」本身就是正文里的短语，用作「采用 caret 语义时」这一情境），
+    按「出现在正文里」判会把这类正确写法误杀（实测 test_issue278_neg_window W2）。
+    抄正文的缺陷形态是**整句照搬**（分句边界内一字不差），故只认分句级相等。
+
+    为什么不用词面覆盖率：覆盖率是词袋口径，**分不开**「抄整句」与「与正文共享领域词
+    的邻近情境」（#278 实测两者 coverage 都可能很高）。分句级相等是**语序+边界**判据，
+    正好区分这两者。
+    """
+    def _norm(x) -> str:
+        s = "".join(str(i) for i in (x or []))
+        s = s.lower()
+        return "".join(ch for ch in s if ch.isalnum())
+
+    n = _norm(neg_terms)
+    if not n:
+        return False
+    b = _norm(body)
+    if not b:
+        return False
+    if n == b:                     # 整段正文当负条件
+        return True
+    # 分句边界：中英文标点 + 换行（归一后标点被去掉，故先切再归一）
+    for clause in re.split("[，。；：、！？" + "\n\r" + ",.;:!?]+", str(body or "")):
+        if clause and _norm(clause) == n:
+            return True
+    return False
+
+
 # 生效条件：给定 pos_terms、neg_terms、body，返回含 pos_recall、neg_separated、no_conflict、ok 的回放判定字典；pos_recall 只认「生效条件在正文上有覆盖率」，不含负条件一票否决。
 def replay_check(pos_terms, neg_terms, body: str) -> dict:
     """回放生产判定：正例召回 + 负例剔除 + 无自相矛盾。
@@ -540,15 +619,41 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
 
     # 2. 负例：以不适用条件为查询，应触发条件级负路由；且负条件与正文低相关
     #    （负条件必须是「域外」的，若与正文强相关，等于让知识否定自己）
+    #
+    #    ★ issue #278（c）分层后的口径：**L1 只判「是否易混」**（允许与正文共享领域词）；
+    #    `coverage < 0.5` 移到 **L2（no_conflict）**，**只管「与生效条件/已有知识重复」，
+    #    不再管「与正文域外」**。
+    #
+    #    ★ **保留下面这段「修前」记录是为留下实测依据**（否则将来有人会重新引入两闸）：
+    #    修前：负条件要同时过两道闸，方向相反，夹出一条窄缝：
+    #      闸门 1 grounding_score(neg, body) >= 0.34   ⇒ 必须**复用**正文领域名词
+    #      闸门 2 _weighted_coverage(neg, body) < 0.5  ⇒ 又不能复用**太多**
+    #    故「完全域外」（如「在 Linux 或 macOS 上部署时」）**过不了闸门 1**：
+    #    grounding=0.0 < 0.34 会被 grounding_filter 丢掉，neg 被删光 ⇒ 记
+    #    neg_dropped_all 直接 REJECT（见下方负条件两态拦截）。
+    #    可行形态是「**复用正文领域名词 + 换场景短语**」，例如
+    #    「pnpm 以外的包管理器」「不用 pnpm 的工程」（实测过两闸）。
+    #    实测窗口非空但窄：15 条候选里 5 条过两闸。
+    #    ⚠ 改 0.34（DEFAULT_GROUNDING）或下面这个 0.5 都会**平移窗口**，
+    #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。
     if neg_terms:
-        neg_separated = _neg_hit(tw_neg, neg_terms) \
-            and _weighted_coverage(tw_neg, body) < 0.5
+        # ★ #278 (c) 分层 —— **L1 只判「是否易混」**：负条件词是否与本条正文的领域词有交集。
+        #   **L1 不判「是否域外」**（那是 grounding 与 no_conflict 的事）；
+        #   **L1 也不判「是否重复」**（那是 L2 = no_conflict 的事）。
+        #   修前这里还挂了 `coverage < 阈值`，与 prompt 的「邻近易混」互斥（P∧Q 无解）
+        #   ⇒ 技术类知识被系统性拒（#278 的读数）。
+        # ★ 复述闸（#278 漏拒面，2026-10-18）：负条件若是正文的连续子串（或近逐字），
+        #   它排除的就是正文自己 ⇒ 零信息，不得算「已分离」。这一条与 L1「允许共享
+        #   领域词」不冲突：共享词不等于保留语序（见 _neg_echo 的判据说明）。
+        neg_separated = _neg_hit(tw_neg, neg_terms) and not _neg_echo(neg_terms, body)
     else:
         neg_separated = True
 
     # 3. 生效条件与不适用条件不得互相覆盖
-    no_conflict = (not pos_text) or (not neg_text) \
-        or _weighted_coverage(tw_pos, neg_text) < 0.5
+    #    阈值走单点 `_neg_max_coverage()`（#278 分层后它只管 L2「与生效条件/已有知识
+    #    重复」，不再管「与正文域外」——见上方 L1 说明与 test_issue278_neg_window W6b）。
+    no_conflict = ((not pos_text) or (not neg_text)
+                   or _weighted_coverage(tw_pos, neg_text) < _neg_max_coverage())
 
     ok = pos_recall and neg_separated and no_conflict
     return {"pos_recall": pos_recall, "neg_separated": neg_separated,
@@ -665,6 +770,22 @@ def _apply_node(cg, e, fm: dict, content: str, kept: dict, prov: dict,
         if not nodefile.verification_basis_valid(fm):
             # 枚举里没有「LLM 交叉验证」这一档，只能落到 other（声明文本在 CCG 行里）
             fm["verification_basis"] = basis_enum
+    # P0-c（2026-11-06）：补齐后仍缺 kind 与功能名 —— 口径与展示双缺。
+    # 实测：20 条批次 ACCEPT 10 条，全部落在 contextual 层，正文补出了
+    # 5 个要素却仍然 content_kind=None ⇒ 资格裁决按 text 要求六要素 ⇒ 差
+    # 「功能名」永远 incomplete。流水层（contextual）本来就属豁免档
+    # `work_log`，补字段只是让它更好读，不是把它升格成语义结论。
+    if not (fm.get("content_kind") or "").strip():
+        fm["content_kind"] = ("work_log" if (fm.get("layer") or "").strip() == "contextual"
+                              else "text")
+    # 功能名同款：`_write_node` 绕过了 writepipe 的 `_fill_title`，这里补一遍。
+    import re as _re
+    if not _re.search(r"(?m)^\s*#\s*功能名\s*[：:]?", content or ""):
+        from . import writepipe as _wp
+        _t = _wp.derive_title(content or "")
+        if _t:
+            content = "# 功能名：%s\n%s" % (_t, content)
+            fm["title_basis"] = "derived"
     fm["llm_consolidation"] = prov
     cg._write_node(nid, os.path.join(cg.root, e["path"]), fm, content,
                    durable=True)
@@ -972,7 +1093,6 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
            "dry_run": not apply, "nodes_scanned": len(entries), "targeted": 0,
            "skipped_locked": 0, "skipped_incomplete": 0, "skipped_not_hot": 0,
            "written": 0, "promoted": [], "samples": [],
-           "prose": [], "prose_written": 0,
            "min_merge": min_merge, "min_importance": min_importance,
            "require_conditions": bool(require_conditions)}
     batch = time.strftime("%Y%m%d-%H%M%S")
@@ -1013,19 +1133,6 @@ def promote_memories(root, source_layer="contextual", target_layer="knowledge",
         fm["promotion_basis"] = {"hits": hits, "importance": round(imp, 4),
                                  "conditions_complete": complete, "batch": batch,
                                  "actor": actor}
-        # 巩固正文（t91a-20261011/t2）：升层此前**一字不写**（只迁层）⇒ 人打开
-        # 节点看不出「这轮把它从哪层提到哪层、凭什么」。本处补一段确定性合成的
-        # 可读条目文本，带 sources 溯源与 prose_key 幂等键（同一节点重复升层不重复追加）。
-        _prose = build_consolidation_prose(
-            cg, "promote", [nid],
-            extra="%s→%s；hits=%d importance=%.2f"
-                  % (source_layer, target_layer, hits, imp))
-        fm, content, _added = _attach_prose(cg, nid, fm, content, _prose)
-        if _added:
-            rep["prose"].append({"id": nid, "key": _prose["key"],
-                                 "sources": _prose["sources"],
-                                 "chars": len(_prose["text"])})
-            rep["prose_written"] += 1
         moved = _relocate_layer(cg, nid, e, fm, content, target_layer)
         evolution.record(
             cg, node_id=nid,
@@ -1294,143 +1401,6 @@ CONSOLIDATED_INTO_FIELD = nodefile.CONSOLIDATED_INTO_FIELD
 # 归纳候选排除：受保护节点，以及洞察/场景/前馈/概念等派生物（避免自我进食）
 INDUCE_SKIP_TAGS = ("insight", "scene", "reconstructed", "gap_hint", "concept")
 
-# ---- 巩固正文（t91a-20261011/t2）-----------------------------------------
-#
-# 现状（改动前）：induce 产出的概念节点正文**只有 CCG 声明行**（`# 功能名：…`
-# 等六要素），promote 则只迁层、一字不写——两条巩固路径都属「结构性记账」：
-# 可读的自然语言条目文本为零，人打开节点看不到「这轮把谁并成了什么」。
-#
-# 本处补齐**正文**，且必须满足三条硬约束：
-#   ① 零网络 / 零外部模型：本环境无外呼授权，正文只能由**本地确定性合成**
-#      ——把本轮被合并/升层节点的标题与条件拼成条目文本，逐字可复算；
-#   ② 溯源：正文条目必须带 `sources`（来源节点 id 列表）指向合法来源节点；
-#   ③ 幂等：去重键 `prose_key` 由**来源 id 集合**派生（不是时间戳）——同一输入
-#      跑两轮，第二轮看见键已存在即不重复追加（对齐仓库既有「同成员 ⇒ 同 id」
-#      口径，见 `_concept_id`）。
-PROSE_MARK = "# 巩固正文："                # 正文段落在节点 md 里的行首标记
-CONSOLIDATION_PROSE_FIELD = "consolidation_prose"   # 留痕字段（条目列表）
-PROSE_MAX_SOURCES = 8                      # 单条正文最多列举的来源节点数
-PROSE_MAX_CHARS = 1200                     # 单条正文长度上限（防失控膨胀）
-
-
-# 生效条件：给定 sources（可为 None/空），返回 "prose_" 拼接排序去重后来源 id 串的 SHA1 前 12 位；空输入返回 "prose_empty"。
-def _prose_key(sources) -> str:
-    """正文条目去重键：**由来源 id 集合派生**（同来源 ⇒ 同键 ⇒ 不重复追加）。
-
-    刻意不用时间戳：时间戳每轮都变，会造出「同一份合并每轮新增一条」的假条目
-    ——那正是判据③要挡住的做法。空来源集退化为常量键（调用方另有非空校验）。
-    """
-    ids = sorted({str(s) for s in (sources or ()) if str(s).strip()})
-    if not ids:
-        return "prose_empty"
-    h = hashlib.sha1("|".join(ids).encode("utf-8")).hexdigest()
-    return "prose_" + h[:12]
-
-
-# 生效条件：给定任意文本，若其中存在**行首**带 PROSE_MARK 的行，返回 True。
-def _prose_split(text):
-    """按行首标记把文本切成 (原始正文, 派生块)；无标记则 (原文, "")。
-
-    2026-10-21 批 19：旧 `_is_prose_text` 用「空/纯数字/纯标点」推断，既与
-    `_prose_key` 的口径重复，又会把「正文里恰好提到这个标记」误判成派生块。
-    现在唯一判据是 `PROSE_MARK` 出现在行首（允许前导缩进）——标记由 `_attach_prose`
-    写入，写读同一个常量。判定与切分共用本函数，避免两处各写一遍循环。
-    """
-    raw = str(text or "")
-    lines = raw.splitlines()
-    for i, line in enumerate(lines):
-        if line.lstrip().startswith(PROSE_MARK):
-            return "\n".join(lines[:i]), "\n".join(lines[i:])
-    return raw, ""
-
-
-def is_consolidation_prose(text) -> bool:
-    """判定一段文本里是否含巩固正文块（唯一判据：行首 `PROSE_MARK`）。"""
-    return bool(_prose_split(text)[1])
-
-
-# 生效条件：给定节点全文，返回**切掉**行首 PROSE_MARK 起至文本末尾的那一段之后的文本；无标记则原样返回。
-def _strip_prose(text) -> str:
-    """切掉派生的巩固正文块（标记起、到文末），只留原始正文。
-
-    巩固正文总是**追加在文末**（`_attach_prose`），所以从第一条标记行截断即可。
-    用途：`_source_digests` 取材时不得把别的节点的派生物当原始材料再喂一遍，
-    否则派生正文会一层层自我复制（同型病灶 J：派生物把上游内容当已知）。
-    """
-    if not is_consolidation_prose(text):
-        return str(text or "")
-    return _prose_split(text)[0]
-
-
-# 生效条件：给定 node_ids 与 cg，逐个用 _ccg_field 取「功能名」行（缺失则回落到节点 id），返回 (标题, 正文摘要) 二元组列表；读不到内容的节点跳过。
-def _source_digests(cg, node_ids, limit=PROSE_MAX_SOURCES):
-    """读取来源节点的 (标题, 摘要)——**确定性取材**，只读盘上真值，零 LLM。"""
-    out = []
-    for nid in list(node_ids or ())[:int(limit)]:
-        node = None
-        try:
-            node = cg.get(nid)
-        except Exception:                            # noqa: BLE001 —— 取材失败不该炸整轮巩固
-            node = None
-        if not node:
-            continue
-        content = _strip_prose(node.get("content") or "")
-        title = _ccg_field(content, "功能名") or str(nid)
-        body = body_text(content).strip().replace("\n", " ")
-        out.append((str(nid), title.strip(), body[:120]))
-    return out
-
-
-# 生效条件：给定 action、sources、cg、extra，返回含 text/sources/key/action 的正文条目字典；text 由本地确定性拼接生成，不调用任何外部模型。
-def build_consolidation_prose(cg, action, sources, extra=None) -> dict:
-    """**本地确定性合成**巩固正文条目（零网络 / 零 LLM）。
-
-    正文 = 一句话说明「这轮做了什么」+ 逐条列出被合并/升层节点的标题与摘要。
-    同一 (action, sources, 节点内容) ⇒ 逐字相同的正文 ⇒ 可复算、可断言。
-    """
-    ids = [str(s) for s in (sources or ()) if str(s).strip()]
-    digests = _source_digests(cg, ids)
-    verb = {"induce": "归纳", "promote": "升层"}.get(str(action), str(action))
-    if digests:
-        lead = ("本轮巩固把 %d 个节点%s为一个条目：%s。"
-                % (len(digests), verb, "、".join(d[0] for d in digests)))
-    else:
-        lead = "本轮巩固%s，但未读到任何来源节点的正文。" % verb
-    lines = [lead]
-    for nid, title, summary in digests:
-        if summary:
-            lines.append("· %s：%s——%s" % (nid, title, summary))
-        else:
-            lines.append("· %s：%s" % (nid, title))
-    if extra:
-        lines.append("· 依据：%s" % str(extra)[:200])
-    text = "\n".join(lines)[:PROSE_MAX_CHARS]
-    return {"action": str(action), "sources": ids, "key": _prose_key(ids),
-            "text": text}
-
-
-# 生效条件：给定 cg、nid、fm、content、prose，若该 key 已在 fm[CONSOLIDATION_PROSE_FIELD] 中则原样返回 (fm, content, False)；否则把条目追加进该字段并追加正文行到 content，返回 (fm, content, True)。
-def _attach_prose(cg, nid, fm, content, prose):
-    """把正文条目挂到节点上：frontmatter 留痕 + 正文段落。**幂等**。
-
-    去重口径 = `prose["key"]`（来源 id 集合派生）是否已在该节点的
-    `consolidation_prose` 列表里——已存在即不改动，返回 added=False。
-    第二轮巩固因此不产生重复条目（判据③）。
-    """
-    entries = fm.get(CONSOLIDATION_PROSE_FIELD)
-    if not isinstance(entries, list):
-        entries = []
-    keys = {str(e.get("key")) for e in entries if isinstance(e, dict)}
-    if prose.get("key") in keys:
-        return fm, content, False
-    entries.append(prose)
-    fm[CONSOLIDATION_PROSE_FIELD] = entries
-    # 正文段落：带 PROSE_MARK 前缀的多行块（首行带标记，续行以 "·" 开头/缩进，
-    # 便于 `body_text` 之外的人读；CCG 声明行正则不会误吞它）。
-    block = PROSE_MARK + prose["text"].replace("\n", "\n  ")
-    content = (content or "").rstrip("\n") + "\n\n" + block + "\n"
-    return fm, content, True
-
 
 # 生效条件：给定 members，返回 CONCEPT_PREFIX 拼接排序后成员串的 SHA1 前 10 位。
 def _concept_id(members):
@@ -1541,6 +1511,22 @@ def _concept_payload(members, common_pos, neg_union):
 
 
 # 生效条件：给定 cg_or_root，从 source_layer 聚类归纳为 target_layer 概念节点，apply=True 才写盘并返回统计 rep。
+# 生效条件：e 为索引条目（可为 None）；source_layer 为空或与 e.layer 相等；且 e **不在保护面**
+# （protect.is_protected_entry：层保护 / 显式位 / 按分且来源∈{None,"hint"}）；且 e 的 tags 未命中
+# INDUCE_SKIP_TAGS —— 三条全真才返回 True（= 可进归纳候选池）。
+def pool_eligible(e, source_layer=""):
+    """归纳候选池的**过滤谓词单点**（issue #432）。
+
+    修前这段判据**内联**在 `induce_memories` 的列表推导里，且只认 `e.get("protected")` 位
+    （**窄**：漏层保护与按分保护）⇒ self/anchor 层节点入池被改写四字段、零快照零审计。
+    抽成谓词是为了**可被腿直接调用**（产出侧有多道闸——簇阈值/截断/skip-tags——谓词只有一道；
+    只从产出侧看池，变异无法闭合）。
+    """
+    e = e or {}
+    return (not source_layer or e.get("layer") == source_layer) \
+        and not protect.is_protected_entry(e)[0] \
+        and not (set(INDUCE_SKIP_TAGS) & set(e.get("tags") or []))
+
 def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowledge",
                     min_cluster=INDUCE_MIN_CLUSTER, min_jaccard=INDUCE_MIN_JACCARD,
                     max_nodes=INDUCE_MAX_NODES, require_conditions=True,
@@ -1550,6 +1536,8 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
     流程：读取源层 → bigram 相似度贪心聚类 → 提炼共同条件 → 生成概念节点
     （apply=True）→ 写 `generalizes` / `instance_of` 对称 inferred 边 → 写留痕。
 
+    issue #164：概念节点密级 = 成员最高档；任一成员密级判不了则 fail-closed
+    不生成（只留 `_maintain.jsonl` 的 sensitivity_not_judgeable 留痕）。
     apply=False（默认）只出候选报表（可预演）；apply=True 才写盘（可留痕、可回溯）。
     幂等：概念 id 由成员清单派生，同成员重复归纳不新增节点。
     """
@@ -1566,17 +1554,23 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         require_conditions = True
 
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    pool = [nid for nid, e in list(nodes.items())
-            if (not source_layer or (e or {}).get("layer") == source_layer)
-            and not (e or {}).get("protected")
-            and not (set(INDUCE_SKIP_TAGS) & set((e or {}).get("tags") or []))]
+    pool = [nid for nid, e in list(nodes.items()) if pool_eligible(e, source_layer)]
     pool.sort()
     truncated = len(pool) > int(max_nodes)
     pool = pool[:int(max_nodes)]
 
+    skipped_sensitivity = 0
     cache = {}
     for nid in pool:
         got = subgraph._node_terms_and_grams(cg, nid)
+        if got and got.get("unjudgeable"):
+            skipped_sensitivity += 1
+            if apply:
+                append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+                    "t": time.time(), "action": "induce", "batch": None,
+                    "members": [nid], "reason": "sensitivity_not_judgeable",
+                    "actor": actor})
+            continue
         if got and got["grams"]:
             cache[nid] = got
     keys = sorted(cache.keys())
@@ -1588,8 +1582,8 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
            "min_jaccard": float(min_jaccard),
            "require_conditions": bool(require_conditions),
            "skipped_small": 0, "skipped_no_condition": 0, "skipped_existing": 0,
+           "skipped_sensitivity": skipped_sensitivity,
            "clusters": 0, "written": 0, "concepts": [], "samples": [],
-           "prose": [], "prose_written": 0,
            "log": MAINTAIN_LOG}
 
     # ---- 贪心聚类（只读） ----
@@ -1613,6 +1607,7 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         proposals.append({
             "members": members, "concept_id": _concept_id(members),
             "common_conditions": common_pos, "non_applicable": neg_union,
+            "sensitivity": subgraph.derive_sensitivity(cg, members),
             "reason": ("%d 条记忆内容相近且共享条件「%s」→ 归纳为概念"
                        % (len(members), "、".join(common_pos) or "无")),
         })
@@ -1635,37 +1630,52 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         if cid in nodes:
             rep["skipped_existing"] += 1
             continue
+        sens = p.get("sensitivity")
+        if sens is None:
+            rep["skipped_sensitivity"] += 1
+            append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+                "t": time.time(), "action": "induce", "batch": batch,
+                "concept": cid, "members": list(p["members"]),
+                "common_conditions": p["common_conditions"],
+                "reason": "sensitivity_not_judgeable", "actor": actor})
+            continue
         content = _concept_payload(p["members"], p["common_conditions"],
                                    p["non_applicable"])
-        # 巩固正文（t91a-20261011/t2）：在 CCG 声明行之外补一段**可读的自然语言
-        # 条目文本**，把本轮被合并节点的标题/摘要拼进去，并带 sources 溯源。
-        # 本地确定性合成，零网络 / 零 LLM。
-        _prose = build_consolidation_prose(
-            cg, "induce", p["members"],
-            extra="共同条件：" + ("；".join(p["common_conditions"]) or "无"))
-        content = (content.rstrip("\n") + "\n\n"
-                   + PROSE_MARK + _prose["text"].replace("\n", "\n  ") + "\n")
         _consolidated_at = time.time()   # 概念形成时刻 = 巩固时刻（单一取值，禁两处取时）
+        # F 接口（2026-11-06）：概念卡正文由 _concept_payload 生成，六要素齐全，
+        # 属**语义结论**，故显式落 kind=text。不落 kind 的后果：写闸按
+        # 「未知内容类型」判 BLINDSPOT、kind 也不进 fm，policy 的 required_kinds
+        # 整库空转（实测 859/859 为 None）。
         cg.add(cid, content, layer=target_layer, tags=list(CONCEPT_TAGS),
+               content_kind="text",
                importance=CONCEPT_IMPORTANCE, verification_basis="other",
+               sensitivity=sens,
                induced_from=list(p["members"]), induced_at=_consolidated_at,
                consolidated_at=_consolidated_at,
-               consolidation_prose=[_prose],
                induction={"method": "bigram_jaccard", "min_jaccard": float(min_jaccard),
                           "common_conditions": p["common_conditions"], "batch": batch,
                           "actor": actor, "evidence": "inferred"},
                actor=actor)
-        _link_concept(cg, cid, p["members"], p["reason"], actor, batch)
-        append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
-            "t": time.time(), "action": "induce", "batch": batch, "concept": cid,
-            "members": list(p["members"]), "common_conditions": p["common_conditions"],
-            "source_layer": source_layer, "target_layer": target_layer, "actor": actor,
-            "prose_key": _prose["key"], "prose_sources": _prose["sources"]})
+        from . import security as _sec
+        try:
+            _high = _sec._rank(str(sens)) > _sec._rank(_sec.DEFAULT_SENSITIVITY)
+        except Exception:
+            _high = False
+        _link_reason = ("%d 条记忆内容相近 → 归纳为概念（条件词按密级留白）"
+                        % len(p["members"])) if _high else p["reason"]
+        _link_concept(cg, cid, p["members"], _link_reason, actor, batch)
+        if _high:
+            append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+                "t": time.time(), "action": "induce", "batch": batch, "concept": cid,
+                "members": list(p["members"]), "common_conditions": [],
+                "condition_terms_withheld": True,
+                "source_layer": source_layer, "target_layer": target_layer, "actor": actor})
+        else:
+            append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
+                "t": time.time(), "action": "induce", "batch": batch, "concept": cid,
+                "members": list(p["members"]), "common_conditions": p["common_conditions"],
+                "source_layer": source_layer, "target_layer": target_layer, "actor": actor})
         rep["concepts"].append(cid)
-        rep.setdefault("prose", []).append({"id": cid, "key": _prose["key"],
-                                            "sources": _prose["sources"],
-                                            "chars": len(_prose["text"])})
-        rep["prose_written"] += 1
         rep["written"] += 1
     if rep["written"]:
         cg.rebuild_index()

@@ -184,12 +184,7 @@ def _date_tag(title):
 
 
 # 生效条件：r 为语料 turn 行（缺 text/role 等键时按空串处理）；date_key/title_key 为 None 时对应日期取空串；返回 (CCG 五要素正文, tags, condition_space) 三元组，仅当原文出现强否定标记才生成不适用条件、否则显式写「（无）」；
-# C29（2026-10-25）：本文是 v2 口径，**已不再被任何调用方直接使用**——
-# 同文件下方的 v3 同名函数曾把它整体遮蔽（def 重绑定，v2 成为死代码）。这里
-# 显式改名留档：v2 是「只在语料内做特异词注入」的基线，v3 在其上叠加离线
-# 加工（canon/意图/last_canon），ctx=None 时行为退化到 v2。要基线行为请显式
-# 调 calibrate_turn_v2，不要指望同名重定义。
-def calibrate_turn_v2(r, date_key=None, title_key=None):
+def calibrate_turn(r, date_key=None, title_key=None):
     """turn 行 → (CCG 五要素正文, tags, condition_space)。
 
     v2 归因修正：自建语料 100% 召回的机制条件是「查询-证据词面同源」
@@ -293,8 +288,6 @@ def _intent_of(text):
 
 
 # 生效条件：r 为语料 turn 行；ctx 为写入时全库视图（canon/intents/last_canon），ctx 为 None 时按空视图处理并退化为 v2 行为；返回 (CCG 五要素正文, tags, condition_space) 三元组；
-# C29：本文件只允许存在一个 calibrate_turn。v2 已改名 calibrate_turn_v2（见上），
-# 此处不再是「重定义遮蔽」，而是唯一入口。
 def calibrate_turn(r, date_key=None, title_key=None, ctx=None):
     """turn 行 → (CCG 五要素正文, tags, condition_space)。
 
@@ -581,28 +574,3 @@ def print_table(title, groups, k=5):
 # 生效条件：对任意 x，返回 f"{x * 100:.1f}%" 的百分比字符串；
 def pct(x):
     return f"{x * 100:.1f}%"
-
-
-# ---- C191：v2 口径的可执行入口 ----
-# 病灶：C29 把被 v3 遮蔽的旧函数改名为 calibrate_turn_v2 留档，但改名之后全仓零调用，
-# 于是它变成一条「写在注释里、没人能跑」的基线 —— 普查把它算成死定义，预算棘轮报警。
-# 留档的东西必须能被跑到：这里给它一个 CLI，把 turn 行喂进去就吐 v2 三元组，
-# 对照实验拿它当基线（`python -m md_cg.eval_common --calib-v2 < row.json`）。
-def _calib_v2_cli() -> int:
-    import json as _json
-    import sys as _sys
-    raw = _sys.stdin.read()
-    r = _json.loads(raw) if raw.strip() else {}
-    body, tags, cond = calibrate_turn_v2(r)
-    _sys.stdout.write(_json.dumps(
-        {'body': body, 'tags': list(tags), 'condition_space': cond},
-        ensure_ascii=False) + '\n')
-    return 0
-
-
-if __name__ == '__main__':
-    import sys as _sys
-    if '--calib-v2' in _sys.argv[1:]:
-        raise SystemExit(_calib_v2_cli())
-    _sys.stderr.write('用法：python -m md_cg.eval_common --calib-v2 < turn.json\n')
-    raise SystemExit(2)

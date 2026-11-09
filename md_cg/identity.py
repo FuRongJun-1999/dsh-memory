@@ -49,6 +49,7 @@ import json
 import os
 import time
 
+from . import fsutil
 from .fsutil import append_jsonl
 
 # 主体类型（扮演论：self=智能体自身 / role=扮演角色 / user=协作者 / agent=其他智能体）
@@ -82,11 +83,10 @@ INTERFACES = {
 PROFILE_PREFIX = "identity_"
 AUDIT_FILE = "_identity.jsonl"
 
-# 审计写失败的告警闸：每进程只吵一次（否则一轮身份操作会刷满 stderr）。
-_AUDIT_WARNED = False
-
 TAG_ANCHOR = "identity_anchor"
 TAG_TRAIT = "identity_trait"
+OP_TOOL = "identity.observe/anchor/trait"
+
 TAG_OBS = "identity_observation"
 TAG_CONTRACT = "identity_contract"
 
@@ -136,41 +136,35 @@ def _nid(prefix, subject_id, seed=""):
     return f"{PROFILE_PREFIX}{prefix}_{_slug(subject_id)}_{h.hexdigest()[:10]}"
 
 
-# 生效条件：rec 先被 dict(rec) 拷贝，仅当拷贝中缺 "ts" 键时补 time.time()，随后写入 cg.root 下 AUDIT_FILE 指向的 jsonl；成功返回 True，写盘抛 OSError 时向 stderr 提示一次（每进程仅首次）并返回 False —— 审计写失败**不得静默**，也不得中断调用方。
+# 生效条件：rec 先被 dict(rec) 拷贝，仅当拷贝中缺 "ts" 键时补 time.time()，随后写入 cg.root 下 AUDIT_FILE 指向的 jsonl；写盘抛 OSError 时静默跳过并返回 None。
 def log(cg, rec):
-    global _AUDIT_WARNED
     rec = dict(rec)
     rec.setdefault("ts", time.time())
     try:
-        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
-        return True
-    except OSError as exc:
-        if not _AUDIT_WARNED:
-            _AUDIT_WARNED = True
-            import sys
-            print("[identity] 审计写入失败，本条及后续同类失败不再提示：%s: %s"
-                  % (type(exc).__name__, exc), file=sys.stderr)
-        return False
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        # issue #443：调用方可控字段可无限长 ⇒ 单条记录先过总字节闸（超限跳过写并留痕）。
+        if not fsutil.bounded_record(rec):
+            fsutil._note_append_failure(os.path.join(cg.root, AUDIT_FILE),
+                                        ValueError("record_too_large: issue #443"))
+            return
+        _ok = fsutil.append_jsonl_ledger(os.path.join(cg.root, AUDIT_FILE), rec)
+    except OSError:
+        pass
 
 
 # 生效条件：cg.root 下 AUDIT_FILE 路径缺失或打开即抛 OSError 时返回空列表；否则逐行解析非空 JSON（json.loads 抛 ValueError 的行跳过），读取中途抛 OSError 时返回已解析的部分 out，正常返回 out[-int(limit or 100):]，其中 limit 为 0/空串等假值时按 100 取值；
 def history(cg, limit=100):
-    p = os.path.join(cg.root, AUDIT_FILE)
-    out = []
-    if not os.path.exists(p):
-        return out
-    try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except ValueError:
-                    continue
-    except OSError:
-        return out
+    """身份操作留痕（**读写配对**）。
+
+    2026-10-18：写面已迁到**本进程独占分片**（`fsutil.append_jsonl_ledger`，文件名
+    `<stem>.<pid>.jsonl`），读面却仍只 open 旧单文件 `_identity.jsonl` ⇒ 命中恒空
+    （实测 `test_p10_identity` 的「身份操作留痕可查 []」）。改用成对的
+    `fsutil.read_jsonl_ledger`：它同时读旧单文件与全部分片，历史不断代
+    ——这正是 `afad11b3` 回退「五件台账迁移」时所指的「写读必须配对」。
+    """
+    out = fsutil.read_jsonl_ledger(os.path.join(cg.root, AUDIT_FILE))
     return out[-int(limit or 100):]
 
 
@@ -181,7 +175,7 @@ def history(cg, limit=100):
 # 生效条件：subject_id 定 kind 默认值，kind 参数为真值时覆盖之；node_id 为假值时用 _nid("obs", subject_id, text[:32])（含 time.time()）生成；标签为 list(tags or []) 追加 subject:<subject_id>、TAG_OBS、kind:<k>，evidence 为真值时再追加一条 evidence:<evidence>；condition_space 以 dict(condition_space or {}) 为底并 setdefault subject/kind；落层用 layer 真值否则 "knowledge"，role 为真值时随 extra 传 role；返回 {"ok": True, "node_id", "subject_id", "kind"}。
 def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None,
             condition_space=None, importance=0.5, verification_basis=None,
-            evidence=None, node_id=None, override=False):
+            evidence=None, node_id=None, sensitivity=None, override=False):
     """memory 接口：记录一条关于主体的**行为证据**（用于位置推断）。
 
     写入知识层，自动带 `subject:<id>` 标签，使 `infer_position` 定位到该主体。
@@ -194,9 +188,20 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
     if evidence:
         tg.append(f"evidence:{evidence}")
     cs = dict(condition_space or {})
+    # 2026-10-18：subject/kind **不是四维之一**，此前把它们塞进 condition_space，
+    # 把真正的四维挤掉了——实测 identity_self_lingshu 因此判 legacy_blindspot。
+    # 二者在 tags 里已有（subject:xxx / kind:xxx），此处保留只为不破坏既有读取方，
+    # 另补齐四维（产生过程自述，非内容推断）。
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", "identity.observe")
+    cs.setdefault("existence_constraint", "身份观测面可写")
     extra = {"role": role} if role else {}
+    # issue #258：sensitivity 透传（缺省 None ⇒ 行为逐位不变，既有调用方零变更）。
+    # 此前该形参**不存在** ⇒ 跨节点证据包导入时密级被静默回落到缺省 internal。
+    if sensitivity is not None:
+        extra["sensitivity"] = sensitivity
     cg.add(nid, text, layer=layer or "knowledge", tags=tg, condition_space=cs,
            importance=importance, verification_basis=verification_basis,
            override=override, **extra)
@@ -207,7 +212,8 @@ def observe(cg, subject_id, text, *, kind=None, role=None, layer=None, tags=None
 
 # 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型，k 不在 SUBJECT_KIND 时抛 ValueError；k 为 "self" 落 "self" 层、其余落 "anchor" 层，但 requested_layer 等于 "self" 且 k 不为 "self" 时抛 ValueError（不写盘）；节点 id 取自 subject_node_id(subject_id)，返回含 layer 与 protected True。
 def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
-               importance=0.9, override=False, requested_layer=None):
+               importance=0.9, override=False, requested_layer=None,
+               sensitivity=None):
     """anchor 接口：写入身份锚点（不可遗忘）。
 
     落层规则（扮演论边界）：
@@ -228,9 +234,14 @@ def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
     cs = dict(condition_space or {})
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    # 2026-10-18：补四维（subject/kind 非四维，见 observe 处说明）
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", OP_TOOL)
+    cs.setdefault("existence_constraint", "身份面可写")
     tg = [f"subject:{subject_id}", TAG_ANCHOR, f"kind:{k}"]
     cg.add(nid, text, layer=layer, tags=tg, condition_space=cs,
-           importance=importance, verification_basis="data", override=override)
+           importance=importance, verification_basis="data", override=override,
+           **({"sensitivity": sensitivity} if sensitivity else {}))
     log(cg, {"op": "anchor", "subject": subject_id, "node_id": nid,
              "kind": k, "layer": layer, "override": bool(override)})
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k,
@@ -240,7 +251,7 @@ def set_anchor(cg, subject_id, text, *, kind=None, condition_space=None,
 # 生效条件：kind 参数为真值时覆盖 split_subject(subject_id) 得到的类型；node_id 为假值时用 _nid("trait", subject_id, trait[:24]) 生成；落层硬编码为 "structural"；position 为真值时追加 position:<position> 标签；verification_basis 缺省为 "data"，importance 缺省 0.6；返回 layer 为 "structural" 与所用 condition_space。
 def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
               position=None, kind=None, verification_basis="data",
-              override=False, node_id=None):
+              override=False, node_id=None, sensitivity=None):
     """values 接口：写入条件触发的特征/特化价值观。
 
     落 STRUCTURE 层；`condition_space` 即触发时机（扮演论：条件空间 = 触发条件）。
@@ -251,12 +262,17 @@ def add_trait(cg, subject_id, trait, *, condition_space=None, importance=0.6,
     cs = dict(condition_space or {})
     cs.setdefault("subject", subject_id)
     cs.setdefault("kind", k)
+    # 2026-10-18：补四维（subject/kind 非四维，见 observe 处说明）
+    cs.setdefault("observation_position", "identity:" + str(subject_id))
+    cs.setdefault("observation_tool", OP_TOOL)
+    cs.setdefault("existence_constraint", "身份面可写")
     tg = [f"subject:{subject_id}", TAG_TRAIT, f"kind:{k}"]
     if position:
         tg.append(f"position:{position}")
     cg.add(nid, trait, layer="structural", tags=tg, condition_space=cs,
            importance=importance, verification_basis=verification_basis,
-           override=override)
+           override=override,
+           **({"sensitivity": sensitivity} if sensitivity else {}))
     log(cg, {"op": "trait", "subject": subject_id, "node_id": nid,
              "position": position})
     return {"ok": True, "node_id": nid, "subject_id": subject_id, "kind": k,
@@ -428,6 +444,12 @@ def infer_position(cg, subject_id):
         if tag not in tg or (tg & {TAG_ANCHOR, TAG_TRAIT}):
             continue
         node = cg.get(nid) or {}
+        # issue #471（(b) 的精确定位）：本函数**已经**经 `cg.get`（`get` 面上有 `_readable`），
+        # 所以**正文拿不到**；但 `n += 1` 在取到空节点时**仍会执行** => 泄漏的不是内容，而是
+        # **计数（evidence_count）** —— 低权读者可由「某主体有多少条证据」推断其存在与活跃度。
+        # 故：**不可见 ⇒ 空 ⇒ 不得计入**（不是再套一层闸，而是「空即跳过」）。
+        if not node:
+            continue
         fm = node.get("frontmatter") or {}
         n += 1
         for pos in _votes(fm.get("role"), e.get("layer"), e.get("tags"),
@@ -464,8 +486,19 @@ def profile(cg, subject_id):
         if tag not in tg:
             continue
         node = cg.get(nid) or {}
+        # issue #471（(c1)）：与 (b) 同款「**空即跳过**」——`cg.get` 已过 `_readable`，
+        # 不可见 ⇒ 空 ⇒ **不得进 anchors/traits**（否则 `content[:400]`/`content[:200]`
+        # 会把 **private 节点正文片段**吐给低权读者 —— 这是本件最重的一项泄漏）。
+        # ★(c2) 本件不做并已登记：profile 的**锚点/指针面**未加闸，因 `_identity_ref`
+        #   (self_state.py:344) 无读者身份参数、无法区分自我调用与外部调用 —— 属**独立设计问题**。
+        if not node:
+            continue
         fm = node.get("frontmatter") or {}
         if TAG_ANCHOR in tg:
+            # I4（2026-11-06）：物化首版被写闸判 REJECT，那条 rej_* 仍带 identity_anchor 标签，
+            # 于是 profile 的 anchors[0] 是废稿、界面把「已否决」当成身份锚点。
+            if (e.get("layer") or "") in ("rejected", "trash"):
+                continue
             anchors.append({"node_id": nid, "layer": e.get("layer"),
                             "content": (node.get("content") or "")[:400]})
         elif TAG_TRAIT in tg:
@@ -480,15 +513,46 @@ def profile(cg, subject_id):
     out.update(_position_view(pos["position"]))
     out.update({"position_confidence": pos["confidence"], "votes": pos["votes"],
                 "evidence_count": pos["evidence_count"], "tie": pos["tie"]})
+    _a = archive_subjects(cg).get(subject_id) or {}
+    out["archived_nodes"] = int(_a.get("archived_nodes") or 0)
+    out["archived_layers"] = _a.get("layers")
+    out["archived_last_seen"] = _a.get("last_seen")
     return out
 
 
 # 生效条件：counts 按每个以 "subject:" 开头的字符串标签出现次数累加（即标签次数，不是节点数），按 (-次数, sid) 排序后逐个 sid 调 infer_position；limit 为 0/None/空串等使 `limit and int(limit) > 0` 为假时返回全量 out，仅当 limit 为真值且 int(limit) > 0 时返回前 int(limit) 项。
+ARCHIVE_SIDECAR = os.path.join("identity", "archive_subjects.json")
+
+
+def archive_subjects(cg):
+    """归档主体索引（`identity/archive_subjects.json`）。
+
+    生效条件：文件存在且可解析为 dict 时返回 {sid: {"archived_nodes", "layers", "last_seen", "first_seen"}}；否则 {}。
+    为什么要有它：L2 整族归档把带 `subject:<id>` 标签的流水移出索引后，`positions()` 的枚举源会归零，
+    检索里看不出「这个主体曾经有 1866 条记录」。这份 sidecar 让规模可读，而不必把流水搬回索引。
+    它**不是证据**：档案节点带 TAG_ANCHOR，`infer_position` 已显式排除，位置效应仍只由活节点投票。
+    """
+    p = os.path.join(cg.root, ARCHIVE_SIDECAR)
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def positions(cg, limit=0):
     """所有主体的位置效应分布（OS 视角：谁在记录/反思/验证/输出/维生）。"""
     nodes = cg.index.get("nodes") or {}
+    # issue #471：**fail-soft 可见性闸** —— 照抄 `rollback.py:501` 的既有先例（getattr + callable）。
+    # ★**纯 MdCGOS 无 `_readable` ⇒ 不过滤（fail-soft）**：这是**有意选择、不是疏漏**。
+    #   理由：**同一函数在两种 cg 类型下语义不同**，而 `_readable` 只在 `MdCGSecure` 面上存在
+    #   —— 这本身就是「**同名不同面**」，故在此显式登记。
+    _rd = getattr(cg, "_readable", None)
     counts = {}
     for _nid_, e in list(nodes.items()):
+        if callable(_rd) and not _rd(e):
+            continue                      # 不可见节点不参与主体枚举（#471 主影响面）
         for t in (e.get("tags") or []):
             if isinstance(t, str) and t.startswith("subject:"):
                 sid = t[len("subject:"):]
@@ -499,6 +563,20 @@ def positions(cg, limit=0):
         out.append({"subject_id": sid, "kind": split_subject(sid)[0],
                     "nodes": cnt, "position": p["position"],
                     "confidence": p["confidence"], "evidence_count": p["evidence_count"]})
+    # 归档主体（2026-11-06）：蒸馏整族归档后枚举源归零，补回「规模」这一列，不搬回流水。
+    arch = archive_subjects(cg)
+    seen = {row["subject_id"] for row in out}
+    for sid in sorted(arch):
+        if sid in seen:
+            continue
+        p = infer_position(cg, sid)
+        out.append({"subject_id": sid, "kind": split_subject(sid)[0], "nodes": 0,
+                    "position": p["position"], "confidence": p["confidence"],
+                    "evidence_count": p["evidence_count"]})
+    for row in out:
+        a = arch.get(row["subject_id"]) or {}
+        row["archived_nodes"] = int(a.get("archived_nodes") or 0)
+        row["archived_last_seen"] = a.get("last_seen")
     return out[:int(limit)] if limit and int(limit) > 0 else out
 
 

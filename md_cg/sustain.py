@@ -28,7 +28,7 @@
    早已具备，缺的是**驱动源**：没人周期性问「现在有多少该固化 / 该重算的候选」。
    `evolution_candidates()` 以**索引快照**为口径做只读盘点（零读节点文件、零写盘、
    确定性），并挂到常驻循环的 `_tick_evolve()` 上。纪律与 self-heal 一致且更严：
-     · 巡检恒只读，`auto_evolve=False`（默认）时**只记账不动库**；
+     · 巡检恒只读，`auto_evolve=False` 时**只记账不动库**（默认已改为 True，见 AUTO_DEFAULTS）；
      · 自愈只放行**确定性且可回滚**的动作（重要性重算，有 rollback）；
      · 依赖 LLM 的固化**永不自动跑**——巡检报出候选数，交人工另批。
 
@@ -97,8 +97,8 @@ TICK_STALE_MIN_S = 1800.0
 # ——该动作确定性、永不删除节点、可逆可审计（见 `_tick_tidy` 说明），op 路径的
 # `False` 是唯一错位项。**opt-out：`MDCG_AUTO_TIDY=0`（env 路径）／显式传
 # `auto_tidy=false`（op 路径——显式入参仍优先于本表）。**
-AUTO_DEFAULTS = {"auto_heal": True, "auto_scrub": False,
-                 "auto_evolve": False, "auto_tidy": True}
+AUTO_DEFAULTS = {"auto_heal": True, "auto_scrub": True,
+                 "auto_evolve": True, "auto_tidy": True}
 #: 各 `auto_*` 的 env 覆盖键（env 路径入口照此读；即各档的 opt-out 名）。
 AUTO_ENVS = {"auto_heal": "MDCG_SUSTAIN_AUTOHEAL",
              "auto_scrub": "MDCG_AUTO_SCRUB",
@@ -192,7 +192,16 @@ def read_stamp(name: str, d: str = None):
         return None
     if not isinstance(rec, dict):
         return None
-    rec["age"] = max(0.0, time.time() - float(rec.get("ts") or 0))
+    # 契约（本函数文档串「不存在 / 损坏 → None」）：`ts` 非数值也算损坏。
+    # 修前 `float(rec.get("ts") or 0)` 只挡了假值（None/0/""），`ts="abc"` 这类
+    # **合法 JSON 里的非法值**会抛 ValueError 穿出本函数；而 peers() 在循环里
+    # 直接调本函数、无 try —— 一个坏戳会让**整个 peers() 失败**，同目录下所有
+    # 健康节点的状态一并丢失（实测：4 戳含 1 坏 → peers() 抛错；删坏戳 → 恢复 3 条）。
+    try:
+        ts = float(rec.get("ts") or 0)
+    except (TypeError, ValueError):
+        return None
+    rec["age"] = max(0.0, time.time() - ts)
     return rec
 
 
@@ -279,6 +288,13 @@ HEARTBEAT_GAP_THRESHOLD = 2.0 * DEFAULT_BEAT_INTERVAL
 #: 轮转自述行与心跳周期行的区分标记（统计只取 kind=="beat"，轮转痕不进时间序列）。
 HB_KIND_BEAT = "beat"
 HB_KIND_ROTATE = "rotate"
+#: D2：非 beat 业务档的台账行 kind——失败档**必须在台账可见**（不被
+#: `heartbeat_ledger_stats` 按 kind==HB_KIND_BEAT 的过滤吞掉）。
+#: #376（2026-10-14）已接线：beat 与 tick 两档的失败行（ok 为假）统一进
+#: `heartbeat_ledger_stats` 的 failed/failures 失败读数。
+HB_KIND_TICK = "tick"
+#: #376：失败明细保留条数（`failures` 只带**最近**这几条——读数有界）。
+FAILURES_KEEP = 5
 
 #: root → 已写次数（进程内；仅用于节流探测步长。跨进程各自计数，不影响正确性
 #: ——多写者共享同一活动文件时，任一方到点都会做一次 stat，只是探测得更密）。
@@ -292,12 +308,35 @@ def heartbeat_ledger_enabled(environ=None) -> bool:
     return str(env.get(HEARTBEAT_ENV, "1")) not in AUTO_OFF_VALUES
 
 
+#: D1 解耦开关：**缺省关**（"0"）——既有单线程基线（六档顺序）逐位不变。
+BEAT_THREAD_ENV = "MDCG_SUSTAIN_BEAT_THREAD"
+
+
+# 生效条件：environ 缺省取 os.environ，读 BEAT_THREAD_ENV 键，其 str() 值不在 AUTO_OFF_VALUES 中即返回 True（缺键回落 "0"＝关）；否则 False。
+def beat_thread_enabled(environ=None) -> bool:
+    """心跳独立线程开关（缺省**关**）：`MDCG_SUSTAIN_BEAT_THREAD` ∈ 关断字面量即关。
+
+    开启后 `start()` 额外起一条 daemon 线程专用 beat：业务档阻塞时心跳仍推进
+    （判活面与被判活对象不再共用执行体，D1）。缺省关 ⇒ 既有行为逐位不变。
+    """
+    env = os.environ if environ is None else environ
+    return str(env.get(BEAT_THREAD_ENV, "0")) not in AUTO_OFF_VALUES
+
+
 # 生效条件：给定库根 root，返回 root/HEARTBEAT_LOG 的拼接路径。
 def heartbeat_path(root: str) -> str:
     return os.path.join(root, HEARTBEAT_LOG)
 
 
 # 生效条件：给定库根 root，返回 root/HEARTBEAT_ARCHIVE 的拼接路径。
+# 生效条件：root 给定时返回 root/SUSTAIN_LOG 的绝对路径（与 heartbeat_path 同形）。
+# issue #547：落点路径的**单点 getter** —— 此前 sustain.py 内有两处直接拼
+# os.path.join(root, SUSTAIN_LOG)；与 heartbeat_path 对齐后产品代码只经 getter 取路径。
+def sustain_log_path(root: str) -> str:
+    """sustain 台账路径（单点）。"""
+    return os.path.join(root, SUSTAIN_LOG)
+
+
 def heartbeat_archive_dir(root: str) -> str:
     return os.path.join(root, HEARTBEAT_ARCHIVE)
 
@@ -406,7 +445,10 @@ def rotate_heartbeat(root: str, reason: str = "size"):
                "kind": HB_KIND_ROTATE, "ok": True, "shard": name,
                "bytes": size, "events": events, "pruned": pruned, "reason": reason}
         try:                               # 自述留痕：轮转本身可审计
-            append_jsonl(path, row)
+    # #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+    # 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+    # （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+            _ok = append_jsonl(path, row)
         except OSError:
             pass
         return {"shard": name, "bytes": size, "events": events, "pruned": pruned}
@@ -435,7 +477,8 @@ def _hb_prune_shards(root: str):
 
 # 生效条件：开关关（heartbeat_ledger_enabled() 为假）时返回 None 且不写盘；否则先经 _hb_rotate_if_needed(root) 有界闸门，再向 root/HEARTBEAT_LOG 追加一行 {"t","name","pid","kind":"beat","ok"(,"error")}，返回该行；任何写入异常被吞掉并返回 None（心跳不可因台账而中断）。
 def record_heartbeat(root: str, name: str, *, ok: bool = True, error=None,
-                     t=None, pid=None, extra=None) -> dict:
+                     t=None, pid=None, extra=None,
+                     kind: str = HB_KIND_BEAT) -> dict:
     """追加一条**心跳周期**记录（append-only）——「连续 N 周期无断」的原始证据。
 
     字段（至少）：`t`（时间戳）+`name`（周期名）+`pid`+`ok`（该周期结果）；
@@ -446,7 +489,7 @@ def record_heartbeat(root: str, name: str, *, ok: bool = True, error=None,
         return None
     row = {"t": float(t) if t is not None else time.time(),
            "name": name, "pid": os.getpid() if pid is None else pid,
-           "kind": HB_KIND_BEAT, "ok": bool(ok)}
+           "kind": kind, "ok": bool(ok)}
     if error is not None:
         row["error"] = str(error)[:200]
     if extra:
@@ -469,29 +512,62 @@ def _hb_records(root: str):
         yield r
 
 
-# 生效条件：只读统计 root 下全部 kind="beat" 记录（name 非 None 时按周期名过滤）的 t 序列——以相邻 t 间隔 > threshold_s 为断点，返回 {n, threshold_s, shards, file, absent, span_s, span_iso, last_iso, last_age_s, segments, longest_s, longest_iso, count_in_longest, breaks, breaks_top}；无记录时 absent=True 且各读数 None。
+# 生效条件：只读统计 root 下 kind∈{beat,tick} 的记录（name 非 None 时按周期名过滤）——成功 beat 的 t 序列以相邻 t 间隔 > threshold_s 为断点；失败行（beat/tick 的 ok 为假）只进失败读数、不进时间序列；返回 {n, threshold_s, shards, file, failed, failures, absent, span_s, span_iso, last_iso, last_age_s, segments, longest_s, longest_iso, count_in_longest, breaks, breaks_top}；该过滤名下一条记录都没有时 absent=True 且各时序读数 None（只有失败行时 absent=False、n=0、failed=该档失败行数、failures=最近 FAILURES_KEEP 条明细）。
 def heartbeat_ledger_stats(root: str, *, name: str = None,
                            threshold_s: float = HEARTBEAT_GAP_THRESHOLD) -> dict:
-    """只读统计：**最长连续无断区间 / 断点数 / 最近一次周期时刻**。
+    """只读统计：**最长连续无断区间 / 断点数 / 最近一次周期时刻**（＋失败读数）。
 
     用途＝闭合答卷 §八 分诊第 4 项的「不可严格测得」——`_sustain.jsonl`（heal 动作
     台账）与心跳戳（覆盖式单点）都答不了，本台账答得了。**只读**：不写、不轮转。
     有界台账（分片 ≤ 保留片数 × 轮转阈值）使该读数代价有界。
+
+    #376（2026-10-14）：时间序列**只纳入成功的 beat**——原实现按 `kind=="beat"`
+    取数，把 `ok=False` 的心跳也折成时间戳计入，于是「连续 N 周期无断」被失败行
+    刷长、业务档失败行则被 kind 过滤**整个丢弃**（两类表现同一根因）。修后：失败
+    的 beat 与业务档 tick 进**独立失败读数** `failed`（失败行数）与 `failures`
+    （最近 `FAILURES_KEEP` 条明细，落账序）。**不改写入路径 / 调度 / 配置 / 告警**
+    （本函数只读）；**全成功台账的原有读数逐位不变**（n/threshold_s/shards/file/
+    absent/span_*/last_*/segments/longest_*/count_in_longest/breaks* 一律照旧，
+    两个失败字段是纯增量）。`absent` 口径随之钉为「该过滤名下**一条记录都没有**」：
+    只有失败行的档位是 absent=False + n=0 + failed=k（那正是必须可见的形态），
+    空台账仍 absent=True。
     """
-    ts = []
+    def _num(x):                     # t 可取数判据（bool 不算数，沿用原口径）
+        return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+    ts, failed, failures = [], 0, []
     for r in _hb_records(root):
-        if not isinstance(r, dict) or r.get("kind") != HB_KIND_BEAT:
+        if not isinstance(r, dict):
             continue
+        _kind = r.get("kind")
+        if _kind not in (HB_KIND_BEAT, HB_KIND_TICK):
+            continue                     # 轮转自述行等非周期行不进统计（原口径）
         if name is not None and r.get("name") != name:
             continue
+        if not r.get("ok", True):
+            # #376：失败行（beat 与 tick 同列）——契约见 HB_KIND_TICK 注释。
+            # **不进**时间序列：失败周期不是「无断」的证据。
+            failed += 1
+            _t = r.get("t")
+            failures.append({"t": float(_t) if _num(_t) else None,
+                             "iso": _iso(_t) if _num(_t) else None,
+                             "name": r.get("name"), "kind": _kind,
+                             "error": r.get("error")})
+            continue
+        if _kind != HB_KIND_BEAT:
+            continue                     # 成功业务档不进心跳时间序列（原口径）
         v = r.get("t")
-        if isinstance(v, (int, float)) and not isinstance(v, bool):
+        if _num(v):
             ts.append(float(v))
     ts.sort()
+    # 失败明细按**落账序**取最近 FAILURES_KEEP 条（_hb_records 恒为时间序流）。
     out = {"n": len(ts), "threshold_s": float(threshold_s),
-           "shards": len(_hb_shards(root)), "file": HEARTBEAT_LOG}
+           "shards": len(_hb_shards(root)), "file": HEARTBEAT_LOG,
+           "failed": failed, "failures": failures[-FAILURES_KEEP:]}
     if not ts:
-        out.update({"absent": True, "segments": 0, "longest_s": None,
+        # absent＝该过滤名下**一条记录都没有**（既无成功 beat 也无失败行）。
+        # 只有失败行时 absent=False：那种台账恰恰是必须看得见的一种形态。
+        out.update({"absent": failed == 0, "segments": 0, "longest_s": None,
                     "longest_iso": None, "count_in_longest": 0,
                     "breaks": 0, "breaks_top": [], "span_s": None,
                     "span_iso": None, "last_iso": None, "last_age_s": None})
@@ -576,7 +652,7 @@ def _last_mutual_restart(root: str, peer: str) -> float:
     """_sustain.jsonl 里该对端最近一次互维拉起时间（无 → 0.0，审计即状态）。"""
     last = 0.0
     try:
-        with open(os.path.join(root, SUSTAIN_LOG), encoding="utf-8") as f:
+        with open(sustain_log_path(root), encoding="utf-8") as f:
             for line in f:
                 try:
                     r = json.loads(line)
@@ -733,7 +809,7 @@ def _index_log_shards(root: str):
     return [f for f in os.listdir(d) if f.endswith(".log")]
 
 
-# 生效条件：cg 具备 crypto_status 且其返回 unlocked 为假时，返回 cg.index['nodes'] 中 sensitivity 属 crypto.ENCRYPTED_LEVELS 的条目数；属性缺失、调用异常或已解锁时返回 0。
+# 生效条件：cg 具备 crypto_status 且其返回 unlocked 为假时，返回 cg.index['nodes'] 中 sensitivity 经 crypto.is_encrypted_level 判为加密档的条目数；属性缺失、调用异常或已解锁时返回 0。
 def _locked_nodes(cg) -> int:
     """加密引擎在「未解锁」状态下被隔离的私有节点数（缺密钥 = 权限事实）。"""
     if not hasattr(cg, "crypto_status"):
@@ -750,7 +826,7 @@ def _locked_nodes(cg) -> int:
     # during iteration')（N138，FI-M04）。list() 拷贝在 C 层一次完成（迭代期间
     # 不释放 GIL），故快照自身原子；判据与结果逐位不变（只换取用方式）。
     return sum(1 for e in list(nodes.values())
-               if (e.get("sensitivity") or "") in crypto.ENCRYPTED_LEVELS)
+               if crypto.is_encrypted_level(e.get("sensitivity")))
 
 
 # --------------------------------------------------------------------------
@@ -989,7 +1065,7 @@ def _seal_half_line(path: str):
 
 # 生效条件：root/op/action 必填，向 root/SUSTAIN_LOG（模块常量）追加一行含 t/op/action/detail(截断 200)/pid 的 JSONL，无返回值。
 def _audit(root: str, op: str, action: str, detail: str = ""):
-    append_jsonl(os.path.join(root, SUSTAIN_LOG),
+    append_jsonl(sustain_log_path(root),
                  {"t": time.time(), "op": op, "action": action,
                   "detail": str(detail)[:200], "pid": os.getpid()})
 
@@ -1104,14 +1180,21 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
         except Exception as e:                       # 自愈失败不能拖垮进程
             actions.append({"code": code, "detail": detail, "applied": True,
                             "ok": False, "error": f"{type(e).__name__}: {e}"})
+            # #404：台账是**外部可见读数**，必须与事实一致——失败时把「清理 N 个…」改写成
+            # 带结果的形态再落账，否则 `_audit` 会照写一行「已清理 N 个」的假账（issue 期望 #2）。
+            # 只改 detail（不动 applied/ok 语义）。
+            detail = "%s → 失败：%s: %s" % (detail, type(e).__name__, e)
         else:
             # `fn()` 跑完 ≠ 修好：返回 dict 且 ok is False（或 truncated）时
             # 如实记 ok=False——「重建失败」绝不能被记成 ok=True。
             bad = _bad_result(res)
             row = {"code": code, "detail": detail, "applied": True, "ok": not bad}
             if isinstance(res, dict):
+                # #404：白名单是**回执的判据面**——诚实计数（removed/planned）必须进得来，
+                # 否则「删了几个」到不了外部读数（本件首版就被自己的守卫抓到这一点）。
                 brief = {k: res[k] for k in ("ok", "indexed", "files", "truncated",
-                                             "roots_missing", "errors")
+                                             "roots_missing", "errors",
+                                             "removed", "planned")
                          if k in res}
                 if isinstance(brief.get("errors"), list):
                     brief["errors"] = brief["errors"][:1]
@@ -1152,13 +1235,27 @@ def heal(cg, *, name: str = "md_cg", dry_run: bool = False,
     if "stale_temps" in codes:
         paths = _list_stale_temps(root, stale_temp_age)
 
-# 生效条件：对闭包变量 paths 中每个路径尝试 os.remove(p)，单个路径的 OSError 被吞掉后继续处理后续路径；
+# 生效条件：对闭包变量 paths 逐个 os.remove 并按**实际结果**返回 {"ok","removed","planned","errors"}——单条失败记入 errors 后继续；paths 非空而**一个都没删掉**时抛 OSError（让 act 如实记 ok=False，不假装成功）；paths 为空时返回 ok=True/removed=0（无事可做不是失败）。
         def _sweep():
+            # #404（2026-10-16）根因：原实现 `except OSError: pass` 吞掉失败、且返回 None ⇒
+            # act 的 `_bad_result(None)` 为假 ⇒ 回执 `applied=True/ok=True`，`_audit` 同时照写
+            # 「清理 N 个陈旧临时文件」——**回执与台账都与事实相反**（同函数内 seal_half_lines
+            # 不吞异常，本处是唯一把失败吞成成功的动作，与「绝不假装成功」正面对撞）。
+            # 修法：按实际结果回报 + 全失败即抛（fail-loud）；**不改 act 的 applied 语义**——
+            # 沿用仓内既有口径（scrub.py 的 #411 修法：applied=动作跑过、ok=按事实判）。
+            done, failed = 0, []
             for p in paths:
                 try:
                     os.remove(p)
-                except OSError:
-                    pass
+                except OSError as e:
+                    failed.append("%s: %s" % (os.path.basename(p), e))
+                else:
+                    done += 1
+            if paths and done == 0:
+                raise OSError("陈旧临时件一个都没删掉（%d/%d）：%s"
+                              % (done, len(paths), "；".join(failed[:3])))
+            return {"ok": not failed, "removed": done, "planned": len(paths),
+                    "errors": failed[:3]}
         act("sweep_temps", f"清理 {len(paths)} 个陈旧临时文件", _sweep)
     if "half_line_logs" in codes:
         paths = _half_line_logs(root)
@@ -1382,6 +1479,7 @@ class SustainLoop:
         self._ticks_wrapped = False          # 六档进度面包装的幂等标记
         self._started_at = None
         self._th = None
+        self._beat_th = None                 # D1：独立心跳线程（缺省关）
         self._stop = threading.Event()
         self._lock = threading.Lock()
 
@@ -1482,6 +1580,13 @@ class SustainLoop:
                 fn(*a, **kw)
             except Exception as e:                   # noqa: BLE001
                 ok_ = False
+                if name != "beat":
+                    # D2：失败档**必须在台账可见**——非 beat 业务档每轮失败追加
+                    # 一条 kind="tick" 行（beat 自身失败已由 beat() 记 ok=False）。
+                    record_heartbeat(self.cg.root, name, ok=False,
+                                     error="%s: %s" % (type(e).__name__,
+                                                       str(e)[:200]),
+                                     kind=HB_KIND_TICK)
                 self.last_tick_error = {"name": name, "t": time.time(),
                                         "error": "%s: %s" % (type(e).__name__,
                                                              str(e)[:200])}
@@ -1529,6 +1634,12 @@ class SustainLoop:
         self._th = threading.Thread(target=self._run, name="mdcg-sustain",
                                     daemon=True)
         self._th.start()
+        if beat_thread_enabled():
+            # D1：心跳独立线程（缺省关）——业务档阻塞时心跳仍推进。
+            self._beat_th = threading.Thread(target=self._beat_loop,
+                                             name="mdcg-sustain-beat",
+                                             daemon=True)
+            self._beat_th.start()
         return self
 
 # 生效条件：调用时置 _stop 事件，self._th 非 None 时 join(timeout)（默认 3.0）后置为 None，随后 clear_stamp(self.name, self.d)，返回 self；
@@ -1537,12 +1648,24 @@ class SustainLoop:
         if self._th is not None:
             self._th.join(timeout)
             self._th = None
+        bt = getattr(self, "_beat_th", None)
+        if bt is not None:
+            bt.join(timeout)                 # _stop 已置位 ⇒ 心跳线程即刻退出
+            self._beat_th = None
         clear_stamp(self.name, self.d)
         return self
 
 # 生效条件：self._stop 未置位期间轮询（**先调 _wrap_ticks 给六档包上进度面，幂等**），按 beat_interval/heal_interval/scrub_interval/evolve_interval/tidy_interval/**sleep_interval（第六档）** 到期分别执行 beat 与 _tick_heal/_tick_scrub/_tick_evolve/_tick_tidy/_tick_sleep（六档调用形态与既有五档逐字同构：try/except 吞异常 + `_stop.wait(_POLL)` 收尾；进/出读数与异常记录由包装单点提供——issue #63）；
     def _run(self):
         self._wrap_ticks()               # issue #63：六档包上进度面（幂等，形态不变）
+        # issue #207 T1（2026-10-13 DSH 端）：beat 的**调度源**在开启独立心跳线程后
+        # 应当**转移**而不是**叠加**。原实现下 start() 起了 _beat_loop 线程，
+        # 而本循环仍在按 beat_interval 调 beat() —— 两路叠加，心跳与台账行数按
+        # 倍率翻倍（实测 OFF=30 / ON=59 @0.2s），且 status()["beats"] 这一对外
+        # 读数随之失真（uptime/beats 被外部用来推「转过多少轮」）。
+        # 本函数自己的 docstring 写的就是「唯一改动的是 beat 的**调度源**」——
+        # 是转移语义。缺省关时本标志恒为 True，既有单线程基线逐位不变。
+        own_beat = not beat_thread_enabled()
         next_beat = time.time() + self.beat_interval
         next_heal = time.time() + self.heal_interval
         next_scrub = time.time() + self.scrub_interval
@@ -1551,7 +1674,7 @@ class SustainLoop:
         next_sleep = time.time() + self.sleep_interval
         while not self._stop.is_set():
             now = time.time()
-            if now >= next_beat:
+            if own_beat and now >= next_beat:
                 try:
                     self.beat()
                 except Exception:
@@ -1588,6 +1711,22 @@ class SustainLoop:
                     pass                       # 睡眠周期失败不中断常驻
                 next_sleep = now + self.sleep_interval
             self._stop.wait(_POLL)
+
+    # ---- D1：心跳独立线程（缺省关）----
+
+# 生效条件：由 start() 在 beat_thread_enabled() 为真时起一条 daemon 线程执行；循环里每 beat_interval 调一次 self.beat()，异常吞掉（心跳失败不拖垮常驻），_stop 置位即退出。
+    def _beat_loop(self):
+        """独立心跳线程体（D1）：与业务档**不共用执行体**——业务档阻塞时心跳仍推进。
+
+        唯一改动的是 beat 的**调度源**（多一条线程），复用既有 `beat()`（写戳 +
+        台账，纯追加、无共享可变状态）；缺省关时本线程不启动，既有单线程基线
+        逐位不变。线程退出由 `_stop` 事件驱动（`stop()` 置位后 wait 立即返回）。
+        """
+        while not self._stop.wait(self.beat_interval):
+            try:
+                self.beat()
+            except Exception:                    # noqa: BLE001
+                pass                             # 心跳失败不中断常驻
 
 # 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
     def _tick_tidy(self):

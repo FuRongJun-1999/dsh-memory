@@ -466,8 +466,17 @@ def _record(cg, kind, ok, payload):
     nid = f"whitebox_verify_{kind}_{int(time.time() * 1000)}"
     body = json.dumps(payload, ensure_ascii=False, default=str)[:1800]
     try:
+        # 2026-10-18：补条件空间四维——此前只有 time_window（autofill），
+        # 三条 whitebox_verify_* 因此判 legacy_blindspot。
+        # 同样是"自述产生过程"而非内容推断：它确实是系统自验、用该验证器、
+        # 在"验证已执行且库可写"的前提下产生的记录。
         cg.add(nid, f"[白箱能力验证·{kind}] ok={ok} {body}",
                layer="self", tags=[VERIFY_TAG, f"whitebox:{kind}"],
+               condition_space={
+                   "observation_position": "self:lingshu",
+                   "observation_tool": "whitebox.verify_%s" % kind,
+                   "existence_constraint": "库内可写且验证已执行",
+               },
                importance=0.6, verification_basis="test",
                consistency=False)
         return nid

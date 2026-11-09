@@ -161,11 +161,21 @@ def main():
         if os.path.isdir(cg.index_log_dir) else 0
     log_before = os.path.getsize(cg.access_log) if os.path.exists(cg.access_log) else 0
     time.sleep(0.05)
+    # E-T63a（2026-10-11）：检索默认 record=True，命中节点会即时折进
+    # frontmatter（access_count/last_access）——「检索零写盘」的旧断言与
+    # 「召回后计数落盘」的验收冲突。升级为「写集 ⊆ 命中集」：检索仍不得
+    # 变成全库写（未命中的节点 .md 不许动），但命中节点允许被记数写盘。
+    hit_ids = set()
+    hit_paths = set()
     for q in ("能量守恒", "二分查找", "知识点", "细胞", "函数"):
-        cg.search(q, layer="knowledge", k=10, context=ctx)
+        res, _m = cg.search(q, layer="knowledge", k=10, context=ctx)
+        hit_ids.update(r[0]["id"] for r in res)
+        hit_paths.update(r[0].get("path") for r in res if isinstance(r[0], dict))
     after = {p: os.path.getmtime(os.path.join(ROOT, p)) for p in before}
-    check("检索未修改任何节点 .md（mtime 全不变）", before == after,
-          f"变动 {sum(1 for p in before if before[p] != after[p])} 个")
+    changed = [p for p in before if before[p] != after[p]]
+    overreach = [p for p in changed if p not in hit_paths]
+    check("检索只写命中节点 .md（写集 ⊆ 命中集）", not overreach,
+          f"越界 {len(overreach)} 个：{overreach[:5]}")
     check("检索未重写索引快照", os.path.getmtime(cg.index_path) == idx_before)
     check("检索未写索引日志",
           (sum(os.path.getsize(os.path.join(cg.index_log_dir, f))

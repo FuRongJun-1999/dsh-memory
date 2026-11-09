@@ -74,6 +74,43 @@ def _fm_of(rec):
     return rec.get("frontmatter") or rec
 
 
+# 生效条件：调用 _inherit_sensitivity(cg, nid) 时，返回 subgraph.node_sensitivity(cg, nid)（索引快照优先、回退读文件 frontmatter；判不了返回 None）。
+def _inherit_sensitivity(cg, nid):
+    """派生写（副本/改写/回写）应继承的密级 = 来源节点密级。
+
+    issue #243（本件）：此前 fork/rewrite/merge 三处 cg.add 均不传 sensitivity，
+    MdCGSecure.add 把缺省归一为 DEFAULT_SENSITIVITY（internal）——声明 private
+    的主支节点一旦 fork / 改写 / 合并，盘上就变成 internal **明文**
+    （crypto.ENCRYPTED_LEVELS 只含 private/secret），密级静默降级。
+    读密级复用既有单点 subgraph.node_sensitivity（与 #164 派生节点密级同源），
+    三处派生写共用本函数，避免各自复制一份判据。
+    判不了（节点不可见 / 档位缺或非法）返回 None —— 三处调用点一律 fail-closed
+    跳过或拒绝，**不把 None 直传 add**（那会被归一成 internal，等于把「判不了」
+    当成「internal 明文」，与 #164「判不了不生成」口径相反）。
+    """
+    from . import subgraph as _subgraph
+    return _subgraph.node_sensitivity(cg, nid)
+
+
+# 生效条件：调用 _fail_closed_on_unjudged(sens) 时，sens 为 None（档位缺 / 非法 / 节点不可见）返回 True，否则返回 False。
+def _fail_closed_on_unjudged(sens) -> bool:
+    """判不了密级即 fail-closed —— 三处派生写共用的唯一判据点（issue #243）。
+
+    返回 True 表示调用点必须跳过或拒绝，**不得**把 None 直传 cg.add：那会被
+    MdCGSecure.add 归一成 DEFAULT_SENSITIVITY=internal，等于把「判不了」当成
+    「internal 明文」，与 #164「判不了不生成」口径相反。单点化同时让定点变异
+    可自证：本函数恒 False 时，三处 fail-closed 断言必须变红并点名。
+    """
+    return sens is None
+
+
+# 生效条件：调用 _merge_downgrades(main_sens, branch_sens) 时，返回 bool(security.merge_downgrades(main_sens, branch_sens))。
+def _merge_downgrades(main_sens, branch_sens) -> bool:
+    """merge 回写是否会降密级 —— 复用 security.merge_downgrades 单点（issue #148）。"""
+    from .security import merge_downgrades as _md
+    return bool(_md(main_sens, branch_sens))
+
+
 # 生效条件：调用 fork(cg, node_ids, branch_id=None, note=None) 时，先将 node_ids 去空转字符串，为空则返回 {"ok": False, "error": ...}；否则 branch_id 为 None 时生成 "br_"+uuid4().hex[:8]，再 str(branch_id).strip().lower()，若不匹配模块常量 _BRANCH_RE 则返回错误；然后对每个 nid 跳过含 "@"、cg.get(nid) 为假值或 cg.get(branch_node_id(nid, branch_id)) 已存在者，其余经 cg.add 复制并记入 forked，最终返回 ok=bool(forked) 及 branch_id/tag/forked/skipped。
 def fork(cg, node_ids, branch_id=None, note=None) -> dict:
     """把主支节点复制成分支实验副本。
@@ -104,6 +141,15 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
         if cg.get(bid):
             skipped.append({"id": nid, "why": "副本已存在：%s" % bid})
             continue
+        # 密级随副本携带（issue #243）：不传则 add 归一为 internal，声明
+        # private 的主支节点 fork 后即成 internal 明文（静默降级）；判不了
+        # （缺/非法档位）fail-closed 不复制——与 #164「判不了不生成」同口径。
+        _sens = _inherit_sensitivity(cg, nid)
+        if _fail_closed_on_unjudged(_sens):
+            skipped.append({"id": nid, "why":
+                            "来源密级判不了（缺/非法档位）：fail-closed 不复制"
+                            "（#164 同口径，subgraph.node_sensitivity 返回 None）"})
+            continue
         cg.add(bid, rec.get("content") or "",
                layer=fm.get("layer") or "knowledge",
                role=fm.get("role"),
@@ -118,6 +164,7 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
                # 正文与主支一致则标记有效；缺省 None 不落键）。
                uncertain_refs=fm.get("uncertain_refs"),
                non_applicable_conditions=fm.get("non_applicable_conditions"),
+               sensitivity=_sens,
                consistency=False,
                derived_from=[nid], relation="split_from",
                branch_id=branch_id, branched_from=nid, branch_note=note,
@@ -147,6 +194,9 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
       derived_relation）一律从旧 fm 继承，调用方**不可改**（extra 里
       同名键静默剥离）——「分支上怎么改内容都行，改不了它是谁的实验」；
     - 层/条件空间/验证基底默认继承旧 fm（tags/importance 可显式覆盖）；
+    - 密级（sensitivity）与归属/血缘同族，一律从旧 fm 继承，extra 里同名键
+      静默剥离（issue #243：此前既漏继承，又允许调用方经 extra 直接改档——
+      含把 private 分支改成 internal，两条路都通向静默降级）；
     - override=True → 旧内容自动快照留痕（③ 快照机制，零新日志）。
     写权限由 add 的 require_layer_write 库层强制，不在此重复设闸。
     """
@@ -163,8 +213,8 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
         return {"ok": False, "error": "content 须为字符串"}
     for k in ("branch_id", "branched_from", "branch_note", "derived_from",
               "relation", "merged_from_branch", "override", "consistency",
-              "uncertain_refs"):
-        extra.pop(k, None)   # 归属/血缘/写法闸/检测产物不可经 extra 篡改
+              "uncertain_refs", "sensitivity"):
+        extra.pop(k, None)   # 归属/血缘/密级/写法闸/检测产物不可经 extra 篡改
     # A2（2026-10-05，复核 yellow-1 修）：标记按**新正文**重算——本函数是
     # 「改正文的唯一正路」，携带旧标记会与正文脱节（干净正文带陈旧标记 /
     # 幽灵正文漏标，双向都错）；与 mdcg.add「正文属性、按当次检测重算」
@@ -172,6 +222,11 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
     from . import ghostref as _ghostref
     _ur = _ghostref.find_ghost_phrases(
         str(content or ""), known=set((cg.index.get("nodes") or {}).keys()))
+    _sens = _inherit_sensitivity(cg, nid)
+    if _fail_closed_on_unjudged(_sens):
+        return {"ok": False,
+                "error": "来源密级判不了（缺/非法档位）：fail-closed 不改写"
+                         "（#164 同口径，subgraph.node_sensitivity 返回 None）"}
     cg.add(nid, str(content or ""),
            layer=fm.get("layer") or e.get("layer") or "knowledge",
            tags=list(tags if tags is not None else (fm.get("tags") or [])),
@@ -184,6 +239,7 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
            # A2（2026-10-05）：幽灵引用标记按新正文重算（见上）。
            uncertain_refs=_ur or None,
            non_applicable_conditions=fm.get("non_applicable_conditions"),
+           sensitivity=_sens,
            override=True, consistency=False,
            derived_from=list(fm.get("derived_from") or []),
            relation=fm.get("derived_relation") or "split_from",
@@ -202,6 +258,8 @@ def merge(cg, branch_id, reason=None) -> dict:
     - 主支内容 = 分支内容；层/tags/重要性继承主支（实验元数据不带回去）；
     - 主支 derived_from 追加分支 nid（原链保留）、relation="merged_from"；
     - override=True → 主支旧内容自动快照留痕；
+    - 密级：回写沿用主支档；若分支档更高（写回即降密级）则跳过该节点，
+      fail-closed（security.merge_downgrades 单点，issue #148 同口径）；
     - 分支节点保留（merge 不自动删——显式两步、可逆、诚实）。
     """
     bid = str(branch_id or "").strip().lower()
@@ -218,6 +276,23 @@ def merge(cg, branch_id, reason=None) -> dict:
         src = cg.get(nid)
         old_fm = _fm_of(rec)
         src_fm = _fm_of(src)
+        # 密级闸（issue #243）：回写前先判会不会降密级——分支被升到更高档后
+        # 把正文写回低档主支，就是把 private 正文变成 internal 明文（静默降
+        # 级）。判据复用 security.merge_downgrades 单点（issue #148，writelimit
+        # 与 forgetting 同源），判为降密级即 fail-closed 不写盘。
+        _sens_main = _inherit_sensitivity(cg, orig)
+        _sens_src = _inherit_sensitivity(cg, nid)
+        if _fail_closed_on_unjudged(_sens_main) or _fail_closed_on_unjudged(_sens_src):
+            skipped.append({"id": nid, "why":
+                            "密级判不了（缺/非法档位）：fail-closed 不写盘"
+                            "（#164 同口径，subgraph.node_sensitivity 返回 None）"})
+            continue
+        if _merge_downgrades(_sens_main, _sens_src):
+            skipped.append({"id": nid, "why":
+                            "合并会降密级（分支 %s > 主支 %s）：fail-closed 不写盘"
+                            "（security.merge_downgrades 单点，issue #148）"
+                            % (_sens_src, _sens_main)})
+            continue
         chain = list(old_fm.get("derived_from") or [])
         if nid not in chain:
             chain.append(nid)
@@ -236,6 +311,8 @@ def merge(cg, branch_id, reason=None) -> dict:
                verification_basis=old_fm.get("verification_basis") or "test",
                non_applicable_conditions=old_fm.get("non_applicable_conditions"),
                uncertain_refs=_mur or None,
+               # 密级沿用主支档（已过降密级闸，见上）。
+               sensitivity=_sens_main,
                override=True, consistency=False,
                derived_from=chain, relation="merged_from",
                merged_from_branch=bid, actor="branch_merge")

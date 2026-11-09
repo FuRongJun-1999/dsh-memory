@@ -347,6 +347,18 @@ def handshake(peer_node_id: str, *, peer_theory: dict = None,
 # --------------------------------------------------------------------------
 
 # 生效条件：peer 经 load(path)/_find 命中连接（未命中或 status 为 "withdrawn" 时抛 LinkError）；`_signer.verify_for(...)` 返回值中 ok 非真时按 `ver.get("on_fail") or "degrade"` 处置——"reject" 抛 LinkError，其余置 isolated/degraded 后返回 ok False；验签通过则 delta=UP_STEP if positive else -DOWN_STEP，P_trust 置 `round(max(0.0, min(cap, before + delta)), 6)`（cap 取 `link.get("p_trust_cap") or 0.0`），负证据且新 P_trust<DEGRADE_BELOW 且原状态在 IN_TRUST 时降级，返回 ok True、link、delta。
+def _weaker_subsystem(subsystem: str, baseline: str,
+                      signers_file: str = None) -> str:
+    """issue #167：调用方子系统相对**基准子系统**是否更松（更松返回原因串）。
+
+    基准 = 连接建档时的子系统（observe 的验签要求不得被调用方参数顶掉）。
+    """
+    if not subsystem or not baseline or subsystem == baseline:
+        return ""
+    return _signer.weaker_than(_signer.policy_for(subsystem, signers_file),
+                               _signer.policy_for(baseline, signers_file))
+
+
 def observe(peer: str, *, evidence: str, positive: bool = True,
             subsystem: str = None, peer_signature: str = None,
             path: str = None, signers_file: str = None,
@@ -367,6 +379,13 @@ def observe(peer: str, *, evidence: str, positive: bool = True,
         if link["status"] == "withdrawn":
             raise LinkError(f"连接已退出：{peer}")
 
+        # issue #167：`subsystem or link.get("subsystem")` 是**调用方参数优先**，
+        # 用更松的子系统策略即顶掉建档子系统的验签要求（验签前置）。
+        _rec_sub = link.get("subsystem") or None
+        _why = _weaker_subsystem(subsystem, _rec_sub, signers_file)
+        if _why:
+            raise LinkError("observe 子系统策略不得弱于建档子系统 %s：%s"
+                            % (_rec_sub, _why))
         payload = evidence_payload(link["peer_node_id"], evidence, positive)
         ver = _signer.verify_for(subsystem or link.get("subsystem") or None,
                                  payload, peer_signature or "",

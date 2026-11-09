@@ -66,6 +66,7 @@ import re
 import time
 
 from . import identity, metacognition
+from . import fsutil
 from .fsutil import append_jsonl, read_jsonl
 
 DEFAULT_SUBJECT = "self:lingshu"
@@ -149,7 +150,15 @@ def trust_band(p_trust):
 # 生效条件：对 required 形参 cg 与 rec，调用 append_jsonl(log_path(cg), rec)；若抛出 OSError 则静默忽略，无返回值；
 def _append_log(cg, rec):
     try:
-        append_jsonl(log_path(cg), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        # issue #443：调用方可控字段可无限长 ⇒ 单条记录先过总字节闸（超限跳过写并留痕）。
+        if not fsutil.bounded_record(rec):
+            fsutil._note_append_failure(log_path(cg),
+                                        ValueError("record_too_large: issue #443"))
+            return
+        _ok = fsutil.append_jsonl_ledger(log_path(cg), rec)
     except OSError:
         pass
 
@@ -158,7 +167,7 @@ def _append_log(cg, rec):
 def history(cg, limit=100, subject=None):
     """自我状态留痕（倒序）。"""
     try:
-        recs = list(read_jsonl(log_path(cg)))
+        recs = list(fsutil.read_jsonl_ledger(log_path(cg)))
     except OSError:
         recs = []
     if subject:
@@ -194,6 +203,131 @@ def _entry(cg, node_id):
     return ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(node_id)
 
 
+# 生效条件：对 required 形参 cg 与 subject（缺省 DEFAULT_SUBJECT），只读地取
+#   layer=goals 的 active 目标、layer=knowledge 的高重要度节点、layer=unresolved
+#   的未解问题各至多 int(limit) 条，并读 metacognition.trace 的 d_state；
+#   返回 {"goals":[{id,title,priority}], "knows":[{id,title}],
+#         "open":[{id,question}], "gap":"...", "text":"..."}；
+#   每类取不到时为空列表、gap 为固定句，绝不编造内容；
+_TITLE_LABELS = ("问题", "假设", "功能名", "主题", "结论")
+_GENERIC_LABELS = ("验证方式", "生效条件", "执行", "子功能", "不适用条件",
+                   "条件空间", "证据", "来源")
+_TITLE_RE = re.compile(
+    r"^\s*#?\s*([一-鿿A-Za-z][^：:\s]{1,7})\s*[：:]\s*(.+)$")
+
+
+def _headline(text, limit=60):
+    """取正文里最像标题的一行。
+
+    优先「问题 / 假设 / 功能名 / 主题 / 结论」这类标签行（正文是 CCG 字段堆
+    时，第一行往往是「验证方式：…」这种附属字段，拿它当标题会三条重复），
+    都没有就退回第一个非空行。返回值统一去掉标签前缀。
+    """
+    plain = []
+    for line in str(text or "").splitlines():
+        s = line.strip().lstrip("#").strip()
+        if not s:
+            continue
+        m = _TITLE_RE.match(s)
+        if m and m.group(1) in _TITLE_LABELS:
+            return m.group(2).strip()[:limit]
+        plain.append((s, m.group(1) if m else ""))
+    if not plain:
+        return ""
+    # 兜底：没有标题标签的节点（全域 550/905，正文以「# 验证方式：…」开头）
+    # 取**最长的一行非附属字段散文**——附属字段（验证方式/生效条件/执行…）
+    # 是元数据，拿它当标题会整屏重复「验证方式：同模型自验…」。
+    prose = [(s, lab) for s, lab in plain if lab not in _GENERIC_LABELS]
+    pool = prose or plain
+    best = max(pool, key=lambda kv: len(kv[0]))[0]
+    return best[:limit]
+
+
+# 生效条件：对 required 形参 cg 与 subject 与 limit，从索引按层筛选并排序后
+#   逐条 cg.get(id, probe=True) 取正文首行标题；任何异常返回空列表；
+def portrait(cg, subject=DEFAULT_SUBJECT, limit=3):
+    """内容画像：我是谁、我在追什么、我知道什么、我还缺什么。
+
+    与「仪表盘」的区别：这里只放**可读的内容**（目标标题 / 知识标题 /
+    未解问题），不放系数与计数。每项都来自库里的真实节点；取不到就留空
+    并说明，不编造。
+    """
+    out = {"subject": subject, "goals": [], "knows": [], "open": [],
+           "gap": "", "text": ""}
+    try:
+        nodes = dict(getattr(cg, "index", {}).get("nodes") or {})
+    except Exception:                                       # noqa: BLE001
+        nodes = {}
+
+    def _by_layer(layer, key):
+        rows = [(nid, e) for nid, e in nodes.items()
+                if (e or {}).get("layer") == layer]
+        rows.sort(key=lambda kv: (-float(kv[1].get("importance") or 0.0),
+                                  str(kv[0])))
+        got, seen = [], set()
+        for nid, e in rows[:int(limit) * 8]:
+            try:
+                node = cg.get(nid, probe=True) or {}
+            except Exception:                               # noqa: BLE001
+                continue
+            title = _headline(node.get("content"))
+            # 同名/同前缀的不重复列：三条一样的标题等于没给信息。
+            sig = title[:24]
+            if not title or sig in seen:
+                continue
+            seen.add(sig)
+            got.append({key: title, "id": nid})
+            if len(got) >= int(limit):
+                break
+        return got
+
+    try:
+        goals = cg.active_goals(limit=int(limit) * 2) or []
+    except Exception:                                       # noqa: BLE001
+        goals = []
+    seen_g = set()
+    for g in goals:
+        gid = str(g.get("id") or "")
+        title = ""
+        try:
+            title = _headline((cg.get(gid, probe=True) or {}).get("content"))
+        except Exception:                                   # noqa: BLE001
+            title = ""
+        title = title or gid
+        if title[:24] in seen_g:
+            continue
+        seen_g.add(title[:24])
+        out["goals"].append({"id": gid, "title": title,
+                             "priority": g.get("priority")})
+        if len(out["goals"]) >= int(limit):
+            break
+    out["knows"] = _by_layer("knowledge", "title")
+    out["open"] = _by_layer("unresolved", "question")
+
+    try:
+        from . import metacognition as _meta
+        ds = (_meta.trace(cg, window=6) or {}).get("d_state")
+    except Exception:                                       # noqa: BLE001
+        ds = None
+    out["gap"] = {
+        "starved": "检索近几次几乎全是空白命中：我缺的是「可被检索到的语料」，"
+                   "不是缺检索算法——先补节点或加别名，再谈排序。",
+        "thin": "检索命中偏薄：能答，但证据不厚；先看未解问题里有没有该补的。",
+        "ok": "检索命中正常；没有特殊的语料缺口。",
+    }.get(ds or "", "没有足够的检索留痕，暂时无法判断缺什么。")
+
+    parts = []
+    if out["goals"]:
+        parts.append("我在追：" + "；".join(g["title"] for g in out["goals"]))
+    if out["knows"]:
+        parts.append("我知道：" + "；".join(k["title"] for k in out["knows"]))
+    if out["open"]:
+        parts.append("我还没弄清：" + "；".join(o["question"] for o in out["open"]))
+    parts.append("缺口：" + out["gap"])
+    out["text"] = "。".join(parts) + "。"
+    return out
+
+
 # 生效条件：对 required 形参 cg 与 subject（未传时 DEFAULT_SUBJECT），若 state_node_id(subject) 在 cg.index.nodes 中不存在，或该节点没有非空 frontmatter，返回 None；否则返回由该 frontmatter 扁平化出的 dict，其中 subject 为 fm.get("state_subject") or subject，d_current/p_trust 分别从 information_gap/trust 子字典取；
 def snapshot(cg, subject=DEFAULT_SUBJECT):
     """读当前状态卡 → 扁平 dict（不存在返回 None）。只读，不写盘。"""
@@ -214,6 +348,7 @@ def snapshot(cg, subject=DEFAULT_SUBJECT):
                 "importance_self", "important_refs", "identity_ref",
                 "state_links"):
         out[key] = fm.get(key)
+    out["portrait"] = portrait(cg, out.get("subject") or subject)
     out["d_current"] = (fm.get("information_gap") or {}).get("d_current")
     out["p_trust"] = (fm.get("trust") or {}).get("p_trust")
     return out
@@ -309,8 +444,12 @@ def _prediction_face(cg):
         "ok": samples > 0,
         "samples": samples,
         "hit_rate": None if hit_rate is None else round(hit_rate, 4),
-        "beta_mean": beta.get("mean"),
-        "beta_ci95": beta.get("ci95"),
+        # P2-2：无样本时 beta 是**先验**，不是观测。原先 samples=0 也回
+        # beta_mean/ci95，读数看起来像「有后验」；现分列 basis 与 beta_prior。
+        "basis": "observed" if samples > 0 else "prior",
+        "beta_mean": beta.get("mean") if samples > 0 else None,
+        "beta_ci95": beta.get("ci95") if samples > 0 else None,
+        "beta_prior": {"mean": beta.get("mean"), "ci95": beta.get("ci95")},
         "threshold": th.get("threshold"),
         "reflect": bool(th.get("reflect")),
         "ece": cal.get("ece") if cal.get("ok") else None,
@@ -396,9 +535,14 @@ def _derive(cg, subject, window, importance, important_refs, dimensions,
     emotion = tr.get("emotion") if (tr.get("ok") and d2 is not None) else "unknown"
     affect = tt.get("emotion") if (tt.get("ok") and d2t is not None) else "unknown"
 
+    # P1-b：trend 只看一阶差分，d_current 长期恒为 1.0 时也会显示 flat——
+    # 那是「一直全盲」而不是「稳定」。把 metacognition 的 d_state 一并写进
+    # 信息差额，读数才有分母：starved=恒在 1.0 附近，thin=偏高，ok=正常。
     information_gap = {"ok": bool(tr.get("ok")), "n": tr.get("n", 0),
                        "d_current": tr.get("d_current"), "d1": tr.get("d1"),
-                       "d2": d2, "trend": tr.get("trend")}
+                       "d2": d2, "trend": tr.get("trend"),
+                       "d_state": tr.get("d_state"),
+                       "d_meaning": tr.get("d_meaning")}
     trust = {"ok": bool(tt.get("ok")), "n_events": tt.get("n_events", 0),
              "p_gap": tt.get("p_gap"), "p_trust": tt.get("p_trust"),
              "d1": tt.get("d1"), "d2t": d2t,
@@ -422,6 +566,10 @@ def _derive(cg, subject, window, importance, important_refs, dimensions,
         dims.setdefault("trust", [])
         if trust["band"] not in dims["trust"]:
             dims["trust"].append(trust["band"])
+    else:
+        # P2-1 诚实化：本卡没有可信的 P_trust（无留痕 / 未知）时，不得沿用
+        # 历史卡里残留的档位——旧卡写过 ["high"]，读起来像「当前很可信」。
+        dims["trust"] = ["unknown"]
     today = time.strftime("%Y-%m-%d", time.localtime())
     dims.setdefault("time", [])
     if today not in dims["time"]:
@@ -478,6 +626,7 @@ def _render(state):
         f"；ECE={pd.get('ece')}（{pd.get('calibration')}）",
         f"# D_meta：边界压力趋势（unmodeled_growth 均值）={pd.get('d_meta_trend')}"
         f"（三代理分别观测、不合成单值，不参与 D_task）",
+        "# 我是谁：" + ((state.get("portrait") or {}).get("text") or "（无）"),
         "# 索引：" + "；".join(
             f"{d}={','.join(dims.get(d) or []) or '-'}" for d in DIMENSIONS),
         "# 说明：本卡是薄自我——只登记当前值与指针；具体任务/人物/会话/"
@@ -566,7 +715,16 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
               "weight": 0.6} for t in state["state_links"]]
 
     nid = state_node_id(subject)
+    # 2026-10-18：补条件空间四维。这里不是"推断内容"，是**自述产生过程**——
+    # 状态卡由系统自身周期刷新产生，故观测位置/工具/存在约束都可如实声明。
+    # 此前缺这三维，导致 self 层状态卡（importance 可达 1.0）判 legacy_blindspot：
+    # 一张"自我状态卡"却是依据不明，与它 importance 1.0 的定位自相矛盾。
     cg.add(nid, _render(state), layer="self", tags=tags, edges=edges,
+           condition_space={
+               "observation_position": "self:" + str(subject),
+               "observation_tool": "self_state.refresh（周期快照）",
+               "existence_constraint": "库内可写且状态卡非空",
+           },
            importance=float(state["importance_self"]), confidence=0.9,
            verification_basis="data", override=True, actor=actor,
            self_state=True, state_subject=subject, state_version=version,
@@ -636,7 +794,13 @@ def relate(cg, frm, to, relation_type="collaborator", strength=0.5,
                 f"# 强度：{w}\n"
                 f"# 条件：{condition or '（未声明）'}\n"
                 f"# 备注：{note or '（无）'}\n")
+        # 2026-10-18：关系节点同样自述产生过程（由 relate 显式建立）
         cg.add(nid, body, layer="self", tags=tags,
+               condition_space={
+                   "observation_position": "self:%s↔%s" % (a, b),
+                   "observation_tool": "self_state.relate（显式建边）",
+                   "existence_constraint": condition or "关系已显式声明",
+               },
                edges=[{"target": b, "relation_type": rt, "weight": w,
                        "condition": condition}],
                importance=w, confidence=0.8, verification_basis="other",

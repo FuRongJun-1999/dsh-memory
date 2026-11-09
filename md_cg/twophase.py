@@ -52,6 +52,9 @@ STATUS_ABORTED = "aborted"          # 闸门判定不落盘（reject/defer/丢�
 #: 对账判定码
 R_NODE_OK = "node_present_hash_match"   # 落盘已完成 → 补 committed
 R_NODE_MISSING = "node_missing"         # 未落盘 → interrupted
+#: #417：源 id 本就不会落盘（MERGE 把内容并入**目标节点**），而盘面留下了
+#: 「本节点合并过此来源 id」的痕迹 ⇒ 该笔**已合并落盘** → 补 committed（带去向）。
+R_MERGED_INTO = "merged_into_present"
 R_MISMATCH = "content_mismatch"         # 落了别的正文 → interrupted（不覆盖）
 R_UNREADABLE = "node_unreadable"        # 读节点失败 → interrupted（不猜测）
 
@@ -61,18 +64,15 @@ def log_path(cg) -> str:
     return os.path.join(cg.root, LOG_FILE)
 
 
-# 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回剥掉**全部尾部换行符**（`\r` 与 `\n` 任意组合）后的字符串。
+# 生效条件：text 为假值（None/""）时按空串处理，否则用 text 本身，返回去尾换行后的字符串（仅剥 "\n"）。
 def _norm(text: str) -> str:
-    """正文口径归一（**对账正确性的前提**）：`nodefile.dumps` 写盘时会给正文补尾
+    """**仅 legacy 兼容口径**（issue #759 起主路径不再用它）：`nodefile.dumps` 写盘时会给正文补尾
     换行，`loads` 读回即带它。若 intent 按入参原文、对账按读回内容各算一次指纹，
     两者**永远不会相等** → 每一笔都误报 interrupted——比不做对账更坏（假阳性会
-    淹没真问题，且诱人去"修"不存在的问题）。故两侧统一按「去尾换行」归一。
-
-    剥的字符集是 `\\r` **与** `\\n` 两个：只剥 `\\n` 时，CRLF 正文（尾部 `\\r\\n`）
-    两侧各剩一个 `\\r` 之差而对不上——实测`reconcile` 把完好的 CRLF 写入判成
-    `interrupted / content_mismatch`。这里统一剥到两个字符都不剩。
+    淹没真问题，且诱人去"修"不存在的问题）。（**#759 起主路径不再用它**：两侧都直接把原文交给 content_hash，由其 normalize_body 定口径；
+    本函数只剩 legacy 分支——对升级前的旧 intent 指纹一次性放行。）
     """
-    return (text or "").rstrip("\r\n")
+    return (text or "").rstrip("\n")
 
 
 # 生效条件：给定 cg 与 rec 时，把 rec 以 JSONL 追加写入 log_path(cg)，无返回值、无分支。
@@ -109,7 +109,7 @@ def begin(cg, node_id: str, content: str, layer: str = None,
     tok = {
         "iid": uuid.uuid4().hex[:16],
         "node_id": node_id,
-        "content_hash": nodefile.content_hash(_norm(content)),
+        "content_hash": nodefile.content_hash(content or ""),   # issue #759：与索引条目同源（传原文，不再先剥尾）
     }
     rec = {"t": time.time(), "phase": "intent", "iid": tok["iid"],
            "id": node_id, "content_hash": tok["content_hash"]}
@@ -190,9 +190,75 @@ def pending(cg, limit: int = 200) -> list:
     return out[:max(0, int(limit))]
 
 
-# 生效条件：intent 的 id 为假值或 cg.get(nid) 抛异常时返回 (STATUS_INTERRUPTED, R_UNREADABLE)；取回 node 为假值时返回 (STATUS_INTERRUPTED, R_NODE_MISSING)；intent 的 content_hash 为真且与 _norm(node.get("content") or "") 的指纹不等时返回 (STATUS_INTERRUPTED, R_MISMATCH)；否则返回 (STATUS_COMMITTED, R_NODE_OK)。
+# 生效条件：cg 的 index["nodes"] 为映射时——先按该映射查（_merge_target_in）；未命中且 cg 有 _scan_nodes 时**回退盘面扫描**再查同一条复合判据（扫描抛异常按未命中）；无索引/无命中/字段形态不符一律返回 None；恒不写盘、不抛。
+def _merge_target(cg, nid):
+    """源 id 是否已被**合并**进某个目标节点（#417/#498）——事实来源＝**盘面**。
+
+    为什么需要它：MERGE 的落盘对象是**目标节点**（`forgetting.reinforce`），
+    源 id 本就不会成文；而崩溃窗口落在「内容已并入目标、`commit` 还没落账」
+    之间 ⇒ 只看源 id 的判据必然误报 `interrupted/node_missing`（与事实相反，
+    且会诱导重做**不可逆**的 MERGE）。
+
+    为什么要读 `merge_source_ids` 而不是 `merge_sources`：后者记的是
+    **写入方归属**（`{session, actor, t}`，`forgetting.note_source`），
+    **不含来源节点 id** —— 拿它反查来源永远查不到（"判据与事实不符"换个地方复发）。
+    故 `forgetting.reinforce` 另立一列把来源 id 落盘（并有界保留），本函数据此反查；
+    索引命中后**仍回盘复核**（索引是派生物，盘面才是事实来源）。
+
+    #498（P1）：**索引是派生物，且可能陈旧**——崩溃窗口内 `_index.json` 未持久化、
+    或本进程是长活实例（签名未变 ⇒ 不重载）时，索引里没有 `merge_source_ids`
+    这个键，于是判据看不到盘面明明已经存在的合并痕迹，结论与盘面相反。故索引
+    **落空后回退盘面扫描**（复用库层唯一扫描实现 `_scan_nodes`，不新写第二套
+    遍历），扫出的条目交给**同一条**复合判据（仍 `cg.get(tid)` 回盘复核）。
+    语义不放宽：盘面确无痕迹时照旧返回 None ⇒ `_judge` 仍判 `interrupted`。
+    代价只落在 miss 冷路径（恢复期），命中路径仍只读索引。
+    """
+    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    tgt = _merge_target_in(cg, nid, nodes)
+    if tgt is not None:
+        return tgt
+    scan = getattr(cg, "_scan_nodes", None)
+    if scan is None:
+        return None
+    try:
+        disk_nodes = scan()              # 盘面全量扫描（只读、不写盘）
+    except Exception:                    # noqa: BLE001 —— 扫不动不猜测
+        return None
+    if not isinstance(disk_nodes, dict):
+        return None
+    return _merge_target_in(cg, nid, disk_nodes)
+
+
+# 生效条件：nodes 为映射时遍历（先 tuple() 取快照）找出「merge_source_ids 含 nid」的条目并取其 id；命中后用 cg.get(该 id) 在**盘面**复核（读不到或 fm 未记 nid 则返回 None）；字段形态不符/无命中一律返回 None；恒不写盘、不抛。索引面与盘面扫描面**共用**这一条复合判据（单点，不各写一份）。
+def _merge_target_in(cg, nid, nodes):
+    """在给定条目映射（索引或盘面扫描结果）上反查合并痕迹——复合判据的**单点**。"""
+    for tid, e in tuple(nodes.items()):          # H-4(a)：迭代前取快照
+        if not isinstance(e, dict):
+            continue
+        ids = e.get("merge_source_ids")
+        if not isinstance(ids, (list, tuple)) or nid not in ids:
+            continue
+        try:
+            tgt = cg.get(tid)
+        except Exception:                        # noqa: BLE001 —— 读失败不猜测
+            return None
+        if not tgt:
+            return None
+        fm = tgt.get("frontmatter") or {}
+        if nid in (fm.get("merge_source_ids") or []):
+            return tid
+    return None
+
+
+# 生效条件：intent 的 id 为假值或 cg.get(nid) 抛异常时返回 (STATUS_INTERRUPTED, R_UNREADABLE)；取回 node 为假值时——先经 _merge_target(cg, nid) 查盘面合并痕迹，命中则返回 (STATUS_COMMITTED, R_MERGED_INTO + ":" + 目标 id)，未命中仍返回 (STATUS_INTERRUPTED, R_NODE_MISSING)（**不放宽**）；intent 的 content_hash 为真且与 _norm(node.get("content") or "") 的指纹不等时返回 (STATUS_INTERRUPTED, R_MISMATCH)；否则返回 (STATUS_COMMITTED, R_NODE_OK)。
 def _judge(cg, intent: dict):
-    """判定一笔未结清意图的真实结局 → `(status, code)`。**不猜测**：读不到就如实说。"""
+    """判定一笔未结清意图的真实结局 → `(status, code)`。**不猜测**：读不到就如实说。
+
+    #417（2026-10-16）：源 id 查不到**不再直接等于未落盘**——MERGE 类写入的
+    落盘对象是**目标节点**（事实来源＝盘面合并痕迹，见 `_merge_target`）。
+    命中合并痕迹 ⇒ `committed` + 去向；**未命中 ⇒ 仍判 `interrupted`**
+    （新判据只补「已合并」这一种真实情形，不把未命中放宽成「可能已落盘」）。
+    """
     nid = intent.get("id")
     want = intent.get("content_hash")
     if not nid:
@@ -202,10 +268,21 @@ def _judge(cg, intent: dict):
     except Exception:
         return STATUS_INTERRUPTED, R_UNREADABLE
     if not node:
+        tgt = _merge_target(cg, nid)
+        if tgt:
+            return STATUS_COMMITTED, "%s:%s" % (R_MERGED_INTO, tgt)
         return STATUS_INTERRUPTED, R_NODE_MISSING
-    got = nodefile.content_hash(_norm(node.get("content") or ""))
+    got = nodefile.content_hash(node.get("content") or "")   # issue #759：与 begin/索引同源
     if want and got != want:
-        return STATUS_INTERRUPTED, R_MISMATCH
+        # issue #741 升级兼容：content_hash 的输入基准已收口为「落盘形态」（恒补
+        # 尾换行），而升级前写入的旧版 intent 指纹是「去尾换行后直接哈希」——两者
+        # 对同一正文差一个尾换行字节。此处对**旧 intent** 一次性放行，避免把已落盘
+        # 的旧单误报成 interrupted（假阳性会污染账本）；新 intent 仍是单口径。
+        # 复核：**必须复用同一函数**——手写 sha256 少一次 normalize_body（补尾换行），
+        # 与旧 begin 的 content_hash(_norm(x)) 差一个字节 ⇒ 恒不命中（等于死代码）。
+        _legacy = nodefile.content_hash(_norm(node.get("content") or ""))
+        if want != _legacy:
+            return STATUS_INTERRUPTED, R_MISMATCH
     return STATUS_COMMITTED, R_NODE_OK
 
 

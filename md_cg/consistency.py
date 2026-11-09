@@ -52,12 +52,101 @@ import time
 
 from .mdcg import expand_query_terms_weighted
 from . import nodefile
+from .fsutil import ends_mid_line
 
 # --------------------------------------------------------------------------
 # 常量（全部可审计、可调）
 # --------------------------------------------------------------------------
 
 LOG_FILE = "_consistency.jsonl"
+
+# ---- issue #298（2026-10-14 DSH 端）：台账的密级面 ----
+#
+# 病灶：`_consistency.jsonl` 是**明文** append-only 台账，而 `check()` 完全不知道
+# 写入的密级。一条声明 `sensitivity=private` 的写入，节点本体加密落盘，同一次判定
+# 的 `pos`/`neg`（生效条件/不适用条件原文）、`conflicts[].pos_side`/`neg_side`、
+# `slot`（功能名前 40 字）、`cond_routes.only_new_side`/`only_existing_side`
+# 却照样明文记下；`consistency.history` 只要求 write 权限、不过可见性过滤，
+# 于是 clearance 仅 internal 的 record/sustain/verify/reflect/orchestr 令牌
+# 能原样读到同一批节点 `get` 判 `not_found` 的条件原文。
+#
+# 修法：**落盘副本**去原文（`check()` 返回给调用方的回执一字不动）。密级取
+# 「调用方声明值」与「本次比对的既有节点各自密级」的最高档——`only_existing_side`
+# 记的正是被比对节点的条件，故既有节点侧必须一起进密级面。
+#
+# 序与 `security.SENSITIVITY_ORDER` 逐位同序（此处复制而非 import：本模块被
+# `mdcos`/`security` 下游大量引用，反向 import 会成环）。
+_LEDGER_LEVELS = ("public", "internal", "restricted", "private", "secret")
+
+# 台账里承载「条件原文 / 功能名槽」的字段——高于 internal 时一律去原文。
+_LEDGER_TEXT_FIELDS = ("pos", "neg")
+_LEDGER_CONFLICT_FIELDS = ("pos_side", "neg_side", "slot")
+_LEDGER_ROUTE_FIELDS = ("only_new_side", "only_existing_side")
+
+
+# 生效条件：形参 level 为 _LEDGER_LEVELS 中的元素时返回其下标；假值返回 None（视为未声明）；非法值返回 len(_LEDGER_LEVELS)（=最高档，fail-closed）。
+def _level_rank(level):
+    """密级序（与 security.SENSITIVITY_ORDER 同序）；假值 None、非法值 fail-closed 最高档。"""
+    s = str(level or "").strip().lower()
+    if not s:
+        return None
+    return (_LEDGER_LEVELS.index(s) if s in _LEDGER_LEVELS
+            else len(_LEDGER_LEVELS))
+
+
+# 生效条件：declared 为调用方声明密级、levels 为本次比对到的既有节点密级序列；取两者最高档，全为假值时回落 internal。
+def ledger_level(declared, levels=None):
+    """本次判定的**落账密级**＝声明值与各被比对既有节点密级中的最高档。
+
+    未声明（None/空串）按 internal（与 #87 缺省档一致，零变化）；
+    非法值 fail-closed 按最高档 secret（宁可多抹，不可越权）。
+    """
+    best = "internal"
+    best_r = _LEDGER_LEVELS.index(best)
+    for x in [declared] + list(levels or []):
+        r = _level_rank(x)
+        if r is None:
+            continue
+        if r > best_r:
+            best_r, best = r, _LEDGER_LEVELS[min(r, len(_LEDGER_LEVELS) - 1)]
+    return best
+
+
+# 生效条件：rec 为判定留痕字典时返回**去原文副本**（原 rec 不被修改）；rec 非字典时原样返回。
+def scrub_record(rec):
+    """去原文副本：条件原文与功能名槽置空，判据数值 / verdict / 节点 id 照常保留。
+
+    只动副本——`check()` 返回给调用方的回执不受影响（复核面需要原文，
+    落盘面不需要）。节点 id 保留是刻意的：台账的可审计性（哪两个节点冲突）
+    不依赖条件原文，而 id 本身已受 `get`/`search` 的密级过滤保护。
+    """
+    if not isinstance(rec, dict):
+        return rec
+    out = dict(rec)
+    for k in _LEDGER_TEXT_FIELDS:
+        if k in out:
+            out[k] = []
+    if isinstance(out.get("conflicts"), list):
+        cs = []
+        for c in out["conflicts"]:
+            if not isinstance(c, dict):
+                cs.append(c)
+                continue
+            c2 = dict(c)
+            for k in _LEDGER_CONFLICT_FIELDS:
+                if k in c2:
+                    c2[k] = [] if isinstance(c2[k], list) else ""
+            cr = c2.get("cond_routes")
+            if isinstance(cr, dict):
+                cr = dict(cr)
+                for k in _LEDGER_ROUTE_FIELDS:
+                    if k in cr:
+                        cr[k] = []
+                c2["cond_routes"] = cr
+            cs.append(c2)
+        out["conflicts"] = cs
+    return out
+
 
 MAX_SCAN = 200       # 单次检测最多比对的既有节点数（防 O(N) 爆炸）
                      # cons200（2026-10-03）：本值是**相关面/保底面各自的限额**，不是
@@ -96,6 +185,53 @@ EMO_APPROACH = 0.30  # 冲突强度 ≤ 此值 → approaching
 
 # 纪律节点识别（tag 或 id 前缀；不硬编码具体纪律条目）
 DISCIPLINE_TAGS = ("discipline", "纪律", "work_discipline", "rule", "规则", "戒律")
+
+# #412：**词形归一**与**命名空间**——生产者与判据必须同指（唯一实现，勿在他处再写一份 replace）。
+DISCIPLINE_TAG_NS = "discipline"                 # 命名空间前缀（生产者的 `discipline:N`）
+DISCIPLINE_ID_PREFIXES = ("discipline_", "work_discipline")   # 归一后比较（含 work-discipline 写法）
+
+
+# 生效条件：对任意值返回 str(t or "") 去首尾空白、小写、并把 "-" 与空格折成 "_" 后的字符串；恒不抛。
+def _norm_discipline_token(t) -> str:
+    """纪律识别用的**词形归一单点**。
+
+    #412 根因（2026-10-16，本函数即为此而设）：真实生产者
+    `scripts/discipline_nodes.py:434` 写的 tag 是 `work-discipline`（**连字符**），
+    而 `DISCIPLINE_TAGS` 里是 `work_discipline`（下划线）⇒ **精确求交恒为空** ⇒
+    纪律闸对真实生产者**恒不命中**（完全空转，守卫因测试自造 id 而长期绿）。
+    同一生产者的第二个字面量 `discipline:N` 是**命名空间**形态，精确相等同样不命中。
+    归一让「同义异写」在**一处**收敛，而不是各判据各写一份 replace。
+    """
+    return str(t or "").strip().lower().replace("-", "_").replace(" ", "_")
+
+
+_DISCIPLINE_TAGS_NORM = frozenset(_norm_discipline_token(t) for t in DISCIPLINE_TAGS)
+
+
+# 生效条件：fm 与 node_id 给出时——tags 归一后命中「∈ DISCIPLINE_TAGS 归一集」或「以命名空间 `discipline:` 起」，或 node_id 归一后以 DISCIPLINE_ID_PREFIXES 起，返回 True；否则返回 False；fm 非映射/缺键/假值按空处理，恒不抛。
+def is_discipline_node(fm, node_id=None) -> bool:
+    """**纪律节点识别的唯一单点**（#412）：生产者与判据同用本谓词。
+
+    命中（任一）：① tags 归一后 ∈ DISCIPLINE_TAGS 归一集（`work-discipline` 与
+    `work_discipline` 因此同指）；② tags 归一后以命名空间 `discipline:` 起（生产者的
+    `discipline:N`）；③ node_id 归一后以 `discipline_` / `work_discipline` 起。
+
+    **明确不纳入**（同词不同义——本仓 `discipline` 是多义词，吞掉会造成误伤）：
+      · `discipline_type` / `track`（`crosscheck.classify_track`）＝**学科/赛道**分类；
+      · `meta_discipline`（`whitebox_kb/wisdom/migrate_wisdom.py` 的**元学科聚合卡**）＝学科面。
+    二者由守卫的反例组钉住（防「过度收紧」：把学科卡当纪律 ⇒ 「学科卡被引用」会走硬冲突）。
+    """
+    try:
+        tags = (fm or {}).get("tags") or []
+    except AttributeError:                       # fm 非映射 ⇒ 按无 tags 处理，不抛
+        tags = []
+    for t in tags:
+        n = _norm_discipline_token(t)
+        if not n:
+            continue
+        if n in _DISCIPLINE_TAGS_NORM or n.startswith(DISCIPLINE_TAG_NS + ":"):
+            return True
+    return _norm_discipline_token(node_id).startswith(DISCIPLINE_ID_PREFIXES)
 
 VERDICTS = ("ACCEPT", "REJECT", "DEFER", "BLINDSPOT")
 
@@ -154,12 +290,10 @@ def _edge_targets(fm):
     return out
 
 
-# 生效条件：fm 与 node_id 给出时，若 fm.get("tags")（缺键/假值按空）小写后与 DISCIPLINE_TAGS 有交集，或 str(node_id) 以 "discipline_" 或 "work_discipline" 开头，返回 True；否则返回 False；
+# 生效条件：同 `is_discipline_node(fm, node_id)`——本函数是它的**薄别名**（#412：判据单点化后保留既有名，
+# 4 个调用点与公开面一字不动；逻辑不在此处第二份）。
 def _is_discipline(fm, node_id):
-    tags = {str(t).lower() for t in (fm.get("tags") or [])}
-    if tags & set(DISCIPLINE_TAGS):
-        return True
-    return str(node_id).startswith(("discipline_", "work_discipline"))
+    return is_discipline_node(fm, node_id)
 
 
 # --------------------------------------------------------------------------
@@ -444,7 +578,41 @@ def emotional_bias(conflict_strength, prev_strength=None):
             "note": "情绪通道独立，不参与信任/资格计算（智能论 §十一）"}
 
 
-# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON 并取 .get("conflict_strength")，返回最后一条可解析记录的该键值（缺键或值为 None 则为 None）；路径不可用或 OSError 返回 None；
+# 生效条件：p 给出时，若文件可读则逐行**容错**解析（errors="replace" 解码；空行跳过；JSON 解析失败或解析结果不是对象时计入 stats["unparsable"] 并跳过），只产出 dict 行；路径缺失则什么都不产出；OSError 抛给调用方；stats 给出时按 {"unparsable": n} 累加；
+def _records(p, stats=None):
+    """留痕的**单点**容错读（流式，不载全量）。
+
+    issue #225：`log()` 是 `open(p,"a")` 单行追加，一次写被打断（断电 / 磁盘写满 /
+    进程被杀）会把某条留痕截在多字节字符中间。旧读取器用严格 utf-8 解码，
+    `UnicodeDecodeError`（ValueError 子类）在 `for line in f` 处抛、内层
+    `except (ValueError, TypeError)` 管不到，外层只接 OSError ⇒ 此后每次
+    `check()`（写热路径，:804 无条件取上一条强度）与 `summary()`（cg(op=info)
+    健康面）都报错：新记忆静默全丢、重启不恢复，而 heal 报 ok。
+
+    容错口径与 `fsutil.read_jsonl` 一致（`errors="replace"` ＋ 坏行跳过），差别只在
+    **多一个 `unparsable` 计数**：诊断面必须看得见「台账里有几条读不出来」，不能把
+    读不出来的行当作不存在。非对象行（`null` / `[1]`）一并计入——它们在 `.get(...)`
+    处抛 AttributeError，与坏行同属「读不出来」。
+    """
+    if not os.path.exists(p):
+        return
+    with open(p, "r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = json.loads(line)
+            except ValueError:
+                r = None
+            if not isinstance(r, dict):
+                if stats is not None:
+                    stats["unparsable"] = stats.get("unparsable", 0) + 1
+                continue
+            yield r
+
+
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则容错逐行解析（坏行/非对象行跳过，见 _records）并取 .get("conflict_strength")，返回最后一条可解析记录的该键值（缺键或值为 None 则为 None）；路径不可用或 OSError 返回 None；
 def _last_strength(cg):
     """上一条留痕的冲突强度（二阶差分的基线）。流式读，不载全量。"""
     p = os.path.join(cg.root, LOG_FILE)
@@ -452,15 +620,8 @@ def _last_strength(cg):
         return None
     last = None
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    last = json.loads(line).get("conflict_strength")
-                except (ValueError, TypeError):
-                    pass
+        for r in _records(p):
+            last = r.get("conflict_strength")
     except OSError:
         return None
     return last
@@ -533,11 +694,30 @@ def _recursive_reflect(cg, seeds, tw_pos, tw_neg, max_depth=MAX_DEPTH,
 # 主入口：三级决策
 # --------------------------------------------------------------------------
 
+#: issue #193：写入面的**额外比对层**——写入路径把「写到哪层」当成了「只和哪层
+#: 比」。contextual 是 gated 写入的缺省层：同层无节点即判 BLINDSPOT「既有节点均
+#: 未声明条件」、同层只有无关节点即判 ACCEPT「无冲突」，而同一内容写 knowledge
+#: 层判 DEFER——同条件同结论槽的矛盾取值因此被静默放过（实测 20 条写 contextual
+#: 全部漏判）。只扩**写入面**（`write_scope=True`）：只读 `mdcg_consistency
+#: action=check` 与 auditview 不传该参数，比对范围逐位不变。方向**单向**——
+#: knowledge 不回看 contextual，structural/anchor 不纳入（层权限与保护语义不同，
+#: 不混比）。
+#:
+#: 值守返工判据（PR #316 审阅 #193，2026-10-15）：旧分支 b4d8af8 的无条件
+#: 形态（层过滤器 `!= layer and != "knowledge"`）实测两条失效——①「指定层
+#: 比对」的只读面也被拉动（词面无交集的不相关 knowledge 在场即
+#: BLINDSPOT→ACCEPT、comparable 0→1，同层语义被跨层改写）；②层外候选与
+#: 同层候选**同池竞争**相关面前 limit，limit 压力下同层矛盾节点被挤出精比面
+#: （实测 limit=1 丢同层检出）。故扩面必须「显式请求（write_scope）＋另道
+#: 收集」；阴性判据（不相关 knowledge 不引发跨层误报）与位移判据的守卫见
+#: test_issue193_consistency_knowledge_guard.py。
+EXTRA_SCOPE = {"contextual": ("knowledge",)}
+
 # 生效条件：以 cg.index.nodes 为既有节点、content（假值按 ""）经 _new_terms 得 pos/neg 并算 tw_pos/tw_neg（non_applicable_conditions 入参先按 mdcos._is_null_condition 剔除空值语义哨兵——⑧ 漏斗单点）；选面（cons200；收口轮①加面内例外）：快照级预筛剔「tw_pos 与 tw_neg 皆空（新节点未声明可展开条件）时的非纪律候选」，且**剔除永不触及修前扫描面**（过滤后索引序前 limit 内候选一律保留——面内例外；「修后检出 ⊇ 修前」由此成为与「条目 tags 与盘面 fm.tags 同源」无关的结构保证），候选超 limit 时精比面＝相关面（_sift_score 序）前 limit ∪ 保底面（过滤后索引序前 limit ∩ 候选），记 scanned（候选数）/kept（精比数）/truncated（scanned>kept）/hint；按循环中 hard（自否定或纪律命中）→ divergences（同条件槽且 concl < CONCLUSION_SAME）→ strength ≥ CLASH_HIGH → strength ≥ CLASH_LOW → comparable==0 且 (pos or neg) → 否则 ACCEPT 的顺序定 verdict；DEFER 且 int(depth)>0 且 emo["bias"] != "approaching" 时调 _recursive_reflect 补 recursion，auto_flywheel 且 verdict == REJECT 时加 unresolved_id，最后 log_write 为真时 log 并返回 rec；N276：精比环的索引代际探针循环外单探一次（环内 cg.get(nid, probe=False)；无探活面载体回落 cg.get(nid)，行为零变）；
 def check(cg, content, layer=None, condition_space=None,
           non_applicable_conditions=None, tags=None, exclude=None,
           limit=MAX_SCAN, depth=MAX_DEPTH, auto_flywheel=False,
-          query=None, log_write=True):
+          query=None, log_write=True, write_scope=False, sensitivity=None):
     """节点间自动冲突检测（L0 情绪 → L1 反思 → L2 递归反思）。
 
     返回完整判据（可审计）：
@@ -624,9 +804,16 @@ def check(cg, content, layer=None, condition_space=None,
 
     # ---- L1-a 自否定：自己的负条件排除自己的生效条件/正文 ----
     body = _body_text(content)
-    if neg and (_ban_hit(" ".join(pos), neg) or _ban_hit(body, neg)):
+    _hit_pos = bool(neg) and _ban_hit(" ".join(pos), neg)
+    _hit_body = bool(neg) and _ban_hit(body, neg)
+    if _hit_pos or _hit_body:
+        # issue #669②：两个面压成同一句话会让作者看不出「到底哪一面命中」——
+        # 判据（type/score）不变（N238 契约：正文面命中仍是 self_negation 1.0），
+        # 只把命中面写进 detail，可诊断性提升不改变任何行为。
+        _face = ("生效条件面" if _hit_pos else "") + ("+正文面" if _hit_body else "")
         hard.append({"type": "self_negation", "with": None,
-                     "detail": "不适用条件命中自身生效条件/正文：条件自相矛盾",
+                     "detail": "不适用条件命中自身%s：条件自相矛盾（命中面=%s）"
+                               % ("生效条件/正文" if (_hit_pos and _hit_body) else "正文", _face),
                      "score": 1.0})
         strength = 1.0
     elif neg and _cov(tw_neg, body) >= SELF_NEGATION:
@@ -641,12 +828,23 @@ def check(cg, content, layer=None, condition_space=None,
     order = list(nodes.items())          # 索引序快照（H-4(a)：快照后再迭代）
     lim = max(0, int(limit))
     no_terms = not (tw_pos or tw_neg)    # 新节点未声明可展开条件
+    # issue #193：写入面的层外候选层集合。新内容未声明可展开条件时不扩面
+    # （自由正文 #68 自动记忆面无条件可依，扩面只会空转）。
+    extra_layers = (EXTRA_SCOPE.get(layer, ())
+                    if (write_scope and layer and not no_terms) else ())
+    extra_cand = []                      # (rank, score, False, nid, e)
     cand = []                            # (rank, score, in_before, nid, e)
     fidx = 0
     for nid, e in order:
         if exclude and nid == exclude:
             continue
         if layer and e.get("layer") != layer:
+            # issue #193：层外候选**另道收集**（不进相关面/保底面，故同层
+            # 检出逐位不变），排序取前 limit 后并入精比面。
+            if e.get("layer") in extra_layers:
+                _d = _is_discipline({"tags": e.get("tags")}, nid)
+                _r, _s = _sift_score(e, nid, tw_pos, tw_neg, _cov, _d)
+                extra_cand.append((_r, _s, False, nid, e))
             continue
         in_before = fidx < lim           # 是否在修前扫描面内（过滤后前 limit）
         fidx += 1
@@ -672,6 +870,10 @@ def check(cg, content, layer=None, condition_space=None,
     # 两面上限各 limit（≤ 2×MAX_SCAN；MAX_SCAN 数值未动）。
     scan_face = [(t[3], t[4]) for t in rel]
     scan_face += [(t[3], t[4]) for t in cand if t[2] and t[3] not in rel_ids]
+    # issue #193：写入面的层外候选独立排序取前 lim，**不碰保底面**——保底面
+    # 与相关面都不含层外节点，同层检出因此逐位不变（≤ 3×MAX_SCAN）。
+    scan_face += [(t[3], t[4]) for t in
+                  sorted(extra_cand, key=lambda t: (-t[0], -t[1], str(t[3])))[:lim]]
     scanned = len(cand)                  # 预筛后候选数（截断前）
     kept = len(scan_face)                # 实际精比数（相关面 ∪ 保底面）
     truncated = scanned > kept
@@ -685,12 +887,31 @@ def check(cg, content, layer=None, condition_space=None,
         _probe()
     else:
         _probe = None
+    # issue #298：调用方未声明密级、而 exclude 指向一个**已存在**的节点时，
+    # 该节点当前盘面密级就是本次写入将继承的档位（#297 的继承语义）——
+    # 不取它，一条「未声明」地改写既有 private 节点的写入会把新条件原文
+    # 按 internal 明文记进台账（`writepipe` 的 `cg(op=write)` 动词面走这条路）。
+    # 只在声明值缺失时查一次；查不到（新节点 / 桩无 get）即维持 internal 零变化。
+    if not sensitivity and exclude:
+        try:
+            _en = cg.get(exclude) or {}
+            sensitivity = (_en.get("frontmatter") or {}).get("sensitivity") or None
+        except Exception:
+            sensitivity = None
+    # nid → 该既有节点盘面密级（只对**真进了判定**的节点取值，见下）
+    ledger_sens = {}
     seeds = []
     for nid, e in scan_face:
         node = (cg.get(nid, probe=False) if _probe is not None
                 else cg.get(nid)) or {}
         fm = node.get("frontmatter") or {}
         body = node.get("content") or ""
+        # issue #298：`only_existing_side` / `pos_side` / `neg_side` 记的是
+        # **这个**节点的条件原文，故它自己的密级必须进落账密级面。
+        # 此处只登记不裁决——真正进密级面的只有「进了 allc 的那些节点」，
+        # 否则库里任意一个 private 节点被扫到就会把所有台账记录抹成去原文
+        # （过度抹除同样是有损：台账的可审计性会整体消失）。
+        ledger_sens[nid] = fm.get("sensitivity")
         e_pos, e_neg = _declared(fm, body)
         if not e_pos and not e_neg:
             continue
@@ -709,6 +930,19 @@ def check(cg, content, layer=None, condition_space=None,
         c1 = _cov(tw_pos, " ".join(e_neg)) if (tw_pos and e_neg) else 0.0
         c2 = _cov(tw_neg, " ".join(e_pos)) if (tw_neg and e_pos) else 0.0
         c = max(c1, c2)
+        # issue #216（2026-10-13 DSH 端）：**c1/c2 分路读数**。判据一字未动——
+        # c 仍 = max(c1, c2)、阈值与比较算子逐位不变；本改动只让「是哪一侧撑起
+        # 这次 condition_clash、两侧各自的词项规模是多少」变成可读读数。
+        # 为什么必须分路（issue #216 §〇 自己给出的教训）：c1/c2 是**两个独立事实**
+        # 的乘积——「既有节点是否声明了真 na」×「新节点词面是否覆盖该 na」。
+        # 只回传合并后的 c，读者无法判断改变的是哪一侧，读数不可复核。
+        # 词项规模一并回传，是因为稀释的方向取决于**哪一侧是合成串**：
+        # 新节点的 tw_pos 含 condition_space_text 合成串（词项多），而 tw_neg 只来自
+        # na（词项少）；既有节点侧则取决于它实际声明的写法。
+        clash_routes = {
+            "c1": round(c1, 4), "c2": round(c2, 4),
+            "terms": {"tw_pos": len(tw_pos or {}), "tw_neg": len(tw_neg or {}),
+                      "e_pos": len(e_pos or []), "e_neg": len(e_neg or [])}}
         # ---- L1-c 同侧比对：第二类关系（同条件空间 · 结论槽取值分歧） ----
         # 与 L1-b 是**两类不同关系**：L1-b 判「条件互斥」（反题），L1-c 判
         # 「同条件 + 同结论槽 + 取值不同」（矛盾）。后者在词面不可判——探针实测
@@ -719,13 +953,34 @@ def check(cg, content, layer=None, condition_space=None,
         c3 = _cov(tw_pos, " ".join(e_pos)) if (tw_pos and e_pos) else 0.0
         c4 = _cov(tw_neg, " ".join(e_neg)) if (tw_neg and e_neg) else 0.0
         same_cond = max(c3, c4)
+        # issue #215（2026-10-13 DSH 端）：**两侧口径差回传**。判据一字未动——
+        # same_cond 仍 = max(c3, c4)、阈值与比较算子逐位不变；本改动只让
+        # 「新节点侧与既有节点侧各自解析出了什么」变成可读读数。
+        # 为什么必须回传（issue #215 的核心）：两侧**不同源**——新节点侧
+        # _new_terms 并入 condition_space 各槽值，既有节点侧 _declared_conditions
+        # 不读 condition_space。故 c3 的分子含槽值、分母不含，覆盖率被系统性压低。
+        # 此前回传体里只有合并后的 same_condition 一个数，读者**无法判断**这个数
+        # 低是因为「两侧真的不同条件」还是因为「两侧口径不同源」。
+        # 与 #216/#217/#218 同一条教训：合成读数必须分路/附来源，否则不可复核。
+        cond_routes = {
+            "c3": round(c3, 4), "c4": round(c4, 4),
+            "new_side": len(pos or []), "existing_side": len(e_pos or []),
+            "only_new_side": [x for x in (pos or []) if x not in (e_pos or [])][:6],
+            "only_existing_side": [x for x in (e_pos or []) if x not in (pos or [])][:6],
+            "same_source": list(pos or []) == list(e_pos or [])}
         if same_cond >= SAME_COND_HIGH:
             e_fn, e_sb = _slot_text(body)
-            slot = max(
-                _cov(expand_query_terms_weighted(n_fn), e_fn)
-                if (n_fn and e_fn) else 0.0,
-                _cov(expand_query_terms_weighted(n_sb), e_sb)
-                if (n_sb and e_sb) else 0.0)
+            # issue #217（2026-10-13 DSH 端）：**逐路先算再取 max**。判据一字未动
+            # ——slot 仍 = max(两路)，裁决结果逐位不变；本改动只把「是哪一路撑起了
+            # 槽位」变成可读读数。此前只回传合并后的 slot，读者无法判断「仅一路相符」，
+            # 该失效是静默的（回传体里没有任何字段记录它）。
+            # 与 #216 同一条教训：c1/c2、槽位这类**多路合成**读数，回传面必须分路，
+            # 否则读数不可复核。
+            slot_fn = (_cov(expand_query_terms_weighted(n_fn), e_fn)
+                       if (n_fn and e_fn) else 0.0)
+            slot_sb = (_cov(expand_query_terms_weighted(n_sb), e_sb)
+                       if (n_sb and e_sb) else 0.0)
+            slot = max(slot_fn, slot_sb)
             if slot >= SLOT_HIGH:
                 # 同口径比对（正文↔正文）：tw_content 已去模板行 + 两侧同一套
                 # 空白归一化（H8），见上文与 `_norm_ws` / `_nows` 说明。
@@ -738,6 +993,15 @@ def check(cg, content, layer=None, condition_space=None,
                 else:
                     concl = (_cov(tw_content, _norm_ws(e_body))
                              if tw_content else 0.0)
+                    # issue #189：单向覆盖只量「新结论的词在旧结论里出现多少」，
+                    # 新结论整段是旧结论的子串时恒为 1.0（「启用缓存」⊂「不启用缓存」、
+                    # 「超时 30」⊂「超时 300」）⇒ 删掉否定词或末位数字被当成重复。
+                    # 判「相同」须两个方向都达标：正向已达标时再反向量一次取小值；
+                    # 正向未达标时不算反向，既有 conclusion_overlap 读数一字不变。
+                    if concl >= CONCLUSION_SAME:
+                        concl = min(concl, _cov(
+                            expand_query_terms_weighted(_norm_ws(e_body)),
+                            _norm_ws(n_concl)))
                 if concl < CONCLUSION_SAME:
                     divergences.append({
                         "type": "same_condition_divergence", "with": nid,
@@ -745,7 +1009,12 @@ def check(cg, content, layer=None, condition_space=None,
                         "detail": ("适用条件与结论槽均重合但取值不同："
                                    "可能是更正（应覆盖旧值）或分歧（应补区分条件）"),
                         "same_condition": round(same_cond, 4),
+                        "cond_routes": cond_routes,
                         "slot_overlap": round(slot, 4),
+                        "slot_routes": {"功能名": round(slot_fn, 4),
+                                        "子功能": round(slot_sb, 4)},
+                        "slot_single_route": (
+                            (slot_fn >= SLOT_HIGH) != (slot_sb >= SLOT_HIGH)),
                         "conclusion_overlap": round(concl, 4),
                         "slot": (n_fn or n_sb)[:40]})
         if c < CLASH_LOW:
@@ -756,6 +1025,7 @@ def check(cg, content, layer=None, condition_space=None,
             "detail": ("新节点适用条件落在既有节点不适用区"
                        if c1 >= c2 else "新节点不适用条件覆盖既有节点适用区"),
             "score": round(c, 4),
+            "clash_routes": clash_routes,
             "pos_side": _dedup(pos)[:6], "neg_side": _dedup(neg)[:6]})
         seeds.append(nid)
         strength = max(strength, c)
@@ -818,6 +1088,9 @@ def check(cg, content, layer=None, condition_space=None,
            "reason": reason, "conflict_strength": round(strength, 4),
            "emotional": emo, "conflicts": allc, "recursion": recursion,
            "missing": missing, "scanned": scanned, "kept": kept,
+           # issue #193：实际参与比对的层集合（层外候选并入时非单层；
+           # 未传 layer 时为 None）。
+           "scope_layers": ([layer] + list(extra_layers)) if layer else None,
            "truncated": truncated, "comparable": comparable,
            "pos": pos[:6], "neg": neg[:6],
            "actor": getattr(cg, "actor", "unknown")}
@@ -835,9 +1108,20 @@ def check(cg, content, layer=None, condition_space=None,
     # 固化成工单 unr_9af4803381）。判定本身照旧返回，缺的只是「自动建单」。
     if auto_flywheel and verdict in FLYWHEEL_TRIGGERS:
         rec["unresolved_id"] = _fire_flywheel(cg, query or content, verdict,
-                                              reason, missing, allc)
+                                              reason, missing, allc,
+                                              sensitivity=sensitivity)
     if log_write:
-        log(cg, rec)
+        # issue #298：**落盘副本**带密级、按需去原文；上面返回给调用方的
+        # `rec` 一字不动（复核面要原文，落盘面不要）。
+        _lv = [ledger_sens.get(x) for x in
+               {c.get("with") for c in allc if isinstance(c, dict)}]
+        _lvl = ledger_level(sensitivity, _lv)
+        _lr = _level_rank(_lvl)
+        _redact = bool(_lr is not None and _lr > _LEDGER_LEVELS.index("internal"))
+        _rec = scrub_record(rec) if _redact else dict(rec)
+        _rec["sensitivity"] = _lvl
+        _rec["redacted"] = _redact
+        log(cg, _rec)
     return rec
 
 
@@ -856,20 +1140,34 @@ def _missing_text(missing):
 
 
 # 生效条件：cg 提供可调用 flywheel_step 时，以 query（假值按空串）前 200 字符、verdict、missing 文本（空则 reason）、conflicts 非 None 则作 detail 否则 missing 调用；结果 dict 的 unresolved_id 真值时返回它，否则回落 id；无 flywheel_step 或异常返回 None；
-def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
+def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None,
+                   sensitivity=None):
     """把冲突作为「误差」投给知识飞轮，返回 unresolved 条目 id（失败不阻塞写入）。
 
     conflicts：冲突现场（含 type / with / same_condition 等数值），供下游生成
     `# 现场：`；missing 只描述「缺什么」，不带现场，故两者都要送。
+
+    sensitivity（issue #294，2026-10-14）：调用方写入声明的密级，**必须**随
+    payload 下传。修前这里不带密级，而 payload 里的 query 是**调用方正文前
+    200 字**，飞轮据此建的 unresolved 工单便按缺省档 internal 明文落盘——
+    一条声明 private 的写入被判 REJECT 后，属主只收到「冲突拒绝」，正文却
+    以明文出现在工单正文、**文件名（id 由正文 slug 而来）**、`_index.json`
+    与 `_audit.jsonl` 里，无令牌访客 `stg(op=timeline)` + `mdcg_get` 即可读。
+    缺省 None＝调用方未声明（按 #87 走 internal，零变化）。
     """
     step = getattr(cg, "flywheel_step", None)
     if step is None:
         return None
     try:
-        r = step({"query": (query or "")[:200], "expected_state": "ACCEPT",
-                  "actual_state": verdict,
-                  "missing": _missing_text(missing) or reason,
-                  "detail": conflicts if conflicts is not None else missing})
+        payload = {"query": (query or "")[:200], "expected_state": "ACCEPT",
+                   "actual_state": verdict,
+                   "missing": _missing_text(missing) or reason,
+                   "detail": conflicts if conflicts is not None else missing}
+        # 只在真声明时带键：缺省写入面（未声明密级）payload 逐键不变，
+        # 下游 flywheel_step 的缺键回落路径照旧。
+        if sensitivity:
+            payload["sensitivity"] = sensitivity
+        r = step(payload)
         if isinstance(r, dict):
             return r.get("unresolved_id") or r.get("id")
     except Exception:
@@ -881,65 +1179,54 @@ def _fire_flywheel(cg, query, verdict, reason, missing, conflicts=None):
 # 留痕 / 统计 / 自描述
 # --------------------------------------------------------------------------
 
-# 生效条件：cg 与 rec 给出时，将 rec 序列化为 JSON 行追加到 cg.root 下 LOG_FILE，OSError 被吞掉，返回 rec；
+# 生效条件：cg 与 rec 给出时，将 rec 序列化为 JSON 行追加到 cg.root 下 LOG_FILE；追加前若末字节不是换行（上一条被截在半行），先补一个换行再写本条，避免两条粘连成一行不可解析；OSError 被吞掉，返回 rec；
 def log(cg, rec):
     """append-only 留痕：每条判定可审计。"""
     p = os.path.join(cg.root, LOG_FILE)
     try:
+        line = json.dumps(rec, ensure_ascii=False) + "\n"
+        # issue #225：写入端也防粘连——读取端容错只能让台账**可读**；残行若不补换行，
+        # 本条会与残行拼成一行，两条留痕一起读不出来（丢的是**新**记录）。
+        if ends_mid_line(p):
+            line = "\n" + line
         with open(p, "a", encoding="utf-8") as f:
-            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+            f.write(line)
     except OSError:
         pass
     return rec
 
 
-# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则逐行解析 JSON（空行/解析失败跳过）；limit 真值时返回 out[-int(limit):][::-1]（int(limit)=0 时为全部倒序），limit 为假值（0/None/""）时返回 out[::-1]；路径不可用或 OSError 返回 []；
+# 生效条件：cg 给出时，若 cg.root 下 LOG_FILE 可读，则容错逐行解析（空行/坏行/非对象行跳过，见 _records）；limit 真值时返回 out[-int(limit):][::-1]（int(limit)=0 时为全部倒序），limit 为假值（0/None/""）时返回 out[::-1]；路径不可用或 OSError 返回 []；
 def history(cg, limit=100):
     """最近冲突判定留痕（倒序）。"""
     p = os.path.join(cg.root, LOG_FILE)
     if not os.path.exists(p):
         return []
-    out = []
     try:
-        with open(p, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    out.append(json.loads(line))
-                except (ValueError, TypeError):
-                    pass
+        out = list(_records(p))
     except OSError:
         return []
     return out[-int(limit):][::-1] if limit else out[::-1]
 
 
-# 生效条件：逐行 json.loads 计数（不可解析行跳过、OSError 忽略、路径缺失则计数为 0），每行 total 加 1 并按 r.get("verdict")（缺键即 None 键）与 emotional.bias 为真值时的 b 累加，返回 {'records','by_verdict','by_bias','max_scan','max_depth','min_gain'}，后三者取模块常量 MAX_SCAN/MAX_DEPTH/MIN_GAIN；
+# 生效条件：容错逐行解析计数（空行/坏行/非对象行跳过，见 _records；OSError 忽略、路径缺失则计数为 0），每行 total 加 1 并按 r.get("verdict")（缺键即 None 键）与 emotional.bias 为真值时的 b 累加；另返回 unparsable = 读不出来的行数（JSON 坏行 ＋ 非对象行），使诊断面不因坏行而假性健康；返回 {'records','unparsable','by_verdict','by_bias','max_scan','max_depth','min_gain'}，后三者取模块常量 MAX_SCAN/MAX_DEPTH/MIN_GAIN；
 def summary(cg):
     """冲突面汇总（流式计数，供 health 审计）。"""
     p = os.path.join(cg.root, LOG_FILE)
     by_verdict, by_bias, total = {}, {}, 0
-    if os.path.exists(p):
-        try:
-            with open(p, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        r = json.loads(line)
-                    except (ValueError, TypeError):
-                        continue
-                    total += 1
-                    v = r.get("verdict")
-                    by_verdict[v] = by_verdict.get(v, 0) + 1
-                    b = (r.get("emotional") or {}).get("bias")
-                    if b:
-                        by_bias[b] = by_bias.get(b, 0) + 1
-        except OSError:
-            pass
-    return {"records": total, "by_verdict": by_verdict, "by_bias": by_bias,
+    stats = {"unparsable": 0}
+    try:
+        for r in _records(p, stats):
+            total += 1
+            v = r.get("verdict")
+            by_verdict[v] = by_verdict.get(v, 0) + 1
+            b = (r.get("emotional") or {}).get("bias")
+            if b:
+                by_bias[b] = by_bias.get(b, 0) + 1
+    except OSError:
+        pass
+    return {"records": total, "unparsable": stats["unparsable"],
+            "by_verdict": by_verdict, "by_bias": by_bias,
             "max_scan": MAX_SCAN, "max_depth": MAX_DEPTH,
             "min_gain": MIN_GAIN}
 

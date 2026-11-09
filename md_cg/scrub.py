@@ -59,6 +59,7 @@
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import random
 import time
@@ -93,7 +94,13 @@ CONTAMINATION = {
     # 故 severity=info、处置仅 hint（不 weaken / 不 demote / 不删）。
     "not_yet": ("info", ("hint",)),
     "duplicate": ("medium", ("hint",)),
-    "orphan_noise": ("low", ("weaken", "demote")),
+    # #524：`demote` 在此规则下**不可达** —— 产出条件要求 `layer == "contextual"`（见下方 audit 的
+    #   orphan_noise 分支），而 demote 的执行条件是 `layer != "contextual"`（见 decontaminate 的
+    #   降级分支）⇒ 两者互斥 ⇒ 该动作永不执行。故删声明；**行为不变**（本来就不执行）。
+    #   三段证明：① `audit(min_severity="info")` ⇒ `n_issues=1`（issue 能造出）
+    #             ② `decontaminate` ⇒ `action="applied"` 而 `done=["weaken"]`（demote 未执行）
+    #             ③ `audit.issues[0].fix=["weaken","demote"]` 而 `done` 不含 demote（声明 vs 实际）
+    "orphan_noise": ("low", ("weaken",)),
     "unverified": ("info", ("hint",)),
 }
 SEVERITY_ORDER = {"high": 3, "medium": 2, "low": 1, "info": 0}
@@ -124,63 +131,13 @@ def _fm_of(cg, nid, cache=None) -> dict:
     return fm
 
 
-# 失败态契约（P0 修复 · 删除/遗忘/读失败同形；口径 `设计/修复-00-P0定义与台账字段.md` §三）
-# `_access()` 从前在异常时返回 `({}, {})`：调用方拿到的是「所有节点都没被访问过」。
-# 对淘汰判据（`retain`/`scrub` 按访问次数分层）来说，这把「访问日志读不出来」
-# 变成了「整库都是冷的」——一个读失败会直接改写淘汰结论。三元组子类让老调用
-# 一行不改（`counts, last = _access(cg)` 照旧解包），同时能读到结局。
-STATE_OK = "ok"
-STATE_EMPTY_VALID = "empty_valid"
-STATE_MISSING = "missing"
-STATE_UNREADABLE = "unreadable"
-STATE_CORRUPT = "corrupt"
-
-
-class AccessCounts(tuple):
-    """`(counts, last)` + 结局。"""
-
-    status: str = STATE_OK
-    error: str = ""
-
-    def __new__(cls, counts=None, last=None, *, status: str = STATE_OK, error: str = ""):
-        obj = super().__new__(cls, (counts or {}, last or {}))
-        obj.status = status
-        obj.error = error
-        return obj
-
-
 # 生效条件：cg.access_counts() 调用成功时返回其结果（访问次数, 最后访问时间）；调用抛出任何 Exception 时返回 ({}, {})；
 def _access(cg):
-    """(访问次数, 最后访问时间)：读访问日志，未 compact 的也算。
-
-    读失败 → `AccessCounts(status="unreadable")`，**值仍是空的但带着结局**：
-    调用方必须显式决定「拿不到访问账时按什么口径分层」，不能默默当全冷处理。
-    """
+    """(访问次数, 最后访问时间)：读访问日志，未 compact 的也算。"""
     try:
-        counts, last = cg.access_counts()
-        ok = bool(counts or last)
-        return AccessCounts(counts, last,
-                            status=STATE_OK if ok else STATE_EMPTY_VALID)
-    except Exception as exc:
-        return AccessCounts(status=STATE_UNREADABLE,
-                            error="%s: %s" % (type(exc).__name__, exc))
-
-
-class Pools(dict):
-    """`{stratum: [候选]}` + 这次分层**用的访问账是否读得到**。
-
-    分层算法本身不变（读不到访问账时按「全冷」分层是既有口径），但淘汰计划
-    必须能看出「这一批是因为真的没人读，还是因为账读不出来」。
-    """
-
-    access_status: str = STATE_OK
-    access_error: str = ""
-
-    def __init__(self, pools=None, *, access_status: str = STATE_OK,
-                 access_error: str = "") -> None:
-        super().__init__(pools or {})
-        self.access_status = access_status
-        self.access_error = access_error
+        return cg.access_counts()
+    except Exception:
+        return {}, {}
 
 
 # 生效条件：`from . import chain` 成功且 chain.adjacency(cg, skip_archived=False) 正常返回时返回该 dict，导入或调用抛任何异常时返回 {}。
@@ -213,6 +170,37 @@ def _log(cg, op: str, **rec) -> dict:
     return rec
 
 
+#: 处置动作的**失败标记**（写侧 `done` 列表里的实际字面串，**单点**）。
+#: 判据按实际字符串定，不用通配占位——新增动作若引入新的失败形态，必须回到这里登记。
+#: 三态来源（`decontaminate` 的实修段）：
+#:   `weaken_failed:<Type>`   —— `_weaken` → `cg.verify` 抛异常（越权 / 保护 / 冲突）
+#:   `demote_failed:<Type>`   —— `cg._move_layer` 抛异常（保护闸 / 层闸）
+#:   `demote_state:<error>`   —— 层降级成功但生命周期状态推进失败（负路由，不抛）
+#: 第三条不以 `_failed:` 结尾，故**不能用 `*_failed:` 通配**——只认前缀会把它漏成「成功」。
+#: **为什么是显式三项而不是通配**：四项 `done.append` 落点已逐一枚举（成功两项
+#: "weaken"/"demote" + 失败三项），三项就是已知的**全部**失败形态；换成通配（如
+#: 匹配任意 `*failed*` 或 `state:`）会把**语义无关的合法动作名**也判成失败——那是
+#: **过度收紧方向**（合法成功处置被误判 ⇒ 幂等名单永不记账 ⇒ 每轮重复处置）。
+#: 新增动作必须回来登记：这是「枚举完备性」而不是「模式匹配」的取舍。
+ACTION_FAIL_MARKS = ("weaken_failed:", "demote_failed:", "demote_state:")
+
+
+# 生效条件：actions 为可迭代（None/空按无动作计）时，任一动作的字符串形式以 ACTION_FAIL_MARKS 之一开头即返回 False，否则返回 True；不抛（非字符串项先 str()）；
+def _actions_ok(actions) -> bool:
+    """本批处置动作是否**全部成功**（issue #411，**唯一判据单点**）。
+
+    为什么必须抽成单点：改前写侧无条件写 `ok=True`（`_log(cg, "decontaminate",
+    …, ok=True, …)`），而读侧 `_handled` 只认 `op=="decontaminate" and ok`——
+    失败只以字符串留在 `actions` 里，于是**无权身份跑一次就能把 (节点, 污染类型)
+    永久钉成「已处置」**，污染此后**永久不再被处置**（幂等名单被失败污染）。
+
+    这里只做「动作结果 → 布尔」这一件事；写侧把该布尔写进 `ok`，读侧（`_handled`
+    / `summary`）照旧**只读 `ok`**——**收成单点**，读侧不另写第二份判据。
+    """
+    return not any(str(a).startswith(ACTION_FAIL_MARKS)
+                   for a in (actions or ()))
+
+
 # 生效条件：仅当 read_jsonl(cg.root 下 SCRUB_LOG) 的记录 op=="decontaminate" 且 ok 为真时，把 (rec.get("node_id"), rec.get("kind")) 收进返回集合；无此类记录返回空集。
 def _handled(cg) -> set:
     """已处置过的 (node_id, kind)：保证去污染幂等（审计即状态）。"""
@@ -231,8 +219,7 @@ def _handled(cg) -> set:
 def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     """构造各层候选池（不读文件的部分先用索引 + 访问日志）。"""
     nodes = _nodes(cg)
-    acc = _access(cg)
-    counts, last = acc
+    counts, last = _access(cg)
     adj = _adjacency(cg)
     indeg = {}
     for _src, outs in adj.items():
@@ -244,7 +231,7 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
     for nid, e in nodes.items():
         layer = str(e.get("layer") or "")
         if layer in SELF_LAYERS:
-            continue                              # 自我认知不抽查、不去污染
+            continue
         created = float(e.get("created_at") or 0)
         age_d = _days(created, now)
         la = float(last.get(nid) or 0)
@@ -289,7 +276,7 @@ def _pool_candidates(cg, *, now, stale_days, unverified_days, max_reads=200):
         key=lambda x: float(nodes.get(x[0], {}).get("importance") or 0.5))
     pools["disputed"].sort(key=lambda x: -len(x[1]))
     pools["low_conf"].sort(key=lambda x: x[1])
-    return Pools(pools, access_status=acc.status, access_error=acc.error)
+    return pools
 
 
 # 生效条件：strategy=="random" 时直接返回 {"random": int(n)}；strategy=="risk" 时按剔除 hot/random 后的 STRATUM_WEIGHTS 权重分配；其它策略名走全权重分配，两者都把 int(n) 余量补进已存在的 random 键否则补进 stale。
@@ -492,9 +479,18 @@ def associate(cg, node_id: str, *, hops: int = DEFAULT_HOPS, limit: int = 30,
 # 两侧新增键须同步（交叉守卫 test_validity_filter）。
 _EXPIRY_KEYS = ("effective_until", "valid_until", "expires_at", "expire_at",
                 "expiry", "deadline", "expired_at")
+# issue #665：过程记录（rev_*/rej_*）的固定字段也在此列——它们是展示字段，
+# 逐条取值不同，当键跨节点比对必然误报（假设/否决原因 是 rej 记录的两行）。
 _SKIP_KEYS = ("功能名", "执行", "条件", "来源", "标签", "状态", "备注", "标题",
-              "描述", "name", "id", "title", "layer", "tags", "说明")
-_NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可")
+              "描述", "name", "id", "title", "layer", "tags", "说明",
+              "假设", "否决原因", "验证")
+# 引用/出处行的键形（本地实测：正文「…（源：src_x、src_y）」会被 partition("：") 切成
+# 键「…（源」——单字「源」本来就被 2–12 长度闸过滤，真正的入口是**带括号的前缀键**）。
+# 判据：**键里不得出现括号类标点**（字段名是标识符，不是半句话）；值侧再拦「src_ 列表」形态。
+_KEY_BAD_CHARS = "（）()【】[]{}<>《》〈〉「」『』"
+_SOURCE_VALUE_PREFIXES = ("src_", "ref_", "doc_")
+_NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可",
+              "不会", "没有", "无须", "不必", "无需")
 _POS_WORDS = ("应当", "建议", "必须", "需要", "可以", "允许", "推荐", "宜")
 
 
@@ -530,6 +526,11 @@ def _kv_pairs(content) -> dict:
         line = raw.strip().lstrip("#").strip()
         if not line:
             continue
+        # issue #665（#40 的残留面）：行首为列表符的行是**展示性字段**
+        # （裁决记录的「- 提案 / - 轮次 / - 红队」等），逐条取值天然不同，
+        # 当键去跨节点比对必然误报「同键不同值」。不抽键。
+        if line[:2] in ("- ", "* ", "+ ", "· ", "• "):
+            continue
         for sep in ("：", ":"):
             if sep in line:
                 k, _, v = line.partition(sep)
@@ -539,7 +540,11 @@ def _kv_pairs(content) -> dict:
                 # 互为「同键不同值」矛盾（实测 12 抽样里 9 条 high 全是这类误报，
                 # 且 apply 会把好节点 weaken+demote 并跨层移动文件）。
                 if (2 <= len(k) <= 12 and v and k not in _SKIP_KEYS
-                        and not nodefile.is_ccg_mark(k)):
+                        and not nodefile.is_ccg_mark(k)
+                        # issue（scrub 误判）：括号类标点出现即不是字段名（引用/出处行）
+                        and not any(ch in k for ch in _KEY_BAD_CHARS)
+                        # 值侧兜底：纯引用 id 列表（src_x、ref_y）不是可断言的值
+                        and not v.startswith(_SOURCE_VALUE_PREFIXES)):
                     out.setdefault(k, v)
                 break
     return out
@@ -580,11 +585,99 @@ def _not_yet(fm, now):
     return None
 
 
-# 生效条件：对 content 取 kv_pairs、bigrams 和 polarity，遍历 related（若 related 为假值则视为空）的前 int(max_compare) 个 r，以 r["node_id"] 调 cg.get；若某 oid 节点可读非空，先在其 content 与 content 的共同键中找到值不同者并返回 {'with':oid,'via':r.get('via'),'why':'同键不同值：...'}；否则若极性乘积 <0 且双方 bigram 非空，且共享 bigram 数 >=3 且 ratio>=0.15，返回 {'with':oid,'via':r.get('via'),'why':'极性相反且共享内容：...'}；全部遍历完无命中则返回 None；
+# 生效条件：对 content 取 kv_pairs（同键不同值，旧支）与**槽位主张**（`_slot_claims`），遍历 related
+# 前 int(max_compare) 个 r 读对端正文；判定顺序：① 同键不同值；② **槽位比对**（`_slot_contradiction`：
+# 同槽位自比排除 `功能名`，另含「主张 vs 对端拒绝域」交叉与 `执行↔生效条件/验证方式` 跨槽位；
+# 两侧该槽位都非零且严格异号、共享 bigram ≥ SLOT_MIN_SHARED 且占比 ≥ 0.15（跨槽位用 Dice））。
+# 【#444】返回的 why **只含键名 + 不可逆摘要（同键不同值）/ 槽位名 + 计数与占比（极性支）**，
+# 两端正文原值与共享词面一律不进串（该串会经 verify 落三处明文面）。
+#: 槽位比对的**绝对下限**（#747 复核 ①）：剥模板后分母同步变小，仅看 ratio 会让 3 个巧合
+#: 共享越过 0.15；破坏性不对称（weaken + demote + 跨层移动）故加绝对下限。
+SLOT_MIN_SHARED = 5
+
+
+def _slot_claims(content):
+    """按六要素槽位切分正文：{mark: [主张行...]}（剥前缀；h2/h3 写法同样识别）。
+
+    「不适用条件」**保留**（#747 复核 ②：它是 rejection_domain，与 precondition 是同一份
+    契约的两半；整行丢掉会把最硬的一类矛盾也丢掉）。非模板行归入键 ""。
+    """
+    out = {}
+    for raw in (content or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        head = line.lstrip("#").strip()
+        mark = next((m for m in nodefile.CCG_MARKS if head.startswith(m)), None)
+        if mark is None:
+            out.setdefault("", []).append(line)
+            continue
+        rest = head[len(mark):]
+        # 分隔符校验（#747 复核）：`执行成功后再验证` 这类自然语句不得算成「执行」槽。
+        if rest and rest[0] not in "：: \t　-—":
+            out.setdefault("", []).append(line)
+            continue
+        claim = rest.lstrip("：:\t　-—").strip()
+        if claim:
+            out.setdefault(mark, []).append(claim)
+    return out
+
+
+def _slot_contradiction(ca, cb):
+    """按**槽位**判矛盾（#747）：同槽位、或「主张 vs 对端拒绝域」两半契约。
+
+    判据：两侧该槽位**都非零且严格异号**（双值极性）+ 共享 bigram ≥ SLOT_MIN_SHARED 且占比 ≥ 0.15。
+    返回证据串或 None（证据串不含词面，见 #444）。
+    """
+    sa, sb = _slot_claims(ca), _slot_claims(cb)
+    # 自比：**排除功能名**（它是 signature、不是主张，做矛盾主体最容易误判）。
+    pairs = [(m, m) for m in nodefile.CCG_MARKS if m != "功能名"]
+    # 拒绝域交叉：单点派生自 CCG_MARKS（不写第二份槽位枚举）。
+    for m in nodefile.CCG_MARKS:
+        if m == "不适用条件":
+            continue
+        pairs.append((m, "不适用条件"))
+        pairs.append(("不适用条件", m))
+    # 跨槽位（只有两条有契约理由）：执行 ↔ 生效条件（precondition）/ 验证方式（postcondition）。
+    pairs.extend([("执行", "生效条件"), ("执行", "验证方式")])
+    for ma, mb in pairs:
+        ta = "\n".join(sa.get(ma, []))
+        tb = "\n".join(sb.get(mb, []))
+        if not ta or not tb:
+            continue
+        pa, pb = _polarity(ta), _polarity(tb)
+        if pa == 0 or pb == 0 or pa * pb > 0:
+            continue                 # 双值：任一侧中立不算矛盾（#747 ③）
+        ba, bb = bigrams(ta), bigrams(tb)
+        if not ba or not bb:
+            continue
+        shared = ba & bb
+        # 同槽位：短侧覆盖率；跨槽位：Dice（长度悬殊时更保守，避免新增对变误报源）。
+        if ma == mb:
+            ratio = len(shared) / max(1, min(len(ba), len(bb)))
+        else:
+            ratio = 2.0 * len(shared) / max(1, len(ba) + len(bb))
+        if len(shared) >= SLOT_MIN_SHARED and ratio >= 0.15:
+            return (f"槽位 {ma} / {mb} 极性相反且共享内容：共享片段 {len(shared)} 个"
+                    f"（占比 {ratio:.2f}），词面不入证据串")
+    return None
+
 def _contradiction(cg, content, related, max_compare=10):
-    """与同族节点比对：同键不同值 / 极性相反且共享 bigram。"""
+    """与同族节点比对：同键不同值 / **按槽位**极性相反且共享内容（#747）。
+
+    issue #444（P0 密级泄漏，2026-10-17 U05c）：本函数产出的 `why` 会经
+    `add("contradiction", why)` → `_weaken` → `cg.verify(..., "weakened")` 写成
+    verify 的 **evidence**，进而落进 (a) 节点 frontmatter、(b) 对端节点自己的 .md、
+    (c) `_trust.jsonl` —— 三处**都是明文面**（加密只作用于正文，不作用于 fm 字段）。
+    修前 `why` 里是**两端正文原值**（同键不同值）或**共享 bigram 词面**（极性相反），
+    于是 private 正文被搬进低密级节点的明文面，`internal` 身份经 `mdcg_get` 即可读到。
+    现口径：**正文原值与词面一律不进证据串**——只留键名 + 不可逆摘要（8 位）/ 计数。
+    """
+    def _h(v):
+        """证据串用的**不可逆**摘要——正文原值不得进证据串（#444）。"""
+        return hashlib.sha1(str(v).encode("utf-8")).hexdigest()[:8]
+
     kv_a = _kv_pairs(content)
-    bg_a, pol_a = bigrams(content or ""), _polarity(content)
     for r in (related or [])[:int(max_compare)]:
         oid = r["node_id"]
         try:
@@ -598,15 +691,12 @@ def _contradiction(cg, content, related, max_compare=10):
         for k in sorted(set(kv_a) & set(kv_b)):
             if kv_a[k] != kv_b[k]:
                 return {"with": oid, "via": r.get("via"),
-                        "why": f"同键不同值：{k}={kv_a[k]} vs {kv_b[k]}"}
-        bg_b = bigrams(oc)
-        if pol_a * _polarity(oc) < 0 and bg_a and bg_b:
-            shared = bg_a & bg_b
-            ratio = len(shared) / max(1, min(len(bg_a), len(bg_b)))
-            if len(shared) >= 3 and ratio >= 0.15:
-                return {"with": oid, "via": r.get("via"),
-                        "why": "极性相反且共享内容：" + "、".join(
-                            sorted(shared)[:5])}
+                        "why": f"同键不同值：{k}（本端 {_h(kv_a[k])} / "
+                               f"对端 {_h(kv_b[k])}）"}
+        # #747：只按**槽位**比对（全文比会被六要素模板头 + 拒绝域噪声主导）。
+        slot_hit = _slot_contradiction(content or "", oc)
+        if slot_hit:
+            return {"with": oid, "via": r.get("via"), "why": slot_hit}
     return None
 
 
@@ -614,14 +704,21 @@ def _contradiction(cg, content, related, max_compare=10):
 def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
           limit=None, unverified_days: float = UNVERIFIED_DAYS,
           lexical: bool = True, min_sim: float = 0.15) -> dict:
-    """对指定节点（默认全库）做污染体检。**只读**，不改动任何节点。"""
+    """对指定节点（默认全库）做污染体检。**只读**，不改动任何节点。
+
+    `min_severity` 是**含等号**的档位门限（`>=`）：`SEVERITY_ORDER` 为
+    {"high":3, "medium":2, "low":1, "info":0}，只要某条 issue 的档位
+    **不低于** `min_severity` 就纳入返回。故 `min_severity="low"` **会**保留
+    `low` 级 issue（`1 < 1` 为假 ⇒ 不跳过）；`"medium"` 及以上则滤掉 `low`。
+    缺键按 0 计（等于把未知档位当 info）。实测：同一低重要情境噪音节点在
+    `info`/`low` 下都返回 1 条、`medium`/`high` 下返回 0 条。
+    """
     nodes = _nodes(cg)
     ids = list(nodes.keys()) if node_ids is None else (
         [node_ids] if isinstance(node_ids, str) else list(node_ids))
     if limit:
         ids = ids[:int(limit)]
-    acc = _access(cg)
-    counts = acc[0]
+    counts, _last = _access(cg)
     adj = _adjacency(cg)
     indeg = {}
     for _src, outs in adj.items():
@@ -635,7 +732,16 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
         if not e:
             continue
         layer = str(e.get("layer") or "")
+        # issue #665（#40 残留面）：过程记录不参与矛盾比对——
+        # rev_/rej_ 是 contextual 层 role=tool-output 的裁决/否决留痕，属审计面而非知识断言。
+        if layer == 'contextual' and str(e.get('role') or '') == 'tool-output':
+            continue
         if layer in SELF_LAYERS:
+            continue
+        # issue #665（#40 残留面）：过程记录不参与矛盾比对——rev_/rej_ 是
+        # contextual 层 role=tool-output 的裁决/否决留痕，属审计面而非知识断言；
+        # 让它们互判「同键不同值」只会把真矛盾淹在误报里。
+        if layer == 'contextual' and str((nodes.get(nid) or {}).get('role') or '') == 'tool-output':
             continue
         try:
             node = cg.get(nid)
@@ -700,13 +806,12 @@ def audit(cg, node_ids=None, *, hops: int = 1, min_severity: str = "info",
     med = sum(1 for i in issues if i["severity"] == "medium")
     return {"ok": not (high or med), "n_checked": checked,
             "n_issues": len(issues), "issues": issues, "by_kind": by_kind,
-            "access_status": acc.status, "access_error": acc.error,
             "stats": {"checked": checked, "high": high, "medium": med,
                       "low": sum(1 for i in issues if i["severity"] == "low")},
             "t": now}
 
 
-# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）。
+# 生效条件：循环 max(1, int(times)) 次调用 cg.verify(nid, "scrub:"+kind+":"+str(detail)[:120], "weakened")，返回最后一次调用结果（times≤0 时按 1 次执行）；【#444】detail 会进 verify 的 evidence（→ fm 明文面 / _trust.jsonl / 对端节点 .md），故**调用方传入的 detail 不得含正文原值**——contradiction 支已改为摘要，其它支传的是键名/日期类短值。
 def _weaken(cg, nid, kind, detail, times=1):
     res = None
     for _ in range(max(1, int(times))):
@@ -734,6 +839,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
     handled = _handled(cg)
     actions = []
     n_applied = n_prot = n_done = n_hint = n_planned = 0
+    n_failed = 0                     # #411：本轮动作**未全成功**的条数（写进批次 ok）
 
     for issue in rep["issues"]:
         nid, kind = issue["node_id"], issue["kind"]
@@ -779,7 +885,9 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             try:
                 fm = _fm_of(cg, nid, None)
                 if str(fm.get("layer") or "") != "contextual":
-                    cg._move_layer(nid, "contextual", reason=f"scrub:{kind}")
+                    # issue #469：override 必须下传（修前此处丢弃 ⇒ 受保护节点静默失败）
+                    cg._move_layer(nid, "contextual", reason=f"scrub:{kind}",
+                                   override=override)
                     # 层降级 = 生命周期降级（②）：状态同批推进（负路由，失败不抛）
                     _st = cg.set_state(nid, "demoted", reason=f"scrub:{kind}",
                                        actor=actor or "scrub")
@@ -788,7 +896,10 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             except Exception as exc:                      # noqa: BLE001
                 done.append(f"demote_failed:{type(exc).__name__}")
         n_applied += 1
-        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=True,
+        _ok = _actions_ok(done)          # #411：失败不得写成「已处置」
+        if not _ok:
+            n_failed += 1
+        _log(cg, "decontaminate", node_id=nid, kind=kind, ok=_ok,
              actions=done, severity=issue["severity"], actor=actor)
         actions.append({"node_id": nid, "kind": kind, "action": "applied",
                         "done": done, "detail": issue["detail"],
@@ -812,7 +923,10 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
                  "planned_dry_run": n_planned, "protected": n_prot,
                  "hint": n_hint}
     if not dry_run:
-        _log(cg, "decontaminate_batch", ok=True, applied=n_applied,
+        # #411：批次 ok 同样必须是**真实结果**（任一子条失败即 False），
+        # 否则 `summary` 的 batches/decontaminated 会把失败批次算成成功轮。
+        _log(cg, "decontaminate_batch", ok=(n_failed == 0), applied=n_applied,
+             failed_actions=n_failed,
              # 覆盖账（issue #66）：分类明细只读数不回喂 `_handled`；
              # `already_handled` 为 `skipped_done` 的正名（二者恒等）。
              already_handled=n_done, planned_dry_run=n_planned,
@@ -824,7 +938,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             # 兼容键保留（值恒等），新读数请用 `already_handled`。
             "already_handled": n_done, "skipped_done": n_done,
             "planned_dry_run": n_planned,
-            "hints": n_hint, "actions": actions,
+            "hints": n_hint, "failed_actions": n_failed, "actions": actions,
             "checked_breakdown": breakdown,
             "audit": rep, "t": time.time()}
 

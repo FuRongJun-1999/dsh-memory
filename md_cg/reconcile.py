@@ -38,6 +38,7 @@ import os
 import time
 
 from . import nodefile
+from . import fsutil
 from .fsutil import append_jsonl
 
 #: 关闭开关：仅当 `MDCG_RECONCILE` 的 strip 后取值**恰好为 "0"** 时关闭
@@ -63,15 +64,13 @@ def trace_path(cg) -> str:
     return os.path.join(cg.root, TRACE_FILE)
 
 
-# 生效条件：text 为假值（None/""）时按空串处理，返回去尾换行后的字符串（仅剥 "\n"）。
-def _norm(text: str) -> str:
-    return (text or "").rstrip("\n")
-
-
-# 生效条件：content（nodefile.loads 切出的盘面正文，含尾换行）非 None 时返回 (content_hash(content), content_hash(_norm(content))) 二元组——**双形态接受集**：add 写路径入索引的指纹按封存原文（mdcg.py `_stage` 面，正文不带尾换行时等于 norm 形态），rebuild 重建路径按 loads 读回原文（带尾换行）——两 producers 各自稳定，diff 两侧都认，否则无尾换行节点会在每次启动被误报漂移（假阳性洪水，twophase._norm 文档串同款教训）。
-def _disk_hashes(content: str) -> tuple:
-    raw = nodefile.content_hash(content or "")
-    return raw, nodefile.content_hash(_norm(content))
+# 生效条件：content（nodefile.loads 切出的盘面正文，含尾换行）为 str 时返回 nodefile.content_hash(content)（单值）。
+def _disk_hash(content: str) -> str:
+    # issue #758（在 #741 之后收单值）：content_hash 内部已先 normalize_body（补一个尾换行）再哈希，
+    # 与索引条目口径**同源** ⇒ 「双形态接受集」的第二元素（对去尽尾换行的正文再哈希）在常盘形态下
+    # 恒等、仅在「≥2 个尾换行」时不等——而**索引侧**已无写点产出该形态（normalize_body 只补不剥） ⇒ 第二元素不可达，收成单值。
+    # 副作用（既定意图）：收紧了旧容忍面——仅在「索引与盘面形态不一致」（手改/外部写者/#741 前 legacy 条目）时判 drift；经写路径落盘的 ≥2 尾换行两侧一致，不误报，旧行为靠第二元素蒙混。
+    return nodefile.content_hash(content or "")
 
 
 # 生效条件：遍历 mdcg.LAYERS 各层目录树（os.walk，与 _scan_nodes 同序同口径），逐个 .md 读取并 nodefile.loads 切分；成功解析的以 nid（fm.get("id") 或文件名去 .md）登入 by_nid（同 nid 后到覆盖，与 _scan_nodes dict 覆盖语义一致）并登记 path_owner[relpath]=nid；读失败（OSError）/解码失败（UnicodeDecodeError）/frontmatter 无闭合（fm 为空且原文以 "---\n" 开头）的登入 problems（kind=read_error/decode_error/frontmatter_unterminated，附 relpath），不进 by_nid 与 path_owner；返回 (by_nid, path_owner, problems)。
@@ -123,7 +122,10 @@ def _layers():
 # 生效条件：把单条异常以 JSONL 追加进 trace_path(cg)（best-effort：OSError 吞掉不抛——留痕是增益，不得反过来炸启动序列），无返回值。
 def _trace(cg, record: dict) -> None:
     try:
-        append_jsonl(trace_path(cg), record)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(trace_path(cg), record)
     except OSError:
         pass
 
@@ -165,9 +167,9 @@ def reconcile_state(cg, apply: bool = True) -> dict:
                 ghost.append(nid)               # 盘面无其文件（或已归属他 id）
             continue
         d = by_nid[nid]
-        h_raw, h_norm = _disk_hashes(d["content"])
+        h_disk = _disk_hash(d["content"])
         if entry.get("path") != d["path"] \
-                or entry.get("content_hash") not in (h_raw, h_norm):
+                or entry.get("content_hash") != h_disk:
             drift.append(nid)
 
     # ② 以盘面为基准走一遍：缺索引条目（仅成功解析的真源参与）
@@ -175,9 +177,16 @@ def reconcile_state(cg, apply: bool = True) -> dict:
         if nid not in index_nodes:
             missing.append(nid)
 
-    repaired = {"unstaged": 0, "staged": 0}
+    from . import protect as _prot          # #463：同 refindex，闸放「静默摘除点」
+    repaired = {"unstaged": 0, "staged": 0, "skipped_protected": []}
     if apply:
         for nid in ghost:
+            # #463（SEC·P0）：受保护节点不得被启动对账静默摘索引（跳过并记账，不新增形状）。
+            try:
+                _prot.guard_forget(cg, nid)
+            except _prot.ProtectionError:
+                repaired["skipped_protected"].append(nid)
+                continue
             cg._unstage(nid)                # tombstone + 立即持久化
             repaired["unstaged"] += 1
         for nid in missing + drift:

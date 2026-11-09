@@ -13,7 +13,11 @@
   - corrections   []（迁移期恒空；后续跨端修正经修正面回填）
   - ledger_row    六列整行锚（与结构键互为回放校验）
 
-幂等键：he_<sha1(六列值 join)[:10]>——同一台账行重复迁移得到同一节点 id。
+幂等键：he_<sha1(六列值 join)[:12]>——同一台账行重复迁移得到同一节点 id。
+（#157：原为 [:10]（40 bit），与同仓 codeindex / docindex 的 [:12]（48 bit）不
+对齐；生日界下 ~1e6 条即约 39% 碰撞概率，一旦撞上就是同 id 幂等 upsert ⇒ 回执
+静默丢失（实测 1,464,937 条内即撞出一条同 id，见守卫）。[:12] 是 [:10] 的
+**前缀扩展**：新 id = 旧 id + hexdigest 的第 11–12 位。）
 
 验证器 verify_payload 做「结构键反解 ↔ ledger_row 锚」逐字段回放比对 + 正文
 四段标记检查，经 register_verifier("hyperedge", …) 注入（或 MDCG_VERIFIER_MODULES
@@ -189,7 +193,7 @@ def audit_payload(a):
             "content": a.get("content") or ""}
 
 
-# 生效条件：row 经 _norm_row 校验即返回 he_<sha1(逐列「len:val」拼接)[:10]>
+# 生效条件：row 经 _norm_row 校验即返回 he_<sha1(逐列「len:val」拼接)[:12]>
 # （同一台账行恒同 id，重复迁移幂等；任意列内容不可伪造边界）；
 def node_id_for(row):
     """幂等键：同一台账行重复迁移得到同一节点 id。
@@ -203,10 +207,17 @@ def node_id_for(row):
     id 口径变更说明：canon 输入形态改变 → id 取值随之改变。属 schema v0.1
     内的破坏性调整（该 schema 明示允许）；实测库内 `he_` 节点为 0，无历史
     迁移数据需兼容。
+
+    #157（2026-10-12）截断位宽变更：[:10] → [:12]（对齐 codeindex:270 /
+    docindex 的同类幂等键口径）。id 取值随之改变，但两者是**前缀关系**
+    ——新 id 的前 10 位恒等于旧 id，故即便库内确有 `he_` 节点，迁移口径 =
+    按节点自身 ledger_row 重算 id 后改名/改键（前缀可直接互校，不存在无法
+    反解的旧 id）；本仓追踪面复核（grep `he_<hex>`）命中 0 处，与上段
+    「库内 he_ 节点为 0」一致，故**无需迁移**。
     """
     r = _norm_row(row)
     canon = "".join("%d:%s" % (len(r[c]), r[c]) for c in LEDGER_COLUMNS)
-    return "he_" + hashlib.sha1(canon.encode("utf-8")).hexdigest()[:10]
+    return "he_" + hashlib.sha1(canon.encode("utf-8")).hexdigest()[:12]
 
 
 # 生效条件：payload 缺 ledger_row/frontmatter、结构键不可反解、反解与锚不一致

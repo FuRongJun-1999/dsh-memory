@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import os
 import time
+import math
 from collections import OrderedDict
 
 #: 节点缓存上限（env MDCG_HOTCACHE_MAX_NODES 可覆盖——公共评测池 locomo-zh-500
@@ -54,7 +55,16 @@ _KEYED_EXTRA = ("include_work", "roles", "paths", "path_weights", "recall_only",
                 # 环境变量（MDCG_SEMANTIC/MDCG_EN_ATOMS/MDCG_UNIFY_QUERY…），它们
                 # 同样改变候选资格与打分。v14 只补了参数面，故另立一键
                 # （2026-09-24 修复：同 query 下切开关会命中另一口径的缓存 → 静默错答）。
-                "env_switch")
+                "env_switch", "bm25_access",
+                # #153（2026-10-12 DSH 端）：**索引代际**。写路径每次索引突变推进
+                # 代际（MdCGOS._on_index_mutation）⇒ 键随代际变化 ⇒ 旧代命中自然
+                # 失配，无需全清（全清会毁命中率，与 #154 性能面冲突）。
+                # 登记纪律同 env_switch：新增一个就登记一个——不登记等于让下一个人
+                # 看不出它承重（键用整份 extra，故漏登只影响可读性、不影响正确性）。
+                "index_gen",
+                # 相对时间锚定：问句解析出的区间（仅开关开且问句含日期时入键；相对写法
+                # 「上周二」随当天变化，不入键会跨日命中旧区间的结果）。
+                "time_anchor")
 #: 不可稳定规范化的参数（自定义可调用）：非默认即**绕行缓存**（fail-closed）。
 _BYPASS_EXTRA = ("query_expand",)
 #: 影响检索结果的进程级开关（新增一个就登记一个——同 _KEYED_EXTRA 的纪律）。
@@ -66,13 +76,56 @@ _BYPASS_EXTRA = ("query_expand",)
 _ENV_SWITCHES = ("MDCG_SEMANTIC", "MDCG_EN_ATOMS", "MDCG_UNIFY_QUERY",
                  "MDCG_RETRIEVAL_PIPELINE", "MDCG_S7_FRESHNESS",
                  "MDCG_CN_GRAMS", "MDCG_CHAIN_TYPES", "MDCG_TEMPORAL_GAMMA",
-                 "MDCG_RRF_CANDIDATES")
+                 "MDCG_RRF_CANDIDATES",
+                 # issue #197（2026-10-13）：名次可信度的**性质判据**开关。
+                 # 开启后在既有名单门之上追加 whole_tie（任意路）与
+                 # floor_mass（有下限声明的路）两条弃权分支 ⇒ 直接改变融合
+                 # 结果，同属「漏登即跨口径串味」的一类。
+                 "MDCG_RANK_CREDIBILITY",
+                 # 相对时间锚定（2026-10-14）：开关开 ⇒ 写入侧派生 temporal_anchor、查询侧
+                 # 点名日期时追加 time_anchor 路并把区间交集者前置；TZ 改「哪一天」的折算
+                 # ⇒ 两者都改变融合结果，同属「漏登即跨口径串味」的一类。
+                 "MDCG_TIME_ANCHOR", "MDCG_TIME_ANCHOR_TZ",
+                 # issue #659 F26-16（R25-12 同族第 2 例）：最低分门槛直接改变融合
+                 # 结果集（search_rrf 在资格判定之前过滤、_emit 在 T3 出口过滤），
+                 # 漏登即运行期翻转后同 query 命中另一口径缓存。
+                 "MDCG_MIN_SCORE", "MDCG_RECALL_MIN_SCORE")
 
 
 # 生效条件：无必需形参；返回 _ENV_SWITCHES 中每个变量名的 (名, 当前取值或 None) 元组（稳定、可哈希，随 query 缓存键一起参与比对）。
 def env_switch_key():
     """当前进程级检索开关的快照（进 query 缓存键，防跨口径串味）。"""
     return tuple((name, os.environ.get(name)) for name in _ENV_SWITCHES)
+
+
+def validity_window(entries, started):
+    """Clock interval on which a cold query's whole candidate pool is stable.
+
+    Include every candidate, not just returned Top-K: expiry of a nonwinner
+    can change BM25 corpus statistics and therefore the winning rank. Start
+    endpoints also invalidate cached qualification metadata; an inverted
+    future-start/past-end window changes from not_yet to expired at its start.
+    Uncertain/nonfinite endpoints bypass caching. Construction is O(N) only
+    on a miss; a hit checks two scalar clock bounds in O(1).
+    """
+    from . import trust
+    deadline = None
+    for entry in entries:
+        kind, start, end = trust.validity(entry, now=started)
+        if kind == "expired":
+            return None  # The clock moved while candidates were being read.
+        for boundary in (start, end):
+            if boundary is None:
+                continue
+            if not math.isfinite(boundary):
+                return None
+            if boundary >= started:
+                deadline = boundary if deadline is None else min(deadline, boundary)
+    return started, deadline
+
+
+def _within_window(now, window):
+    return now >= window[0] and (window[1] is None or now < window[1])
 
 
 class HotCache:
@@ -87,6 +140,7 @@ class HotCache:
                  query_ttl=QUERY_TTL):
         self._nodes: OrderedDict = OrderedDict()
         self._queries: OrderedDict = OrderedDict()
+        self._query_windows = {}
         self._max_nodes = max_nodes
         self._max_queries = max_queries
         self._query_ttl = query_ttl
@@ -130,8 +184,22 @@ class HotCache:
         if isinstance(v, (set, frozenset)):
             return tuple(sorted((HotCache._canon(x) for x in v), key=repr))
         if isinstance(v, dict):
-            return tuple(sorted((str(k), HotCache._canon(x))
-                                for k, x in v.items()))
+            # #153（2026-10-12 DSH 端）：键片段用**三元组**（"k", 类型名, str(键)）。
+            # 修前是 (str(键), 值) 二元组，两个缺陷：
+            #   ① 撞键：`{1: 'x'}` 与 `{'1': 'x'}` 的 canon **逐位相同**
+            #      （int 1 与 str '1' 都 str 成 "1"）⇒ 语义不同的入参命中同一
+            #      缓存键，静默串结果；
+            #   ② 抛异常：`sorted(...)` 对 (str, 值) 二元组排序，键相同则比到
+            #      **值**——`_canon({1: None, '1': (1, 2)})` 比 None 与 tuple
+            #      ⇒ `TypeError: '<' not supported between instances of
+            #      'tuple' and 'NoneType'`，异常从 `search_rrf` 逃出（检索
+            #      入口整体 500）。context 是模型可控入参，形态不可信。
+            # 故：片段里带 `type(k).__name__` 消撞键；排序键**只取片段**
+            # （`key=lambda kv: kv[0]`，全是 str 元组 ⇒ 恒可比，不触值）。
+            return tuple(sorted(
+                ((("k", type(k).__name__, str(k)), HotCache._canon(x))
+                 for k, x in v.items()),
+                key=lambda kv: kv[0]))
         # 其余（含自定义对象/可调用）：repr 含内存地址 → 每次不同 →
         # 缓存永不命中（等价绕行），是**安全侧**失败（不串味）。
         return ("repr", repr(v))
@@ -156,29 +224,61 @@ class HotCache:
             self._stats["query_misses"] += 1
             return None
         ts, results, meta = entry
-        if time.time() - ts > self._query_ttl:
+        now = time.time()
+        window = self._query_windows.get(key)
+        if (now - ts > self._query_ttl
+                or (window is not None and not _within_window(now, window))):
             self._queries.pop(key, None)
+            self._query_windows.pop(key, None)
             self._stats["query_misses"] += 1
             return None
         self._stats["query_hits"] += 1
         self._queries.move_to_end(key)
-        return results, dict(meta)
+        # #153①（2026-10-12 DSH 端）：**出口一律深一层浅拷贝**——修前只
+        # `dict(meta)` 拷贝了 meta，`results` 是**缓存内部 list 的引用**：
+        # 调用方（检索后处理 / 排序 / 截断 / 上层 append）对返回值的任何原地
+        # 修改都会**写回缓存**，下一次命中就拿到被污染的「结果」——别名污染
+        # 是静默错答（不是性能问题）。行内元素 dict 同样按引用共享（`bm25`
+        # 的 rows 是 `(node_dict, score)`），故逐行浅拷贝、行内 dict 再拷贝。
+        return [HotCache._copy_row(r) for r in results], dict(meta)
+
+    @staticmethod
+    def _copy_row(row):
+        """query 结果行的**浅拷贝**（#153①）：list/tuple 保持原容器类型，
+        容器内的 dict 元素另拷一份，其余标量原样。"""
+        if isinstance(row, dict):
+            return dict(row)
+        if isinstance(row, (list, tuple)):
+            items = [dict(x) if isinstance(x, dict) else x for x in row]
+            return tuple(items) if isinstance(row, tuple) else items
+        return row
 
     def put_query(self, query, results, meta, k=20, layer=None,
                   session=None, branch=None, validity=None, view=None,
-                  extra=None):
+                  extra=None, clock_window=None):
         """写入/更新 query 缓存。"""
         key = self._query_key(query, k, layer, session, branch, validity,
                               view, extra)
-        self._queries[key] = (time.time(), list(results), dict(meta))
+        now = time.time()
+        if clock_window is not None and not _within_window(now, clock_window):
+            self._queries.pop(key, None)
+            self._query_windows.pop(key, None)
+            return
+        self._queries[key] = (now, list(results), dict(meta))
+        if clock_window is None:
+            self._query_windows.pop(key, None)
+        else:
+            self._query_windows[key] = clock_window
         self._queries.move_to_end(key)
         while len(self._queries) > self._max_queries:
-            self._queries.popitem(last=False)
+            evicted, _entry = self._queries.popitem(last=False)
+            self._query_windows.pop(evicted, None)
 
     def invalidate_all_queries(self):
         """清空全部 query 缓存（写入时保守全清）。"""
         n = len(self._queries)
         self._queries.clear()
+        self._query_windows.clear()
         if n:
             self._stats["invalidations"] += 1
 
@@ -193,6 +293,7 @@ class HotCache:
         """清空全部缓存。"""
         self._nodes.clear()
         self._queries.clear()
+        self._query_windows.clear()
 
     def stats(self):
         """返回统计信息。"""

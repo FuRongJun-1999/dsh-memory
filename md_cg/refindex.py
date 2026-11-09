@@ -29,7 +29,7 @@
   漂移 / 悬空**只由节点自身 frontmatter ref 判**（`probe_ref` / `read_ref` 的唯一实现）；
   水位（`_refindex.json`）**不进 probe**——它只判「这个节点能不能跳过、不读源」。
   跳过的充分条件是三条同时成立：①节点 ref 与水位条目
-  `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime 未变；
+  `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime/sha256 三者全等未变；
   ③该 node_id 本轮尚未判过（跨大域撞 id 时同一 id 会被多条水位条目列出，只判一次）。
   五项里含 `path` / `root` 是必要的：不含时跨域撞 id 在稳态不可见（节点 ref 指向另一域
   而水位条目取自本域），且不一致会重复报红（同一 node_id 两条 stale）。
@@ -41,6 +41,8 @@
 """
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import time
@@ -48,6 +50,11 @@ import time
 from .fsutil import atomic_write
 
 SCHEMA = 2                # v2：水位以「源文件绝对路径」为键（v1 按 rel 会跨大域撞名）
+# #157（2026-10-12）：水位条目**加法式**新增 sha256 列（补 is_fresh 的「等长改写 +
+# mtime 还原」漏判）。刻意**不 bump 到 3**：加列是兼容扩展（旧读者忽略多余键），
+# 且 is_fresh 对「无 sha256 列的旧条目」一律判不新鲜 ⇒ 下一轮索引就地重切补列，
+# 属优雅迁移；bump 则连 nodes 区间一并丢弃、强制全量重建。若日后要显式版本闸，
+# 把本行改成 3 并在 load() 保持 schema 严格相等即可（口径即此处）。
 LEDGER_FILE = "_refindex.json"
 REF_KEYS = ("code_ref", "doc_ref")
 MAX_CHECK = 2000          # 巡检节点上限（超出报 truncated，不静默截断）
@@ -62,6 +69,25 @@ def _src_key(fp: str) -> str:
     `alpha.py` 这种同名文件上互相覆盖——水位被静默丢掉，巡检就漏报。
     """
     return os.path.abspath(fp or "")
+
+
+# 生效条件：fp 为可读文件路径时返回其**整文件字节**的 sha256 十六进制摘要（64 字符）；open/read 抛 OSError 时返回 None（读不到 ⇒ is_fresh 判不新鲜，宁可重切不漏判）；不缓存、不解析。
+def _sha256_file(fp: str):
+    """源文件整字节身份指纹（#157；口径与 mdcg._file_digest 同源——身份由字节定）。
+
+    为什么必须补：is_fresh 原只用 (size, mtime) —— 等长改写且 mtime 被还原
+    （cp -p / rsync -t / tar x / 备份还原 / 粗粒度 FS）时旧水位继续被判 fresh，
+    增量索引**静默跳过已改源**。同仓 mdcg._note_witness 已就同一类问题补过整文件
+    哈希，本处是对称补齐（同类实现不能一半有尺、一半没有）。
+
+    代价（如实标注）：恒读一遍文件。相对它避免的**重切/重解析**仍是净收益，但
+    「stat-only 的免费快路径」不复存在 —— 这是把正确性置于省 IO 之上的取舍。
+    """
+    try:
+        with io.open(fp, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
 
 
 # 生效条件：无 required 形参，任何调用都返回 round(time.time(), 1)，把时间戳压到 1 位小数以稳定 `_refindex.json` 字节数。
@@ -153,7 +179,11 @@ def ref_of(node) -> tuple:
 
 # 生效条件：以 root 为必填实参构造，实例化即置 self.root=root、self.path=os.path.join(root, LEDGER_FILE)、self._d=None；
 class Ledger:
-    """`<root>/_refindex.json`：每个源文件的 (size, mtime) 水位 + 节点区间。"""
+    """`<root>/_refindex.json`：每个源文件的 (size, mtime, sha256) 水位 + 节点区间。
+
+    sha256 列（#157）是 is_fresh 的**第二判据**：size/mtime 双等后再比整文件哈希，
+    堵住「等长改写 + mtime 被还原」沿用旧水位静默跳过已改源的漏判。
+    """
 
 # 生效条件：当传入 root 时，self.root 取该 root，self.path 为 os.path.join(root, LEDGER_FILE)，self._d 置为 None；
     def __init__(self, root: str):
@@ -177,9 +207,18 @@ class Ledger:
         self._d = d or {"schema": SCHEMA, "updated_at": 0.0, "files": {}}
         return self._d
 
-# 生效条件：传入 rel、fp 时，若 self.load()["files"].get(_src_key(fp)) 缺失或为假值、或 os.stat(fp) 抛 OSError、或条目 e.get("size") != st.st_size，则返回 False；否则返回 abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6（mtime 缺失或假值时按 0.0）；
+# 生效条件：传入 rel、fp 时，若 self.load()["files"].get(_src_key(fp)) 缺失或为假值、或 os.stat(fp) 抛 OSError、或条目 e.get("size") != st.st_size、或 abs(float(e.get("mtime") or 0.0) - st.st_mtime) >= 1e-6、或条目无 sha256 列（旧版水位）、或 _sha256_file(fp) 与条目 sha256 不等（含读不到即 None），则返回 False；三者全等才返回 True（可跳过不重切）。
     def is_fresh(self, rel: str, fp: str) -> bool:
-        """源文件自上次索引后未变（size + mtime 双等）→ 可跳过不重切。"""
+        """源文件自上次索引后未变 → 可跳过不重切。
+
+        #157：判据是 (size, mtime, sha256) **三者全等**。size/mtime 双等在
+        「等长改写 + mtime 被还原」（cp -p / rsync -t / tar x / 备份还原 /
+        粗粒度 FS）下会漏判——旧水位据此继续判 fresh，增量索引**静默跳过已改源**。
+        故与 mdcg._note_witness 同款，以**字节**收口身份。
+
+        旧条目（无 sha256 列）一律 False ⇒ 下一轮索引就地重切补列（优雅迁移；
+        刻意不 bump SCHEMA，口径见模块常量处注释）。
+        """
         e = self.load()["files"].get(_src_key(fp))
         if not e:
             return False
@@ -189,9 +228,14 @@ class Ledger:
             return False
         if e.get("size") != st.st_size:
             return False
-        return abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6
+        if abs(float(e.get("mtime") or 0.0) - st.st_mtime) >= 1e-6:
+            return False
+        want = e.get("sha256")
+        if not want:
+            return False                # 旧版水位无哈希列 ⇒ 判不新鲜、重切补列
+        return _sha256_file(fp) == want
 
-# 生效条件：当 rel、fp、kind、nodes 传入且 os.stat(fp) 成功时，向 self.load()["files"][_src_key(fp)] 写条目，其中 root 为 root if root else os.path.dirname(key)、path 为 rel、kind 为 kind、size/mtime 取 st、nodes 为每项 n.get("id")/n.get("lineno")/n.get("end")/n.get("hash")；os.stat(fp) 抛 OSError 时不写入；
+# 生效条件：当 rel、fp、kind、nodes 传入且 os.stat(fp) 成功时，向 self.load()["files"][_src_key(fp)] 写条目，其中 root 为 root if root else os.path.dirname(key)、path 为 rel、kind 为 kind、size/mtime 取 st、sha256 取 _sha256_file(fp)（读不到记 None）、nodes 为每项 n.get("id")/n.get("lineno")/n.get("end")/n.get("hash")；os.stat(fp) 抛 OSError 时不写入；
     def record(self, rel: str, fp: str, kind: str, nodes,
                root: str = None) -> None:
         """记一个源文件的水位（节点区间用于判 stale）。
@@ -209,6 +253,7 @@ class Ledger:
             "path": rel,
             "size": st.st_size,
             "mtime": st.st_mtime,
+            "sha256": _sha256_file(fp),     # #157：is_fresh 的第二判据（读不到记 None）
             "kind": kind,
             "nodes": [
                 {"id": n.get("id"), "lineno": n.get("lineno"),
@@ -378,16 +423,88 @@ def _domain_of(it: dict) -> str:
     两者混成一个字段就会重演普查里的退化：实例名嵌进条件字段 → 3037 桶 /
     3048 节点（99.9% 单例桶），路由等于失效。
 
-    取 path 首段，与改造前 `normalize_domain(observation_position)` 的产物
-    **逐字相同**，故本次加标签不改变任何既有节点的分桶结果。
+    取**整条相对路径**（2026-10-21 采纳外部用户 miyu 的修复一）。
+
+    为什么不再取首段：真实知识树常见形态是「少数顶层目录 + 其下大量子树」，
+    例如 default-kb/{shorinwiki,kb}。取首段时只有 2 个桶、99 篇文档全压在一个
+    桶里 ⇒ 巨桶占比 97.2%、期望扫描 94.6%，路由等于失效（外部实测：改整路径后
+    桶数 2→60、最大桶 97.2%→5.8%、期望扫描 94.6%→2.7%）。
+
+    安全性：docindex.node_id 只哈希 path#heading_path，**不含本域键**，
+    故改域只换桶、节点 id 完全不变，不产生重复节点。
     """
     path = it.get("path") or ""
-    return path.split("/")[0] or "orphan"
+    return path or "orphan"
 
 
-# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError，返回 (ids, sens)。
+
+# 生效条件：cg.get(nid) 不可读或节点不存在时先走不过滤内部读面（索引条目 + cg._read）——节点存在且其 frontmatter[kind]['root'] 非空、与入参 root 不是同一个源根（_same_root）、旧根目录仍在盘上时返回冲突读数 dict（id/kind/existing_root/root/invisible=True，issue #426-B fail-closed），否则返回 None；可见节点路径与既有逐位一致（frontmatter[kind]['root'] 非空且异根才返回 id/kind/existing_root/root）；只读，不写盘；
+def root_clash(cg, nid, kind, root):
+    """同 id 节点是否已归属**另一个源根**（#352-E 冲突闸）。
+
+    codeindex.node_id / docindex.node_id 只哈希**相对源根**的路径（path::name /
+    path#heading），于是同一记忆库先后索引两个源目录时，同名相对路径会得到同一个
+    id：B 仓的节点**静默覆写** A 仓的（正文与 code_ref.root 一起换成 B），回执照报
+    indexed。而水位按**绝对路径**记，A 此后增量重索引判定「未变」跳过，被覆写的
+    节点再也补不回来（检索与 op=ref 会把 B 的代码当作 A 的上下文）。
+
+    同根判据**复用本模块既有单点** `_same_root`（normcase + abspath，`prune_orphans`
+    / `check_refs` 同源）——**不新造第二份「同一大域」口径**：两处判据一旦分叉，会出现
+    「冲突闸认为异根不写、而 prune_orphans 认为同根可清退」的自相矛盾。
+
+    改 id 键（把源根并进哈希）会动存量 id 的稳定性与幂等，属**单独立项**
+    （仓内 docs/mdcg/缺口单_P0收口_v0.1.md §6.3 同族），故本轮取**止血**：写入前
+    比对既有节点的 ref.root，不同根即**不覆写**、把该条记进返回体的 conflicts，并由
+    调用方把该源文件的**水位一并丢掉**（否则下次增量会把这个文件判成「未变」而跳过，
+    冲突从此不可见）。多仓同名节点暂时只保留先索引的一侧——两仓共存要等 id 键改造。
+    """
+    try:
+        prev = cg.get(nid)
+    except Exception:                                  # noqa: BLE001
+        prev = None
+    if not prev:
+        # issue #426-B：cg.get 按调用者 clearance 过滤——低权令牌（record/internal）
+        # 看不见 designer 以 restricted/private 索引的既有节点，原实现据此判「无冲突」
+        # 并整条覆写（密级一起降为 internal，原主之后重索引还会被闸挡回）。冲突判定
+        # 必须基于**库内客观事实**，故改走不过滤内部读面（索引条目 + 基类 _read）；
+        # 「存在但不可读」按 fail-closed 视为冲突（不覆写），invisible 供回执归因。
+        e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
+        if e is None:
+            return None                              # 真不存在：无冲突
+        try:
+            fm, _c = cg._read(e)
+        except Exception:                            # noqa: BLE001
+            fm = None
+        if not fm:
+            return None                              # 读不出（损坏/瞬时失败）：维持既有 None 语义
+        _pr = (fm.get(kind) or {})
+        _prev_root = _pr.get("root") if isinstance(_pr, dict) else None
+        if not _prev_root or not root or _same_root(_prev_root, root):
+            return None                              # 同根/无 ref：覆写语义不变
+        if not os.path.isdir(_prev_root):
+            return None                              # 陈化豁免与可见路径同口径
+        return {"id": nid, "kind": kind, "existing_root": _prev_root,
+                "root": root, "invisible": True}
+    pr = ((prev.get("frontmatter") or {}).get(kind) or {})
+    prev_root = pr.get("root") if isinstance(pr, dict) else None
+    if not prev_root or not root or _same_root(prev_root, root):
+        return None
+    if not os.path.isdir(prev_root):
+        # **陈化豁免**（与 live 判据成对，2026-10-15 实测校准）：旧源根已不在盘上
+        # （临时目录被清、克隆被删、盘符离线）时，那份源码无从核对——节点是孤儿，
+        # 此时**允许**覆写。否则源目录一被移走，该 id 就永远写不进去（实测：
+        # test_p26/p27/p28 的语料根固定而源目录每轮新建，旧根是本机历史临时目录、
+        # 早已不在，加闸后 11/11 条全被判冲突、indexed 归零）。
+        # 判据取「旧根**目录**是否仍在」，不逐条 stat 旧文件：跨仓场景里旧仓目录一定
+        # 在（报告 #352-E 的复现前提），陈化场景里它一定不在。
+        return None
+    return {"id": nid, "kind": kind,
+            "existing_root": prev_root, "root": root}
+
+
+# 生效条件：kind == 'code_ref' 时按 codeindex.node_id/render 写入 cg（tags 含 'code'、code_ref=_code_ref(it, root)），kind == 'doc_ref' 时按 docindex 写入（tags 含 'doc'、doc_ref=_doc_ref(it, root, src_of(it))、密级取自 docindex.sensitivity_for(it['path'], sensitivity)），其他 kind 抛 ValueError；写入前逐条过 root_clash（#352-E）：同 id 已被**另一个源根**占用时不覆写，把该条并入 conflicts（conflicts 为真值时）并**跳过**（该条 id 不进 ids）；返回 (ids, sens)。
 def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
-              layer_of=None, src_of=None, extra_of=None):
+              layer_of=None, src_of=None, extra_of=None, conflicts=None):
     """把索引条目写进认知图（code / doc 的落盘细节收在这里，唯一实现）。
 
     - `layer=None` → 默认 `knowledge`（与代码节点同层，保证进默认召回）。
@@ -409,6 +526,19 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
     for it in items:
         if kind == "code_ref":
             nid = codeindex.node_id(it)
+        elif kind == "doc_ref":
+            nid = docindex.node_id(it)
+        else:
+            raise ValueError(f"未知 ref kind：{kind!r}")
+        # ---- #352-E 冲突闸：同 id 已被另一个源根占用 ⇒ 不覆写、不静默 ----
+        _clash = root_clash(cg, nid, kind, root)
+        if _clash is not None:
+            if conflicts is not None:
+                conflicts.append(dict(_clash, path=it.get("path"),
+                                      src=os.path.join(root,
+                                                       it.get("path") or "")))
+            continue
+        if kind == "code_ref":
             cg.add(
                 nid, codeindex.render(it),
                 layer=(layer_of(nid) if layer_of else None) or layer or "knowledge",
@@ -418,10 +548,21 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
                 verification_basis=it.get("basis") or "compiler",
                 code_ref=_code_ref(it, root),
             )
-        elif kind == "doc_ref":
-            nid = docindex.node_id(it)
+        else:                                      # doc_ref
             level = it.get("level")
-            s, _basis = docindex.sensitivity_for(it.get("path") or "", sensitivity)
+            # issue #452（2026-10-16 实测）：`it["path"]` 是**相对被摄取根**的路径，
+            # 而私有提示可能正落在**被摄取根自身**的名字上——`cg(op=ingest,
+            # action=dir, path=<…>/private)` 时 item path 只剩 `hr_archive.md`，
+            # `private` 这一段被抹掉 ⇒ 提示永不命中 ⇒ 敏感文档以 internal 落库，
+            # 低权身份可读回其正文；同一份文档改传父目录即正确判 private 并
+            # fail-closed（同一文件、同一写者，只有 path 参数不同）。
+            # 故密级判据面改用「**摄取根 + 相对路径**」的合成路径：与
+            # `docindex.sensitivity_for` 已支持的绝对路径写法**同口径**，而该函数
+            # 只按段找提示、命中只会收紧为 private ⇒ 仍满足其 docstring 的
+            # 「只可能更严、不可能更松」。`root` 为空时合成结果即原 path，
+            # 行为与修前逐字一致（非摄取通路的调用点不受影响）。
+            _hint = os.path.join(root or "", it.get("path") or "").replace("\\", "/")
+            s, _basis = docindex.sensitivity_for(_hint, sensitivity)
             sens[s] = sens.get(s, 0) + 1
             extra = (extra_of(it) or {}) if extra_of else {}
             cg.add(
@@ -435,8 +576,6 @@ def add_items(cg, items, *, kind: str, root: str, layer=None, sensitivity=None,
                 doc_ref=_doc_ref(it, root, src_of(it) if src_of else None),
                 **(extra.get("attrs") or {}),
             )
-        else:
-            raise ValueError(f"未知 ref kind：{kind!r}")
         ids.append(nid)
     return ids, sens
 
@@ -536,7 +675,7 @@ def read_ref(ref: dict, *, root: str = None, ref_kind: str = "ref") -> dict:
     }
 
 
-# 生效条件：n 为水位条目内的节点记录（id/lineno/end/hash）、e 为文件条目、rel/src_root 为源相对路径与源大域、unchanged 为源 size/mtime 未变时，按 cg.get(nid) 的 frontmatter ref 判该 node_id 的快路径结论并返回 {'node_id','kind','covered','probe','mismatch'}——取不回节点或节点无 ref 时 covered=False/probe=None（落回退路径、不记 mismatch）；五项全等且 unchanged 时 probe=None（跳过不读源）；否则 probe 为待探测 ref；不一致时 mismatch 带两侧 root/hash 与 kind_of_gap。
+# 生效条件：n 为水位条目内的节点记录（id/lineno/end/hash）、e 为文件条目、rel/src_root 为源相对路径与源大域、unchanged 为源 (size, mtime, sha256) 三者全等未变时，按 cg.get(nid) 的 frontmatter ref 判该 node_id 的快路径结论并返回 {'node_id','kind','covered','probe','mismatch'}——取不回节点或节点无 ref 时 covered=False/probe=None（落回退路径、不记 mismatch）；五项全等且 unchanged 时 probe=None（跳过不读源）；否则 probe 为待探测 ref；不一致时 mismatch 带两侧 root/hash 与 kind_of_gap。
 def _fast_path_verdict(cg, n: dict, e: dict, rel: str, src_root: str,
                        unchanged: bool) -> dict:
     """单条水位记录 → 该 node_id 的快路径结论（**唯一实现**，也是定点变异锚点）。
@@ -584,7 +723,7 @@ def _fast_path_verdict(cg, n: dict, e: dict, rel: str, src_root: str,
     return out
 
 
-# 生效条件：cg 的 index['nodes'] 非空时汇总 stale/dangling/unresolved/errors/ledger_mismatch 并返回 ok =（无 stale 且无 dangling）；only_tagged 为真时只探测 tags 含 'code'/'doc' 的节点，ledger 非空时先经 _fast_path_verdict 走 (size, mtime) 快路径。
+# 生效条件：cg 的 index['nodes'] 非空时汇总 stale/dangling/unresolved/errors/ledger_mismatch 并返回 ok =（无 stale 且无 dangling）；only_tagged 为真时只探测 tags 含 'code'/'doc' 的节点，ledger 非空时先经 _fast_path_verdict 走 (size, mtime, sha256) 快路径。
 def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
                only_tagged: bool = True) -> dict:
     """漂移 / 悬空巡检（只读、不抛）。
@@ -592,7 +731,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
     **分工：节点判漂移，水位只判跳过。** 探测数据只取**节点自身 frontmatter ref**
     （`ref_of(cg.get(nid))`）——ledger 条目一律不进 probe；它只用来判「这个节点能不能
     跳过、不读源」。跳过的充分条件（三条同时成立）：①节点 ref 与水位条目
-    `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime 未变；
+    `(hash, lineno, end, path, root)` **五项全等**；②源文件 size/mtime/sha256 三者全等未变；
     ③该 node_id 本轮尚未判过（去重）。五项含 `path` / `root` 是必要的：不含时跨域
     撞 id 在稳态不可见，且 node/水位不一致会重复报红。
     不一致本身不改判定（不进 `ok`、不产生新红行），只记 `ledger_mismatch` 归因行
@@ -640,6 +779,7 @@ def check_refs(cg, *, ledger: "Ledger" = None, max_nodes: int = MAX_CHECK,
             try:
                 st = os.stat(key)
                 unchanged = (e.get("size") == st.st_size
+                             and ledger.is_fresh(rel, key)
                              and abs(float(e.get("mtime") or 0.0) - st.st_mtime) < 1e-6)
             except OSError:
                 unchanged = False
@@ -760,18 +900,32 @@ def _forget_many(cg, plan, why: str) -> tuple:
     return done, blocked
 
 
-# 生效条件：cg 具备可调用的 _unstage 时对 ghosts 逐个调用并收集成功 id（单条异常跳过），cg 无该能力时返回 []（不假装成功）。
+#: 上一次 `_drop_ghosts` 因**受保护**而跳过的幽灵 id（#463：供调用方并入 skipped_protected）。
+_LAST_SKIPPED = []
+
+
+# 生效条件：cg 具备可调用的 _unstage 时对 ghosts 逐个调用并收集成功 id（受保护者经 guard_forget 拒绝后跳过，记入 _LAST_SKIPPED）（单条异常跳过），cg 无该能力时返回 []（不假装成功）。
 def _drop_ghosts(cg, ghosts) -> list:
     """摘除幽灵条目的索引记录（节点文件已不存在，没有可软删的实体）。
 
     走 `MdCG._unstage`：它顺带落删除记录，保证幽灵不会再次从分片日志里复活。
     基础层没有该能力时如实返回空列表（不假装成功）。
     """
+    from . import protect as _prot          # #463：幽灵摘除不得绕过保护面
     drop = getattr(cg, "_unstage", None)
     if not callable(drop):
         return []
     out = []
+    _LAST_SKIPPED.clear()
     for nid in ghosts:
+        # #463（SEC·P0）：闸放在**这里**而不是 `_unstage` 里——`_unstage` 是无闸原语，
+        # `forget` 路径上游已过 `guard_forget`；闸下沉进原语 = 双重闸 + 悄悄改写原语语义
+        # （「闸的层级错配」：外层漏、内层重复，正确层 = 所有必经路径都过且只过一处）。
+        try:
+            _prot.guard_forget(cg, nid)
+        except _prot.ProtectionError:
+            _LAST_SKIPPED.append(nid)     # 受保护 ⇒ 跳过并计入 skipped_protected
+            continue
         try:
             drop(nid)
             out.append(nid)
@@ -928,6 +1082,8 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
                 "skipped_protected": [], "reason": why}
     done, blocked = _forget_many(cg, plan, why)
     dropped = _drop_ghosts(cg, ghost_plan)
+    # #463：受保护而跳过摘除的幽灵并入**同一** skipped_protected 口径（不新增返回形状）。
+    blocked = list(blocked) + [x for x in _LAST_SKIPPED if x not in blocked]
     return {**base, "ok": True, "count": len(done), "pruned": done[:50],
             "ghost_pruned": dropped[:50],
             "skipped_protected": blocked[:20],

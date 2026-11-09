@@ -31,13 +31,17 @@ CONTENT_KINDS = {
     "work_wip": "工作进行 → 是否已有完整成果 + 是否符合纪律",
     "ccg_marks": "CCG 六要素候选 → 编外验证方实测确认（生成方不得自证）",
     "hyperedge": "跨端验证超边 → 回放重建比对（回执逐字段一致）",
+    # work_log（2026-11-06）：流水类（网关三元组 / 日卡 / 索引切片）。
+    # 为什么不复用 text/work_done：text 要 CCG 六要素，work_done 要四维条件空间，
+    # 流水卡两样都没有；只要求「非空 + 有来源标记」。
+    "work_log": "流水记录 → 非空且有来源标记（不要求六要素/条件空间）",
 }
 
 # content_kind → 建议的 verification_basis
 # （见 nodefile.VERIFICATION_BASIS：compiler|test|measurement|formal_proof|data|textbook|public_kb|other）
 KIND_BASIS = {"code": "test", "image_desc": "measurement", "text": "other",
               "permission": "data", "work_done": "test", "work_wip": "other",
-              "ccg_marks": "test", "hyperedge": "test"}
+              "ccg_marks": "test", "hyperedge": "test", "work_log": "data"}
 
 VERIFIERS = {}
 
@@ -451,12 +455,24 @@ def _verify_code(payload, ctx):
         return _verdict(REJECT, "code", f"语法错误 L{exc.lineno}: {exc.msg}")
     n_def = sum(isinstance(x, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
                 for x in ast.walk(tree))
+    # 禁表面（2026-10-19 外部实测）：此前本验证器只做 AST，**从不调用 _rule_check**
+    # ⇒ forbidden（凭据形态）对 content_kind=code 形同不存在，`sk-`/`AKIA`/`ghp_`/
+    # 私钥块等以 ACCEPT 明文落盘，且无令牌 guest 经 cg(op=read) 可读回。
+    # 而 `_rule_check` 的契约（见其 docstring）与 data/policy.json 的 `_note` 都写明
+    # 「forbidden 对所有 content_kind 恒生效」——本调用是让实现对齐该契约。
+    # 位置在 AST 之后：语法都不成立的正文不必再跑禁表；Reject 后由 _gate_audit 的
+    # 既有 REJECT 分支统一脱敏，不在此处重复打码。
+    _st, _ev, _dt = _rule_check(src, ctx.get("rules") or load_rulebook(), "code")
+    if _st == REJECT:
+        return _verdict(REJECT, "code", f"纪律不合规：{_ev}", _dt)
     # P2-18（批次 30，外部审查报告）：test_cmd 只允许服务端 env 配置——
     # payload 是模型可控输入面，一旦接到工具参数顶层即为 RCE 注入点。
     cmd = os.environ.get("MDCG_CODE_TEST_CMD")
     if not cmd:
+        _tail = "" if _st == ACCEPT else f"（禁表：{_ev}）"
         return _verdict(ACCEPT, "code",
-                        f"AST 解析通过（{n_def} 个定义）；未配置 test_cmd，仅静态验证")
+                        f"AST 解析通过（{n_def} 个定义）；未配置 test_cmd，仅静态验证"
+                        + _tail)
     try:
         argv = shlex.split(cmd)
     except ValueError as exc:
@@ -479,7 +495,8 @@ def _verify_code(payload, ctx):
         # ——超时**不吞**（issue #63）。
         return _verdict(DEFER, "code", f"测试无法执行：{type(exc).__name__}: {exc}")
     if p.returncode == 0:
-        return _verdict(ACCEPT, "code", f"实测通过：{cmd}")
+        _tail = "" if _st == ACCEPT else f"（禁表：{_ev}）"
+        return _verdict(ACCEPT, "code", f"实测通过：{cmd}" + _tail)
     tail = ((p.stdout or "")[-300:] + (p.stderr or "")[-300:]).strip()
     return _verdict(REJECT, "code", f"实测失败 rc={p.returncode}：{tail}")
 
@@ -662,8 +679,20 @@ register_verifier("code", _verify_code)
 # image_desc / work_done 的**能力**由外部模块注入（见上）。未注入时 DEFER——
 # 诚实说明缺什么，绝不假装通过。
 register_verifier("image_desc", _pending("image_desc", "未注入识图验证器（需视觉能力）"))
-register_verifier("work_done", _pending("work_done", "未注入验收器（需验收标准）"))
+# work_done（2026-10-24）：由「未注入恒 DEFER」改为**内建验收器**。
+# 理由：外部注入依赖 MDCG_VERIFIER_MODULES，而该 env 未被宿主进程继承时验收器
+# 根本不生效（实测：setx 写入注册表，运行中的 DSH 及其子进程读不到）。内建后
+# 不依赖任何环境变量，判据在版本库里可审、可回滚。
+# 判据见 condaccept（V1 条件空间 / V2 证据可回溯 / V4 同槽冲突；V3/V5 只读旁证）。
+# 回滚开关：MDCG_WORKDONE_ACCEPT=observe → 恒 DEFER（回到旧行为）。
+from . import condaccept as _condaccept            # noqa: E402  (尾部注册区；condaccept 不导入 audit，无环)
+register_verifier("work_done", _condaccept.verify_work_done, override=True)
 # ccg_marks：闸门本身不是「能力」而是**准入判据**——只认编外单元的裁决
 # （unit_verdict + verifier）；无裁决时探测复核通道（蜂巢→配置→子代理）并给出
 # 下一步，恒不假装通过。真实复核由外部单元完成，认知图只负责记账。
 register_verifier("ccg_marks", _verify_ccg_marks)
+# work_log（2026-11-06）：流水类（网关三元组/日卡/索引切片）单独一个 kind。
+# 理由：这类节点是 episodic，没有 CCG 六要素也没有四维条件空间；
+# 塞进 text 或 work_done 都 100% 打回，塞进未知 kind 会被判 BLINDSPOT 且 kind 不落 fm。
+from . import worklog as _worklog                # noqa: E402  (尾部注册区，无环)
+register_verifier(_worklog.CONTENT_KIND, _worklog.verify_payload, override=True)

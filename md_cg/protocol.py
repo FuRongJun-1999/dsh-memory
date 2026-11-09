@@ -18,8 +18,10 @@
 两者由 `audit()` 的 `action_source` / `protect_neg_route` 段透出，并由 `test_protocol`
 的**同源源码守卫**钉住 mcp_server / protect 的实现（防「声明了没做」）。
 
-**协议面 ≠ MCP 面全量**（2026-09-19 实测）：`_cg_dispatch` 现有 35 个 op 分支，
-其中 30 个（ccg / review / protect / verify / whitebox …）属**扩展能力面**——它们是能力，
+**协议面 ≠ MCP 面全量**（2026-09-19 实测，issue #133 复核）：`_cg_dispatch` 有数十个
+op 分支（**确切数目不在此写死**——取 `audit()["actual"]`，或真源
+`md_cg/op_table.py::_OP_TABLE`；修前此处写死「35 个」，已陈旧），
+其中除五动词外的（ccg / review / protect / verify / whitebox …）属**扩展能力面**——它们是能力，
 不是协议违例。把「协议覆盖范围」当成「MCP 面全量」会让协议每加一个 op 就永久红灯，
 故反向对账降级为 `extension_ops` 报告项（清单可见、不 FAIL）；扩展面的文档一致性由
 README 认知图 + `docs/mdcg/功能调用映射表` 的 cogmap 门禁承担（已在 CI）。
@@ -57,6 +59,41 @@ VERBS = ("route", "read", "write", "supersede", "forget")
 #: write 返回**铁律**：任一形态必含此三键——客户端据此判定「是否落盘」而非猜测。
 #: 这是协议对三端客户端最有价值的一条：ok/committed 分离表达「闸门行为 ≠ 工具故障」。
 WRITE_TRIO = ("ok", "id", "committed")
+
+#: **盲区声明**（2026-10-12 设计者裁定，收束 issue #109 题3(b) 的争议）：
+#: 「本路径没有 audit 裁决可透出」这件事，**必须用一个显式标记表达**，而不是
+#: 让 `verdict` 键**缺席**。缺席是歧义源（客户端无法区分「这条路径没有裁决」
+#: 与「这个实现漏了给」）；而**键在场、值为 `None`** 是可机器判读的**盲区声明**：
+#: 「我们知道这里没填」。
+#: ★裁定原文：补 `verdict: None`（键必在场，值表明「本路径无裁决」），使它满足
+#:   `gate_short_circuit`。**这是盲区声明，说明了一个我们知道当前没有填补的内容。**
+#:   而「该分支没有 audit verdict 可透出，硬补一个 verdict 等于编造判据」这个判断
+#:   也是对的 —— **正因如此，我们需要为一个无法识别的内容进行标记。盲区就是为这个
+#:   情况设计的。**
+#: ⇒ 两条不矛盾：**不许编造一个「有值」的裁决**（那条仍然成立），但**必须留标记**
+#:   （本条）。故凡「闸门短路且无 audit 裁决」的形态，`verdict` 一律进 `required`，
+#:   取值 `None` 表示盲区。
+VERDICT_BLINDSPOT = None
+
+#: **工具面 → 动词绑定**（issue #109 题1，2026-10-10 裁定）：写动词的 I/O 形状铁律
+#: 不只约束 `cg(op=write)`，也约束**专用工具面**。`mdcg_remember` 是 hooks 自动记忆
+#: 与直写的主通路（`mcp_server._dispatch` 的 mdcg_remember 分支），它此前**未在协议里
+#: 出现**——于是「同一返回体在成功分支不给 committed、在待审分支给 committed=False」
+#: 这类漂移没有声明可对：客户端只能按 ok 猜（把待审读成已提交）。
+#: 声明语义：该工具面的每个 **dict 返回体**都必须 ①含 WRITE_TRIO；②未 committed 时
+#: 给去向（moved_to 或 gate）；③满足 write 的**至少一个声明形态**。由
+#: `test_write_return_shape` 的「按声明形态全量校验」（静态 AST 面 + 运行面）钉住。
+#: 注：`gated=true` 分支委托 `mdcos.remember_gated` 返回**闸门裁决信封**
+#: （ok/gate/verdict/written，无 id/committed）——它不在三键面，见该守卫的显式豁免判据。
+TOOL_FACE_BINDINGS = {
+    "mdcg_remember": {
+        "verb": "write",
+        "mutating": True,
+        "shapes_from": "write",
+        "impl": ("mcp_server", "_dispatch"),
+        "note": "受 WRITE_TRIO 铁律约束；gated=true 分支委托 remember_gated（闸门裁决信封，另计）",
+    },
+}
 
 #: op 推导兜底（`_cg_call` wrapper，2026-09-13 防呆落地）：op 漏传时按入参签名推导。
 #: 协议侧只作**文档化声明**（供客户端理解兜底语义），不做静态对账——
@@ -159,7 +196,9 @@ VERB_SPECS = {
                 # （持久验证状态）**语义不同**，同一条可同时是 ACCEPT + unverified。
                 "entry_required": ("id", "score", "state", "tokens", "content",
                                    "frontmatter", "provenance", "metadata"),
-                "entry_optional": ("truncated",),
+                # plain：展示层的人话渲染（ccg_prose.render），content 原样不动；
+                # 加它是因为回包多了一个键，声明必须同步，否则 test_recall_metadata 红。
+                "entry_optional": ("truncated", "plain"),
                 "entry_metadata_required": ("state", "reason", "verification_state"),
                 "entry_metadata_optional": ("verification_basis", "check_strength",
                                             "derived_from", "derived_relation",
@@ -192,13 +231,32 @@ VERB_SPECS = {
             },
             "gate_hard_reject": {
                 "when": "契约缺失硬拒（依赖声明闸 E050/E051）",
-                "required": WRITE_TRIO + ("gate", "error", "hint"),
-                "optional": ("missing", "verdict"),
+                # 2026-10-12 收束：同属「闸门短路且无 audit 裁决」⇒ verdict 进 required、
+                # 取值 None（盲区声明，见 VERDICT_BLINDSPOT）。实现见 writepipe._gate_deps。
+                "required": WRITE_TRIO + ("gate", "error", "verdict", "hint"),
+                "optional": ("missing",),
             },
             "gate_gated": {
                 "when": "主动遗忘闸（gated=true）替代落盘路径",
                 "required": WRITE_TRIO + ("gate", "verdict"),
                 "optional": ("consistency", "moved_to", "propagation"),
+            },
+            "autonomy_ticket": {
+                "when": "自治档位出单（确认档：变更单入审核队列、本次不落盘）",
+                # issue #109 题3(b)（2026-10-10 裁定）+ **2026-10-12 设计者收束**：
+                # 自治出单**不走 audit 链**，故**没有 audit 裁决可透出**——但这不是
+                # 「不要这个键」，而是「键必在场、值取盲区标记 None」（见 VERDICT_BLINDSPOT）。
+                # 原裁定「硬补 verdict 等于编造判据」指的是**不许编造一个有值的裁决**，
+                # 与「必须留盲区标记」不矛盾；缺席反而是歧义源（分不清「无裁决」与
+                # 「实现漏给」）。故 verdict 进 required，取值 None。
+                "required": WRITE_TRIO + ("moved_to", "pid", "mutation",
+                                          "autonomy", "verdict", "hint"),
+                # 特征键（**不含 verdict**）：用于识别「本应是本形态、却缺了 verdict」
+                # 的**降级**返回体 —— 缺 verdict 时它仍会命中更松的 committed 形态，
+                # 若不额外判降级，就会「被更松的形态吞掉」（判据静默失效）。
+                # 由 `test_write_return_shape._static_violations` 判红。
+                "fingerprint": ("moved_to", "pid", "mutation", "autonomy"),
+                "optional": (),
             },
         },
         "semantics": "写动词多形态：committed=已落盘；未 committed 时 moved_to/gate 说明去向，"
@@ -350,6 +408,15 @@ def audit(module: str = None, func: str = None) -> dict:
             shape_errors.append(f"{v}: reserved 但未声明 map_to 现状映射证据")
         if spec.get("status") == "live" and not spec.get("impl"):
             shape_errors.append(f"{v}: live 但未声明 impl 落点")
+    # 工具面绑定自洽（issue #109 题1）：绑定的动词必须已声明，且 shapes_from 必须
+    # 指向一个已声明动词——否则「该工具面受三键铁律约束」这句声明无从校验（装饰）。
+    for _tool, _bind in TOOL_FACE_BINDINGS.items():
+        if _bind.get("verb") not in VERB_SPECS:
+            shape_errors.append(
+                f"{_tool}: 绑定动词未声明 {_bind.get('verb')!r}")
+        if _bind.get("shapes_from") not in VERB_SPECS:
+            shape_errors.append(
+                f"{_tool}: shapes_from 未声明 {_bind.get('shapes_from')!r}")
     errors = []
     if not got.get("ok"):
         errors.append(f"源码提取失败：{got.get('error')}")
@@ -367,6 +434,9 @@ def audit(module: str = None, func: str = None) -> dict:
             "derive": list(OP_DERIVE), "errors": errors, "ok": not errors,
             # 扩展能力面的两条契约登记（2026-09-30）：wrapper 级恒定键 +
             # protect.mark 负路由形态——都不属五动词形状表，故不并入 VERB_SPECS。
+            # 工具面绑定（issue #109 题1）：声明的「工具面 → 动词」落点，客户端可据此
+            # 知道专用工具面与动词面**同一套形状铁律**。
+            "tool_faces": {t: dict(b) for t, b in TOOL_FACE_BINDINGS.items()},
             "action_source": {"key": ACTION_SOURCE_KEY,
                               "values": list(ACTION_SOURCE_VALUES)},
             "protect_neg_route": {"error": PROTECT_MARK_NEG_ROUTE_ERROR,

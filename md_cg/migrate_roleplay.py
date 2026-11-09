@@ -31,9 +31,7 @@
 actor=dsh-memory），迁移后插件才读得到。
 
 幂等：按 id 原子覆盖写（override=True），可反复执行。
-校验：写入后按 id 回读，逐字段比对 content / layer / tags。content 的比法见
-`_content_equals`：写入面会给未声明的 CCG 六要素补行（`# 验证方式：…` 等），
-故只剔除「回读里原文没有的 CCG 标题行」后再逐字比，其余字节改动一律判红。
+校验：写入后按 id 回读，逐字段比对 content / layer / tags。
 """
 from __future__ import annotations
 
@@ -45,34 +43,6 @@ import time
 
 from .mdcos import MdCGSecure
 from .security import Principal, DEFAULT_SENSITIVITY
-from . import nodefile
-
-
-# 生效条件：wrote 与 back 为写入侧原文与回读正文（可含/不含尾部换行）；两者 rstrip("\n")
-# 后逐字相等 → True；否则把 back 里**原文没有的 CCG 标题行**（nodefile.CCG_MARKS 任一要素
-# 的标题行）剔除后再比一次，相等 → True；其余一律 False。
-def _content_equals(wrote, back):
-    """回读正文与写入原文的等价判据（P19 B2/C2 的定因处）。
-
-    写入面 `MdCG._ensure_ccg_six` 会给未声明的六要素**补行**（`MdCGOS.add` 的
-    fail-open 补齐器，迁移一律传 verification_basis → 回读时正文首行多出
-    `# 验证方式：…`）。这是**设计行为**（白箱要求正文自带验证方式），但它让
-    「回读正文 == 原文」这条判据对**每一次**迁移都为假：实测 9/9 失配，报的
-    field 全是 content（p19 B2/C2 的红就是这么来的）。
-
-    判据改成「原文是否原样保留」：只剔除回读里**原文本来没有**的 CCG 标题行，
-    原文自带的 CCG 行（内容本身就是规章/词典条目时常见）不动，原文其它任何
-    字节改动都不许被这次剔除掩盖——真失配仍判红。
-    """
-    a = (wrote or "").rstrip("\n")
-    b = (back or "").rstrip("\n")
-    if a == b:
-        return True
-    a_lines = a.split("\n")
-    keep = [ln for ln in b.split("\n")
-            if not (any(nodefile.ccg_mark_present(ln, m) for m in nodefile.CCG_MARKS)
-                    and ln not in a_lines)]
-    return "\n".join(keep) == a
 
 #: 三导入 kind → 认知图层（与 roleplay_web.ts 的注释一致）。
 ITEM_LAYER = {"memory": "knowledge", "anchors": "self", "values": "structural"}
@@ -277,7 +247,7 @@ def migrate(data_dir, root, mutual_dir=None, dry_run=False,
                 bad.append((nid, "missing"))
                 continue
             fm = got.get("frontmatter") or {}
-            if not _content_equals(content, got.get("content")):
+            if (got.get("content") or "").rstrip("\n") != content.rstrip("\n"):
                 bad.append((nid, "content"))
             elif (fm.get("layer") or "") != layer:
                 bad.append((nid, "layer"))

@@ -331,7 +331,7 @@ def g1():
 
 # ---------------------------------------------------------------- G2
 def g2():
-    print("== G2 九步台账在场且 ⑤⑥ 标 skipped ==")
+    print("== G2 九步台账在场且 ⑤⑥ 记真读数（已接线：不再 skipped=='未接线'）==")
     S = globals()["SL"]
     steps = S.ledger_steps(scan={"candidates": 3, "ccg_backlog": 1,
                                  "importance_drift": 2},
@@ -344,11 +344,25 @@ def g2():
     ok(all(s.get("name") for s in steps), "G2a 每步都有显式中文名")
     ok(steps[0]["step"] == "recall_scan" and steps[0].get("readonly") is True,
        "G2b ①感知盘点标 readonly=True（只读）")
-    ok(steps[4].get("skipped") == "未接线" and steps[5].get("skipped") == "未接线",
-       "G2c **⑤权重 / ⑥索引重建 标 skipped=='未接线'**（不许悄悄跳过）",
+    # t91a-20261011/t1 接线（返工后语义）：⑤⑥ 不再硬写 `skipped:"未接线"`，
+    #   改记**真读数**；未走真迭代轮的调用则如实说「本轮未执行」，并给出
+    #   「为何没写盘」的原因——**两处都不许再出现「未接线」字面量**。
+    ok(steps[4].get("step") == "weights" and steps[5].get("step") == "reindex",
+       "G2c ⑤权重 / ⑥索引重建 在位且次序不变（steps[4]/steps[5]）",
+       (steps[4].get("step"), steps[5].get("step")))
+    ok(steps[4].get("skipped") != "未接线" and steps[5].get("skipped") != "未接线"
+       and "skipped" not in steps[4] and "skipped" not in steps[5],
+       "G2c2 ⑤⑥ **不再**标 skipped=='未接线'（占位分支已撤）",
        (steps[4].get("skipped"), steps[5].get("skipped")))
-    ok(steps[4].get("planned") and steps[5].get("planned"),
-       "G2d ⑤⑥ 附 planned（接线条目：P4 / P2P3）")
+    ok(steps[4].get("wired") and steps[5].get("wired"),
+       "G2d ⑤⑥ 附 wired（接线条目：P4 / P2P3），替代旧 planned")
+    ok(all(isinstance(s.get("not_written_reason"), str)
+           and s.get("not_written_reason")
+           for s in (steps[4], steps[5])) or
+       all((s.get("readout") or {}).get("apply") for s in (steps[4], steps[5])),
+       "G2d2 只读预演时 ⑤⑥ 如实记「为何没写盘」；真写盘时才不记该键",
+       [(s.get("not_written_reason"), (s.get("readout") or {}).get("apply"))
+        for s in (steps[4], steps[5])])
     ok(steps[8]["step"] == "self_check" and steps[8].get("auto_apply") is False,
        "G2e ⑨方向性自检只产记录（auto_apply=False，不自动触发修改）")
     ok(steps[7]["step"] == "feedback"
@@ -363,8 +377,11 @@ def g2():
     ok(all(s.get("skipped") == "稳态：盘点候选数为 0" for s in st2[1:4]),
        "G2h 只记账时 ②③④ 显式记 skip_reason（不是留空）",
        [s.get("skipped") for s in st2[1:4]])
-    ok(len(st2) == 9 and st2[4].get("skipped") == "未接线",
-       "G2i 只记账路径仍是九条、⑤⑥ 仍是「未接线」")
+    ok(len(st2) == 9 and st2[4].get("step") == "weights"
+       and st2[4].get("skipped") != "未接线"
+       and st2[5].get("skipped") != "未接线",
+       "G2i 只记账路径仍是九条、⑤⑥ 也不再是「未接线」（如实记未写盘原因）",
+       (st2[4].get("skipped"), st2[4].get("not_written_reason")))
 
 
 # ---------------------------------------------------------------- G3
@@ -396,9 +413,14 @@ def g3():
     rec = lp.last_sleep
     ok(rec is not None and rec["steps"] == list(SL.STEPS),
        "G3c 真跑 _tick_sleep 后 last_sleep.steps = 九步", rec and rec["steps"])
-    ok(any(s.startswith("weights:未接线") for s in rec["steps_skipped"])
-       and any(s.startswith("reindex:未接线") for s in rec["steps_skipped"]),
-       "G3d 台账里 ⑤⑥ 标 skipped=未接线", rec["steps_skipped"])
+    # t91a-20261011/t1 接线（返工后语义）：⑤⑥ 已真接线，**不再**出现在
+    #   `steps_skipped`（那里只收带 `skipped` 键的步）。窗口外这轮 ②③④ 仍记
+    #   窗口原因；⑤⑥ 走只读预演并记真读数（未写盘原因在 `not_written_reason`）。
+    ok(all(not s.startswith("weights:") and not s.startswith("reindex:")
+           for s in rec["steps_skipped"])
+       and any(s.startswith("induce:") for s in rec["steps_skipped"]),
+       "G3d 台账里 ⑤⑥ **不再**标 skipped=未接线（已接线；②③④ 仍记窗口原因）",
+       rec["steps_skipped"])
     ok("sleep_interval" in lp.status() and "last_sleep" in lp.status()
        and "auto_sleep" in lp.status(),
        "G3e status() 暴露睡眠档字段（可观测）")

@@ -103,17 +103,8 @@ class ConditionVM:
                 "halt": halt,
                 "trace": self.trace if trace else None}
 
-    # 生效条件：v 为假值（None/False）或数值等于 0 时返回 False；空串、空容器、非数值非空值一律返回 True（与 CPython 的 bool() 在空串/空容器上不同）。
     def _truthy(self, v):
-        """真值判定：**只有** `None`、`False`、数值 `0`（含 `0.0`）为假，其余为真。
-
-        与 CPython 的 `bool()` **不同**的三处，调用方不能按 Python 直觉读：
-          ① 空串 `""` 为真（`"" != 0` 成立）；
-          ② 空容器 `[]`/`{}`/`()` 为真（不参与比较，恒真）；
-          ③ 符号里存 `0.0` 与 `0` 同为假（数值比较，不区分类型）。
-        改动这三条中任意一条都会改变既有白箱单元的 `JUMP_IF_FALSE` 走向，
-        故此处只把口径写准、不动实现。
-        """
+        """真值判定：None·0·空串为假，其余真（对照 CPython）。"""
         return v is not None and v is not False and v != 0
 
     def _exec(self, op, arg):

@@ -39,11 +39,13 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import time
 from collections import Counter
 
 from .fsutil import append_jsonl, read_jsonl
+from .security import visible_to
 
 LOG_FILE = "_metacognition.jsonl"
 
@@ -55,6 +57,9 @@ D_LOW = 0.10                 # P_gap：D_norm < 此值视为「信息差已收�
 MIN_SAMPLES = 5              # 样本不足 → insufficient_data
 D2_EMOTION = 0.05            # 二阶变化显著阈值
 BINS = ((0.0, 0.4), (0.4, 0.6), (0.6, 0.8), (0.8, 1.01))
+#: issue #121（2026-10-11）：越界 confidence 的**抽样可追**上限——返回体给计数 +
+#: 最多这么多个被丢弃 id（全量列表会随库增长无界膨胀；计数面恒完整，故不静默）。
+DROPPED_SAMPLE_MAX = 20
 
 
 # --------------------------------------------------------------------------
@@ -94,23 +99,113 @@ def _jaccard(a, b) -> float:
     return len(A & B) / len(A | B)
 
 
-# 生效条件：形参 rec 被复制并 setdefault("t", time.time()) 后，向 os.path.join(cg.root, LOG_FILE) 追加写入抛 OSError 时静默跳过，两类情形均返回补过 t 的 rec 副本；
+# 生效条件：形参 s 经 str(s or "").encode("utf-8") 取 sha1 十六进制前 8 位返回（空串也有确定值）；
+def _digest(s) -> str:
+    """不可逆摘要（#445：台账不落查询原文，只落摘要）。
+
+    与 `scrub.py` 的 payload-free 留痕同口径（sha1 前 8 位）：审计面可判
+    「两次是不是同一段查询」，但不持有原文。**不是**加密强度——短查询可被
+    字典比对，故本摘要**只入台账**，读面（self_check/blindspots/history 的
+    非授权读者）连摘要也不返回（只回 similarity/states/计数）。
+    """
+    return hashlib.sha1(str(s or "").encode("utf-8")).hexdigest()[:8]
+
+
+# 生效条件：cg 无 principal 属性（纯 MdCGOS，无身份/密级模型）时返回 True；principal.can_admin 为真时返回 True（设计者=全局观测本职，与 consistency_history/_readable 同款豁免）；否则记录自带 sensitivity 缺失/为空时返回 False（fail-closed：密级不可判即不可读，与 consistency_history「升级前无 sensitivity 键的旧记录一律去原文」同口径），sensitivity 为真值时要求 cg._readable 可调用并委派 security.visible_to(cg, rec)（= cg._readable：clearance × 密级 ∧ 会话绑定；**有 principal 却无判据载体 ⇒ 不可证可见 ⇒ False**，判据异常同样按不可见）。
+def _can_read_record(cg, rec) -> bool:
+    """台账记录的读可见性**单点**（#445/#426-D）。
+
+    台账（`_reflection.jsonl` / `_metacognition.jsonl`）的记录里没有节点
+    `path`，因此**不能**复用 `_readable` 的「密级缺失 → 回读盘面」分支；本
+    函数只做三件事：无身份模型不设限、设计者豁免、其余按记录自带密级走
+    `security.visible_to`（复用既有单点，不另写一份 rank/会话判据）。
+
+    为什么要自己再判一次 `callable`：`security.visible_to` 在**无钩子**时按
+    「不设限」返回 True（那是给纯 MdCGOS 的口径）；本函数走到这一步时已确认
+    **有** principal，此时「没有判据载体」不等于「无越权可言」，而是「不可证
+    可见」——按 fail-closed 返回 False（与 `node_visible` 的缺席处置同向）。
+    """
+    p = getattr(cg, "principal", None)
+    if p is None:
+        return True                       # 无身份模型：无「越权」可言
+    if getattr(p, "can_admin", False):
+        return True
+    if not isinstance(rec, dict):
+        return False                      # 非对象行：密级不可判 ⇒ fail-closed
+    sens = str((rec or {}).get("sensitivity") or "").strip().lower()
+    if not sens:
+        return False                      # 密级不可判 ⇒ fail-closed（宁可少读）
+    if not callable(getattr(cg, "_readable", None)):
+        return False                      # 有身份模型但无判据载体 ⇒ 不可证可见
+    return visible_to(cg, rec)
+
+
+# 生效条件：rec 为 dict/None；返回其副本，并把 query/query_digest/query_len 三键一并摘除后置 query_redacted=True（无 query 键时原样复制、不加标记）；
+def _redact_query(rec) -> dict:
+    """读面去原文：低权读者只回 similarity/states/计数，不回落原文（#445）。
+
+    `query_digest` 一并摘除：摘要虽不可逆，但对短查询构成**确认型旁路**
+    （猜一句、比一次摘要），故只在台账落盘、不在读面透出。
+    """
+    if not isinstance(rec, dict):
+        return rec                        # 非对象行原样（无可摘的键面）
+    out = dict(rec or {})
+    if "query" in out or "query_digest" in out or "query_len" in out:
+        out.pop("query", None)
+        out.pop("query_digest", None)
+        out.pop("query_len", None)
+        out["query_redacted"] = True
+    return out
+
+
+# 生效条件：形参 rec 被复制并 setdefault("t", time.time()) 后，向 os.path.join(cg.root, LOG_FILE) 追加写入抛 OSError 时静默跳过，两类情形均返回补过 t 的 rec 副本；cg.principal 存在且 can_write 为假时**不写盘**（只算不留痕，#426-D D3：不可写身份不得持久追加台账）；写入前把 query 原文换成 query_digest（sha1 前 8 位）+ query_len，台账不落原文（#445）。
 def _log(cg, rec: dict) -> dict:
     """独立留痕（append-only）。失败不阻塞主流程。"""
     rec = dict(rec)
     rec.setdefault("t", time.time())
+    # #445：台账只落「键名 + 不可逆摘要」，查询原文留在调用方上下文。
+    # 先摘再判写闸：本函数的返回值也不得携带原文（同一判据不因分支顺序漂移）。
+    if "query" in rec:
+        _q = rec.pop("query")
+        rec["query_digest"] = _digest(_q)
+        rec["query_len"] = len(str(_q or ""))
+        rec["query_redacted"] = True
+    # #426-D D3：无写权限的身份（无令牌访客等）不得经 self_check/report
+    # 持久追加台账——修前访客 10 次 self_check 把台账灌大 60KB。
+    _p = getattr(cg, "principal", None)
+    if _p is not None and not getattr(_p, "can_write", True):
+        return rec
     try:
-        append_jsonl(os.path.join(cg.root, LOG_FILE), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(os.path.join(cg.root, LOG_FILE), rec)
     except OSError:
         pass
     return rec
 
 
-# 生效条件：形参 cg 的 reflection_log 属性缺失或为假值时回落到 os.path.join(cg.root, "_reflection.jsonl")，返回该路径 read_jsonl 结果的 list；
+# 生效条件：形参 cg 的 reflection_log 属性缺失或为假值时回落到 os.path.join(cg.root, "_reflection.jsonl")，返回该路径 read_jsonl 结果中**读可见**的记录 list——逐条经 _can_read_record（无身份模型/设计者不设限；其余读者：缺 sensitivity 键 fail-closed 剔除、有密级经 security.visible_to 判 clearance × 会话绑定）；不可见记录**连计数都不进**（宁可少读）；
 def _reflections(cg) -> list:
+    """反思台账的**唯一读取点**（#445：可见性判据收在这里，不在各读面各写一份）。
+
+    为什么把闸放在这里而不是各消费点：`_reflection.jsonl` 有**四个**读面——
+    `trace` / `trust`（纯数值）、`blindspots` / `self_check`（带 query 文本）、
+    `autonomy.proposals`（带 query 文本，经 `cg(op=insight, action=explore)`
+    对 insight op 暴露）。修前只有前两者被逐面加过过滤，`autonomy` 直接读
+    `_reflections` 原样把原文放进 `proposals[].query`（复核实测 role=output
+    可读回属主查询原文）。判据放在**读取单点**，新读面自动继承；各消费点
+    不再各写一份（本仓反复栽过的「同一判据两份」形态）。
+
+    口径：`reflect()` 写台账时**恒不带 sensitivity 键**（md_cg/mdcg.py:5364-5375），
+    故对非设计者这是**全量 fail-closed**——低权读者读不到任何反思记录（含
+    trace/trust 的数值面）。这是刻意的「宁可少读」：记录密级不可判时，连
+    「有几条、相似度多少」都是原文的派生信息（issue #445 已证模糊猜测可钓出
+    原文）。设计者（can_admin）与纯 MdCGOS（无 principal）读数不变。
+    """
     path = getattr(cg, "reflection_log", "") or os.path.join(
         cg.root, "_reflection.jsonl")
-    return list(read_jsonl(path))
+    return [r for r in read_jsonl(path) if _can_read_record(cg, r)]
 
 
 # 生效条件：形参 cg 的 index 属性缺失或为假值、或其 "nodes" 键缺失、或该键值为假值（如空 dict）时返回 {}，否则返回该 "nodes" 值；
@@ -129,6 +224,20 @@ def _fm(cg, nid) -> dict:
 # --------------------------------------------------------------------------
 
 # 生效条件：形参 cg 的反思留痕中不存在 d_curr 为 int/float 的记录时返回 ok=False/insufficient_data/n=0；否则按 window（默认 50，window 为假值 0 时取全部记录）截取尾部计算，返回 ok=True 及 d_current、d1、由 d1 与 ±0.01 判定的 trend（converging/diverging/flat）等字段；
+# 生效条件：ds 为空返回 "unknown"；末尾 3 条（不足则全部）都 >= 0.99 返回 "starved"
+# （检索面持续没有 ACCEPT 节点，D 恒为满格的近似值）；否则 >=0.9 的占比过半返回 "thin"，
+# 其余 "ok"。**这个判定存在的原因**：d1/d2 只看变化率，20 次连续 1.0 会被算成
+# 「flat / stable」——把「恒定的最坏」读成「稳定」。starved 就是给这种情况的显式名。
+def _d_state(ds):
+    if not ds:
+        return "unknown"
+    tail = ds[-3:] if len(ds) >= 3 else ds
+    if all(float(x) >= 0.99 for x in tail):
+        return "starved"
+    hit = sum(1 for x in ds if float(x) >= 0.9)
+    return "thin" if hit * 2 >= len(ds) else "ok"
+
+
 def trace(cg, window: int = 50) -> dict:
     """信息差轨迹：D(t) → dD/dt（方向）→ d²D/dt²（情绪）。
 
@@ -166,6 +275,10 @@ def trace(cg, window: int = 50) -> dict:
         "states": dict(states),
         "state_rates": {k: round(v / total, 4) for k, v in states.items()},
         "d_series": [round(x, 4) for x in ds[-20:]],
+        "d_state": _d_state(ds),
+        "d_meaning": "信息差 D：0=信息差为零（完美），1=完全空白",
+        "state_rates_note": ("states/state_rates 是本次命中结果的资格态分布，"
+                             "不是查询盲区率"),
     }
 
 
@@ -187,6 +300,15 @@ def calibration(cg, max_scan: int = 2000) -> dict:
     exp_sum = 0.0
     used = 0
     total_pos = total_neg = 0
+    # issue #121（2026-10-11）：**越界 confidence 不再静默丢弃**。
+    # 修前：conf 落在 BINS 覆盖域（[0, 1.01)）之外的节点照计 used/exp_sum/
+    # total_pos/total_neg（进分母），却因不落任何桶而对 ECE 分子零贡献 ⇒ ECE 被
+    # 系统性低估；且 n_nodes 与 Σbins.n_nodes 对不上而无人报。
+    # 现逐条记账并透出，**不变量**：n_nodes == Σbins.n_nodes + dropped。
+    # 口径不变：越界节点照旧进 used/exp_sum/总证据（分母口径一字不改），
+    # 只把「没进桶」这件事从静默变成可观测。
+    dropped_count = 0
+    dropped_ids = []
     for nid, e in _nodes(cg).items():
         if used >= int(max_scan):
             break
@@ -202,6 +324,7 @@ def calibration(cg, max_scan: int = 2000) -> dict:
         exp_sum += conf
         total_pos += pos
         total_neg += neg
+        placed = False
         for lo, hi in BINS:
             if lo <= conf < hi:
                 b = buckets[f"{lo:g}-{hi:g}"]
@@ -209,9 +332,18 @@ def calibration(cg, max_scan: int = 2000) -> dict:
                 b["conf_sum"] += conf
                 b["pos"] += pos
                 b["neg"] += neg
+                placed = True
                 break
+        if not placed:
+            # 越界（conf < 0 或 conf >= BINS 覆盖上界 1.01）：计 dropped 并抽样留 id。
+            # 注意判据是 lo <= conf < hi，上界 1.01 已把 conf==1.0 正常覆盖。
+            dropped_count += 1
+            if len(dropped_ids) < DROPPED_SAMPLE_MAX:
+                dropped_ids.append(nid)
     if used == 0:
         return {"ok": False, "reason": "insufficient_data", "n_nodes": 0,
+                "dropped": 0, "out_of_range": 0, "dropped_ids": [],
+                "dropped_ids_truncated": False,
                 "note": "无带证据的节点：先 verify() 积累验证记录"}
     expected = exp_sum / used
     actual = total_pos / max(1, total_pos + total_neg)
@@ -241,6 +373,12 @@ def calibration(cg, max_scan: int = 2000) -> dict:
         verdict = "calibrated"
     return {
         "ok": True, "n_nodes": used,
+        # issue #121：可观测面——**越界丢弃**的计数与抽样 id（不静默）。
+        # dropped 是不变量的加数项（今日唯一丢因即越界；将来新增丢因须并入此数）。
+        "dropped": dropped_count,
+        "out_of_range": dropped_count,
+        "dropped_ids": list(dropped_ids),
+        "dropped_ids_truncated": dropped_count > len(dropped_ids),
         "n_evidence": total_ev,
         "expected_accuracy": round(expected, 4),
         "actual_accuracy": round(actual, 4),
@@ -255,12 +393,16 @@ def calibration(cg, max_scan: int = 2000) -> dict:
 # 观测面 3：盲区地图（我知道我不知道什么）
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 cg 的反思留痕按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
+# 生效条件：形参 cg 的反思留痕由 _reflections 给出（**已按读可见性过滤**——单点在读取面，本函数不另写第二份判据），再按 window（默认 200，window 为 0 时切片 [0:] 取全部）截尾，聚合其中 BLINDSPOT/DEFER 计数非零且 query 非空的记录（计数转换失败则跳过该条）；返回 ok=True，items 与 unresolved 各取前 int(limit)（limit 默认 20，limit 为 0 时两项均为空列表），unresolved_count 为未截断的完整计数；
 def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
     """盲区地图：反复 BLINDSPOT / DEFER 的查询邻域 + 未解问题清单。
 
     智能论推论三：盲区不是失败记录，是知识。因此按**邻域聚合**输出，
     可直接驱动 unresolved 层建节点（补条件）。
+
+    #445：items 里的 `query` 是调用方查询原文——可见性判据在 `_reflections`
+    （台账唯一读取点），不可见记录连计数都不进（宁可少读）。无身份模型
+    （纯 MdCGOS）与设计者不受限，既有调用方读数不变。
     """
     recs = _reflections(cg)[-int(window):]
     agg = {}
@@ -290,6 +432,11 @@ def blindspots(cg, limit: int = 20, window: int = 200) -> dict:
         if e.get("layer") == "unresolved":
             unresolved.append({"node_id": nid,
                                "content": str((cg.get(nid) or {}).get("content") or "")[:200]})
+    items = [dict(it, queried_times=it.get("samples", 0),
+                  blindspot_nodes=it.get("blindspot", 0),
+                  counts_note=("blindspot/blindspot_nodes 是这些命中结果里 BLINDSPOT 的"
+                               "节点数，不是「该问题盲了几次」；queried_times 才是次数"))
+             for it in items]
     return {
         "ok": True,
         "n_queries": len(agg),
@@ -377,6 +524,12 @@ def _advise(tr, cal, bs, tt) -> list:
                     "action": "先调用 reflect() 积累轨迹"})
     else:
         rates = tr.get("state_rates") or {}
+        if tr.get("d_state") == "starved":
+            out.append({"code": "no_accept_nodes",
+                        "why": ("信息差持续满格（d_current=%s、d_mean=%s；1=完全空白），"
+                                "说明检索面几乎没有 ACCEPT 节点，而不是「我不稳定」"
+                                % (tr.get("d_current"), tr.get("d_mean"))),
+                        "action": "先补语料资格与验证（verify），不要先建 unresolved"})
         if tr["d2"] > D2_EMOTION:
             out.append({"code": "diverging",
                         "why": f"信息差加速扩大 d²D/dt²={tr['d2']}（emotion={tr['emotion']}）",
@@ -472,6 +625,10 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
         acc += a
         if isinstance(r.get("d_curr"), (int, float)):
             ds.append(float(r["d_curr"]))
+        # #445：可见性判据在 `_reflections`（台账唯一读取点）——走到这里的
+        # 记录**都已通过** `_can_read_record`，故原文可原样回给读者；不可见
+        # 记录根本不进 sims（连 similarity/计数都不回：对短查询，相似度与
+        # 条数本身就是原文的派生信息，issue #445 已证模糊猜测可钓出全文）。
         hist.append({"query": r.get("query"), "similarity": round(s, 4),
                      "d_curr": r.get("d_curr"), "states": st,
                      "t": r.get("t")})
@@ -521,12 +678,19 @@ def self_check(cg, query: str, k: int = 5, min_sim: float = 0.25) -> dict:
 # 留痕查询 / 自描述
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录，返回 ok=True 与倒序的 records；
+# 生效条件：形参 limit（默认 100）为真时取 read_jsonl(os.path.join(cg.root, LOG_FILE)) 的尾部 int(limit) 条，limit 为 0 等假值时保留全部记录；逐条按 _can_read_record 过滤——可见记录原样返回，不可见记录经 _redact_query 去原文（query/query_digest/query_len 摘除并置 query_redacted=True）；返回 ok=True 与倒序的 records；
 def history(cg, limit: int = 100) -> dict:
-    """元认知留痕（倒序，最新在前）。"""
+    """元认知留痕（倒序，最新在前）。
+
+    #426-D：`_metacognition.jsonl` 是全库共享台账，修前 history 整行倒序返回，
+    无令牌访客可读到属主 self_check 的查询原文。现按读可见性单点
+    `_can_read_record` 过滤：无身份模型/设计者原样；其余读者对缺 sensitivity
+    键（升级前旧记录）与超密级记录一律去原文。
+    """
     recs = list(read_jsonl(os.path.join(cg.root, LOG_FILE)))
     if limit:
         recs = recs[-int(limit):]
+    recs = [r if _can_read_record(cg, r) else _redact_query(r) for r in recs]
     return {"ok": True, "n": len(recs), "records": recs[::-1]}
 
 

@@ -6,20 +6,18 @@
 ② 放弃分支不污染主支检索（召回主支时分支节点零命中）。
 """
 
-import gc
 import os
 import shutil
 import sys
 import tempfile
 import traceback
 
-from . import branches, nodefile
+from . import branches
 from .mdcos import MdCGSecure
 from .security import AccessDenied, Principal
 
 _ok = 0
 _bad = []
-_OPEN = []   # 本测开过的实例：清理前必须逐个 close()，否则 rmtree 会静默失败
 
 
 def _check(name, cond, detail=""):
@@ -38,9 +36,7 @@ def _mk_cg(tmp, role="designer", seq=[0]):
     p = Principal(tenant="default", actor="t_" + role, role=role,
                   can_write=(role != "guest"),
                   can_admin=(role == "designer"))
-    cg = MdCGSecure(root, principal=p)
-    _OPEN.append(cg)
-    return cg
+    return MdCGSecure(root, principal=p)
 
 
 def _fm(cg, nid):
@@ -48,24 +44,8 @@ def _fm(cg, nid):
     return rec.get("frontmatter") or {}
 
 
-def _strip_ccg(text):
-    """剥掉写入面自动补的 CCG 标题行（`# 验证方式：…` / `# 生效条件：…` 等）。
-
-    写入面 `MdCG._ensure_ccg_six` 会给未声明的 CCG 六要素补行（与
-    `md_cg/migrate_roleplay._content_equals` 同族、同一份判据）：正文里多出来的
-    这些「回读才有、写入没有」的行不是内容差异，比内容前必须先剥掉；原文自带的
-    CCG 行不动（两边都剥，剥完逐字比才是真判据）。
-    """
-    out = []
-    for ln in (text or "").splitlines():
-        if any(nodefile.ccg_mark_present(ln, m) for m in nodefile.CCG_MARKS):
-            continue
-        out.append(ln)
-    return "\n".join(out).strip()
-
-
 def _content(cg, nid):
-    return _strip_ccg((cg.get(nid) or {}).get("content"))
+    return ((cg.get(nid) or {}).get("content") or "").strip()
 
 
 def _hits(cg, q, **kw):
@@ -75,34 +55,14 @@ def _hits(cg, q, **kw):
 
 
 def main():
-    # B176 同族：临时目录必须落在本仓 tmp/（显式 dir=），不许落到源码树根。
-    # 旧写法 `mkdtemp(prefix="branches_")` 落在 lingshu-src/ 根下，运行被中断时
-    # `arch-check.py` 每次都报「块内部结构变了：新增子目录 branches_xxxx」。
-    _tmp_root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp")
-    os.makedirs(_tmp_root, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix="branches_", dir=_tmp_root)
+    tmp = tempfile.mkdtemp(prefix="branches_")
     try:
         _run(tmp)
     except Exception:
         traceback.print_exc()
         _bad.append("未捕获异常")
     finally:
-        # 清理三步，顺序不能反：
-        # ① gc.collect() 先把「解释器退出时才落盘的」索引缓存逼出来——这些 __del__
-        #    会重建目录树，跑在 rmtree 之后就会把刚删掉的目录又建回来（实测过一次）；
-        # ② close() 关句柄：`_index.json.lock` 还开着时 rmtree(ignore_errors=True) 会静默留下整棵树；
-        # ③ 删完复核。残留只允许出现在 tmp/（源码树干净即可），所以只记 note 不记失败。
-        gc.collect()
-        for _cg in _OPEN:
-            try:
-                _cg.close()
-            except Exception:
-                pass
-        _OPEN.clear()
         shutil.rmtree(tmp, ignore_errors=True)
-        if os.path.exists(tmp):
-            print("  note 临时目录未删净（位于 tmp/，不污染源码树）：%s"
-                  % os.path.basename(tmp))
     print("\nbranches 验收：%d 通过%s" % (
         _ok, ("，%d 失败：%s" % (len(_bad), "; ".join(_bad))) if _bad else ""))
     return 1 if _bad else 0

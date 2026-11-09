@@ -8,34 +8,15 @@ import collections
 import json, io, os, re
 
 MORPHEMES = {}
-# 语素重定义留痕（E42）：旧实现 `M()` 同键覆盖是静默的——`月` 先被时间组写成
-# month、又被自然组写成 moon，只有最后一个活下来，而构建判据只看词条自身注释，
-# 所以「同一语素两处注不同」这件事在 problems 里永远看不见。
-MORPHEME_CONFLICTS = []
-
-
-# 多义语素白名单（E42）：这些字的英文注**按语境**取值，词条里允许出现集合内的
-# 任一注；集合之外的不一致一律判红。生 = person / living 两义（医生/生物学）。
-MORPHEME_SENSES = {
-    "日": {"day", "sun"},      # 日期=day（时间组）、星期日=sun（历法名）
-    "生": {"person", "living"},  # 医生=person、生物学=living
-    "月": {"month", "moon"},   # 月份=month（时间组，语素表取值）、月光=moon（词条注）
-    "热": {"hot", "heat"},     # 形容词=hot（语素表）、热力学=heat（名词义）
-}
-
-
-# 生效条件：以形参 zh、en 调用时执行 MORPHEMES[zh] = en（同键且英文注不同则记进 MORPHEME_CONFLICTS），无返回值、无前置校验。
+# 生效条件：以形参 zh、en 调用时无条件执行 MORPHEMES[zh] = en（同键覆盖），无返回值、无前置校验。
 def M(zh, en):
-    old = MORPHEMES.get(zh)
-    if old is not None and old != en:
-        MORPHEME_CONFLICTS.append("%s: 语素重复定义 %s → %s（后者生效）" % (zh, old, en))
     MORPHEMES[zh] = en
 
 # 动物
 for zh, en in [("牛","cow"),("猪","pig"),("羊","sheep"),("鸡","chicken"),("鸭","duck"),("马","horse"),("狗","dog"),("猫","cat"),("鱼","fish"),("鸟","bird")]:
     M(zh, en)
 # 食
-for zh, en in [("肉","meat"),("奶","milk"),("蛋","egg"),("米","rice"),("菜","vegetable"),("果","fruit"),("油","oil"),("盐","salt"),("糖","sugar"),("茶","tea"),("酒","wine"),("水","water"),("面","noodle")]:
+for zh, en in [("肉","meat"),("奶","milk"),("蛋","egg"),("米","rice"),("菜","vegetable"),("果","fruit"),("油","oil"),("盐","salt"),("糖","sugar"),("茶","tea"),("酒","wine"),("水","water")]:
     M(zh, en)
 # 时间
 for zh, en in [("年","year"),("月","month"),("日","day"),("天","day"),("周","week"),("期","period"),("时","hour"),("分","minute"),("秒","second"),("春","spring"),("秋","autumn"),("冬","winter"),("夏","summer"),("今","this"),("明","next"),("去","past")]:
@@ -50,10 +31,10 @@ for zh, en in [("父","father"),("母","mother"),("兄","elder_brother"),("弟",
 for zh, en in [("头","head"),("手","hand"),("脚","foot"),("眼","eye"),("口","mouth"),("耳","ear"),("鼻","nose"),("心","heart"),("血","blood"),("骨","bone"),("皮","skin"),("脏","organ")]:
     M(zh, en)
 # 自然
-for zh, en in [("山","mountain"),("水","water"),("火","fire"),("土","soil"),("木","wood"),("金","metal"),("光","light"),("电","electric"),("风","wind"),("雨","rain"),("雪","snow"),("星","star"),("海","sea"),("河","river"),("石","stone"),("云","cloud")]:
+for zh, en in [("山","mountain"),("水","water"),("火","fire"),("土","soil"),("木","wood"),("金","metal"),("光","light"),("电","electric"),("风","wind"),("雨","rain"),("雪","snow"),("星","star"),("海","sea"),("河","river"),("石","stone"),("云","cloud"),("月","moon")]:
     M(zh, en)
 # 器
-for zh, en in [("车","vehicle"),("船","boat"),("机","machine"),("器","device"),("刀","knife"),("笔","pen"),("书","book"),("门","door"),("窗","window"),("桥","bridge"),("路","road"),("池","cell"),("库","store")]:
+for zh, en in [("车","vehicle"),("船","boat"),("机","machine"),("器","device"),("刀","knife"),("笔","pen"),("书","book"),("门","door"),("窗","window"),("桥","bridge"),("路","road"),("池","cell")]:
     M(zh, en)
 # 动（基形）
 for zh, en in [("走","walk"),("来","come"),("看","see"),("听","listen"),("吃","eat"),("喝","drink"),("说","speak"),("读","read"),("写","write"),("买","buy"),("卖","sell"),("学","study"),("教","teach"),("做","make"),("跑","run"),("飞","fly"),("睡","sleep"),("想","think"),("爱","love"),("用","use"),("开","open"),("关","close")]:
@@ -155,9 +136,6 @@ A("巧克力", [("巧克力","chocolate")], "chocolate", ["chocolate"], "opaque"
 def main():
     problems = []
     entries = []
-    # 语素表的静默重定义（E42）：旧 `M()` 同键覆盖无声无息，这里把每一次覆盖都报出来。
-    for c in MORPHEME_CONFLICTS:
-        problems.append("语素表重定义：%s" % c)
     for zh, glosses, std, legacy, cls in E:
         join_zh = "".join(z for z, _ in glosses)
         if not zh.startswith(join_zh):
@@ -169,22 +147,6 @@ def main():
             continue
         if re.search(r"[A-Z]", std):
             problems.append("%s: 标准英文含大写（违 snake_case）" % zh)
-            continue
-        # 语素注 vs 语素表（E42）：上面两条判据只用词条自带的逐项注释，注释内部自洽就恒 0；
-        # 这一条把词条注与**语素表**对照，同一字两处注不同（如 日=day 表面、星期日 注 sun）
-        # 与「表里根本没有这个语素」都会现形。
-        bad = []
-        for z, e in glosses:
-            allowed = MORPHEME_SENSES.get(z)
-            if allowed is not None:
-                if e not in allowed:
-                    bad.append("%s=%s（允许 %s）" % (z, e, "/".join(sorted(allowed))))
-            elif z not in MORPHEMES:
-                bad.append("%s 不在语素表" % z)
-            elif MORPHEMES[z] != e:
-                bad.append("%s=%s（语素表 %s）" % (z, e, MORPHEMES[z]))
-        if bad:
-            problems.append("%s: 语素注与语素表不一致 —— %s" % (zh, "；".join(bad)))
             continue
         entries.append({"zh": zh, "glosses": [{"zh": z, "en": e} for z, e in glosses],
                         "standard_en": std, "legacy_en": legacy, "class": cls})

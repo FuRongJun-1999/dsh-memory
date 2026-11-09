@@ -53,30 +53,6 @@ from . import security as _security
 from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
 
-# ---------------------------------------------------------------- 失败态契约
-# 口径：`设计/修复-00-P0定义与台账字段.md` §三（十值）。
-# P0 修复（删除/遗忘/读失败同形）：`history()` 从前用裸 `[]` 同时表达两件完全不同
-# 的事 ——「日志里确实没有留痕」和「日志读不出来」。上层（`mdcos.forgetting_history`
-# → MCP op）看不到区别，于是「读失败」被当成「他没忘过任何东西」。
-# 用 `list` 子类承载结局：既有调用方一行不改，需要区分的地方读 `.status`。
-STATE_OK = "ok"
-STATE_EMPTY_VALID = "empty_valid"
-STATE_MISSING = "missing"
-STATE_UNREADABLE = "unreadable"
-STATE_CORRUPT = "corrupt"
-
-
-class ForgettingRows(list):
-    """遗留痕列表 + 结局。`status` 取上面五个同名常量之一。"""
-
-    status: str = STATE_OK
-    error: str = ""
-
-    def __init__(self, rows=(), *, status: str = STATE_OK, error: str = "") -> None:
-        super().__init__(rows)
-        self.status = status
-        self.error = error
-
 # ---------------------------------------------------------------- 判据常量
 
 DUP_MERGE = 0.85            # 重复度 ≥ 此值 → MERGE
@@ -133,10 +109,11 @@ def _coverage(new_grams, body_grams):
     return len(new_grams & body_grams) / float(len(new_grams))
 
 
-# CCG 五要素的固定标签：所有节点都一样，属**模板骨架而非内容**。
+# CCG 六要素的固定标签：所有节点都一样，属**模板骨架而非内容**。
 # 不剥离它们，任何两条记忆都会因共享 `# 功能名：`/`# 生效条件：` 而虚高重复度
 # （实测：两条毫不相关的记忆 dup≈0.33，全部来自模板）。故重复检测只看"值"。
-_TEMPLATE_LABELS = ("功能名", "生效条件", "子功能", "执行", "验证方式", "不适用条件")
+# 标签集合同源于 nodefile.CCG_MARKS（真源单点，issue #183）——勿再复制第二份字面量。
+_TEMPLATE_LABELS = tuple(nodefile.CCG_MARKS)
 
 
 # 生效条件：content 为 None 或假值时按 "" 处理，结果为空串；否则逐行剥离 "#" 与 _TEMPLATE_LABELS 标签后以 "" 直接拼接。
@@ -166,16 +143,18 @@ def prior_node(cg, node_id):
     **完全不可区分**（审计面全 null，静默洞）。存在性判据收敛在此一处：`assess`
     的 entropy 标注与直写路径的返回体共用，不各写一份。
 
-    边界（如实）：判据读 `cg.index`，与 `redundancy` 同一数据面（同代际假设）；
-    index 陈旧时最坏是漏标一次覆写提示，不影响任何落盘行为。
+    #415 同族更正（2026-10-16，**推翻原边界描述**）：本函数原判据裸读 `cg.index`（无探活），
+    原注说「陈旧时最坏漏标一次覆写提示，不影响落盘」——**实测不成立**：它同时是
+    `rollback.preimage_for` 的**前置闸**（`prior_node(cg, target) is None` ⇒ 直接返回 None），
+    误判会让「执行时点前像」整个不拍、变更单的执行时点回滚载荷为空——**是写路径决策**，
+    不是读面提示。故它并入 T1：判前经**集合形态的探活单点** `protect.known_nodes(cg)`。
     """
     if not node_id:
         return None
     try:
-        nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+        return node_id if node_id in protect.known_nodes(cg) else None
     except Exception:
         return None
-    return node_id if node_id in nodes else None
 
 
 # 生效条件：node_id 为真值且 cg.get(node_id) 返回真值时返回覆盖度（_coverage(bigrams(payload(content)), bigrams(payload(既有正文)))，1.0＝逐字同构的重写）；node_id 为空、节点取不到、既有正文为空时返回 None。
@@ -198,14 +177,32 @@ def self_coverage(cg, node_id, content):
     return round(_coverage(bigrams(payload(content)), body), 4)
 
 
-# 生效条件：content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），遍历 cg.index 的 nodes，跳过 nid==exclude，layer 为真值时只比较 str(layer 字段 or "")==layer 的节点，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。
+# 生效条件：先按 cg.index 的 nodes 求出同层候选集（剔除 nid==exclude；layer 为真值时只收 str(layer 字段 or "")==layer 的节点）并记 candidate_total；content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0，**不带 truncated 键**）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），按索引序遍历候选，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。**截断必须可观测**（issue #358）：若 break 发生在候选集耗尽之前（scanned<candidate_total），best 追加 candidate_total（同层候选总数真值）与 truncated=True；未截断时两键**不出现**——正常写入报文与改动前逐位一致（保住 test_mode_parity 的 Q 组对拍）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
-    """Q1 重复？——新内容被既有同层节点覆盖的最大比例。"""
+    """Q1 重复？——新内容被既有同层节点覆盖的最大比例。
+
+    issue #358 ①（外部校准）：MAX_COMPARE=240 按索引序截断近重复比对，而
+    返回体只有 compared——同层先写 300 节点后，位于第 241 个之后的近重复
+    **漏比且调用方无从得知**（实测 candidate_total=301 / compared=240 /
+    with=None；assess 判 ACCEPT 而非 MERGE）。处置：截断时返回体显式带
+    candidate_total（同层候选总数）与 truncated=True，assess 的 entropy
+    同步透出并在 reason 末尾标注；**不改 limit、不改比对顺序、不改裁决**。
+    未截断时不新增键（与历史返回体逐位一致）。
+    """
     new = bigrams(payload(content))
     best = {"max": 0.0, "with": None, "jaccard": 0.0, "compared": 0}
     if not new:
         return best
-    nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+    # 并发写面守据（W7 G1a）：从 cg.index 取回的映射先**快照**再迭代——
+    # 直接迭代活字典在别的线程/进程写入时抛 "dictionary changed size during
+    # iteration"（#316 同族）。快照成本 O(n)，本函数本就要遍历一遍候选。
+    nodes = dict(((getattr(cg, "index", None) or {}).get("nodes") or {}))
+    # 候选集先一次算出（同一索引快照，不改变原先后序）：candidate_total 是
+    # 「本该比多少个」的真值，与 compared（实际计入数，空正文节点不计）分开。
+    cands = [nid for nid in nodes
+             if nid != exclude
+             and (not layer or str(nodes[nid].get("layer") or "") == layer)]
+    candidate_total = len(cands)
     # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
     # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
     # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处循环外探一次、
@@ -219,11 +216,9 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
     else:
         _probe = None
     n = 0
-    for nid in list(nodes.keys()):
-        if nid == exclude:
-            continue
-        if layer and str(nodes[nid].get("layer") or "") != layer:
-            continue
+    scanned = 0
+    for nid in cands:
+        scanned += 1
         try:
             node = (cg.get(nid, probe=False) if _probe is not None
                     else cg.get(nid))
@@ -243,6 +238,11 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
         if n >= limit:
             break
     best["compared"] = n
+    # issue #358 ①：截断可观测——只有真的没扫完候选集才落键（未截断时返回体
+    # 与改动前逐位一致；mode_parity Q 组对拍依赖这一点）。
+    if scanned < candidate_total:
+        best["candidate_total"] = candidate_total
+        best["truncated"] = True
     return best
 
 
@@ -273,7 +273,7 @@ def importance_score(hint, novelty, kind, content):
     return {"score": round(max(0.0, min(1.0, s)), 4), "from": "heuristic"}
 
 
-# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。
+# 生效条件：以 source_kind(role,verification_basis) 的 kind 与 redundancy(cg,content,layer=layer,exclude=node_id) 的 red["max"] 为输入，按 if/elif 顺序取首个命中分支——imp["score"]≥PROTECT_IMPORTANCE→"ACCEPT"（reason 按 imp["from"] 分叉：hint→「触发不可遗忘保护」，heuristic→「未落保护——保护须显式声明」，issue50-d）；否则 kind=="internal_deterministic" 且 red["max"]≥DUP_DROP→"DROP"；否则 red["max"]≥DUP_MERGE→"MERGE"；否则 red["max"]≥DUP_DROP→"DEFER"（**与 imp 无关**）；否则 imp["score"]≥IMPORTANCE_MIN→"ACCEPT"；否则 novelty≥NOVELTY_MIN→"ACCEPT"；否则→"DEFER"。返回体附带 P-9b 可见性字段：entropy.overwrite_of / entropy.overwrite_ratio（同 id 覆写时非 null）、dedup_skipped（**仅 PROTECT 分支**非 null，标注「因保护优先未走去重」+ 去重判据读数）——两者都不改 verdict、不改落盘行为。red 截断（red.truncated 为真）时 entropy 追加 candidate_total/truncated 两键且 reason 末尾追加截断提示（issue #358 ①）；未截断时不落这两键。
 def assess(cg, content, layer="contextual", role=None, verification_basis=None,
            importance_hint=None, node_id=None):
     """三问 → 四态裁决。返回完整判据（可审计，不只给结论）。
@@ -340,6 +340,12 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
         "overwrite_ratio": (self_coverage(cg, prior, content)
                             if prior is not None else None),
     }
+    # issue #358 ①：去重比对被 MAX_COMPARE 截断时，读数必须随裁决一起可见
+    # （否则调用方只看到 compared=240，无法知道还有 candidate_total-240 个
+    # 同层节点没比）。同样只在截断时落键，未截断报文零变化。
+    if red.get("truncated"):
+        entropy["candidate_total"] = red.get("candidate_total")
+        entropy["truncated"] = True
 
     dedup_skipped = None
     if imp["score"] >= PROTECT_IMPORTANCE:
@@ -395,6 +401,13 @@ def assess(cg, content, layer="contextual", role=None, verification_basis=None,
     else:
         verdict, why = "DEFER", "重要度与新信息均不足判据（待定）"
 
+    # issue #358 ①：截断提示并入 reason（审计面一眼可见）；仅截断时追加，
+    # 未截断的既有文案逐字不变。
+    if red.get("truncated"):
+        why += ("；⚠ 同层候选 %s 个超过单次比对上限 %s：本次仅比对 %s 个"
+                "（truncated，重复度可能被低估）"
+                % (red.get("candidate_total"), MAX_COMPARE, red.get("compared")))
+
     return {"verdict": verdict, "reason": why, "redundancy": red,
             "importance": imp, "entropy": entropy,
             # P-9b(b) 可见性字段：仅 PROTECT 分支非 null（其余分支本来就去重/裁决）
@@ -413,7 +426,53 @@ def log(cg, rec):
     return rec
 
 
-# 生效条件：body 与 content 必传（None 按空串）；把 content 逐行空白归一去重、剔除已出现在 body 中的行；delta 为空（零新增信息）时返回 (None, None, None)，否则返回 (追加后的正文, 追加行, 行号)。
+# 段边界字符集（aggregate_line 的「已覆盖」判据用，issue #323 / #347）：除串端外，
+# 只有紧邻这些字符才算「整段出现」——「】」收束聚合行前缀，「；」是段连接符，
+# 「\n」是正文行界。**行内空白不算段界**（issue #347：空白入边界集时，去掉首尾
+# 整词的更正（`do not deploy X` → `deploy X`）左右都落在空格上 ⇒ 仍判已覆盖 ⇒
+# 更正被吞、旧值被 reinforce 强化并推过保护线）。
+_SEG_BOUNDARY = "；】\n"
+
+
+# 生效条件：s 非空且 hay 为「逐行空白归一、以 \n 连接」的正文串时，判断 s 是否以「整段」
+# 形态出现在 hay——匹配处左右两侧须分别落在段边界（串端 / 聚合行前缀结束符「】」/
+# 段分隔符「；」/ 行界「\n」）；s 为空时返回 False。
+def _segment_covered(s, hay) -> bool:
+    """新行 s 是否已以「整段」形态存在于 hay（而非任意子串）。
+
+    issue #323（B3 判据缺陷）：旧判据 s in have 是**子串**判据——旧正文
+    「报销上限 15000 元」+ 新值「报销上限 1500」时它判「已存在」，新行一字不追加，
+    而 reinforce 照常把 importance +0.05、merge_count +1 并写盘 ⇒ 回执说已合并、
+    库里留下并**强化**的是过时值（静默失真 + 可信度投毒）。触发面不止前缀：
+    v3.10→v3.1、8080→808、2026-10-15→2026-10-1 同病，任何「新值恰为旧正文
+    连续片段」的更正都被吞。
+
+    判据取「段边界对齐」而非「整串相等」：聚合行是「- 【聚合 …】」+ 若干段以
+    「；」连接，故段边界 = 串端 /「】」/「；」/ 行界「\n」。这样：
+      · 同文重写、逐段再写仍判「已覆盖」⇒ 幂等性（B3 的原目标）不退化；
+      · 前缀式/片段式更正左右必有一侧紧贴非分隔字符 ⇒ 判「未覆盖」⇒ 原样追加，
+        可被 read/search 命中。
+    取段边界而非「整串相等」的理由：段文本本身可能含「；」，若按「；」拆成集合
+    再判相等，「a；b」这类单段内容每次再写都会重复追加（正文无界增长）——段边界
+    判据同时守住这两个方向。
+
+    不适用条件：不判相似度（assess 的 redundancy）、不判该不该合并（gate 层）、
+    不改聚合行的拼接格式（仍是「；」连接），只回答「这一行要不要追加」。
+    """
+    if not s:
+        return False
+    i = hay.find(s)
+    while i >= 0:
+        j = i + len(s)
+        left = i == 0 or hay[i - 1] in _SEG_BOUNDARY
+        right = j == len(hay) or hay[j] in _SEG_BOUNDARY
+        if left and right:
+            return True
+        i = hay.find(s, i + 1)
+    return False
+
+
+# 生效条件：body 与 content 必传（None 按空串）；把 content 逐行空白归一去重、剔除已以整段形态出现在 body 中的行（段边界判据，见 _segment_covered）；delta 为空（零新增信息）时返回 (None, None, None)，否则返回 (追加后的正文, 追加行, 行号)。
 def aggregate_line(body, content, stamp=None):
     """MERGE 聚合行（**单点**）：新正文里「目标正文还没有的」行 → 追加一行。
 
@@ -429,17 +488,23 @@ def aggregate_line(body, content, stamp=None):
       · 不截断——旧口径把新值丢在 80 字外即整体丢失（P-3 实测：端口 9090
         变体在库中 0 次落盘），而「新值必须在库里可检索」正是本修的目标；
       · 只追加 delta——旧口径无条件追加，逐字重复的再写也会让目标正文无限
-        增长。按「归一化行是否已出现在目标正文（含已追加的聚合行）中」判，
-        纯重复零追加（不增长），带新信息的变体各追加一次（新值原样落盘，
-        可被 read/search 命中）。**幂等性靠子串判据**：聚合行自带
-        `- 【聚合 …】` 前缀，故比对用的是「归一化后的整段目标正文」而非
-        逐行集合——否则第二次同文再写会因前缀差异重复追加。
+        增长。按「归一化行是否已以**整段**形态出现在目标正文（含已追加的
+        聚合行）中」判，纯重复零追加（不增长），带新信息的变体各追加一次
+        （新值原样落盘，可被 read/search 命中）。**幂等性靠段边界判据**
+        （_segment_covered，issue #323 收口）：聚合行自带「- 【聚合 …】」前缀、
+        段间以「；」连接，故判「已覆盖」时要求匹配处左右两侧都落在段边界
+        （串端 /「】」/「；」/ 行界「\n」）——既保住「第二次同文再写零追加」，又不再把
+        「更正值恰为旧值前缀/片段」（15000→1500）与「去掉首尾整词的更正」
+        （do not deploy X → deploy X，issue #347）误判为已存在。
     """
-    have = " ".join((body or "").split())
+    # issue #347：逐行做空白归一后用 \n 连接（**不按空格把全文拼成一行**）。
+    # 拼成一行会让行内每个词间空格都成为段边界，于是「新行 = 旧行去掉开头/结尾
+    # 整词」的更正被判已覆盖 ⇒ 更正被吞、旧值反被强化并推过保护线。
+    have = "\n".join(" ".join(l.split()) for l in (body or "").splitlines())
     delta, seen = [], set()
     for l in (content or "").splitlines():
         s = " ".join(l.split())
-        if not s or s in seen or s in have:
+        if not s or s in seen or _segment_covered(s, have):
             continue
         seen.add(s)
         delta.append(s)
@@ -495,8 +560,7 @@ def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
     """
     flat = " ".join((content or "").split())
     digest = hashlib.sha1(flat.encode("utf-8")).hexdigest()[:12] if flat else ""
-    enc = bool(flat) and str(sensitivity or "").strip().lower() \
-        in crypto.ENCRYPTED_LEVELS
+    enc = bool(flat) and crypto.is_encrypted_level(sensitivity)
     t = time.time()
     trace_id = f"drop-{node_id}-{int(t * 1000)}"
     log(cg, {"t": t, "node_id": node_id, "layer": layer, "verdict": "DROP",
@@ -523,7 +587,7 @@ def record_drop(cg, content, node_id, target=None, verdict=None, layer=None,
 
 # 生效条件：cg 与 node_id 必填，delta 默认 0.05，content 默认 None（不传即与改动前逐位一致：只改 frontmatter、正文原样写回）；cg.get(node_id) 抛异常或返回假值时返回 None；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；imp 跨过 PROTECT_IMPORTANCE 即写 protected；content 非 None 时按 forgetting.aggregate_line 把「目标正文没有的」行追加为聚合行（零新增信息则不追加），session/actor 非空时按 forgetting.note_source 并列记归属；写盘后同步内存索引条目并**标脏**（cg._dirty[node_id]=e，推进读缓存代际与索引增量日志）；返回体带 content_sink（新正文去向：节点/行/行号）与 source（归属）。
 def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
-              content=None, session=None):
+              content=None, session=None, sensitivity=None, src_id=None):
     """MERGE 的落库动作：不新增节点，把「又一次见到」折算成既有节点的强化。
 
     重要性 +delta，merge_count +1；一旦跨过 0.7 自动打上保护标记
@@ -541,6 +605,11 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
     H3（2026-09-30）：`session` 槽把「新写入方归属」并列记进目标
     frontmatter（`note_source`，单点）——跨会话合并时目标自己的
     `fm.session` 保留，新写入方记进 `fm.merge_sources`。
+
+    #417（2026-10-16）：`src_id` 槽把**本次被并入的来源节点 id** 记进目标
+    frontmatter（`fm.merge_source_ids`，有界复用 MERGE_SOURCES_KEEP）——两段式
+    恢复期据此把「已合并落盘、commit 未落账」的意图判为 committed（事实来源＝盘面）。
+    与 `merge_sources` 的分工：后者记**写入方归属**（`{session,actor,t}`），不含来源 id。
 
     C-1（2026-09-29）：写盘后**标脏**（`cg._dirty[node_id] = e`，对照
     `md_cg/mdcg.py` 的 update_tags / verify 直写分支先例）——不标脏时
@@ -569,6 +638,20 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
     protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
                             sensitivity=fm.get("sensitivity"),
                             override=override, actor=actor)
+    # issue #148（C 组）**落盘前**判降密级（与 writelimit.converge_into 同一单点）：
+    # MERGE 会把 incoming 明文追加进既有节点，而目标节点 sensitivity 不变 ⇒ 低密级
+    # 明文获得目标档可见性（访客可读）。判为降密级即 fail-closed，不写盘、不标脏。
+    from .security import merge_downgrades as _merge_downgrades
+    if _merge_downgrades(fm.get("sensitivity"), sensitivity):
+        return {"ok": False, "error": "merge_downgrade_refused",
+                "node_id": node_id,
+                "target_sensitivity": fm.get("sensitivity"),
+                "incoming_sensitivity": sensitivity,
+                "detail": "合并会降低该内容的有效密级（incoming 密级**高于**目标节点"
+                          "密级 ⇒ 合并后只按目标档可见）——fail-closed 未写盘："
+                          "高密级明文不得并入低密级节点。",
+                "hint": "如需保留该内容：确认其确为该档后以不高于目标节点密级的声明"
+                        "重新写入，或新建独立节点（add，保持其声明密级）。"}
     imp = min(1.0, float(fm.get("importance") or 0.5) + delta)
     fm["importance"] = imp
     fm["merge_count"] = int(fm.get("merge_count") or 0) + 1
@@ -590,6 +673,18 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
         new_body, line, line_no = aggregate_line(node.get("content"), content)
     # H3：归属并列（新写入方 → fm.merge_sources；目标自己的 fm.session 不动）
     source = note_source(fm, session=session, actor=actor)
+    # #417（2026-10-16）：把**来源节点 id** 并进目标 frontmatter——恢复期
+    # （twophase._judge）据此把「内容已合并落盘、但 commit 未落账」的意图判为
+    # committed（**事实来源＝盘面**，不再是「源 id 查不到 ⇒ 判未落盘」的推断）。
+    # 为什么另立一列：merge_sources 记的是**写入方归属**（{session,actor,t}），
+    # **不含**来源节点 id ⇒ 拿它反查来源永远查不到（判据与事实不符，正是本族病灶）。
+    # 上限**复用既有常量** MERGE_SOURCES_KEEP（不新增模块级常量——配置登记面有
+    # 「常量逐条登记」校验，新增常量会连带要求登记）。
+    # ⚠ 本函数的 node_id 是**目标节点**（被强化的那个），来源 id 只有调用方知道
+    # （缺省 None ⇒ **不记**，不编造）；记错方向会让反查永远落空（判据与事实不符）。
+    if src_id:
+        _src_ids = [x for x in (fm.get("merge_source_ids") or []) if x != src_id]
+        fm["merge_source_ids"] = (_src_ids + [src_id])[-MERGE_SOURCES_KEEP:]
     cg._write_node(node_id, os.path.join(cg.root, node["path"]),
                    fm, new_body if new_body is not None
                    else (node.get("content") or ""))
@@ -610,6 +705,10 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
         # （reinforce）的读面行为必须同口径。
         if fm.get("merge_sources"):
             e["merge_sources"] = fm["merge_sources"]
+        # #417：合并**来源 id** 同款镜像（同进程读 cg.index 即见；重建面由
+        # mdcg._node_entry 的同名键承担——两面同口径，否则 rebuild 后整类消失）。
+        if fm.get("merge_source_ids"):
+            e["merge_source_ids"] = fm["merge_source_ids"]
         # 标脏（N133 修复，对照先例 mdcg.py 的 update_tags / verify 直写分支
         # `self._dirty[node_id] = e`）：只改内存 entry 时 path_gen 不推进，
         # 读缓存（默认开，MDCG_READ_CACHE=1）按 `_fresh` 把写盘前的旧 fm 判
@@ -652,8 +751,7 @@ def history(cg, limit=100):
     """
     p = os.path.join(cg.root, LOG_FILE)
     if not os.path.exists(p):
-        # 日志还没建 = 一次留痕都没写过（empty_valid），不是读失败。
-        return ForgettingRows(status=STATE_EMPTY_VALID)
+        return []
     out = []
     try:
         with open(p, "r", encoding="utf-8") as f:
@@ -667,17 +765,9 @@ def history(cg, limit=100):
                     if not _security.node_visible(cg, (r or {}).get("node_id")):
                         continue
                     out.append(r)
-    except Exception as exc:
-        # 读不出来就是读不出来 —— 不许返回空列表让上层读成「没有留痕」。
-        return ForgettingRows(
-            status=STATE_UNREADABLE, error="%s: %s" % (type(exc).__name__, exc)
-        )
-    # `limit=0` 曾静默返回**全部**行：`out[-0:]` 等于 `out[0:]`，切片被负零吃掉了。
-    # 调用方要「只要状态不要行」时传 0，拿到的是整本留痕 —— 与「limit 是上限」相反。
-    rows = out[-limit:] if limit and limit > 0 else []
-    return ForgettingRows(
-        rows, status=STATE_OK if out else STATE_EMPTY_VALID
-    )
+    except Exception:
+        return []
+    return out[-limit:]
 
 
 # 生效条件：cg 必填；日志路径不存在返回 {"total": 0, "by_verdict": {}}；否则流式累计行数与 verdict 分布。
@@ -730,7 +820,12 @@ def _tier_of(e: dict) -> str:
     imp = float(e.get("importance", 0.5) or 0.5)
     vb = e.get("verification_basis")
     ev = int(e.get("evidence_count", 0) or 0)
-    if e.get("protected") or imp >= PROTECT_IMPORTANCE or (ev >= 3 and vb in VERIFIED_BASES):
+    # issue #468：按分分支此前只看分数、**漏 importance_source 门** ⇒ heuristic 高分
+    # 节点（权威 is_protected=False，见 guard 里 (imp:0.9,src:heuristic) 那条读数）被判
+    # longterm。与 protect.is_protected 同口径（窄修：不动 ev/vb 那条 longterm 理由）。
+    if (e.get("protected")
+            or (imp >= PROTECT_IMPORTANCE and e.get("importance_source") in (None, "hint"))
+            or (ev >= 3 and vb in VERIFIED_BASES)):
         return "longterm"
     if imp >= TIER_WORKING or vb in VERIFIED_BASES:
         return "working"

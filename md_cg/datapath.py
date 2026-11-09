@@ -53,6 +53,13 @@ DEFAULT_AUX_DIRNAME = ".mdcg"
 #: Windows 保留设备名全集（末段直判用；比对前统一 .upper()，故此处全大写）：
 #: DOS 设备名 CON/PRN/AUX/NUL、控制台伪设备 CONIN$/CONOUT$、COM1-9/LPT1-9，
 #: 以及 Windows 承认的上标数字变体 COM¹²³/LPT¹²³（上标 0 与 4-9 不是保留名）。
+#: **CLOCK$ 刻意不收**（issue #354 [P2-16] 报本清单漏 CLOCK$，本端复核后判定不成立）：
+#: 本机三重实测——ntdll.RtlIsDosDeviceName_U("CLOCK$")==0（CON/PRN/AUX/NUL/CONIN$/
+#: CONOUT$/COM1/LPT1 均非 0）、GetFullPathNameW 不把「<目录>\clock$」吞成 \\.\ 形态、
+#: os.makedirs/CreateDirectoryW 建得成且可写可读——判为**不保留**（与 docs/eval/发布11
+#: 已记「实测 com0/lpt0/com10/lpt10/clock$ 不保留」同一口径）。收进来会让 fail-closed 的
+#: _abs_host_path 误拒合法目录名（aux/data 根末段正好叫 clock$ 时启动即 return 2），
+#: 故**宁缺不假拒**；读数与红绿两态见守卫 md_cg/test_issue354_p2_datapath_clock。
 _RESERVED_DEVICE_NAMES = frozenset(
     ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
     + [f"COM{i}" for i in range(1, 10)]
@@ -72,7 +79,19 @@ def _reserved_device_tail(path: str) -> bool:
     return stem.upper() in _RESERVED_DEVICE_NAMES
 
 
-# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；平台为 Windows（os.name=="nt"）
+#: UTF-8 严格解码失败时标准库/Node 都会产出的**替换符**（#426-F）。路径里出现它
+#: 几乎必然是「编码失真」而不是用户真想要一个 U+FFFD 目录：插件侧 `readFileSync(pf,
+#: 'utf8')` 对 GBK/ANSI 保存的 paths.json **不抛**，把非法字节替换成它，`JSON.parse`
+#: 仍成功 ⇒ 插件拿乱码串当记忆根注入 `MDCG_ROOT`，新写入分叉进乱码空库（原库从插件
+#: 面消失）。Python 侧对**同一文件**是严格解码（`_read_user_paths` 的 utf-8-sig ⇒
+#: PathsConfigError），两侧口径就此分叉。故本模块在**所有根解析的归一单点**上把
+#: 「含 U+FFFD」判为误配 fail-closed——两侧同口径：要么取到真路径，要么响亮失败。
+_REPLACEMENT_CHAR = "\ufffd"
+
+
+# 生效条件：p 按仓库既有口径 expanduser+abspath 归一；归一结果含 U+FFFD 替换符
+# （编码失真哨兵，#426-F）时**无条件**抛 ValueError（任何平台——该字符不是任何
+# 正常配置的产物，fail-closed 优于把新写入分叉进乱码库）；平台为 Windows（os.name=="nt"）
 # 且命中两因之一时抛 ValueError——① 归一结果以设备命名空间前缀（"\\\\.\\"）开头：
 # 保留设备名末段（aux/con/nul/prn/com1-9/lpt1-9 等）被 GetFullPathNameW 吞成设备
 # 路径（例 D:\sandbox\aux → \\.\aux）；② 归一结果末段直判为保留设备名
@@ -82,8 +101,37 @@ def _reserved_device_tail(path: str) -> bool:
 # 不判定。归一是纯字符串操作不触盘，路径无需存在即可复现。env_key 传覆盖键名
 # （env 变量名或 paths.json 键），仅用于错误消息定位误配来源；为空时消息以
 # 「该路径」指代。
+# issue #385（PR 来源）：波浪线展开在 python 侧的**唯一实现**。此前的 os.path.expanduser
+# 是平台相关的——POSIX 会走 pwd.getpwnam 把 ~user 查成 /home/user，而 ntpath 只在用户名
+# 等于当前用户时展开 ⇒ 同一份 env 在两端落点不同；而 node 侧
+# src/lib/datapath.ts::expandHome 早已是自实现 ⇒ **两侧口径分叉**（正是该 issue 本身）。
+# 现两侧同名同判据：~ / ~/x / ~\x 展开；~user 与其余原样（方案 a——两侧无共同的
+# 「查账号库」语义，宁同留字面量）。
+# 收敛代价（如实）：POSIX 上 MDCG_ROOT=~someone/mem 从「展开成 /home/someone/mem」
+# 变成「原样 ~someone/mem」，需用户写全路径。
+# 源码面断言：md_cg/test_datapath_tilde_home.py（扫 md_cg/ 与 scripts/ 的 .py，第二处
+# 同判据即报红）。
+def _expand_home(p: str) -> str:
+    """波浪线展开——本判据在 python 侧的唯一实现（与 node 侧 expandHome 同口径）。"""
+    if p == "~":
+        return os.path.expanduser("~")
+    if p.startswith("~/") or p.startswith("~\\"):
+        return os.path.expanduser("~") + os.sep + p[2:]
+    return p
+
+
 def _abs_host_path(p: str, env_key: str = "") -> str:
-    r = os.path.abspath(os.path.expanduser(p))
+    r = os.path.abspath(_expand_home(p))          # #385：与 node 侧 expandHome 同口径
+    if _REPLACEMENT_CHAR in r:
+        who = env_key or "该路径"
+        raise ValueError(
+            f"{who} 归一后含 U+FFFD 替换符（{r!r}）——这是**编码失真**的痕迹，"
+            "不是合法目录名：paths.json 若以 GBK/ANSI 保存（PowerShell 5 的 "
+            "Set-Content 不带 -Encoding、cmd 的 echo >、旧编辑器另存为 ANSI），"
+            "宽松 UTF-8 解码会把非法字节替换成该字符，于是「记忆真源」变成一个"
+            "乱码目录，新写入分叉进空库、原库从插件面消失（#426-F）。请把该文件"
+            "改存为 UTF-8（含 BOM 亦可），或删掉它回到用户级默认数据根；"
+            "本侧与 Python 侧同一口径：**要么取到真路径，要么响亮失败**。")
     if os.name == "nt" and (r.startswith("\\\\.\\")
                             or _reserved_device_tail(r)):
         who = env_key or "该路径"
@@ -158,14 +206,60 @@ def paths_file_source() -> str:
                                 state_root()) else "legacy"
 
 
-# 生效条件：无入参；paths_file() 的 JSON 顶层为 dict 时返回该 dict，JSON 解析或读取抛任何异常、或顶层非 dict 时返回 {}。
-def _user_paths() -> dict:
+class PathsConfigError(RuntimeError):
+    """paths.json 存在但无法解析 / 顶层不是对象（#352-D，2026-10-15）。
+
+    **为什么响亮失败而不是告警后回落**（本仓先例 #161「打包面静默坏包 ⇒ 改为
+    响亮失败」，Lead 本轮指定按同一精神处置）：这个文件决定「记忆真源在哪」。
+    改前 `_user_paths()` 把「文件不存在」与「文件存在但坏了」混成同一个 `{}`，
+    于是坏配置下 `mdcg_root()` **无声回落到默认库**——用户看到的是「原有记忆
+    从检索面消失」，而新写入分叉进另一个库（插件侧仍按 config 走，两边就此
+    分成两个库）。这比「启动失败」更难发现、更难收拾，故取 fail-closed。
+
+    恢复路径（错误消息里写全）：修好该文件，或删掉它回到用户级默认数据根。
+    """
+
+
+# 生效条件：无入参；返回 (配置 dict, 状态串)——paths_file() 不存在时 ({}, "missing")；读取或 JSON 解析抛异常、或顶层非 dict 时 ({}, "bad")；否则 (dict, "ok")；不抛；
+def _read_user_paths():
+    """paths.json 的三态读取（**唯一读取点**：missing / ok / bad 三分，不再混成 {}）。"""
+    pf = paths_file()
+    if not os.path.isfile(pf):
+        return {}, "missing"
     try:
-        with open(paths_file(), encoding="utf-8") as f:
+        # utf-8-sig：记事本 / PowerShell 5 的 `Set-Content -Encoding UTF8` 会写出
+        # UTF-8 BOM，`encoding="utf-8"` 下 json.load 直接拒收（#352-D 的两种常见
+        # 写坏方式之一；另一种是照抄资源管理器路径写成 `"root": "D:\memory"`，
+        # `\m` 非法转义 —— 那是真·语法错，只能响亮失败）。
+        with open(pf, encoding="utf-8-sig") as f:
             d = json.load(f)
-        return d if isinstance(d, dict) else {}
-    except Exception:
+    except (OSError, ValueError):
+        return {}, "bad"
+    if not isinstance(d, dict):
+        # 合法 JSON、错形状（`[]` / `123` / `"x"`）：同样会让配置位静默失效，
+        # 同一个口径处理（响亮失败），不按「解析成功」放行。
+        return {}, "bad"
+    return d, "ok"
+
+
+# 生效条件：无入参；_read_user_paths() 状态为 "ok"/"missing" 时返回配置 dict（missing 即 {}）；状态为 "bad" 时 strict 取真（默认）抛 PathsConfigError、取假返回 {}（只给必须降级的读面用，如 set_user_root 的自查）；
+def _user_paths(strict: bool = True) -> dict:
+    d, st = _read_user_paths()
+    if st == "bad":
+        if strict:
+            raise PathsConfigError(_paths_config_message())
         return {}
+    return d
+
+
+# 生效条件：无入参；返回一段含 paths_file() 绝对路径、原始异常不可知但处置建议完整的错误消息（供 PathsConfigError 与 CLI 面共用，不另写第二份文案）；
+def _paths_config_message() -> str:
+    pf = paths_file()
+    return ("%s 无法解析（或顶层不是 JSON 对象）——**未回落默认库**：记忆真源"
+            "由该文件决定，静默回落会让原有记忆从检索面消失、新写入分叉到另一个"
+            "库（#352-D）。请修正该文件（Windows 上常见两种写坏：记事本 / "
+            "PowerShell 5 存成 UTF-8 BOM；路径里的反斜杠未转义，应写 \\\\ 或改用 /），"
+            "或删掉它回到用户级默认数据根后重试。" % pf)
 
 
 # 生效条件：无入参，恒返回 state_root() 下 "data" 的拼接路径（插件包目录之外，更新不触碰）。
@@ -268,7 +362,7 @@ def mdcg_root() -> str:
     return os.path.join(data_root(), "mdcg")
 
 
-# 生效条件：无入参；ENV_DATA_ROOT 或 ENV_MDCG_ROOT 任一为非空真值时返回 True；否则 paths_file() 的 JSON 顶层为 dict 且其 "root" 为非空真值时返回 True；其余（无文件/解析失败/顶层非 dict/无该键/假值）返回 False。**不看目录是否存在**——存在性判据留给调用方。
+# 生效条件：无入参；ENV_DATA_ROOT 或 ENV_MDCG_ROOT 任一为非空真值时返回 True；否则 paths_file() 的 JSON 顶层为 dict 且其 "root" 为非空真值时返回 True；其余（无文件/无该键/假值）返回 False；**文件存在但解析失败（顶层非 dict 亦然）时抛 PathsConfigError**（#352-D：与 mdcg_root()/data_root() 同一口径——坏配置不静默当「未配置」，否则三级回落链会悄悄换一个库）。**不看目录是否存在**——存在性判据留给调用方。
 def mdcg_root_configured() -> bool:
     """认知图根是否**被显式配置**（env `MDCG_DATA_ROOT`/`MDCG_ROOT`，或 paths.json 的 "root"）。
 
@@ -390,22 +484,31 @@ def describe() -> dict:
     }
 
 
-# 生效条件：path 为传入字符串（写入前反斜杠替换为 "/"），key 默认 "data_root"（传入时写入该键名）；先确保 <state_root()> 存在，读取 _user_paths()（可能来自旧包内位置的兼容读，异常时为 {}，故旧配置在首次改写时被带到新位置并从此由新件说了算）并补 "_comment"，再以该内容覆写 <state_root()>/paths.json 并返回该路径。
+# 生效条件：path 为传入字符串（写入前反斜杠替换为 "/"），key 默认 "data_root"（传入时写入该键名）；先确保 <state_root()> 存在，读取 _read_user_paths()——状态 "ok"/"missing" 时按既有键补 "_comment" 后以 fsutil.atomic_write **原子**覆写 <state_root()>/paths.json 并返回该路径；状态 "bad"（文件在但解析不出）时抛 PathsConfigError **拒绝写**（不把其余键冲掉——改前 _user_paths() 返回 {}，写回时把用户其余配置一并抹掉）；
 def set_user_root(path: str, key: str = "data_root") -> str:
     """把用户选择的路径写入**用户级** paths.json（不存在则创建）。返回文件路径。
 
     永远写新位置（不写旧包内那件）——旧位置会随包更新被删除，写进去等于
-    用户设置迟早丢失；旧件的既有取值经 _user_paths() 带入新件，不丢配置。
+    用户设置迟早丢失；旧件的既有取值经 _read_user_paths() 带入新件，不丢配置。
+
+    #352-D 两处收口：① 读到**坏文件**时拒绝写并响亮报错（改前会静默把其余键
+    冲掉，用户顺手丢配置）；② 落盘改走 `fsutil.atomic_write`（改前 `open("w")`
+    非原子，崩溃会留下截断件——而截断件正是下一条「解析失败」的来源）。
     """
     pf = os.path.join(state_root(), "paths.json")
     os.makedirs(os.path.dirname(pf), exist_ok=True)
-    d = _user_paths()
+    d, st = _read_user_paths()
+    if st == "bad":
+        raise PathsConfigError(
+            _paths_config_message()
+            + "\n[set_user_root] 拒绝写入并把其余键原样留着——请先修正或删除"
+              "该文件，再重设路径。")
     d.setdefault("_comment",
                  "灵枢记忆写入路径（用户可改）。删掉本文件即回落到用户级默认数据根"
                  "（~/.dsh/.dsh-memory/data）。")
     d[key] = path.replace("\\", "/")
-    with open(pf, "w", encoding="utf-8") as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
+    from . import fsutil                       # 延迟导入：fsutil 是叶子模块，避免
+    fsutil.atomic_write(pf, json.dumps(d, ensure_ascii=False, indent=2))
     return pf
 
 
@@ -436,4 +539,9 @@ if __name__ == "__main__":
         print(json.dumps(describe(), ensure_ascii=False, indent=2))
     except ValueError as ve:
         sys.stderr.write(f"[datapath] {ve}\n拒绝输出：请先改正上述覆盖键/配置。\n")
+        sys.exit(2)
+    except PathsConfigError as pe:
+        # #352-D：坏 paths.json 响亮失败——给一行清晰呈现（含完整恢复路径），
+        # 不留裸 traceback；退出码 2 与「root 不可读」同档（配置面错误）。
+        sys.stderr.write(f"[datapath] {pe}\n")
         sys.exit(2)

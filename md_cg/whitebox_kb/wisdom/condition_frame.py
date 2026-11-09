@@ -176,9 +176,7 @@ def parse_conditions(text):
     # 3. 验证（反向·循环操作）：解读自洽性
     frame.verified = _verify(frame)
     if not frame.verified:
-        # 验证失败后**只有情绪这一路会真的换解**（情绪 → 自我 / 知识）；
-        # 换完仍可能 verified=False（找不到自我条件时结构改成 knowledge 但没过验证）。
-        # 其它结构不换解：只写一句 fallback 文案，structure/dominant/conditions 原样保留。
+        # 验证失败 → 降级：情绪解读不成立时，尝试自我/知识解读
         if frame.structure == "emotion":
             self_c = _detect_self(frame.text)
             if self_c:
@@ -195,31 +193,21 @@ def parse_conditions(text):
                 frame.verified = False
                 frame.fallback = "情绪解读未通过验证，降级为知识查询"
         else:
-            frame.fallback = "条件解读未通过验证（结构未改，仅标记 fallback）"
+            frame.fallback = "条件解读未通过验证，降级为通用回应"
     return frame
 
 
 def _verify(frame):
     """验证解读是否成立（反向·循环操作）：条件与文本语义匹配。
 
-    **只有 `structure == "emotion"` 会真的被验**，其余结构一律直接放行
-    （`self`/`knowledge` 恒 True；`concession`/`direct`/`negative` 看主导方向是否为空）。
-    情绪这一路是双通道：
-      通道1 规则（主观信号 / 直接情绪词 / 谈论 vs 表达）：命中 talking 且无第一人称 → False
-      通道2 bge 语义（情绪原型 vs 文本神经相似度，阈值 0.45）：**仅在通道1 没给出强信号时才跑**
-    通道1 判「是谈论」→ False；通道1 有强信号（subjective 或 direct_emo）→ 直接 True，
-    不再看通道2；都没命中才落到通道2，而通道2 在无原型 / embed 失败 / 异常时一律返 True（不否决）。
-
-    注意「验证失败」≠「换解」：本函数只回 True/False，换不换解由 `parse_conditions` 决定，
-    且那里只有 `structure == "emotion"` 才会真的换成 self / knowledge；其它结构只把一句
-    降级文案写进 `frame.fallback`，`structure`/`dominant`/`conditions` 原样不动。
+    R2 升级：双通道验证——
+      通道1 规则（主观信号/谈论 vs 表达）
+      通道2 bge 语义（条件类型原型 vs 文本神经相似度）
+    两通道都通过才 verified；任一不通过 → 降级换解。
 
     关键区分：『表达情绪』vs『谈论情绪/客观陈述』。
     - 「你觉得快乐是什么」是谈论情绪（问定义）→ 情绪解读不成立，转自我
     - 「今天天气不错」是客观陈述 → 情绪解读不成立
-
-    生效条件：入参是 `ConditionFrame`（只读 `structure`/`text`/`dominant`），返回 bool；
-    本函数不改 frame，也不抛异常（bge 不可用时静默返 True）。
     """
     if frame.structure == "emotion":
         # 通道1：规则（主观信号 vs 谈论）

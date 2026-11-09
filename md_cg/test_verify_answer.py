@@ -113,33 +113,9 @@ eng = open(os.path.join(_WISDOM, "chat_engine.py"), encoding="utf-8").read()
 check("接线：chat_engine 内 import verify_answer", "from verify_answer import verify_answer" in eng)
 check("接线：失败替换为诚实声明（拒绝输出内部格式）", "未能通过白箱回答验证" in eng)
 check("接线：失败处置记录 stderr 留痕", "[verify_answer] 拒绝输出内部格式" in eng)
-def _read_anchor():
-    """读规范锚点源：先 wisdom 本体，再 K3 归档点（`lingshu-src/_archive/20261021-未接线/`）。
-
-    返回 (path, text)；两处都没有则 (None, None)。**不得抛 FileNotFoundError**：
-    这个 open 在模块导入期执行，抛了会让整个测试文件收集失败、pytest 与子进程
-    运行器都读不到后面全部用例（K3 归档后发生的静默失效）。
-    """
-    cands = [os.path.join(_WISDOM, "answer_spec_anchor.py")]
-    here = _WISDOM
-    for _ in range(6):
-        here = os.path.dirname(here)
-        cands.append(os.path.join(here, "_archive", "20261021-未接线",
-                                  "answer_spec_anchor.py"))
-    for p in cands:
-        if os.path.exists(p):
-            return p, open(p, encoding="utf-8").read()
-    return None, None
-
-
-_anchor_path, spec = _read_anchor()
-if spec is None:
-    print("  [SKIP] 规范锚点源 answer_spec_anchor.py 既不在 wisdom 也不在归档点"
-          "（K3 已归档）——此项不计入通过数")
-else:
-    check("规范锚点源：answer_spec_anchor 声明三层校验纪律（%s）"
-          % os.path.basename(os.path.dirname(_anchor_path)),
-          "verify_answer" in spec and "immutable" in spec)
+spec = open(os.path.join(_WISDOM, "answer_spec_anchor.py"), encoding="utf-8").read()
+check("规范锚点源：answer_spec_anchor 声明三层校验纪律",
+      "verify_answer" in spec and "immutable" in spec)
 
 # ------------------------------------------------------------------
 # [3] 拒绝案例留痕汇总（可复放）+ 规范锚点自指案例

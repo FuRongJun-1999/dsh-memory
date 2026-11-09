@@ -528,33 +528,23 @@ class NameChecker:
     # ---- 各类语句检查 ----
 
     def _check_condition(self, stmt: ConditionStmtNode):
-        """检查条件语句
-
-        B37：进入前记下外层条件空间，出去时**还原它**（修复前无条件置 None，
-        外层已知空间在条件语句之后丢失 ⇒ 后面的权重上限漏拦）。
-        """
+        """检查条件语句"""
         # 检查条件表达式
         self._check_expression(stmt.condition)
 
-        outer = self.current_condition_space
-
-        # 检测条件空间切换（正向：then 内处于该空间）
-        switched = self._check_condition_space_switch(stmt.condition)
+        # 检测条件空间切换
+        self._check_condition_space_switch(stmt.condition)
 
         # 检查 then 分支
         if stmt.then_body:
             self._check_statement(stmt.then_body)
 
-        # else 分支：非该空间 ⇒ 回到外层
-        if switched is not None:
-            self.current_condition_space = outer
-
         # 检查 else 分支
         if stmt.else_body:
             self._check_statement(stmt.else_body)
 
-        # 恢复外层条件空间
-        self.current_condition_space = outer
+        # 恢复条件空间
+        self.current_condition_space = None
 
     def _check_loop(self, stmt: LoopStmtNode):
         """检查循环语句（当…执行）：条件表达式 + 循环体"""
@@ -681,42 +671,9 @@ class NameChecker:
         else:
             self.symbol_table[target].used = True
 
-        # 条件空间赋值：`条件空间 = 伴侣` 立刻切换当前空间（B37）
-        if target == "条件空间":
-            self._apply_space_assignment(stmt)
-
         # 检查值的表达式
         if stmt.value_node:
             self._check_expression(stmt.value_node)
-
-    def _apply_space_assignment(self, stmt: AssignStmtNode):
-        """`条件空间 = X`：把当前条件空间切到 X。
-
-        B37 修复前本副本没有这条路径 ⇒ 「先声明空间、后面才对权重设限」的写法
-        一句都不拦（只有 `若条件空间为X，则…` 那种才算，而它当时又不可达）。
-        """
-        node = stmt.value_node
-        if node is None:
-            self.current_condition_space = None
-            return
-        if node.type == NodeType.IDENTIFIER:
-            name = getattr(node, "name", "")
-        elif node.type == NodeType.LITERAL and getattr(node, "literal_type", "") == "string":
-            name = getattr(node, "literal_value", "")
-        else:
-            return
-        name = (name or "").strip()
-        if name == "恢复默认":
-            self.current_condition_space = "默认"
-            return
-        if name in CONDITION_SPACE_RULES:
-            self.current_condition_space = name
-            return
-        if name and name not in PREDEFINED_SYMBOLS:
-            self.warnings.append(
-                f"L{node.line}:C{node.column} 未知的条件空间: '{name}'"
-            )
-            self.current_condition_space = None
 
     # ---- 表达式检查 ----
 
@@ -818,32 +775,14 @@ class NameChecker:
                             f"L{node.line}:C{node.column} 信任值超出 [0,1] 范围: {value}"
                         )
 
-            # 情感权重超限检查（B37：表驱动 —— 上限自 CONDITION_SPACE_RULES 取）
-            if isinstance(value, float):
-                self._check_weight_cap(node, value)
-
-    def _check_weight_cap(self, node: ASTNode, value: float):
-        """情感权重上限检查（表驱动）
-
-        B37 修复前：本函数不存在，判据写死「伴侣 且 0.15」——
-        ① 工作空间的上限 0.05（规则表明文）从不生效；
-        ② 把表里的 0.15 改成 0.3 也照样按 0.15 判（同一事实两个来源）。
-        现在上限只从 CONDITION_SPACE_RULES[空间]["max_emotional_weight"] 取；
-        「默认」与未设空间不拦截（默认空间自身声明无特殊约束）。
-        """
-        space = self.current_condition_space
-        if space is None or space == "默认":
-            return
-        rules = CONDITION_SPACE_RULES.get(space)
-        if not rules:
-            return
-        max_w = rules.get("max_emotional_weight")
-        if max_w is None or value <= max_w:
-            return
-        self.errors.append(
-            f"L{node.line}:C{node.column} 在「{space}」条件空间中"
-            f"情感权重不可超过 {max_w}，当前值: {value}"
-        )
+            # 情感权重超限检查
+            if (isinstance(value, float) and
+                    self.current_condition_space == "伴侣" and
+                    value > 0.15):
+                self.errors.append(
+                    f"L{node.line}:C{node.column} 在「伴侣」条件空间中"
+                    f"情感权重不可超过 0.15，当前值: {value}"
+                )
 
     def _check_condition_space_switch(self, condition: ASTNode):
         """
@@ -852,45 +791,24 @@ class NameChecker:
         """
         # 检查是否为 "条件空间 为/等于 X" 的模式
         if condition is None:
-            return None
+            return
 
-        space_name = self._space_name_of(condition)
-        if space_name is None:
-            return None
-
-        if space_name in CONDITION_SPACE_RULES:
-            self.current_condition_space = space_name
-            return space_name
-        if space_name not in PREDEFINED_SYMBOLS:
-            self.warnings.append(
-                f"L{condition.line}:C{condition.column} "
-                f"未知的条件空间: '{space_name}'"
-            )
-        return None
-
-    # 「条件空间为X」在两种词法形态下都要认（B37）：
-    #   ① COMPARISON：left.name == "条件空间"，right.name == X
-    #   ② IDENTIFIER：_merge_identifiers 把「条件空间为伴侣」合成一个名字
-    #      —— 这才是 md_cg 方言的常态，修复前只认 ① ⇒ 整条权重上限检查不可达。
-    _SPACE_SWITCH_PREFIXES = ("条件空间为", "条件空间等于",
-                              "条件空间 为", "条件空间 等于")
-
-    def _space_name_of(self, condition: ASTNode):
-        """从条件表达式解析出条件空间名；解析不出返回 None。"""
         if condition.type == NodeType.COMPARISON:
-            left = getattr(condition, "left", None)
-            right = getattr(condition, "right", None)
-            if (left is not None and left.type == NodeType.IDENTIFIER and
-                    left.name == "条件空间" and
-                    right is not None and right.type == NodeType.IDENTIFIER):
-                return right.name
-            return None
-        if condition.type == NodeType.IDENTIFIER:
-            name = getattr(condition, "name", "") or ""
-            for prefix in self._SPACE_SWITCH_PREFIXES:
-                if name.startswith(prefix):
-                    return name[len(prefix):].strip()
-        return None
+            left = condition.left
+            right = condition.right
+
+            # 左操作数是 "条件空间"，右操作数是空间名称
+            if (left and left.type == NodeType.IDENTIFIER and
+                    left.name == "条件空间"):
+                if right and right.type == NodeType.IDENTIFIER:
+                    space_name = right.name
+                    if space_name in CONDITION_SPACE_RULES:
+                        self.current_condition_space = space_name
+                    elif space_name not in PREDEFINED_SYMBOLS:
+                        self.warnings.append(
+                            f"L{right.line}:C{right.column} "
+                            f"未知的条件空间: '{space_name}'"
+                        )
 
     def _check_instruction_in_condition_space(self, stmt: InstructionStmtNode):
         """检查当前条件空间是否允许该指令"""

@@ -28,7 +28,12 @@ import json
 import os
 import threading
 import time
-from collections import deque
+from collections import Counter, deque
+
+from .fsutil import FileLock as _FileLock
+from .fsutil import atomic_write as _atomic_write
+from .fsutil import ends_mid_line as _ends_mid_line
+from .fsutil import read_jsonl as _read_jsonl
 
 #: 队列文件名
 QUEUE_FILE = "_coldverify.jsonl"
@@ -67,33 +72,112 @@ class ColdVerifyQueue:
         分支（或执行任意已知分支）。「入口校验、加载不校验」是不对称的，而这里
         的数据来自磁盘（可能被旧版本或手工编辑写坏）。故按同一白名单拒收并
         计入 `skipped`，不静默放行。
+
+        issue #265：**逐行容错**。此前 `json.loads` 的异常由包住整个循环的
+        `except` 捕获 ⇒ 上一个写者被杀死留下的半截行会让**整份队列都不恢复**
+        （实测）。改为逐行捕获：坏行只丢它自己，后续行照常恢复。
         """
         if not self._queue_path or not os.path.exists(self._queue_path):
             return
+        for task in _read_jsonl(self._queue_path):
+            try:
+                if task.get("_done"):
+                    continue
+                if task.get("action") not in _VALID_ACTIONS:
+                    self._stats["skipped"] += 1   # 拒收：非法 action 不入队
+                    continue
+                self._queue.append(task)
+            except Exception:                          # noqa: BLE001
+                self._stats["skipped"] += 1
+
+    def _append_persisted(self, task):
+        """把**一条**任务追加到队列文件（issue #265）。
+
+        此前 `enqueue` 调 `_persist()` 做全量覆写——写盘的是「本实例内存的
+        快照」，跨实例没有任何互斥或合并。多实例共用同一 root 时（两个 MCP
+        server 进程，或 server + CLI），后落盘者把先落盘者刚写的整段抹掉，
+        两边都 rc=0、都报成功、**无痕丢失**（实测：两进程各自入队 →
+        `disk_lines=1`）。
+
+        追加在物理上抹不掉别人的条目。半截行（上一个写者被杀在中途）由
+        `_ends_mid_line` 补一个换行处理，否则新记录会粘在那行上、两条都解析
+        不出来。
+
+        跨进程 FileLock：与 `_drop_persisted` 的读改写互斥——否则「追加」可能
+        落在对方的「读」与「写回」之间而被覆盖。strict=False（best-effort）：
+        入队在**写路径**上（`writepipe._after_trust` 每次写入都调），锁竞争失败
+        时宁可让这次追加无锁落盘，也不能让异常打断写入（调用方已 try/except，
+        但静默放行比抛更符合本模块「永不拖垮主进程」的边界）。
+        """
+        if not self._queue_path:
+            return
+        line = json.dumps(task, ensure_ascii=False) + "\n"
         try:
-            with open(self._queue_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    task = json.loads(line)
-                    if task.get("_done"):
-                        continue
-                    if task.get("action") not in _VALID_ACTIONS:
-                        self._stats["skipped"] += 1   # 拒收：非法 action 不入队
-                        continue
-                    self._queue.append(task)
+            with _FileLock(self._queue_path, strict=False):
+                if _ends_mid_line(self._queue_path):
+                    line = "\n" + line
+                d = os.path.dirname(os.path.abspath(self._queue_path)) or "."
+                os.makedirs(d, exist_ok=True)
+                fd = os.open(self._queue_path,
+                             os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)
+                try:
+                    os.write(fd, line.encode("utf-8"))
+                finally:
+                    os.close(fd)
         except Exception:                              # noqa: BLE001
-            pass  # 崩溃恢复容错：文件损坏就不恢复
+            pass  # 持久化失败不影响内存队列
+
+    def _drop_persisted(self, consumed):
+        """从队列文件删掉**本实例刚消费**的条目（issue #265）。
+
+        读改写全程持跨进程 `FileLock(strict=True)` 并以 `atomic_write` 落盘
+        （整文件替换：读者要么看到旧内容、要么看到新内容，永远看不到半截）。
+
+        **只删自己消费的**：他实例刚追加的条目原样保留——这正是本件的病象
+        （全量覆写会把它们抹掉）。匹配键取 `(node_id, action, enqueued_at)`，
+        用 Counter 逐条扣减，故同键的重复入队也各删一条、不会多删别人的。
+
+        `strict=True`：消费是**不能丢**的写（删错了等于把别人的任务抹掉，正是
+        本件要修的），锁竞争失败时显式抛出让调用方重试，好过静默退化为无锁
+        并发。异常由本方法的 `except` 收口——drain 不因落盘失败而崩。
+        """
+        if not self._queue_path or not consumed:
+            return
+        want = Counter((t.get("node_id"), t.get("action"), t.get("enqueued_at"))
+                       for t in consumed)
+        try:
+            with _FileLock(self._queue_path, strict=True):
+                if not os.path.exists(self._queue_path):
+                    return
+                kept = []
+                for task in _read_jsonl(self._queue_path):
+                    k = (task.get("node_id"), task.get("action"),
+                         task.get("enqueued_at"))
+                    if want.get(k, 0) > 0:
+                        want[k] -= 1          # 本实例消费掉的：从盘上摘除
+                        continue
+                    if task.get("_done"):
+                        continue              # 墓碑：已消费，不再入队
+                    kept.append(task)
+                _atomic_write(self._queue_path, "".join(
+                    json.dumps(t, ensure_ascii=False) + "\n" for t in kept))
+        except Exception:                              # noqa: BLE001
+            pass  # 持久化失败不影响内存队列
 
     def _persist(self):
-        """持久化当前队列（全量覆写）。"""
+        """全量覆写当前队列。**仅供 clear() 的重置语义**（enqueue/drain 不再走它）。
+
+        issue #265：全量覆写正是丢条目的根因，故入队改走 `_append_persisted`
+        （追加）、消费改走 `_drop_persisted`（只删自己消费的）。本方法保留给
+        `clear()` 的显式重置，并补上跨进程锁 + 原子替换。
+        """
         if not self._queue_path:
             return
         try:
-            with open(self._queue_path, "w", encoding="utf-8") as f:
-                for task in self._queue:
-                    f.write(json.dumps(task, ensure_ascii=False) + "\n")
+            with _FileLock(self._queue_path, strict=True):
+                _atomic_write(self._queue_path, "".join(
+                    json.dumps(task, ensure_ascii=False) + "\n"
+                    for task in self._queue))
         except Exception:                              # noqa: BLE001
             pass  # 持久化失败不影响内存队列
 
@@ -110,7 +194,8 @@ class ColdVerifyQueue:
         with self._lock:
             self._queue.append(task)
             self._stats["enqueued"] += 1
-            self._persist()
+            # issue #265：追加而非全量覆写（后者会抹掉他实例刚写的条目）
+            self._append_persisted(task)
         return task
 
     def drain(self, cg, *, limit=BATCH_LIMIT, dry_run=False):
@@ -149,8 +234,9 @@ class ColdVerifyQueue:
                                  "action": task["action"],
                                  "error": str(exc),
                                  "ok": False})
-        with self._lock:
-            self._persist()
+        # issue #265：只从盘上摘除**本批消费掉**的条目——全量覆写会把他实例
+        # 刚追加的条目一并抹掉（本件的病象）。
+        self._drop_persisted(batch)
         return results
 
     def _process(self, cg, task):
@@ -284,6 +370,135 @@ class ColdVerifyQueue:
         with self._lock:
             self._queue.clear()
             self._persist()
+
+    def _requeue_failed(self, task, attempts):
+        """把**消费失败**的任务放回队尾（issue #72：失败不得静默蒸发）。
+
+        与 `enqueue` 同款落盘路径（追加 + 跨进程锁），但保留 `attempts` 计数
+        （`_process` 不读该键，只透传 node_id/action/kwargs，故不污染执行面）。
+        重试用尽由调用方（`controlled_drain`）决定丢弃并计入 dead_letter。
+        """
+        t = {
+            "node_id": task.get("node_id"),
+            "action": task.get("action"),
+            "enqueued_at": time.time(),
+            "kwargs": task.get("kwargs") or {},
+            "attempts": int(attempts),
+        }
+        with self._lock:
+            self._queue.append(t)
+            self._stats["enqueued"] += 1
+            self._append_persisted(t)
+        return t
+
+
+#: issue #72：受控消费的**单批硬上限**（与后台线程批大小同源，不另立第二套数）。
+CONTROL_LIMIT_MAX = BATCH_LIMIT
+#: issue #72：失败任务重试上限；超过即丢弃并计入 dead_letter（可见、不无限滞留）。
+CONTROL_MAX_ATTEMPTS = 3
+
+
+def controlled_drain(cg, *, limit=BATCH_LIMIT, dry_run=False, principal=None):
+    """受控消费入口（issue #72）——权限、限量、审计三闸齐备的**显式**消费。
+
+    背景：#72 报「队列仅可观察、无受控消费入口」（queue_size 119 / processed 0 /
+    worker_alive false）。`drain()` 本身是同步消费，但它是库内方法：没有权限门、
+    没有单批硬上限、没有审计，任何拿到 cg 的调用方都能全量消费且不留痕。
+    本函数是**工具面可接线的单点入口**，不引入常驻线程（opt-in 语义不变）。
+
+    三闸（缺一不可）：
+      1. **权限**：调用方须 `can_admin`（显式 principal 优先，否则取 cg.principal）。
+         未授权直接 `{"ok": False, "error": "forbidden"}`——**不返回队列内容**
+         （连 node_id 都不给），故「未授权不能看到任务正文或触发消费」。
+      2. **限量**：`0 <= limit <= CONTROL_LIMIT_MAX`，越界 fail-closed 返回
+         `bad_limit`（不静默截断——截断会让调用方以为处理了 N 条）。
+      3. **审计**：cg 有 `_audit` 时写一行聚合（dry_run/limit/processed/errors/
+         requeued/dead_letter/queue_size/oldest_age_s），绝不记正文（payload-free）。
+
+    失败处置：`ok=False` 的任务重新入队（attempts+1，最多 `CONTROL_MAX_ATTEMPTS`
+    次），超过则丢弃并计入 `dead_letter`——「消费失败可见、可重试、不无限滞留」。
+    成功的任务已由 drain 从内存与盘上摘除，重复运行不会重复状态迁移。
+
+    返回体（成功）：
+      {"ok", "dry_run", "limit", "processed", "errors": [...], "skipped",
+       "requeued", "dead_letter", "results", "queue_size", "oldest_age_s",
+       "worker_alive", "audit"}
+    dry_run=True 时返回 `would_process`（node_id/action/age_s，无正文）且不消费、
+    不落盘、不计数、不写审计（预演本身不是管理动作）。
+
+    【功能名】coldverify 受控消费入口
+    【生效条件】cg 的 principal.can_admin 为真且 limit 在 [0, CONTROL_LIMIT_MAX]；
+      dry_run 亦须过同一权限闸（否则可借预演侧读队列组成）。
+    【子功能】单批限量消费 / 预演 / 失败重入队与 dead-letter / 聚合审计。
+    【执行】controlled_drain(cg, limit=N, dry_run=False, principal=None)
+    【验证方式】md_cg/test_issue72_coldverify_controlled_drain.py（含 --mutate）。
+    【不适用条件】不适用于后台常驻消费（那仍是 start_worker 的 opt-in 语义）；
+      不改变 drain() 既有契约（本函数在它之上加闸，不改其行为）。
+    """
+    q = get(cg)
+    if q is None:
+        return {"ok": False, "error": "no_queue",
+                "reason": "cg 未挂冷路径队列（先 coldverify.attach(cg)）"}
+    p = principal if principal is not None else getattr(cg, "principal", None)
+    if not getattr(p, "can_admin", False):
+        return {"ok": False, "error": "forbidden",
+                "reason": "受控消费需 can_admin（未授权调用不返回队列内容）"}
+    try:
+        lim = int(limit)
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "bad_limit", "reason": "limit 必须是整数"}
+    if lim < 0 or lim > CONTROL_LIMIT_MAX:
+        return {"ok": False, "error": "bad_limit",
+                "reason": "limit 须在 [0, %d]（单批硬上限）" % CONTROL_LIMIT_MAX,
+                "limit_max": CONTROL_LIMIT_MAX}
+    st = q.status()
+    if dry_run:
+        # 预演不消费、不落盘、不计数、不审计（issue #72 验收：dry-run 不改队列）。
+        return {"ok": True, "dry_run": True, "limit": lim,
+                "would_process": q.drain(cg, limit=lim, dry_run=True)["would_process"],
+                "queue_size": st["queue_size"],
+                "oldest_age_s": st.get("oldest_age_s"),
+                "worker_alive": st.get("worker_alive"),
+                "audit": False}
+    # 取本批原任务快照（失败项要按原 kwargs 重入队）——与 drain 同锁口径。
+    with q._lock:
+        batch = list(q._queue)[:lim]
+    results = q.drain(cg, limit=lim)
+    errs, requeued, dead = [], 0, 0
+    for i, r in enumerate(results):
+        if r.get("ok"):
+            continue
+        errs.append({"node_id": r.get("node_id"), "action": r.get("action"),
+                     "error": r.get("error") or r.get("skipped") or "unknown"})
+        src = batch[i] if i < len(batch) else None
+        if src is None:
+            dead += 1
+            continue
+        attempts = int(src.get("attempts") or 0) + 1
+        if attempts > CONTROL_MAX_ATTEMPTS:
+            dead += 1
+            continue
+        q._requeue_failed(src, attempts)
+        requeued += 1
+    st = q.status()
+    audit_ok = False
+    a = getattr(cg, "_audit", None)
+    if a is not None:
+        try:
+            a("coldverify_drain", "", dry_run=False, limit=lim,
+              processed=st["stats"].get("processed"), errors=len(errs),
+              requeued=requeued, dead_letter=dead,
+              queue_size=st["queue_size"], oldest_age_s=st.get("oldest_age_s"))
+            audit_ok = True
+        except Exception:                              # noqa: BLE001
+            audit_ok = False          # 审计失败不阻断消费（best-effort，同 G8）
+    return {"ok": True, "dry_run": False, "limit": lim,
+            "processed": len(results) - len(errs),
+            "errors": errs, "skipped": st["stats"].get("skipped"),
+            "requeued": requeued, "dead_letter": dead,
+            "results": results, "queue_size": st["queue_size"],
+            "oldest_age_s": st.get("oldest_age_s"),
+            "worker_alive": st.get("worker_alive"), "audit": audit_ok}
 
 
 #: 进程级默认实例

@@ -192,6 +192,27 @@ def render(name: str, *, condition: str = "", goal: str = "", status: str = "act
 
 # ---------------------------------------------------------------- 读写
 
+
+# 生效条件：cg 索引里有该 nid 的条目且条目带 layer/tags 两键时，仅凭索引判定「是否任务卡」
+# （layer==structural 且含 TASK_TAG）；索引缺该两键时返回 None 表示判不了——调用方须退回读盘，
+# 不得凭缺键当「不是任务」。
+def _task_in_index_only(cg, nid):
+    """索引侧判定（issue #676）：避免对全库每个节点都读盘解析 md。
+
+    session_tasks / list_tasks 原先对索引里**每一个**节点调 _entry → cg.get，而 cg.get
+    每次 realpath 加打开解析整个 md；_read_task 的首要过滤条件（layer == structural 且
+    tags 含 task）索引里已有，于是「整库读一遍再全丢」。实测 764 节点 / 0 张任务卡时
+    每次调用读 764 个文件。
+
+    返回 True/False；索引缺键时返回 None（调用方退回读盘，保持 fail-open）。
+    """
+    e = ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid) or {}
+    if "layer" not in e or "tags" not in e:
+        return None
+    if str(e.get("layer") or "") != "structural":
+        return False
+    return TASK_TAG in (e.get("tags") or [])
+
 # 生效条件：nid 为假值（None/空串）时返回 None；否则 cg.get(nid) 命中且其 frontmatter.layer == "structural"、TASK_TAG 在 frontmatter.tags（`or []`）中时，返回 {id, fm, content, path, sec}（sec 为 sections(content)）；记录缺失或层/标签不符时返回 None。
 def _read_task(cg, nid: str):
     """读回任务卡；层或标签不符一律视为不存在（防串号：别的节点占用了同 id）。"""
@@ -395,6 +416,8 @@ def list_tasks(cg, status: str = None, limit: int = None) -> dict:
         return {"ok": False, "error": "未知任务状态：%r（可选 %s）" % (st, list(TASK_STATUSES))}
     items = []
     for nid in list((cg.index.get("nodes") or {}).keys()):
+        if _task_in_index_only(cg, nid) is False:   # issue #676：同款索引先筛
+            continue
         t = _entry(cg, nid)
         if t:
             items.append(t)
@@ -416,6 +439,9 @@ def session_tasks(cg, active_limit: int = 5, done_limit: int = 5) -> dict:
     """
     active, done = [], []
     for nid in list((cg.index.get("nodes") or {}).keys()):
+        # issue #676：索引能判「不是任务卡」的就不读盘（此前整库全读）。
+        if _task_in_index_only(cg, nid) is False:
+            continue
         t = _entry(cg, nid)
         if not t:
             continue

@@ -28,11 +28,7 @@ import sys
 import tempfile
 
 # ── 隔离前置：在任何 md_cg 子模块 import 之前把根指到临时目录 ──
-# 临时根写死绝对路径：原写法不给 dir=，落在 cwd ⇒ 在仓根跑一次就在
-# `lingshu-src/` 留下 `i53_*` 目录，`scripts/arch-check.py` 报「新增子目录」而红。
-_TMP_ROOT = os.environ.get("TMP") or r"D:\wook\tmp"
-os.makedirs(_TMP_ROOT, exist_ok=True)
-_TMP = tempfile.mkdtemp(prefix="i53_", dir=_TMP_ROOT)
+_TMP = tempfile.mkdtemp(prefix="i53_")
 os.environ["MDCG_AUX_ROOT"] = os.path.join(_TMP, "auxroot")
 os.environ["MDCG_ROOT"] = os.path.join(_TMP, "cgroot")
 for _k in ("MDCG_TOKEN", "MDCG_TENANT", "MDCG_CLEARANCE", "MDCG_SESSION",

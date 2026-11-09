@@ -57,6 +57,7 @@ import time
 
 from . import nodefile
 from .datapath import mdcg_root, state_root
+from . import fsutil
 from .fsutil import FileLock, append_jsonl
 from .mdcg import LAYERS
 
@@ -64,6 +65,15 @@ from .mdcg import LAYERS
 SLEEP_DIRNAME = "sleep"
 GITDIR_DIRNAME = "lib.git"
 SHADOW_DIRNAME = "shadow"
+#: 记忆根绑定标记（lib.git 目录内，**不进版本库、不进工作树**）：内容为该
+#: lib.git 所服务记忆根的 realpath。issue #295：lib.git / 影子落在**用户级
+#: 状态根**下、与 MDCG_ROOT 无关，同一 state_root 下两个记忆根共用一份版本库
+#: ⇒ A 根入册的层文件一直留在 HEAD（空层被 pathspecs 滤掉、删除记不进去），
+#: B 根下一轮从该 HEAD fork，把 A 的文件判成「影子侧新增」重放进 B 根——
+#: 跨租户可读、同 id 节点被顶替删除。
+ROOT_MARKER = "mdcg-root"
+#: 多根共存时按根分槽的父目录名（`<state_root>/sleep/roots/<sha256[:16]>/`）。
+ROOTS_DIRNAME = "roots"
 #: 根级锁文件名（`FileLock` 会再拼 `.lock`）——即 `<state_root>/sleep/sleep.lock`。
 LOCK_NAME = "sleep"
 #: 基线分支与影子分支前缀（§4.1：分支名 `sleep/<时间戳>`）。
@@ -74,6 +84,10 @@ GIT_USER_EMAIL = "sleep@lingshu.local"
 #: 历史里**零命中**才合规的禁入路径（§4.5 机械判据）。
 FORBIDDEN_BASENAMES = ("_keys.json", "_access.log", "_index.json")
 FORBIDDEN_SUFFIXES = (".tmp", ".lock")
+#: #405：原子写临时件的**真实**形态是 `.<name>.md.tmp-<rand>`（`.tmp-` 是**中缀**而非后缀），
+#: 而 §4.5 判据一原用 `endswith` 判 ⇒ 对真实临时件**零命中**（同一份历史里老式 `junk.tmp`
+#: 被命中、`.n_a.md.tmp-k1lled` 漏报，两条机械判据同时报绿）。故补中缀判据（同一单点内）。
+FORBIDDEN_INFIXES = (".tmp-", ".lock-")
 DEFAULT_LOCK_TIMEOUT = 30.0
 #: 单条 git 子进程的**硬超时**（秒）——issue #63 主修（单点可调）。
 #: 取值依据：本机 git 操作为秒级（init / add / commit / rev-parse / worktree /
@@ -106,7 +120,7 @@ SLEEP_ENV_DEFAULTS = {
     "merge": "auto",         # 合并策略 auto / ask / never
     "gitdir": "",            # git 目录（空 → state_root()/sleep/lib.git）
     "shadow": "",            # 影子工作树（空 → state_root()/sleep/shadow）
-    "scrub_apply": "0",      # 第④步去污染**实改**闸（缺省关：只盘点不落盘）
+    "scrub_apply": "1",      # 第④步去污染**实改**闸（默认开：真实落盘；置 0 退回只盘点）
 }
 #: 各键的 env 名（**唯一的字面量落点**）。
 SLEEP_ENV_KEYS = {
@@ -177,7 +191,7 @@ def sleep_merge_mode(environ=None) -> str:
 
 # 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "0" → 假）。
 def sleep_scrub_apply(environ=None) -> bool:
-    """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省关）。"""
+    """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省开；置 0 退回只盘点）。"""
     return sleep_env("scrub_apply", environ) not in SLEEP_OFF_VALUES
 
 
@@ -187,18 +201,83 @@ def sleep_root() -> str:
     return os.path.join(state_root(), SLEEP_DIRNAME)
 
 
-# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_GITDIR（非空）经 abspath 返回；两者皆空时返回 sleep_root() 下 "lib.git" 的拼接路径。不触盘、不建目录。
-def git_dir(explicit: str = None) -> str:
-    """独立 git 目录（§4.7 `MDCG_SLEEP_GITDIR`；缺省 `state_root()/sleep/lib.git`）。"""
+# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_GITDIR（非空）经 abspath 返回；两者皆空且 root 非空时返回 `_slot_root(root)` 下 "lib.git"（issue #295 按根分槽）；root 也为空时返回 sleep_root() 下 "lib.git" 的拼接路径（旧行为逐字不变）。不触盘、不建目录。
+def git_dir(explicit: str = None, root: str = None) -> str:
+    """独立 git 目录（§4.7 `MDCG_SLEEP_GITDIR`；缺省 `state_root()/sleep/lib.git`）。
+
+    issue #295：传 root 时落点按根分槽（见 `_slot_root`）——同一 state_root 下
+    第二个记忆根不再共用第一根的 lib.git；不传 root 时返回值与修前逐字相同。
+    """
     v = explicit or sleep_env("gitdir")     # 键名/缺省的真源 = SLEEP_ENV_KEYS 表
-    return os.path.abspath(v) if v else os.path.join(sleep_root(), GITDIR_DIRNAME)
+    if v:
+        return os.path.abspath(v)
+    if root:
+        return os.path.join(_slot_root(root), GITDIR_DIRNAME)
+    return os.path.join(sleep_root(), GITDIR_DIRNAME)
 
 
-# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_SHADOW（非空）经 abspath 返回；两者皆空时返回 sleep_root() 下 "shadow" 的拼接路径。不触盘。
-def shadow_dir(explicit: str = None) -> str:
-    """影子工作树落点（§4.7 `MDCG_SLEEP_SHADOW`；缺省 `state_root()/sleep/shadow`）。"""
+# 生效条件：explicit 非空时经 abspath 归一返回；否则取 env MDCG_SLEEP_SHADOW（非空）经 abspath 返回；两者皆空且 root 非空时返回 `_slot_root(root)` 下 "shadow"（issue #295 按根分槽）；root 也为空时返回 sleep_root() 下 "shadow" 的拼接路径（旧行为逐字不变）。不触盘。
+def shadow_dir(explicit: str = None, root: str = None) -> str:
+    """影子工作树落点（§4.7 `MDCG_SLEEP_SHADOW`；缺省 `state_root()/sleep/shadow`）。
+
+    issue #295：传 root 时与 `git_dir` 同槽按根分开；不传 root 时返回值与修前逐字相同。
+    """
     v = explicit or sleep_env("shadow")     # 键名/缺省的真源 = SLEEP_ENV_KEYS 表
-    return os.path.abspath(v) if v else os.path.join(sleep_root(), SHADOW_DIRNAME)
+    if v:
+        return os.path.abspath(v)
+    if root:
+        return os.path.join(_slot_root(root), SHADOW_DIRNAME)
+    return os.path.join(sleep_root(), SHADOW_DIRNAME)
+
+
+# 生效条件：git_dir_path 下存在可读的 ROOT_MARKER 且首行非空时返回其 realpath；
+# 目录/标记缺失或不可读时返回 ""（未绑定）。不触盘创建任何东西。
+def bound_root(git_dir_path: str) -> str:
+    """lib.git 绑定的记忆根（未绑定返回空串）。"""
+    try:
+        with open(os.path.join(git_dir_path, ROOT_MARKER),
+                  encoding="utf-8") as f:
+            v = f.readline().strip()
+    except OSError:
+        return ""
+    return os.path.realpath(v) if v else ""
+
+
+# 生效条件：git_dir_path 已绑定且绑定根 ≠ realpath(root) 时返回中文原因串；
+# 未绑定、绑定本根或标记不可读时返回 ""。
+def _bind_error(git_dir_path: str, root: str) -> str:
+    owner = bound_root(git_dir_path)
+    if owner and owner != os.path.realpath(root):
+        return ("lib.git %s 绑定的是另一个记忆根 %s（本根 %s）——"
+                "每个记忆根须用各自的 lib.git / 影子（issue #295）"
+                % (git_dir_path, owner, os.path.realpath(root)))
+    return ""
+
+
+# 生效条件：git_dir_path 为已存在的目录且未绑定时写入 ROOT_MARKER
+# （realpath(root)）并返回 True；已绑定（含本根）时不动盘、返回 False。
+def _bind_root(git_dir_path: str, root: str) -> bool:
+    if bound_root(git_dir_path):
+        return False
+    with open(os.path.join(git_dir_path, ROOT_MARKER), "w",
+              encoding="utf-8") as f:
+        f.write(os.path.realpath(root) + "\n")
+    return True
+
+
+# 生效条件：root 为记忆根路径时返回本根该用的落点父目录——缺省 lib.git 不存在、
+# 未绑定或绑定本根时为 sleep_root()（单根安装路径逐字不变）；已绑定别的根时为
+# sleep_root()/roots/<sha256(realpath(root))[:16]>。**须在根级锁内调用**：
+# 两个根同时首轮时，后到者靠先到者写下的绑定才能分到自己的槽。
+def _slot_root(root: str) -> str:
+    """按根分槽（issue #295）：返回 `lib.git` / `shadow` 的父目录。"""
+    legacy = os.path.join(sleep_root(), GITDIR_DIRNAME)
+    if (not os.path.isdir(legacy)
+            or bound_root(legacy) in ("", os.path.realpath(root))):
+        return sleep_root()
+    key = hashlib.sha256(os.path.realpath(root).encode(
+        "utf-8", "surrogateescape")).hexdigest()[:16]
+    return os.path.join(sleep_root(), ROOTS_DIRNAME, key)
 
 
 # 生效条件：无入参；恒返回 sleep_root() 下 "sleep" 的拼接路径（`FileLock` 会再拼 ".lock"，即 <state_root>/sleep/sleep.lock）。**绝不在数据根内**——锁件进不了真源面，也进不了版本库白名单。
@@ -235,6 +314,32 @@ def worktree_git_dir(shadow: str) -> str:
 
 
 # 生效条件：root 为目录路径时返回 8 个 LAYERS 目录中**盘上存在且其下至少有一个文件**者的目录名列表（顺序同 LAYERS）；root 下无任何命中时返回空列表。只 walk 目录、不读文件内容，命中即 break。
+# 生效条件：root 下各层中含 .md 者，返回 [":(glob)<层>/**/*.md", ...]（add 的**真源面 pathspec 单点**）；无 .md 的层不返回；root 非目录返回 []。
+def add_pathspecs(root: str) -> list:
+    """`git add` 的 pathspec **单点**（#405）：只入册真源面 `.md`。
+
+    #405 根因：`_stage_and_commit` 原把 `pathspecs(root)`（**层目录名**）当 pathspec 用，
+    而 `git add -- <层名>` 会暂存该目录下**任何**未跟踪/已修改文件——层目录内的运行态、
+    原子写临时件（`.<name>.md.tmp-<rand>`）、手工投放件都会进 `lib.git` **不可逆历史**
+    （真库只读取证：29726 条历史路径里 3 条非 .md，全部是这种临时件）。
+    本形态与 #145 的既定口径一致（文件 glob，注释逐字「不含 .tmp/.lock 等」）。
+
+    **为什么不改 `pathspecs()` 的返回形态**：既有裁定 `test_sleep.py:220` 钉住它返回
+    **层名**，且 `_stage_and_commit` 的 stale 分支需要层名做「整层清索引」⇒ 本件只让
+    **add** 收窄（修改既有裁定不是修复该做的事）。
+    """
+    out = []
+    for layer in LAYERS:
+        base = os.path.join(root, layer)
+        if not os.path.isdir(base):
+            continue
+        for _dp, _dn, files in os.walk(base):
+            if any(f.endswith(".md") for f in files):
+                out.append(":(glob)%s/**/*.md" % layer)
+                break
+    return out
+
+
 def pathspecs(root: str) -> list:
     """`add` 的**显式 pathspec 白名单**：`md_cg.mdcg.LAYERS` 中盘上非空者。
 
@@ -424,10 +529,25 @@ def _has_head(git_dir_path: str, work_tree: str) -> bool:
 def _stage_and_commit(git_dir_path: str, work_tree: str, message: str) -> dict:
     """白名单 add + 有改动才 commit（Δ 为空 ⇒ 整轮跳过，§4.4）。"""
     ps = pathspecs(work_tree)
-    if not ps:
+    # issue #295③：**空层也要记删除**。pathspecs 只返回盘上非空的层，于是
+    # 「某层在盘上已空、索引/HEAD 里仍有文件」这件事入不了册：那些文件一直留在
+    # HEAD，下一轮影子 fork 出来又被判成「影子侧新增」重放回主库。旧版本里已经
+    # 混进别的根文件的 lib.git 被本根沿用（K3）时，也靠这一步在第一轮清掉。
+    # `git rm -r --cached` 只动索引，不碰工作树。
+    top = {p.split("/", 1)[0] for p in
+           _git_ok(git_dir_path, work_tree, "ls-files").splitlines() if p}
+    stale = [l for l in LAYERS if l not in ps and l in top]
+    if not ps and not stale:
         return {"committed": False, "reason": "白名单为空（真源面无任何 .md）",
                 "pathspecs": ps}
-    _git_ok(git_dir_path, work_tree, "add", "--", *ps)
+    # #405：add 走**只含 .md 的 glob**（add_pathspecs 单点）——层目录内的非 .md / 临时件
+    # 因此不再进不可逆历史；`ps`（层名）仍用于空集判据、stale 清索引与回执字段（既有裁定）。
+    aps = add_pathspecs(work_tree)
+    if aps:
+        _git_ok(git_dir_path, work_tree, "add", "--", *aps)
+    if stale:
+        _git_ok(git_dir_path, work_tree, "rm", "-r", "-q", "--cached", "--",
+                *stale)
     if _git(git_dir_path, work_tree, "diff", "--cached", "--quiet").returncode == 0:
         return {"committed": False, "reason": "Δ 为空（无待提交改动）",
                 "pathspecs": ps}
@@ -465,18 +585,35 @@ def materialize(root: str = None, *, git_dir_path: str = None,
     由 ③ 的并发闸（`baseline_face` 水位，主库优先）逐项裁决，那才是漂移的处置点。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
     branch = BRANCH_PREFIX + (ts or _stamp())
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("materialize", timeout)
+        # issue #295①②：落点与绑定**必须在根级锁内解析**——两个根同时首轮时，
+        # 后到者只有看到先到者写下的绑定才能分到自己的槽；锁外解析会双双认领
+        # legacy lib.git，串库照旧。显式指定的 git_dir_path / shadow 仍优先，
+        # 但绑定检查对它们同样生效（覆盖显式把两根配到同一个 GITDIR 的情况）。
+        G = git_dir_path or git_dir(root=root)
+        S = shadow or shadow_dir(root=root)
+        err = _bind_error(G, root)
+        if err:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "materialize", "lock": lock_path(),
+                    "git_dir": G, "shadow": S, "root": root, "error": err,
+                    "hint": "每个记忆根须用各自的 lib.git / 影子"}
         try:
             rep = ensure_repo(root, G)
-            init = _stage_and_commit(G, root, "sleep: 基线（真源面入册）") \
-                if not _has_head(G, root) else {"committed": False,
-                                                "reason": "已有基线提交"}
+            _bind_root(G, root)
+            # #145①（2026-10-12 DSH 端）：**每轮都把真源面入册 lib.git**，不再只在首轮。
+            # 病象：修前 `if not _has_head(G, root)` ⇒ 首轮之后主库的编辑从不进版本库，
+            # 而影子是 `worktree add -b <branch> S BASE_BRANCH`（从**冻结基线** fork）
+            # ⇒ 影子拿到旧副本；本轮 merge 时旧副本被写回主库，**静默回滚**首轮之后的
+            # 编辑（实测：主库 v2 → 轮末回到 v1，且 ok=True、无冲突、无 deferred）。
+            # `_stage_and_commit` 自带「Δ 为空 ⇒ 零提交」幂等语义，故每轮调用安全。
+            init = _stage_and_commit(G, root, "sleep: 基线（真源面入册）")
+            # 基准提交＝本次入册后的 HEAD＝影子 fork 的起点（#145③ 写前复核用）
+            base_commit = _git_ok(G, root, "rev-parse", "HEAD").strip()
             if os.path.isdir(S):
                 r = _git(G, root, "worktree", "remove", "--force", S)
                 if r.returncode != 0:
@@ -513,6 +650,8 @@ def materialize(root: str = None, *, git_dir_path: str = None,
                 "git_dir": G, "shadow": S, "branch": branch,
                 "branch_reused": reused, "repo_created": rep["created"],
                 "baseline": init, "pathspecs": pathspecs(root),
+                # #145①：基准提交 + 基准水位（同一份读数，供 ③ 写前复核与三方比对）
+                "base_commit": base_commit, "base_face": after,
                 "lock": lock_path(), "source_face_delta": delta,
                 "source_face_count": len(after),
                 # §4.4 ① 的**基准水位**：物化这一刻的主库真源面内容哈希集合——
@@ -536,8 +675,15 @@ def reconcile_and_commit(root: str = None, *, git_dir_path: str = None,
     提交落到 `main` 而影子分支停在基线（见该函数说明的实测）。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    # #405 站点 3：**必须按 root 取库与影子**——原实现 `git_dir()` / `shadow_dir()` 不传 root，
+    # 于是即使调用方给了 root=B，落点仍是**默认根**的 lib.git/影子：返回 ok=True/committed=True，
+    # 提交信息却是 B 轮次，B 的改动根本没被提交（跨根错提交，不可逆）。
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
+    _be = _bind_error(G, root)          # #295 同款绑定闸（同文件另外四入口均已接）
+    if _be:
+        return {"ok": False, "busy": False, "lock_held": False,
+                "phase": "reconcile_and_commit", "error": _be, "git_dir": G}
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
@@ -585,12 +731,18 @@ def merge(root: str = None, *, git_dir_path: str = None, branch: str,
     ——不许在非主线上做合并（与 `wm.py:cmd_merge` 同判据）。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝（少做，不多写）。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
             if cur != BASE_BRANCH:
@@ -639,11 +791,17 @@ def revert(commit: str, root: str = None, *, git_dir_path: str = None,
     与 `hive/wm.py:cmd_revert` 同口径。
     """
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("revert", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "revert", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             parents = _git_ok(G, root, "rev-list", "--parents", "-n1",
                               commit).split()
@@ -679,7 +837,7 @@ def revert(commit: str, root: str = None, *, git_dir_path: str = None,
 def tracked_paths(root: str = None, *, git_dir_path: str = None) -> list:
     """版本库当前追踪的路径集合（`git ls-files`）。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     return [ln.strip() for ln in _git_ok(G, root, "ls-files").splitlines()
             if ln.strip()]
 
@@ -688,20 +846,26 @@ def tracked_paths(root: str = None, *, git_dir_path: str = None) -> list:
 def history_paths(root: str = None, *, git_dir_path: str = None) -> list:
     """**全部历史**（所有分支、所有提交）里出现过的路径。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
+    G = git_dir_path or git_dir(root=root)
     out = _git_ok(G, root, "log", "--all", "--name-only", "--pretty=format:")
     return [ln.strip() for ln in out.splitlines() if ln.strip()]
 
 
-# 生效条件：对 history_paths 去重后逐个取 basename；basename 属于 FORBIDDEN_BASENAMES 或以 FORBIDDEN_SUFFIXES 之一结尾者计入命中；返回按路径排序的命中表（零命中 = 合规）。
+# 生效条件：对 history_paths 去重后逐个取 basename；basename 属于 FORBIDDEN_BASENAMES、或以 FORBIDDEN_SUFFIXES 之一结尾、或含 FORBIDDEN_INFIXES 之一者计入命中；返回按路径排序的命中表（零命中 = 合规）。
 def history_forbidden_hits(root: str = None, *,
                            git_dir_path: str = None) -> list:
     """历史里的禁入路径（§4.5：`_keys.json` / `_access.log` / `_index.json` /
-    `*.tmp` / `*.lock` **零命中**）。"""
+    `*.tmp` / `*.lock` **零命中**）。
+
+    #405：判据形态必须**覆盖真实命名**——原子写临时件是 `.<name>.md.tmp-<rand>`
+    （中缀），原 `endswith` 判据对它零命中；补 `FORBIDDEN_INFIXES` 后同一份历史里
+    这类件会被如实命中（与「判据与自述对象一致」同一纪律）。
+    """
     hits = []
     for p in sorted(set(history_paths(root, git_dir_path=git_dir_path))):
         base = p.rsplit("/", 1)[-1]
-        if base in FORBIDDEN_BASENAMES or base.endswith(FORBIDDEN_SUFFIXES):
+        if (base in FORBIDDEN_BASENAMES or base.endswith(FORBIDDEN_SUFFIXES)
+                or any(x in base for x in FORBIDDEN_INFIXES)):
             hits.append(p)
     return hits
 
@@ -1054,6 +1218,15 @@ def gate_delta(cg_main, delta: dict, *, baseline_face: dict = None,
                                   "reason": ("主库在迭代期间改动过同一 id（或新增同名 id）"
                                              "——主库优先，本项挂起不自动解决")})
                 continue
+            # #145②（2026-10-12 DSH 端）· **三方比对（base / 影子 / 当前 main）**的落点说明：
+            # 修前本闸只比「base vs 当前 main」两方。我最初在此处按**内容哈希**补第三
+            # 方（影子文件 != base ⇒ 挂起），沙箱实测**误伤合法影子编辑**：影子迭代本来
+            # 就以「影子内容 ≠ base」为常态（实测 accepted 由 [a] 变 []，a 的影子版被挂起），
+            # 故**已回退**该形态。正解是比**影子分支的 fork 点**而不是内容：旧副本的成因
+            # 是「影子 fork 自更早的提交」，其 fork 点必然落后于基准提交——该判据落在
+            # `merge_cycle` 的写前复核（#145③：`merge-base HEAD <branch>` 必须等于当前
+            # HEAD，即等于 materialize 入册后的基准提交），既不误伤影子编辑、又掐住旧
+            # 副本进入重放的入口。此处保持两方读数不变（零回归）。
         # ④ 生命周期闸：非法迁移不得由睡眠周期写进主库。
         src = d.get("before_lifecycle") or "active"
         dst = d.get("after_lifecycle") or "active"
@@ -1098,8 +1271,8 @@ def reconcile_gated(root: str = None, *, git_dir_path: str = None,
                     timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
     """③ 对账 + 提交（§4.4，**持根级锁**）：Δ 逐项过四闸 → 只把通过者入册。"""
     root = os.path.abspath(root or mdcg_root())
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
@@ -1197,12 +1370,18 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
                 timeout: float = DEFAULT_LOCK_TIMEOUT) -> dict:
     """④ 合并（§4.4，**持根级锁**）：语义重放 → `--no-ff` 合并；冲突挂起。"""
     root = os.path.abspath(root or cg_main.root)
-    G = git_dir_path or git_dir()
-    S = shadow or shadow_dir()
+    G = git_dir_path or git_dir(root=root)
+    S = shadow or shadow_dir(root=root)
     before = source_face_hashes(root)
     with FileLock(lock_path(), timeout=timeout, strict=False) as lk:
         if not lk.acquired:
             return _busy("merge_cycle", timeout)
+        # issue #295：绑定到别的记忆根的 lib.git 一律拒绝。
+        _be = _bind_error(G, root)
+        if _be:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge_cycle", "lock": lock_path(),
+                    "git_dir": G, "error": _be}
         try:
             cur = _git_ok(G, root, "rev-parse", "--abbrev-ref", "HEAD").strip()
         except SleepGitTimeout as e:
@@ -1215,6 +1394,23 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
             return {"ok": False, "busy": False, "lock_held": True,
                     "phase": "merge_cycle", "lock": lock_path(), "head": cur,
                     "error": "当前 HEAD 在 %s，merge 须在 %s 上执行" % (cur, BASE_BRANCH)}
+        # #145③（2026-10-12 DSH 端）：**写前复核**——影子必须 fork 自**当前 HEAD**。
+        # 影子陈旧（fork 点落后于 HEAD，例如两次物化之间主库被别的写方推进过）时
+        # 直接拒绝重放（保守路径），不让旧副本有写回主库的机会。
+        try:
+            _head = _git_ok(G, root, "rev-parse", "HEAD").strip()
+            _mb = _git_ok(G, root, "merge-base", "HEAD", branch).strip()
+        except Exception as _e:                                # noqa: BLE001
+            _head = _mb = ""
+        if _head and _mb and _mb != _head:
+            return {"ok": False, "busy": False, "lock_held": True,
+                    "phase": "merge_cycle", "lock": lock_path(), "branch": branch,
+                    "aborted": "stale_shadow", "head": _head[:12],
+                    "merge_base": _mb[:12],
+                    "error": "影子 fork 点 %s 落后于当前 HEAD %s ⇒ 影子是陈旧副本"
+                    % (_mb[:8], _head[:8]),
+                    "hint": ("#145③ 写前复核拒绝重放：请重新 materialize（会把主库真源面"
+                             "入册并据此重挂影子）后再合并")}
         rep = (replay_to_main(cg_main, S, delta or {}, accepted or [],
                               batch=batch) if replay
                else {"written": [], "skipped": [], "failed": [], "entries": []})
@@ -1540,8 +1736,8 @@ def _main(argv=None) -> int:
                          "单独使用不执行任何动作（预览一轮请用 --once --dry-run）\n")
         return 2
     root = os.path.abspath(a.root or mdcg_root())
-    G = a.git_dir_path or git_dir()
-    shadow = a.shadow or shadow_dir()
+    G = a.git_dir_path or git_dir(root=root)
+    shadow = a.shadow or shadow_dir(root=root)
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     if a.once:
         rec = run_cycle(None, root=root, enabled=sleep_enabled(),

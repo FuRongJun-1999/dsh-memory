@@ -194,7 +194,6 @@ def write_session(cg, items, *, transcript_root: str, src: dict, session: str,
         if st["state"] in WRITE_STATES:
             keep.append(it2)
     sens, _why = _docindex().sensitivity_for((src or {}).get("path") or "", None)
-    enc = _encrypted_levels()
     rows = [{"id": st["id"], "state": st["state"], "reason": st.get("reason"),
              "heading_path": (it.get("heading_path") or []),
              "lineno": _int(it.get("lineno")), "end": _int(it.get("end")),
@@ -227,7 +226,7 @@ def write_session(cg, items, *, transcript_root: str, src: dict, session: str,
         src_of=lambda it: src, extra_of=_extra)
     out["sens"] = sens_counts
     out["written"] = ids
-    out["encrypted"] = sum(c for s, c in sens_counts.items() if s in enc)
+    out["encrypted"] = sum(c for s, c in sens_counts.items() if _is_enc(s))
     return out
 
 
@@ -241,6 +240,12 @@ def _docindex():
 def _encrypted_levels() -> tuple:
     from . import crypto
     return tuple(crypto.ENCRYPTED_LEVELS)
+
+
+# 生效条件：level 经 crypto.is_encrypted_level 判为加密档时返回 True（全仓唯一谓词）。
+def _is_enc(level) -> bool:
+    from . import crypto
+    return crypto.is_encrypted_level(level)
 
 
 # 生效条件：node 为 cg.get 取回的节点 dict（其余按无 ref 处理）；with_src 缺省 False。

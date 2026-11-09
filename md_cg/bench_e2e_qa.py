@@ -151,10 +151,6 @@ def qa_report(rows):
     st = {
         "n": n, "judged": len(ok), "errors": n - len(ok),
         "acc": c(ok, "correct") / max(len(ok), 1),
-        # 全体口径（B43）：分母用**全部行**，判分失败按错算。旧口径只用判分成功行当分母，
-        # 判分失败被静默移出分母 —— 实测 8 行里 3 行判分失败时，总题口径 0.3750、
-        # 只算判分成功 0.6000，差 22.5 个百分点，而表里只显示后者。
-        "acc_all": c(ok, "correct") / max(n, 1),
         "incorrect": c(ok, "incorrect"), "refused": c(ok, "refused"),
         "norm_n": len(norm),
         "norm_acc": c(norm, "correct") / max(len(norm), 1),
@@ -236,12 +232,11 @@ def main(argv=None):
         all_rows.extend(rows)
         print(f"\n===== level {lv}（池={len(corpus)+n_synth}）"
               f" · QA 耗时 {time.time()-t0:.1f}s =====")
-        print(f"{'臂':<10}{'QA准确率':>9}{'全体口径':>10}{'常规准确率':>10}"
-              f"{'常规拒答':>8}{'对抗正确拒答':>12}{'对抗被骗':>8}{'判分失败':>8}")
+        print(f"{'臂':<10}{'QA准确率':>9}{'常规准确率':>10}{'常规拒答':>8}"
+              f"{'对抗正确拒答':>12}{'对抗被骗':>8}{'判分失败':>8}")
         for arm in ("base", "firewall"):
             st = qa_report([r for r in rows if r["arm"] == arm])
-            print(f"{arm:<10}{st['acc']*100:>8.1f}%{st['acc_all']*100:>9.1f}%"
-                  f"{st['norm_acc']*100:>9.1f}%"
+            print(f"{arm:<10}{st['acc']*100:>8.1f}%{st['norm_acc']*100:>9.1f}%"
                   f"{st['norm_refused']:>7d}/{st['norm_n']}"
                   f"{st['adv_correct_refusal']:>10d}/{st['adv_n']}"
                   f"{st['adv_fooled']:>7d}"

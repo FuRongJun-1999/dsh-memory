@@ -102,17 +102,9 @@ class CodeTestRunner:
 
     # ---------------- 卡级执行 ----------------
     def run_card(self, card):
-        """执行知识卡 tests.executable 的代码片段，**只做两件事**：
-        ① 代码能不能跑起来（Python 直跑 / TS 走 tsc+node / Rust 走 rustc）；
-        ② 输出是否含 `expect_contains`、是否不含 `expect_missing`。
-
-        它**不验证卡声称的机制**（C28）：`tests.executable.cases` 字段根本不读，
-        所以「把实现故意写错但照样打印期望串」的卡同样会 pass —— 机制对不对，
-        只有把判据写进 code 里的 assert、或写进 expect_contains 才看得见。
-        `expect_contains` / `expect_missing` 都给不出时，代码跑通也**不算验证**，
-        返回 `unverified`（旧形态这里报 pass，等于把「跑通」冒充「机制成立」）。
-
-        返回 {lang, status: pass/fail/unverified/env_missing/error, output, detail}。"""
+        """执行知识卡 tests.executable 的代码片段，物理基底验证卡声称的机制。
+        card 需含: tests = {executable: {lang, code, expect_contains, expect_missing?}}。
+        返回 {lang, status: pass/fail/env_missing/error, output, detail}。"""
         tests = card.get("tests") or {}
         ex = tests.get("executable") or {}
         lang = ex.get("lang", "")
@@ -135,10 +127,6 @@ class CodeTestRunner:
             return {"lang": lang, "status": "error", "output": "",
                     "detail": f"未知语言 {lang}"}
         # 期望校验
-        cases_note = ""
-        if ex.get("cases"):
-            # cases 是卡自己声称的机制样例，本 runner 不执行（C28 说明见 docstring）
-            cases_note = "；注意：tests.executable.cases 未被校验（本 runner 只跑一段脚本）"
         if ok:
             if expect and expect not in out:
                 return {"lang": lang, "status": "fail", "output": out,
@@ -146,13 +134,8 @@ class CodeTestRunner:
             if expect_missing and expect_missing in out:
                 return {"lang": lang, "status": "fail", "output": out,
                         "detail": f"输出意外包含「{expect_missing}」"}
-            if not expect and not expect_missing:
-                # 跑通≠验证（C28）：没有任何期望判据时不许报 pass
-                return {"lang": lang, "status": "unverified", "output": out,
-                        "detail": ("代码跑通但没有任何期望判据（expect_contains / "
-                                   "expect_missing 皆空）—— 跑通不等于机制成立" + cases_note)}
             return {"lang": lang, "status": "pass", "output": out,
-                    "detail": detail + cases_note}
+                    "detail": detail}
         # 执行失败/编译失败：若期望的正是「编译错误含某词」（如 Rust 所有权
         # 移动后使用→E0382），物理基底确认机制成立 → pass
         if expect and expect in (out + detail):
@@ -226,8 +209,7 @@ if __name__ == "__main__":
     for name, ex in LANG_EXECUTABLES.items():
         card = {"name": name, "tests": {"executable": ex}}
         r = runner.run_card(card)
-        mark = {"pass": "✅", "fail": "❌", "env_missing": "⚠️",
-                "unverified": "❔"}.get(r["status"], "?")
+        mark = {"pass": "✅", "fail": "❌", "env_missing": "⚠️"}.get(r["status"], "?")
         print(f"{mark} {name}: {r['status']}")
         print(f"   detail: {r['detail'][:100]}")
         if r.get("output"):

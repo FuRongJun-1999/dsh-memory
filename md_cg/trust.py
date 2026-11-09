@@ -39,6 +39,8 @@ from __future__ import annotations
 
 import os
 import time
+import math
+from datetime import datetime
 
 from . import protect
 from . import security as _security
@@ -181,6 +183,41 @@ def require_transition(src, dst, protected: bool = False, override: bool = False
     return code
 
 
+#: 裸 frontmatter 探针的假 node_id（`protect.is_protected` 的 `(cg, node_id)` 形态所需；
+#: 真实节点 id 来自文件名/显式声明，不含 NUL ⇒ 与既有索引键不可能相撞）。
+_FM_PROBE_ID = "\x00fm-probe"
+
+
+class _FmProbe:
+    """裸 frontmatter → `protect.is_protected` 所需的 `(cg, node_id)` 形态（**零规则载体**）。
+
+    #377（2026-10-14）：本模块的降级判据此前只读 `fm["protected"]` / `fm["immutable"]`
+    两位，漏了 `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**。
+    本类**不复制任何判据**——规则单点仍是 `protect.is_protected`——只把调用方手里
+    已有的 frontmatter 摆成该判据所需的索引快照形态（唯一索引条目＝该映射本身）。
+    刻意**不提供** `_maybe_reload_index`（`protect._fm` 的探活分支取不到即跳过）且
+    `get()` 恒返回 None（门控字段回退读文件的分支在此无文件可读、**不抛异常**）⇒
+    判定 100% 基于传入映射：零 IO、零副作用（`stamp` 是就地改 fm 的纯函数面）。
+    """
+
+    __slots__ = ("index",)
+
+    def __init__(self, fm):
+        self.index = {"nodes": {_FM_PROBE_ID: fm if isinstance(fm, dict) else {}}}
+
+    def get(self, node_id=None):        # protect._fm 的回退分支：探针无文件可读
+        return None
+
+
+def _is_protected_fm(fm) -> tuple:
+    """裸 frontmatter 的「不可遗忘」判定 → `(是否受保护, 原因)`。
+
+    判据单点＝**`protect.is_protected`**（层保护 self/anchor ∪ 显式 protected 位 ∪
+    按分保护 ≥0.70 且来源缺省/hint）；本函数只负责把它喂给判据，不自带任何规则。
+    """
+    return protect.is_protected_entry(fm)   # #431 批：_FmProbe 副本收口到条目口径单点
+
+
 def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
           evidence: str = None, method: str = None, trigger: str = None,
           override: bool = False):
@@ -190,7 +227,14 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
     收口点使用（写入时一次写盘改依赖/时间轴/验证态）。
     """
     src = state_of(fm)
-    prot = bool(fm.get("protected") or fm.get("immutable"))
+    # #377（2026-10-14）：原判据只读 fm 的**显式两位**（protected / immutable），
+    # 漏了 `protect.is_protected` 的**层保护**（layer ∈ {self, anchor}）与**按分保护**
+    # ——anchor/self 层节点可被无痕降级。改为「显式两位 ∪ is_protected」：
+    # **超集**，原判据一字不减（immutable 位照旧、override=True 照旧短路到 check 的
+    # override 分支）⇒ 既有判定与 override 通路逐位不变；判据本体仍是 protect 的单点，
+    # 不在本模块复制一份。
+    prot = bool(fm.get("protected") or fm.get("immutable")) \
+        or _is_protected_fm(fm)[0]
     ok, code, why = check(src, dst, protected=prot, override=override)
     if not ok or code == "noop":
         return ok, code, why
@@ -221,7 +265,7 @@ def stamp(fm: dict, dst: str, reason: str = None, actor: str = None,
 _MS_EPOCH_THRESHOLD = 1e11
 
 
-def epoch_seconds(value):
+def epoch_seconds(value, *, _allow_nonfinite=False):
     """时间**数值** → epoch 秒（单位归一的**唯一实现点**）；非数值 → None。
 
     为什么需要它（issue #23 根因）：图内规范单位是**秒**——`created_at`、
@@ -231,7 +275,8 @@ def epoch_seconds(value):
     顶到最前，摄取节点**永久占据头部**（auto-recall 取到的「最新 N 条」全是它们）；
     同一根因还让 S2 时间门控把秒节点的区间判成不相交而误剔除。
 
-    口径（不猜测）：数值 `>= _MS_EPOCH_THRESHOLD` → `/1000.0`；其余原样 float。
+    口径（不猜测）：有限数值 `>= _MS_EPOCH_THRESHOLD` → `/1000.0`；其余原样 float。
+    NaN / Infinity / 超出 float 范围的数值返回 None，不得遮蔽合法别名。
     于是「已落库的历史毫秒数据」**无需改盘**即可参与排序与区间比较
     （读取侧归一，零迁移）。
 
@@ -241,16 +286,22 @@ def epoch_seconds(value):
     """
     if not isinstance(value, (int, float)):
         return None
-    v = float(value)
+    try:
+        v = float(value)
+    except (ValueError, OverflowError):
+        return None
+    if not _allow_nonfinite and not math.isfinite(v):
+        return None
     return v / 1000.0 if v >= _MS_EPOCH_THRESHOLD else v
 
 
-def parse_time(value):
+def parse_time(value, *, _allow_nonfinite=False):
     """时间值 → epoch 秒；不可解析返回 None（**不猜测**）。
 
     接受：数字（epoch 秒；**毫秒自动归一**，见 `epoch_seconds`）/ 数字串
     （同左）/ 日期或日期时间字符串（ISO 8601，宽松：空格分隔、`Z` 后缀、
-    日期精度都容忍）。纯标准库实现。
+    日期精度都容忍）。显式 Z / UTC offset 按绝对时刻解析；无时区日期保留
+    既有本地时间语义。纯标准库实现。
 
     单位归一单点落在此处：它是全系统时间数值的**唯一读入口**
     （时间算子 / `validity` / `provenance` 边 / 效力轴端点 / `stg._interval`），
@@ -259,17 +310,25 @@ def parse_time(value):
     if value is None or value == "":
         return None
     if isinstance(value, (int, float)):
-        return epoch_seconds(value)
+        return epoch_seconds(value, _allow_nonfinite=_allow_nonfinite)
     s = str(value).strip()
     if not s:
         return None
     try:
-        return epoch_seconds(float(s))
+        return epoch_seconds(float(s), _allow_nonfinite=_allow_nonfinite)
     except ValueError:
         pass
-    t = s.replace("/", "-").replace("T", " ")
-    if t.endswith("Z"):
-        t = t[:-1].strip()
+    # Explicit offsets denote an instant, independent of the host timezone.
+    # Naive dates below deliberately retain the existing local-time contract.
+    t = s.replace("/", "-")
+    try:
+        aware = datetime.fromisoformat(t)
+        if aware.tzinfo is not None:
+            ts = aware.timestamp()
+            return ts if math.isfinite(ts) else None
+    except (ValueError, OverflowError, OSError):
+        pass
+    t = t.replace("T", " ")
     fmts = ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d")
     for f in fmts:
         try:
@@ -390,7 +449,7 @@ def time_axis_of(axis) -> str:
     raise ValueError(f"未知 time_axis {axis!r}（允许：{TIME_AXES}）")
 
 
-def time_window_of(fm, axis: str = "effective"):
+def time_window_of(fm, axis: str = "effective", *, _allow_nonfinite=False):
     """按轴取候选时间窗口 → `(start, end)`；不可判定 → `(None, None)`（不猜测）。
 
     · `effective`：效力轴，走 `first_endpoint(FROM_ALIASES/UNTIL_ALIASES)`
@@ -401,13 +460,15 @@ def time_window_of(fm, axis: str = "effective"):
       （与 `_interval` 的「整体不可用」语义一致）。
 
     `believed_at` **永不参与**（`BELIEVED_FIELD` 不出现于任何轴）。
+    内部 `_allow_nonfinite=True` 仅供派生 STG 索引维持异常时间的保守候选桶；
+    查询入参、效力轴别名与正常消费者均使用有限端点规则。
     """
     if not isinstance(fm, dict):
         return None, None
     if time_axis_of(axis) == "observed":
         t = fm.get(OBSERVED_TIME_FIELD)
         if t is not None:
-            ts = parse_time(t)
+            ts = parse_time(t, _allow_nonfinite=_allow_nonfinite)
             if ts is not None:
                 return ts, ts
         # 兼容两种载体形态：**fm**（`condition_space.time_window`）与**索引扁平快照**
@@ -419,7 +480,7 @@ def time_window_of(fm, axis: str = "effective"):
         if tw is None and isinstance(cs, dict):
             tw = cs.get(OBSERVED_WINDOW_FIELD)
         if isinstance(tw, (list, tuple)) and len(tw) == 2:
-            s, e = parse_time(tw[0]), parse_time(tw[1])
+            s, e = (parse_time(v, _allow_nonfinite=_allow_nonfinite) for v in tw)
             if s is None or e is None:
                 return None, None
             return s, e
@@ -632,7 +693,9 @@ def dependents_index(cg, refresh: bool = False) -> dict:
 
     缓存挂在 cg 实例上（与 `subgraph` 的缓存化做法同构）；`refresh=True` 强制重建。
     """
-    if not refresh:
+    generation = getattr(cg, "_cache_generation", None)
+    generation = generation() if callable(generation) else None
+    if not refresh and getattr(cg, "_trust_generation", None) == generation:
         cached = getattr(cg, "_trust_dependents", None)
         if isinstance(cached, dict):
             return cached
@@ -645,6 +708,7 @@ def dependents_index(cg, refresh: bool = False) -> dict:
         idx[k].sort()
     try:
         cg._trust_dependents = idx
+        cg._trust_generation = generation
     except Exception:                                  # noqa: BLE001
         pass
     return idx
@@ -653,7 +717,9 @@ def dependents_index(cg, refresh: bool = False) -> dict:
 def _record(cg, rec: dict) -> None:
     """台账追加（best-effort：失败静默，**绝不阻断写路径**）。"""
     try:
-        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec)
+        # issue #547：本模块的审计台账（`_trust.jsonl`）此前声明「失败静默」；按 #549
+        # 对审计账本的口径（不能丢 ⇒ durable=True）统一，丢行不再静默。
+        append_jsonl(os.path.join(cg.root, AUDIT_FILE), rec, durable=True)
     except Exception:                                  # noqa: BLE001
         pass
 
@@ -809,33 +875,51 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
         if st in ("expired", "rechecking"):
             roots.append(nid)
     roots.sort()
-    seen, waves, passed = set(roots), [], set()
-    frontier, depth = list(roots), 0
-    while frontier and len(seen) < int(max_nodes):
+    cap = max(0, int(max_nodes))
+    admitted_roots = roots[:cap]
+    seen, waves, passed = set(admitted_roots), [], set()
+    root_set = set(roots)
+    frontier, depth = list(admitted_roots), 0
+    truncated = len(admitted_roots) < len(roots)
+    while frontier and len(seen) < cap:
         depth += 1
         nxt = []
         for nid in frontier:
             for k in dep_map.get(nid, []):
-                if k in seen:
+                if k in seen or k in root_set:
                     continue
+                # The cap applies across the whole wave, not once per parent.
+                if len(seen) >= cap:
+                    truncated = True
+                    break
                 seen.add(k)
                 if state_of(nodes.get(k) or {}) == "doubted":
                     passed.add(k)       # 穿过但不重复标记（不是终点）
                 nxt.append(k)
-                if len(seen) >= int(max_nodes):
-                    break
+            if truncated:
+                break
         for k in nxt:
             if k in passed:
                 continue                # 已 doubted：无需再标（幂等）
             waves.append({"node_id": k, "depth": depth,
-                          "via": sorted(n for n in dep_map if k in dep_map[n]
-                                        and n in seen)})
+                          # Incoming dependencies are already on this entry.
+                          # Scanning every parent's child list per result was
+                          # quadratic even for a sparse star/chain graph.
+                          "via": sorted(n for n in as_deps((nodes.get(k) or {}).get(DEPS_FIELD))
+                                        if n in seen)})
+        if truncated:
+            break
         frontier = nxt
+    if frontier and len(seen) >= cap and not truncated:
+        truncated = any(k not in seen and k not in root_set
+                        for nid in frontier for k in dep_map.get(nid, ()))
+    bounds = {"visited": len(seen), "truncated": truncated,
+              "roots_admitted": len(admitted_roots)}
     if not apply:
         return {"ok": True, "dry_run": True, "roots": roots[:50],
                 "roots_count": len(roots), "reachable": len(waves),
                 "planned": waves[:50], "passed_doubted": sorted(passed)[:20],
-                "max_nodes": int(max_nodes),
+                "max_nodes": cap, **bounds,
                 "note": "预演：未改盘；只降不升（复核须显式）"}
     done, skipped = [], []
     for w in waves:
@@ -849,7 +933,7 @@ def propagate(cg, *, apply: bool = False, max_nodes: int = MAX_NODES_DEFAULT,
     return {"ok": True, "dry_run": False, "roots": roots[:50],
             "roots_count": len(roots), "updated": done, "updated_count": len(done),
             "passed_doubted": sorted(passed)[:20],
-            "skipped": skipped[:20], "max_nodes": int(max_nodes)}
+            "skipped": skipped[:20], "max_nodes": cap, **bounds}
 
 
 # ---------------------------------------------------------------- 巡检 / 回填

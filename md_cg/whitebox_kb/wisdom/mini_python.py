@@ -417,28 +417,11 @@ def _compare(op, a, b):
             "<=": a <= b, ">=": a >= b}[op]
 
 
-# 2026-10-21 批 19（用户裁定「VM 这条能力要保留并接线」）：表达式入口先走字节码
-# VM 路径；VM 编译不了的节点形态（`无法编译节点` / 方法关键字参数）回落到树
-# 解释器。两条路径的等价性由 `md_cg/test_vm_differential.py` 差分钉住。
-_VM_PATH = True
-_VM_FALLBACK_MARKS = ("无法编译节点", "VM 暂不支持")
-
-
 def eval_expr(src):
-    """表达式求值入口：源码 → 值（P1）。
-
-    批 19：`_VM_PATH` 开时走 `compile_expr` + `VM`（与 `eval_expr_vm` 同一台机器）；
-    只有「VM 覆盖不到」的形态才回落 `eval_node`。语义错误（NameError、除零、
-    方法不在白名单）不回落，照常抛出——否则错误文案会被回落掩盖。
-    """
-    if _VM_PATH:
-        try:
-            return eval_expr_vm(src)
-        except MiniPyError as exc:
-            if not any(m in str(exc) for m in _VM_FALLBACK_MARKS):
-                raise
+    """表达式求值入口：源码 → 值（P1）"""
     tokens = tokenize(src)
-    return eval_node(Parser(tokens).parse())
+    ast = Parser(tokens).parse()
+    return eval_node(ast)
 
 
 # ============ P2：变量环境 + 控制流（赋值/if/while，缩进块） ============
@@ -928,17 +911,12 @@ class VM:
         return self.stack[-1] if self.stack else None
 
 
-def eval_expr_vm(src):
-    """表达式求值（字节码 VM 路径）：与 eval_expr 同一棵语法树、同一套语义。
-
-    P5 栈机的公开入口。存在的意义是差分：同一表达式两条执行路径必须给出
-    同一个值（见 md_cg/test_vm_differential.py）。不是第二套语义。
-    """
-    tokens = tokenize(src)
-    ast = Parser(tokens).parse()
-    return VM(Env()).run(compile_expr(ast))
-
-
+def eval_expr_vm(src, env=None):
+    """字节码 VM 求值入口（P5：对照 eval_expr/eval_node）"""
+    env = env or Env()
+    ast = Parser(tokenize(src)).parse()
+    code = compile_expr(ast)
+    return VM(env).run(code)
 
 
 if __name__ == "__main__":

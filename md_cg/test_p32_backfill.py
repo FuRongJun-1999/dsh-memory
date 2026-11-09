@@ -67,18 +67,33 @@ KEK = b"0123456789abcdef0123456789abcdef"   # 32 字节（crypto 硬要求）
 def _seed(root):
     """造 6 类节点 + 1 条密文节点，覆盖回填分流的所有分支。"""
     cg = MdCGOS(root)
-    # 四槽齐备 → 生效条件可由条件空间合成（唯一合法结构化来源）
-    cg.add("bf_ok", BF_OK, layer="knowledge",
-           condition_space={
-               "observation_position": "本地文件系统（摄取器内部观测位）",
-               "observation_tool": "扩展名映射表 + Ingestor",
-               "time_window": [0.0, 9999999999.0],
-               "existence_constraint": "仅对本地可读文件生效"},
-           verification_basis="test",
-           non_applicable_conditions=["二进制文件", "超过 50MB 的文件"],
-           state_attributes={"comment": {
-               "子功能": "按扩展名路由到对应摄取器",
-               "执行": "读后缀映射表→调用对应 Ingestor"}})
+    # 四槽齐备 → 生效条件可由条件空间合成（唯一合法结构化来源）。
+    # bf_ok 必须**直写文件绕开 add()**（2026-10-11 E-G4c 起写入侧已做
+    # 写时补齐 _ensure_ccg_six）：经 add() 建成即 complete=True，plan()
+    # 不再列出，② 段 StopIteration。直写旧式节点正是「旧节点有补全路径」
+    # 的回归证明（test_tg4c_acceptance.py A02 同款样板）。
+    os.makedirs(os.path.join(root, "knowledge"), exist_ok=True)
+    with open(os.path.join(root, "knowledge", "bf_ok.md"), "w",
+              encoding="utf-8") as _f:
+        _f.write(nodefile.dumps({
+            "id": "bf_ok", "layer": "knowledge", "modality": "text",
+            "importance": 0.5, "confidence": 0.6,
+            "condition_space": {
+                "observation_position": "本地文件系统（摄取器内部观测位）",
+                "observation_tool": "扩展名映射表 + Ingestor",
+                "time_window": [0.0, 9999999999.0],
+                "existence_constraint": "仅对本地可读文件生效"},
+            "tags": [], "created_at": 1000.0, "access_count": 0,
+            "last_access": 0, "edges": [],
+            "verification_basis": "test",
+            "non_applicable_conditions": ["二进制文件", "超过 50MB 的文件"],
+            "evidence_count": 0, "positive_evidence": 0,
+            "negative_evidence": 0,
+            "state_attributes": {"comment": {
+                "子功能": "按扩展名路由到对应摄取器",
+                "执行": "读后缀映射表→调用对应 Ingestor"}},
+            "depends_on": ["ingestor_v1"],
+        }, BF_OK))
     # 只有单槽 → **不得**冒充生效条件（观测位置 ≠ 生效条件）
     cg.add("bf_posonly",
            "# 功能名：只有观测位置的历史记忆\n\n条件空间只声明了一维。\n",
@@ -88,7 +103,14 @@ def _seed(root):
                "子功能": "待补：条件空间其余三维",
                "执行": "待补"}})
     cg.add("bf_none", BF_NONE, layer="knowledge")
-    cg.add("bf_partial", BF_PARTIAL, layer="knowledge", verification_basis="data")
+    # bf_partial 同 must 直写（2026-10-11 E-G4c）：仅 verification_basis 可推导
+    # 验证方式一行，写入侧写时补齐已把它写进正文 → verify 侧 fill 被过滤、
+    # 判 unfillable，skipped_partial 恒 0。直写保持「仅验证基底」的旧式形态，
+    # 由 verify 侧推导出一行 → class=partial（补完仍不全）——正是本断言的对象。
+    with open(os.path.join(root, "knowledge", "bf_partial.md"), "w",
+              encoding="utf-8") as _f:
+        _f.write(nodefile.dumps({"id": "bf_partial", "layer": "knowledge",
+                                 "verification_basis": "data"}, BF_PARTIAL))
     cg.add("bf_hint", BF_HINT, layer="contextual", tags=["gap_hint"])
     cg.add("cap_export", CAP_DOC, layer="knowledge", verification_basis="test")
     cg.flush()

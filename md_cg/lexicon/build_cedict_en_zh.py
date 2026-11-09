@@ -125,6 +125,28 @@ def reverse_map(min_len=3):
     return cand, conflicts, stat
 
 
+# 生效条件：无必需形参，逐行读模块引用 b6.CORPUS567 并跳过空白行，每行 json.loads 后取 (c.get("zh") or "") 与 (c.get("zh_fields") or {}) 中所有 str 值拼接成一条，最终以换行连成整串返回（无有效行时返回空串）；
+def _corpus_text():
+    """领域语料全文（zh 正文+五槽摘要）——冲突集频次消歧用。
+
+    消歧本质=doc 侧自监督：query 词要匹配的对象就是 doc 侧原子，
+    「公园」在语料高频、「园囿」零出现——频次直接裁决，与匹配目标自洽。
+    """
+    from md_cg import bench6_common as b6
+    buf = []
+    with io.open(b6.CORPUS567, encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            c = json.loads(line)
+            parts = [c.get("zh") or ""]
+            for v in (c.get("zh_fields") or {}).values():
+                if isinstance(v, str):
+                    parts.append(v)
+            buf.append("".join(parts))
+    return "\n".join(buf)
+
+
 # 生效条件：无必需形参，逐行读模块引用 b6.CORPUS567 并跳过空白行；摘要取 (c.get("zh_fields") or {}).get("summary") 且 str(...).strip() 后为空时回落 c.get("zh")，非空则 semantic_atoms 切分后空格连接入 sums；正文取 c.get("zh").strip() 非空则同样切分入 bodys；返回 ("\n".join(sums), "\n".join(bodys))（两级均可能为空串）；
 def _atoms_texts():
     """doc 侧同构消歧空间（2026-09-14 消歧口径升级）。

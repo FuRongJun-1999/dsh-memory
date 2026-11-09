@@ -3,21 +3,7 @@
 
 设计依据：`docs/swarm/蜂群互联_v0.1.md` §2.3 / §3.1 / §10。
 
-版本更新权 = 蜂群的设计意图上的**唯一核心权限**，但本模块**不做角色校验**：
-`declare()` 收任何 `actor` 字符串，只把它记进声明的 `declared_by`（记账，不是鉴权）。
-真正的闸在别处，共两条：
-
-  · 调用面 —— `tokens.ROLE_SPECS[*]["ops_allow"]` 里带 `theory` 的角色才能进
-    `op=theory`（当前 designer / verify / sustain 三者都在名单上，见
-    `md_cg/tokens.py`）；`mcp_server.py` 的 `op == "theory"` 分支再把 action 分到
-    check / show / catalog / declare 四个口子，**declare 与其他三个走同一个 op 闸**。
-  · 启动面 —— `ensure()` 在无声明时以 `actor="system:autoinit"` 自动落一条声明，
-    这是唯一不经人工的写入路径（声明常态化，见下方 §①）。
-
-所以「只有 designer 能改版本」是设计目标而非代码保证：想让它成为保证，得在
-`declare()` 里加角色判据（会连带影响 `ensure()` 与 `test_p22_theory.py` 的角色断言）。
-
-本模块只做
+版本更新权 = 蜂群**唯一核心权限**（严格唯一，仅 designer）。本模块只做
 「声明 + 校验」两件事，不做跨节点证据交换（§9.1 属存在约束，留待 v0.3）：
 
   ① 声明 —— `~/.mdcg/theory.json` 记录 theory_version / accepted_versions /
@@ -43,7 +29,7 @@ import sys
 import time
 
 from .datapath import aux_root
-from .fsutil import publish
+from .fsutil import publish, chmod_owned
 
 THEORY_ENV = "MDCG_THEORY"
 THEORY_FILE_ENV = "MDCG_THEORY_FILE"
@@ -121,7 +107,7 @@ def save(decl: dict, path: str = None) -> str:
         json.dump(decl, f, ensure_ascii=False, indent=1)
     publish(tmp, p)
     try:
-        os.chmod(p, 0o600)
+        chmod_owned(p, 0o600)
     except OSError:
         pass
     return p
@@ -160,12 +146,6 @@ def check(path: str = None, decl: dict = None) -> dict:
             "accepted_versions": [], "declared_by": None, "declared_at": None,
             "declaration_hash": None, "schema": SCHEMA, "reason": ""}
     if not d:
-        if os.path.exists(p):
-            # 文件在却读不出（权限拒/损坏/非 JSON）≠「未声明」。旧写法把两者都当空，
-            # 于是「声明被弄坏了」这条路直接落到下面的放行分支（theory_ok=True）。
-            base["reason"] = (f"声明文件存在但读不出或解析失败（{p}）"
-                              "—— 不按「未声明」放行（fail-closed）")
-            return base
         # 未声明 ≠ 违规：既有部署升级后不应被立刻降级只读。
         # 按默认版本放行，并由启动路径 ensure() 落盘声明（声明常态化）。
         base.update({"theory_ok": True, "auto": True,

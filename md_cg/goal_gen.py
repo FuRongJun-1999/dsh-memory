@@ -36,6 +36,7 @@ import os
 import time
 
 from . import autonomy_modes, evolution, insight, metacognition, predict, sustain
+from . import fsutil
 from .fsutil import append_jsonl
 
 __all__ = [
@@ -341,6 +342,38 @@ _SOURCES = {"S1": _s1, "S2": _s2, "S3": _s3, "S4": _s4, "S5": _s5, "S6": _s6}
 # ---------------------------------------------------------------- 确认闸（分档落点）
 
 # 生效条件：cand["goal_text"] 非空时以其 utf-8 sha1 前 10 位构造 "goal_<hex>"（与 mdcg.add_goal 的 gid 同口径 :2939）；空文本回落 "goal_" + 空 sha1 片段；
+FAMILY_TAG = "goal-family:"
+
+
+# 生效条件：给定候选 cand 时按 (source, evidence.layer) 返回族键（layer 缺省只留 source）；
+# 族键是「同一件事的每日重报」的判据——文本里带数字（节点数）所以 id 每晚都变，
+# 只有族键稳定。
+def _family_key(cand):
+    src = str(cand.get("source") or "?")
+    layer = str((cand.get("evidence") or {}).get("layer") or "")
+    return ("%s|%s" % (src, layer)) if layer else src
+
+
+# 生效条件：cg 与族键传入时，遍历 status=active 的目标，取其 frontmatter.tags，
+# 命中 FAMILY_TAG+族键 且不等于 keep 的返回 id 列表；只读、异常按空列返回；
+def _same_family_active(cg, fam, keep=None):
+    out = []
+    try:
+        rows = cg.list_goals(status="active") or []
+    except Exception:                       # noqa: BLE001 —— 读面失败不阻断建目标
+        return out
+    want = FAMILY_TAG + fam
+    for g in rows:
+        gid = str(g.get("id") or "")
+        if not gid or gid == keep:
+            continue
+        node = cg.get(gid, probe=True) or {}
+        tags = (node.get("frontmatter") or {}).get("tags") or []
+        if want in tags:
+            out.append(gid)
+    return out
+
+
 def _goal_id(goal_text):
     return "goal_%s" % hashlib.sha1(
         str(goal_text or "").encode("utf-8")).hexdigest()[:10]
@@ -379,12 +412,23 @@ def _apply_candidate(cg, cand, actor=None):
         d = dec.get("decision")
         if d == autonomy_modes.ALLOW:
             kw = {"actor": actor} if actor else {}
+            fam = _family_key(cand)
             gid = cg.add_goal(cand["goal_text"], priority=cand["priority"],
                               conditions=cand["conditions"],
-                              tags=["goal-gen", "goal-gen:%s" % cand["source"]],
+                              tags=["goal-gen", "goal-gen:%s" % cand["source"],
+                                    FAMILY_TAG + fam],
                               **kw)
+            # 同族旧目标退役：不删节点、只置 dropped，防止「每晚一条新目标」堆积。
+            retired = []
+            for _old in _same_family_active(cg, fam, keep=gid):
+                try:
+                    if cg.set_goal_status(_old, "dropped"):
+                        retired.append(_old)
+                except Exception:           # noqa: BLE001 —— 退役失败不阻断
+                    continue
             return {"moved_to": "goals", "id": gid, "decision": d,
-                    "mode": dec.get("mode")}
+                    "mode": dec.get("mode"), "retired": retired,
+                    "family": fam}
         if d == autonomy_modes.CONFIRM:      # confirm 档：出变更单（入审核队列）
             return {"moved_to": "review_queue", "pid": _enqueue(cg, cand),
                     "decision": d, "mode": dec.get("mode")}
@@ -398,7 +442,10 @@ def _apply_candidate(cg, cand, actor=None):
 # 生效条件：cg 与 rec 传入时经 fsutil.append_jsonl 追加一条生成留痕；仅 OSError 被忽略（留痕失败不阻断主流程，与 autonomy.explore :316-319 同款）；
 def _log(cg, rec):
     try:
-        append_jsonl(goal_log_path(cg), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(goal_log_path(cg), rec)
     except OSError:
         pass
 

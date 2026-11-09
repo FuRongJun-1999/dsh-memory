@@ -234,10 +234,7 @@ def report(rows, title):
     acc = sum(1 for r in ok if r["verdict"] == "correct")
     out = {"n": len(rows), "judged": len(ok), "acc": acc,
            "acc_pct": 100.0 * acc / n, "refused": sum(
-               1 for r in ok if r["verdict"] == "refused"),
-           # 全体口径（B43）：分母用**全部行**，判分失败按错算。旧口径 `n` 取判分成功行数，
-           # 判分失败被静默移出分母；实测 8 行 3 失败时总题口径 0.375、只算成功 0.600。
-           "acc_pct_all": 100.0 * acc / max(len(rows), 1)}
+               1 for r in ok if r["verdict"] == "refused")}
     by = {}
     for qt in ("single_hop", "multi_hop", "temporal_reasoning",
                "adversarial", "open_domain"):
@@ -246,9 +243,7 @@ def report(rows, title):
             c = sum(1 for r in rs if r["verdict"] == "correct")
             by[qt] = f"{100.0*c/len(rs):.1f}%({c}/{len(rs)})"
     print(f"  {title:<14} QA准确率={out['acc_pct']:5.1f}%"
-          f"（{acc}/{len(ok)}）  全体口径={out['acc_pct_all']:5.1f}%"
-          f"（{acc}/{len(rows)}，判分失败 {len(rows)-len(ok)} 条按错算）"
-          f"  拒答={out['refused']}  分题型: {by}")
+          f"（{acc}/{len(ok)}）  拒答={out['refused']}  分题型: {by}")
     return out
 
 

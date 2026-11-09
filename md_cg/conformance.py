@@ -163,6 +163,27 @@ def enum_spaces() -> dict:
     """各类型空间的声明值（模块真源取不到 → declared=None，报告标 BLINDSPOT）。"""
     from .mdcg import LAYERS
     spaces = {"layer": {"declared": sorted(LAYERS), "source": "mdcg.LAYERS"}}
+    # #122（2026-10-12 DSH 端）：**审计必须知道第二份权威的下场**。修前白箱侧
+    # （md_access.py）另有一份独立 LAYERS，而本函数只声明 mdcg 一份 ⇒ 审计对
+    # 「是否另立一份、是否已转发、是否已漂移」完全不知情。此处只**增**一个嵌套键
+    # （不动既有 declared/source ⇒ 既有消费者零变化）：former 二份权威的现状读数。
+    try:
+        _WB = os.path.join(os.path.dirname(os.path.abspath(__file__)), "whitebox_kb")
+        for _p in (_WB, os.path.join(_WB, "wisdom")):
+            if _p not in sys.path:
+                sys.path.insert(0, _p)
+        import md_access as _ma
+        spaces["layer"]["second_authority"] = {
+            "symbol": "md_access.LAYERS",
+            "source": getattr(_ma, "LAYERS_SOURCE", "unknown"),
+            "same_tuple": tuple(_ma.LAYERS) == tuple(LAYERS),
+            # 身份判据：True = 真转发（同一对象）；False = 仍是副本（哪怕值相同）
+            "forwarded": _ma.LAYERS is LAYERS,
+        }
+    except Exception as _exc:                              # noqa: BLE001
+        spaces["layer"]["second_authority"] = {
+            "symbol": "md_access.LAYERS", "source": "unavailable",
+            "error": "%s: %s" % (type(_exc).__name__, _exc)}
 
 # 生效条件：以 md_cg.<mod> 导入并 getattr(attr)（导入或取值抛异常则 val=None），把 {"declared": sorted(val) if val else None, "source": "<mod>.<attr>"} 写入片段外闭包变量 spaces 的 key 键（val 为假值时 declared=None），无返回值；
     def _grab(mod: str, attr: str, key: str):

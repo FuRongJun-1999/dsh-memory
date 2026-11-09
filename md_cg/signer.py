@@ -38,7 +38,7 @@ import sys
 import time
 
 from .datapath import aux_root
-from .fsutil import publish
+from .fsutil import publish, chmod_owned
 
 SIGNER_ENV = "MDCG_SIGNER"
 SIGNER_MODULE_ENV = "MDCG_SIGNER_MODULE"
@@ -285,7 +285,7 @@ def save_key(key: bytes, path: str = None) -> str:
     with open(tmp, "wb") as f:
         f.write(key if isinstance(key, bytes) else str(key).encode("utf-8"))
     try:
-        os.chmod(tmp, 0o600)
+        chmod_owned(tmp, 0o600)
     except OSError:
         pass
     publish(tmp, p)
@@ -296,10 +296,10 @@ def save_key(key: bytes, path: str = None) -> str:
 # 子系统签名策略（D-4：智能体自行决定子系统怎么用签名链）
 # --------------------------------------------------------------------------
 
-# 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": True, "on_verify_fail": "reject"}（fail-closed：策略缺失/读不出即最严；调用方需经 policy() 归一化后再用）；
+# 生效条件：无参无外部依赖；返回默认策略 {"signer": None, "sign_on": ["handshake"], "require_peer_signature": False, "on_verify_fail": "degrade"}（调用方需经 policy() 归一化后再用）；
 def _default_policy() -> dict:
     return {"signer": None, "sign_on": ["handshake"],
-            "require_peer_signature": True, "on_verify_fail": "reject"}
+            "require_peer_signature": False, "on_verify_fail": "degrade"}
 
 
 # 生效条件：pol 中 'signer'/'sign_on'/'require_peer_signature'/'on_verify_fail' 键覆盖默认策略，sign_on 只保留属于 SIGN_ACTIONS 的项，on_verify_fail 不在 ON_VERIFY_FAIL 时回落 'degrade'。
@@ -318,15 +318,50 @@ def _normalize(pol: dict) -> dict:
     return out
 
 
-# 生效条件：显式 path 非空即返回该 path，否则返回环境变量 SIGNERS_FILE_ENV 的值，两者皆空返回 DEFAULT_SIGNERS_FILE。
-# 覆盖范围（2026-10-21 补，病灶 C5）：本模块只被 evidence / links 两类写入调用；
-# 节点正文、审计日志、索引快照**都没有**签名覆盖。所以下面 load_policies() 的
-# fail-closed 只在「单元层」成立，系统层不要按「全库已签名」来读这条策略。
+# 生效条件：path 为假值时返回环境变量 SIGNERS_FILE_ENV 或 DEFAULT_SIGNERS_FILE（受信面单点，不设闸）；path 非空时归一为绝对路径 norm，须以 .json 结尾（格式闸）且 realpath(norm) 位于受信目录 realpath(dirname(已配置路径)) 之下（os.path.commonpath 判定；跨盘符的 ValueError 按越界处理），越界即 raise ValueError（消息含两侧路径与 #279），全部通过时返回 norm（不返回原串）。
 def signers_file(path: str = None) -> str:
-    return path or os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
+    """策略文件路径解析——issue #279 路径闸（realpath 受信目录）。
+
+    判据：显式 path 先归一（abspath）为 norm，再要求
+    realpath(norm) 落在受信目录 = realpath(dirname(环境变量或缺省的
+    已配置路径)) 之下（os.path.commonpath 判定；跨盘符触发的
+    commonpath ValueError 按越界处理——不同盘必然越界）。
+
+    `.json` 后缀只是**格式闸**；路径闸由 realpath+commonpath 承担——
+    后缀挡不住 `<受信>/ok.json/../../evil.json` 穿越与 symlink/junction
+    指向任意目标，realpath+commonpath 能挡。返回 **norm**（归一化后的
+    受信形态），不返回原串——旧实现算了 norm 却把原串返回，校验成了
+    对控制流零影响的死代码（值守 #316/#279 审阅结论）。
+
+    env 与缺省路径是运维侧受信面（MCP 参数改不动进程环境），
+    不设闸、逐位返回原值。
+    """
+    configured = os.environ.get(SIGNERS_FILE_ENV) or DEFAULT_SIGNERS_FILE
+    if not path:
+        return configured
+    norm = os.path.abspath(str(path))
+    if not norm.endswith(".json"):
+        raise ValueError(
+            f"#279 signers_file 只接受 .json 策略文件（实测 {norm!r}）"
+            "——后缀只是格式闸，不得经参数读写任意文件")
+    real = os.path.realpath(norm)
+    trusted = os.path.realpath(os.path.dirname(os.path.abspath(configured)))
+    try:
+        inside = (os.path.commonpath([os.path.normcase(real),
+                                      os.path.normcase(trusted)])
+                  == os.path.normcase(trusted))
+    except ValueError:
+        inside = False  # 跨盘符（Windows 不同盘）/ UNC 混形：必然越界
+    if not inside:
+        raise ValueError(
+            f"#279 signers_file 路径越界：{norm!r}（realpath → {real!r}）"
+            f" 不在受信目录 {trusted!r}"
+            f"（dirname(已配置路径 {configured!r})）之下"
+            "——不得经参数读写受信目录外的文件")
+    return norm
 
 
-# 生效条件：signers_file(path) 处可读出 dict 时**按文件内容**生效（补缺省 schema/subsystems 后返回该 dict；文件里显式写的 require_peer_signature/on_verify_fail 一律沿用，不被改写）；文件不存在、读不出、或读出的不是 dict 时返回 **fail-closed 的严策略**（require_peer_signature=True / on_verify_fail='reject' / signer=DEFAULT_SIGNER）。
+# 生效条件：signers_file(path) 处可读出 dict 时补上缺省 schema/subsystems 后返回该 dict，否则返回 {'schema': SCHEMA, 'default_signer': DEFAULT_SIGNER, 'subsystems': {}, 'updated_at': None}。
 def load_policies(path: str = None) -> dict:
     p = signers_file(path)
     if os.path.exists(p):
@@ -339,29 +374,8 @@ def load_policies(path: str = None) -> dict:
                 return d
         except (OSError, ValueError):
             pass
-    # 缺失 / 读不出 / 非 dict：一律从严（不再回落到最弱默认）
     return {"schema": SCHEMA, "default_signer": DEFAULT_SIGNER,
-            "subsystems": {}, "updated_at": None,
-            "require_peer_signature": True, "on_verify_fail": "reject"}
-
-
-# 生效条件：只读探针、无副作用、不落盘；解析 signers_file(path) 得到实际生效策略，返回 {'file', 'exists', 'effective'{'require_peer_signature','on_verify_fail','signer'}, 'missing_strict'}；文件不存在时 exists=False 且 missing_strict=True。
-def policy_source(path: str = None) -> dict:
-    """只读探针：这次实际读的是哪个策略文件、它存不存在、生效的是什么。"""
-    p = signers_file(path)
-    exists = os.path.exists(p)
-    d = load_policies(path)
-    sub = (d.get("subsystems") or {}).get("") or {}
-    eff = _normalize(sub)
-    if not eff.get("signer"):
-        eff["signer"] = d.get("default_signer") or DEFAULT_SIGNER
-    missing_strict = (not exists) or (eff.get("on_verify_fail") == "reject"
-                                      and bool(eff.get("require_peer_signature")))
-    return {"file": p, "exists": exists,
-            "effective": {"require_peer_signature": bool(eff.get("require_peer_signature")),
-                          "on_verify_fail": eff.get("on_verify_fail"),
-                          "signer": eff.get("signer")},
-            "missing_strict": missing_strict}
+            "subsystems": {}, "updated_at": None}
 
 
 # 生效条件：data 传入任意映射即被 dict(data) 浅拷贝并覆写 schema/updated_at 后写入 signers_file(path)（path 为假值时由 signers_file(path) 决定路径）。
@@ -375,7 +389,7 @@ def save_policies(data: dict, path: str = None) -> str:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1, sort_keys=True)
     try:
-        os.chmod(tmp, 0o600)
+        chmod_owned(tmp, 0o600)
     except OSError:
         pass
     publish(tmp, p)
@@ -395,6 +409,42 @@ def policy_for(subsystem: str = None, path: str = None) -> dict:
 
 
 # 生效条件：subsystem 为假值（None/空串）时抛 SignerError("子系统名不能为空")；否则 kw 中非 None 项合并进该子系统策略并落盘，且 kw.get("default_signer") 为真值时同时更新 d["default_signer"]。
+_FAIL_RANK = {"degrade": 0, "isolate": 1, "reject": 2}
+
+
+def weaker_than(pol: dict, base: dict) -> str:
+    """pol 相对 base 是否**更松**（issue #167）：更松返回原因串，否则 ''。
+
+    验签要求单调性的**唯一判据单点**（只能更严不能更松），供 import / observe /
+    policy set 三处闸共用——三处各写一份判据必然漂开（本仓既有教训）。
+    """
+    if not isinstance(pol, dict) or not isinstance(base, dict):
+        return ""
+    if (bool(base.get("require_peer_signature"))
+            and not bool(pol.get("require_peer_signature"))):
+        return "require_peer_signature 由 True 变 False"
+    if (_FAIL_RANK.get(pol.get("on_verify_fail"), 0)
+            < _FAIL_RANK.get(base.get("on_verify_fail"), 0)):
+        return ("on_verify_fail 由 %s 降为 %s"
+                % (base.get("on_verify_fail"), pol.get("on_verify_fail")))
+    return ""
+
+
+def loosening(subsystem: str, path: str = None, **kw) -> str:
+    """按 set_policy 的**同一合并口径**预判「新策略相对现行策略是否放宽」。
+
+    放宽返回原因串，否则 ''。更换 signer（换验签实现）按放宽处理（保守侧：要求
+    管理权）。本函数**不写盘、无副作用**；`set_policy` 仍是唯一落盘点。
+    """
+    cur = policy_for(subsystem, path)
+    new = {k: v for k, v in kw.items() if v is not None and k != "path"}
+    if "signer" in new and new["signer"] != cur.get("signer"):
+        return "signer 由 %s 换为 %s" % (cur.get("signer"), new["signer"])
+    nxt = dict(cur)
+    nxt.update(new)
+    return weaker_than(nxt, cur)
+
+
 def set_policy(subsystem: str, path: str = None, **kw) -> dict:
     """声明/更新子系统签名策略——**这是智能体行使 D-4 的入口**。"""
     if not subsystem:

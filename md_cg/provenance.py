@@ -38,7 +38,10 @@ SCHEMA = 1
 
 #: 允许的派生关系（显式枚举，避免「自由字符串」把血缘写成噪声）
 RELATIONS = ("derived_from", "split_from", "extracted_from",
-             "merged_from", "refined_from", "source")
+             "merged_from", "refined_from", "source",
+             # 2026-11-08（用户裁定 B1）：删除节点时追加的**作废行**。append-only，
+             # 原边不删；读侧见该关系即不再计入 origin（见 ledger_rows/active 口径）。
+             "unlinked_by_delete")
 DEFAULT_RELATION = "derived_from"
 
 #: frontmatter 里承载派生声明的字段（写路径只读这两处，不猜）
@@ -134,6 +137,147 @@ def edges_for(child, parents, **kw) -> list:
 # --------------------------------------------------------------------------
 
 # 生效条件：edges 为 None/空/全为假元素时返回 0；否则在 FileLock(p, timeout=_LOCK_TIMEOUT) 内逐条 append_jsonl，抛 OSError 时转抛 ProvenanceError，成功返回 len(edges)。
+# 生效条件：node_id 非空、台账可读时，扫 `_link.jsonl`，把 child==node_id 或 parent==node_id 的
+# 每条**未被作废过**的边追加一条 rel="unlinked_by_delete" 行（append-only，不删原行），返回追加条数；
+# 台账缺失/不可读返回 0；同一 (child,parent) 已有作废行的跳过（幂等）。
+# 生效条件：root 非空；台账或 legacy 标记的 (mtime_ns,size) 变化即重建缓存；
+# 返回 (by_child, cut)：by_child 为 {child: [(parent, rel, t)]}，只含 t>=cut 且 rel != unlinked_by_delete。
+_ORIGIN_CACHE = {"sig": None, "by_child": None, "cut": 0.0}
+
+
+def _origin_index(root: str, path: str = None):
+    p = ledger_file(root, path)
+    mark = os.path.join(root, "_link.legacy.json")
+    def _sig(f):
+        try:
+            st = os.stat(f)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return (0, 0)
+    sig = (_sig(p), _sig(mark))
+    if _ORIGIN_CACHE["sig"] == sig and _ORIGIN_CACHE["by_child"] is not None:
+        return _ORIGIN_CACHE["by_child"], _ORIGIN_CACHE["cut"]
+    cut = 0.0
+    try:
+        if os.path.exists(mark):
+            with open(mark, encoding="utf-8") as f:
+                cut = float((json.load(f) or {}).get("legacy_before_ts") or 0.0)
+    except Exception:
+        cut = 0.0
+    by_child = {}
+    try:
+        rows = list(read_jsonl(p) or [])
+    except Exception:
+        rows = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        if r.get("rel") == "unlinked_by_delete":
+            continue
+        t = float(r.get("t") or 0)
+        if t < cut:
+            continue
+        c, pr = r.get("child"), r.get("parent")
+        if not (c and pr):
+            continue
+        by_child.setdefault(c, []).append((pr, r.get("rel"), t))
+    _ORIGIN_CACHE["sig"] = sig
+    _ORIGIN_CACHE["by_child"] = by_child
+    _ORIGIN_CACHE["cut"] = cut
+    return by_child, cut
+
+
+_ALIVE_CACHE = {"sig": None, "ids": None}
+
+
+def _alive_ids(root: str):
+    """索引里的节点 id 集合（按 _index.json 的 mtime/size 缓存）。取不到时返回空集。"""
+    p = os.path.join(root, "_index.json")
+    try:
+        st = os.stat(p)
+        sig = (st.st_mtime_ns, st.st_size)
+    except OSError:
+        return set()
+    if _ALIVE_CACHE["sig"] == sig and _ALIVE_CACHE["ids"] is not None:
+        return _ALIVE_CACHE["ids"]
+    try:
+        with open(p, encoding="utf-8") as f:
+            data = json.load(f) or {}
+        ids = set((data.get("nodes") or {}).keys())
+    except Exception:
+        ids = set()
+    _ALIVE_CACHE["sig"] = sig
+    _ALIVE_CACHE["ids"] = ids
+    return ids
+
+
+# 生效条件：root/node_id 均非空且有活跃边索引时，返回 {parents, alive, missing, legacy_cut}；
+# alive 由调用方提供的 alive_ids（默认 None = 不判断存活，alive 记 None）。
+def origin(root: str, node_id: str, alive_ids=None, path: str = None) -> dict:
+    """单节点的出处摘要（L1 + B1 口径）。永不抛：异常时返回 parents=0。"""
+    try:
+        by_child, cut = _origin_index(root, path)
+    except Exception:
+        return {"parents": 0, "alive": 0, "missing": 0, "legacy_cut": 0.0}
+    ps = by_child.get(str(node_id or "")) or []
+    if alive_ids is None and ps:
+        # 未显式给存活集时，按 `_index.json` 的节点集合判断（缓存随文件签名失效）。
+        alive_ids = _alive_ids(root)
+    n = len(ps)
+    if alive_ids is None:
+        alive = 0
+        missing = n
+    else:
+        alive = sum(1 for p, _rel, _t in ps if p in alive_ids)
+        missing = n - alive
+    return {"parents": n, "alive": alive, "missing": missing, "legacy_cut": cut}
+
+
+def reset_origin_cache():
+    _ORIGIN_CACHE["sig"] = None
+    _ORIGIN_CACHE["by_child"] = None
+    _ORIGIN_CACHE["cut"] = 0.0
+
+
+def tombstone_edges(root: str, node_id: str, *, reason: str = None, path: str = None) -> int:
+    """删除节点后把与它相关的边标作废（B1，append-only）。永不抛。"""
+    nid = str(node_id or "").strip()
+    if not nid:
+        return 0
+    p = ledger_file(root, path)
+    try:
+        rows = list(read_jsonl(p) or [])   # read_jsonl 是生成器：必须落成 list，否则二次遍历为空
+    except Exception:
+        return 0
+    done = {(r.get("child"), r.get("parent")) for r in rows
+            if isinstance(r, dict) and r.get("rel") == "unlinked_by_delete"}
+    now = time.time()
+    new = []
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        c, pr = r.get("child"), r.get("parent")
+        if not (c and pr):
+            continue
+        if c != nid and pr != nid:
+            continue
+        if r.get("rel") == "unlinked_by_delete":
+            continue
+        if (c, pr) in done:
+            continue
+        new.append({"schema": SCHEMA, "t": now, "child": c, "parent": pr,
+                    "rel": "unlinked_by_delete", "batch": "delete",
+                    "actor": "system",
+                    "note": (str(reason or ""))[:200]})
+    if not new:
+        return 0
+    try:
+        append(root, new, path=path)
+    except Exception:
+        return 0
+    return len(new)
+
+
 def append(root: str, edges, *, path: str = None) -> int:
     """台账追加（加锁串行，防 Windows 并发交错丢边）。IO 失败抛 `ProvenanceError`。"""
     edges = [e for e in (edges or []) if e]
@@ -144,7 +288,13 @@ def append(root: str, edges, *, path: str = None) -> int:
         os.makedirs(os.path.dirname(os.path.abspath(p)) or ".", exist_ok=True)
         with FileLock(p, timeout=_LOCK_TIMEOUT):
             for e in edges:
-                append_jsonl(p, e)
+                # #326-④：append_jsonl 不再上抛 OSError（改返回布尔）——本处是
+                # **fail-closed**（写失败必须报 ProvenanceError），故必须读返回值，
+                # 否则「写失败」会静默变成「写成功」（修前由 except OSError 兜住）。
+                if append_jsonl(p, e) is False:
+                    raise ProvenanceError(
+                        f"派生台账写入失败：{p}（append_jsonl 返回 False，"
+                        f"源头已记 fsutil.APPEND_FAILURES）")
     except OSError as exc:
         raise ProvenanceError(f"派生台账写入失败：{p}（{exc}）") from exc
     return len(edges)
@@ -269,13 +419,30 @@ def check(cg, *, path: str = None, limit: int = 20,
     """
     known = set((getattr(cg, "index", None) or {}).get("nodes") or {})
     rows = all_edges(cg, path=path) if include_index else load(cg.root, path=path)
+    # 2026-11-06：钉住「悬空」的口径。派生边的 parent 位常被写成来源标签
+    # （mcp_memory_add / remember_exchange / api/memory/import / gateway-profile:…），
+    # 它们从来不是本库节点；按「端点不在索引」一律算悬空，会把整库报成 60% 破损。
+    # 所以先认 id 形态：本库真实出现过的前缀族才算节点引用，其余记 external_origin。
+    _pfx = {str(k).split("_")[0] for k in known if "_" in str(k)}
+
+    def _local_shape(x):
+        s = str(x or "")
+        if not s or any(c in s for c in ":#/ "):
+            return False
+        return "_" in s and s.split("_")[0] in _pfx
+
     dangling = []
+    external = []
     for e in rows:
         missing = []
         if e.get("child") not in known:
             missing.append("child")
         if e.get("parent") not in known:
             missing.append("parent")
+        if missing and not any(_local_shape(e.get(k)) for k in missing):
+            external.append({"child": e.get("child"), "parent": e.get("parent"),
+                             "rel": e.get("rel"), "missing": missing})
+            continue
         if missing:
             dangling.append({"child": e.get("child"), "parent": e.get("parent"),
                              "rel": e.get("rel"), "missing": missing,
@@ -287,6 +454,8 @@ def check(cg, *, path: str = None, limit: int = 20,
             "ledger": ledger, "ledger_exists": os.path.exists(ledger),
             "edges": len(rows), "nodes": len(known),
             "dangling": dangling[:int(limit)], "dangling_count": len(dangling),
+            "external_origin_count": len(external),
+            "external_origin": external[:int(limit)],
             "readonly": True,
             "note": "只读巡检：悬空边仅检出并报告，不自动删除（关系事实由人处置）"}
 

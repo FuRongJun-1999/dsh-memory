@@ -69,6 +69,40 @@ def _rank(level: str) -> int:
         raise AccessDenied(f"未知敏感度/密级：{level}") from None
 
 
+# 生效条件：target_sensitivity / incoming_sensitivity 为 SENSITIVITY_ORDER 成员或 None
+# （None 按 DEFAULT_SENSITIVITY 处理）时，返回「把 incoming 内容的明文并入 target 节点
+# **是否导致该内容的有效密级下降**」＝ incoming 密级**严格高于** target 密级（合并后它按
+# target 的低档可见）；任一形参非法（_rank 抛 AccessDenied）时**按降密级处理**
+# （fail-closed：判不了就不许合并）。
+def merge_downgrades(target_sensitivity: str, incoming_sensitivity: str) -> bool:
+    """合并是否**降密级** —— 唯一判据单点（issue #148）。
+
+    病象：声明 private 的短记忆经 CONVERGE（writelimit.converge_into）或 MERGE
+    （forgetting.reinforce）**明文并入更早的 internal 节点**，而目标节点的
+    sensitivity **不变** ⇒ 该 private 明文就此获得 internal 的可见性（降密级泄漏，
+    访客可读）。
+
+    调用点：`writelimit.converge_into` / `forgetting.reinforce` —— 两者**落盘前**
+    一律经本函数，判为降密级即 **fail-closed 不写盘**；**不另写第二份判据**。
+
+    ★方向（本判据最易写反处，实测踩到过）：密级阶梯
+    public(0) < internal(1) < restricted(2) < private(3) < secret(4)；
+    病象是 **private(3) 并入 internal(1)** —— incoming 排名**更高**，合并后它只
+    按 internal 档被看见 ⇒ 该内容被**降级**。故判据为 `new > tgt`（不是 `<`）。
+
+    不适用条件：只判「incoming 密级高于目标 ⇒ 被降级」这一件事——同档合并照旧
+    放行；**低密级并入高密级节点**（incoming < target，内容变得更不可见）不在本
+    判据范围（非泄漏），仍由既有层闸/保护闸管；本函数不评价内容相关性、不替代
+    protect.guard_overwrite。
+    """
+    try:
+        tgt = _rank(target_sensitivity or DEFAULT_SENSITIVITY)
+        new = _rank(incoming_sensitivity or DEFAULT_SENSITIVITY)
+    except AccessDenied:
+        return True                      # fail-closed：判不了就不许合并
+    return new > tgt
+
+
 # 生效条件：全部形参均可省略、clearance 默认取模块常量 DEFAULT_SENSITIVITY，构造时先经 _rank(clearance) 校验，随后 session 为假值（含空串）回落为 sess_+uuid 十二位、role 假值回落 "system"、expires_at 为假值（含 0）置 None、layers_allow/ops_allow 为 None 时保持 None 否则转 tuple、theory_ok 经 bool() 转换。
 class Principal:
     """调用方身份（一次会话一个）。
@@ -100,7 +134,7 @@ class Principal:
     theory_version —— 当前声明的协议版本（审计与 whoami 用）
     """
 
-# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串并把 session_auto 置 True（未获声明的进程自动随机；写归因三态收口的识别位，消费方 MdCGSecure._attributed_session），session 真值时原样采用并把 session_auto 置 False（显式声明的来源），expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化。
+# 生效条件：clearance 须为模块级常量 SENSITIVITY_ORDER 成员（否则 _rank 抛 AccessDenied），session 为假值（含 None/空串）时生成 sess_ 随机串并把 session_auto 置 True（未获声明的进程自动随机；写归因三态收口的识别位，消费方 MdCGSecure._attributed_session），session 真值时原样采用并把 session_auto 置 False（显式声明的来源），expires_at 为假值（含 None/0）时存 None 否则 float(expires_at)，layers_allow/ops_allow 为 None 时存 None 否则 tuple 化；sessions_read 为 None 时存 None（=旧行为，不限制会话读面），为集合（含 list/tuple/set）时 tuple 化并去重（=只允许读这些会话，'*' 表示全部，见 session_recall 的 recent 段）。
     def __init__(self, tenant: str = "default", actor: str = "system",
                  clearance: str = DEFAULT_SENSITIVITY, can_write: bool = True,
                  can_admin: bool = False, session: str = None,
@@ -108,7 +142,7 @@ class Principal:
                  role: str = None, token_id: str = None, parent: str = None,
                  expires_at: float = None, layers_allow=None, ops_allow=None,
                  auth_mode: str = "direct", theory_ok: bool = True,
-                 theory_version: str = None):
+                 theory_version: str = None, sessions_read=None):
         _rank(clearance)                      # 校验
         self.tenant = tenant
         self.actor = actor
@@ -137,6 +171,13 @@ class Principal:
         self.unit = unit
         self.role = (role or "system")
         self.token_id = token_id
+        # issue #712（2026-10-30 使用者裁定方案 C）：**分档会话读权限**。
+        # None  = 旧行为逐位不变（internal/public 事件跨会话可见；私有档仍由 _readable 的
+        #         既有口径按 principal.session 绑定，本字段不参与）；
+        # 集合  = 只允许读这些会话（'*' 表示全部）——仅在 session_recall 的 recent 段生效；
+        # 注意：can_admin 仍可读所有档（issue #35「设计者豁免」定稿），本字段**不削弱**它。
+        self.sessions_read = (None if sessions_read is None
+                              else tuple(dict.fromkeys(str(x) for x in sessions_read)))
         self.parent = parent
         self.expires_at = float(expires_at) if expires_at else None
         self.layers_allow = None if layers_allow is None else tuple(layers_allow)
@@ -197,10 +238,37 @@ class Principal:
     def require_op(self, op: str):
         self._require_live()
         if not self.allows_op(op):
+            _op_n = (op or "").strip().lower()
+            # issue #678：区分两种成因——**角色本身不含**该 op，与**令牌被派生收窄**。
+            # 旧文案一律说「角色 X 无权」，于是「designer（ROLE_SPECS 里 ops_allow=["*"]）
+            # 执行 forget 被拒」会读成「designer 角色没有 forget 权限」——当事人会去改角色
+            # 定义（改错地方）或以为权限系统故障。实际原因是签发时 --ops-allow 收窄了作用域。
+            _role_ops = None
+            try:
+                from .tokens import ROLE_SPECS      # 延迟导入：tokens 依赖 security，避免环
+                _role_ops = (ROLE_SPECS.get(self.role) or {}).get("ops_allow")
+            except Exception:
+                _role_ops = None
+            _role_has = False
+            if _role_ops is not None:
+                _norm = [str(x).strip().lower() for x in _role_ops]
+                _role_has = ("*" in _norm) or (_op_n in _norm)
+            if self.role == "guest":
+                msg = (f"角色 {self.role} 无权执行 op={op}（作用域 "
+                       f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
+                raise AccessDenied(msg, hint=self._GUEST_OP_HINT)
+            if _role_has:
+                raise AccessDenied(
+                    f"本令牌的 ops 作用域不含 op={op}（角色 {self.role} 本身**含**该 op，"
+                    f"是签发时被收窄；本令牌作用域 "
+                    f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）",
+                    hint=f"这是正常闸门不是故障：派生令牌只能**收窄**不能扩权。"
+                         f"由签发者重新签发且**不要**用 --ops-allow 收窄 {op}"
+                         f"（python -m md_cg.tokens issue …），或换用未收窄的 "
+                         f"{self.role} 令牌；更新 MDCG_TOKEN 后重启宿主"
+                         f"（README「写入凭据」一节）。")
             msg = (f"角色 {self.role} 无权执行 op={op}（作用域 "
                    f"{list(self.ops_allow) if self.ops_allow is not None else '不限'}）")
-            if self.role == "guest":
-                raise AccessDenied(msg, hint=self._GUEST_OP_HINT)
             raise AccessDenied(
                 msg,
                 hint=f"当前令牌（actor={self.actor}，角色 {self.role}）的 ops "
@@ -226,15 +294,67 @@ class Principal:
             raise AccessDenied(
                 f"写入敏感度 {sensitivity} 超出 clearance {self.clearance}")
 
-# 生效条件：先要求 self.require_write(sensitivity) 未抛异常；随后将形参 layer 为假值（None/空串）时按 "knowledge" 处理，并要求 self.allows_layer(layer) 为 True，否则抛 AccessDenied。
-    def require_layer_write(self, layer: str, sensitivity: str):
-        """写层校验：密级 + 层白名单双闸门（核心私有内容不可越权修改）。"""
+# 生效条件：先要求 self.require_write(sensitivity) 未抛异常；随后将形参 layer 为假值（None/空串）时按 "knowledge" 处理，并要求 self.allows_layer(layer) 为 True；最后按 MDCG_WRITE_GATE 三档过**分层写入严格度闸**（writegate）：off 零介入放行、warn 记录并放行、enforce 对 deny/require_review 抛 AccessDenied。
+    def require_layer_write(self, layer: str, sensitivity: str, reviewers=None, *, skip_gate: bool = False):
+        """写层校验：密级 + 层白名单 + **分层复核闸**（2026-10-27 使用者裁定）。
+
+        分层严格度（writegate.LAYER_TIERS）：情景/目标/未解/负记忆 = 0 档
+        （无任何复核通道时允许直写——裁定的放宽通道）；知识 = 1 档（需反思单元）；
+        结构 = 2 档（反思 + 验证）；自我/锚点 = 3 档（反思 + 验证 + 人工裁定）。
+        理由：自我人格偏移与失忆是毁灭性的，宁可拒写。
+
+        reviewers 为本次写入已取得的复核单元（缺省取环境声明 MDCG_REVIEWERS），
+        只在闸启用（warn/enforce）时有意义；off 档完全不介入，行为与历史逐位相同。
+
+        **skip_gate（issue #709 连带发现，2026-10-28）**：只给**不落记忆盘**的入队动作用
+        （当前唯一调用方＝`MdCGSecure.propose`）。理由：propose 只把候选写进 inbox、
+        不写业务节点，却按**目标层**要求复核单元 ⇒ enforce 下形成死锁：
+        「要写 knowledge 需 reflect → 要 reflect 需裁决 → 要裁决需有提案 → 提案又要 reflect」。
+        跳过闸**不等于绕过写入闸**：accept 落盘时仍走 `add()` 的同一道闸，复核不被削弱。
+        层白名单与密级检查**照常执行**（这里跳过的只有 write_gate 一档）。
+        **禁止用于任何真正落盘的路径**——那等于关闸。
+        """
         self.require_write(sensitivity)
         layer = layer or "knowledge"
         if not self.allows_layer(layer):
             raise AccessDenied(
                 f"角色 {self.role} 无权写入 {layer} 层"
                 f"（可写层 {list(self.layers_allow) if self.layers_allow is not None else '不限'}）")
+        if skip_gate:
+            return None
+        _wg_verdict = self._write_gate_verdict(layer, reviewers)
+        if _wg_verdict and _wg_verdict.get("decision") in ("deny", "require_review"):
+            if _wg_verdict.get("mode") == "enforce":
+                raise AccessDenied(
+                    f"写入 {layer} 层被分层复核闸拒绝：{_wg_verdict.get('reason')}",
+                    hint=("这是 2026-10-27 使用者裁定的写入模型：无复核通道时只可写情景层；"
+                          "知识/结构/自我层依次需要反思、验证与人工裁定。可：①补齐复核单元后重试；"
+                          "②设置 MDCG_REVIEW_CHANNELS 声明可用通道（hive/subagent/team）；"
+                          "③由使用者显式把 MDCG_WRITE_GATE 降为 warn/off。"))
+
+# 生效条件：layer 传入、reviewers 缺省时从环境 MDCG_REVIEWERS 解析（逗号分隔）；闸为 off 时返回 None（零介入），否则返回 writegate.decide_write 的判定字典并在 warn 档把「本该复核却未过」写进 stderr 一次。
+    def _write_gate_verdict(self, layer, reviewers=None):
+        """分层写入严格度闸的内部单点（off 返回 None，调用方据此零介入）。"""
+        import os as _os
+        from . import writegate as _wg
+        mode = _wg.gate_mode(_os.environ)
+        if mode == "off":
+            return None
+        if reviewers is None:
+            raw = str(_os.environ.get("MDCG_REVIEWERS") or "")
+            reviewers = tuple(x.strip().lower() for x in raw.split(",") if x.strip())
+        verdict = _wg.decide_write(layer, reviewers=reviewers, mode=mode)
+        if mode == "warn" and verdict.get("decision") in ("deny", "require_review"):
+            # issue #708：既要 stderr（宿主愿意转发时实时可见），更要**进程内计数**
+            # ——后者经 `cg(op=info).write_gate` 可查，不依赖 DSH 是否转发子进程 stderr。
+            import sys as _sys
+            _sys.stderr.write("[writegate] warn：%s（未阻断，仅记录；计数见 cg(op=info).write_gate）"
+                              % verdict.get("reason"))
+            try:
+                _wg.warn_record(layer, verdict.get("tier"), verdict.get("reason"))
+            except Exception:            # noqa: BLE001  诊断面不得冒泡进写入路径
+                pass
+        return verdict
 
 # 生效条件：要求 self._require_live() 未抛异常、self.theory_ok 为 True、self.can_admin 为 True 时通过；否则抛 AccessDenied（消息用形参 op 标记操作）。
     def require_admin(self, op: str):
@@ -245,7 +365,7 @@ class Principal:
         if not self.can_admin:
             raise AccessDenied(f"actor={self.actor} 无管理权限（{op}）")
 
-# 生效条件：无 required 形参或模块级常量前置，返回包含 self 各属性（tenant/actor/clearance/can_write/can_admin/session/harness/unit/role/token_id/parent/auth_mode/expires_at/theory_ok/theory_version 及 layers_allow/ops_allow）的 dict；其中 layers_allow/ops_allow 为 None 时值为 None，否则 list 化。
+# 生效条件：无 required 形参或模块级常量前置，返回包含 self 各属性（tenant/actor/clearance/can_write/can_admin/session/harness/unit/role/token_id/parent/auth_mode/expires_at/theory_ok/theory_version 及 layers_allow/ops_allow）的 dict；其中 layers_allow/ops_allow 为 None 时值为 None，否则 list 化；sessions_read 同构（None 或 list 化，issue #712：让 verify 输出可见读面）。
     def as_dict(self):
         return {"tenant": self.tenant, "actor": self.actor,
                 "clearance": self.clearance, "can_write": self.can_write,
@@ -259,7 +379,9 @@ class Principal:
                 "layers_allow": (None if self.layers_allow is None
                                  else list(self.layers_allow)),
                 "ops_allow": (None if self.ops_allow is None
-                              else list(self.ops_allow))}
+                              else list(self.ops_allow)),
+                "sessions_read": (None if self.sessions_read is None
+                                  else list(self.sessions_read))}
 
 # 生效条件：无前置；仅返回 tenant/actor/role/clearance/write/admin 的短摘要用于日志与排障，不含 token、密钥材料与能力白名单明细；
     def __repr__(self):
@@ -428,10 +550,24 @@ def _persist_workspace_root(ws: str) -> bool:
         return False
 
 
+# 生效条件：env_var 环境变量去空白后非空时返回 True（该白名单根被**显式配置**）；否则 False。
+# 判据单点（issue #326-①）：`_whitelist_roots` 的「已配」分支与 mdcg_ingest 的 auto 闸共用本函数，
+# 调用方**不得各自再读一次 os.environ**——「同一语义两个落点判据」是本仓反复栽过的形态。
+def whitelist_root_configured(env_var: str) -> bool:
+    """该根白名单是否被**显式配置**（env 去空白后非空）。
+
+    根白名单有两个语义层：①「已显式配置」→ 用它（os.pathsep 多根）；②「未配置」→
+    回落记忆库根 / 工作区（#85 选 A：不再放开）。需要区分这两层的调用方（如
+    `mdcg_ingest` 的 auto 闸：未配置时 `~/.dsh/sessions` 不在回落根内，无条件过闸
+    会把**默认工作流整个拦死**，issue #326-① 实测的回归陷阱）必须经本函数判断。
+    """
+    return bool((os.environ.get(env_var) or "").strip())
+
+
 # 生效条件：env_var 环境变量去空白后非空时返回其按 os.pathsep 切分、逐段 strip+expanduser+realpath 后的非空根列表；为空时走三级回落链——②级 `_configured_library_root()` 非 None 即返回 `[realpath(该根)]`；否则取 ③级 `_workspace_root()`，非 None 时先 `_persist_workspace_root(ws)` 再返回 `[ws]`；ws 为 None（连 cwd 都取不到）时抛 PermissionError（fail-closed，绝不回落放开）。
 def _whitelist_roots(env_var: str) -> list:
-    raw = (os.environ.get(env_var) or "").strip()
-    if raw:
+    if whitelist_root_configured(env_var):        # 判据单点（见上），不在此另写一份
+        raw = (os.environ.get(env_var) or "").strip()
         out = []
         for p in raw.split(os.pathsep):
             p = p.strip()
@@ -451,10 +587,46 @@ def _whitelist_roots(env_var: str) -> list:
     return [ws]
 
 
-# 生效条件：path 为 None/空串时直接返回（无路径参数，如 stat/action——不触任何回落与配置写）；否则取 `_whitelist_roots(env_var)`（env 已配用它；未配回落 mdcg 记忆库根；连库根也无则取工作区并把它配置下来）后，对 realpath(expanduser(path)) 与每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 与「显式登记」指路）。
+# 生效条件：path 为 None/空串时直接返回（无路径参数，如 stat/action——不触任何回落与配置写）；否则拒绝「纯空白串」（issue #540，见 _whitespace_only_reason），再取 `_whitelist_roots(env_var)`（env 已配用它；未配回落 mdcg 记忆库根；连库根也无则取工作区并把它配置下来）后，对 realpath(expanduser(path)) 与每个根做「相等或以根+os.sep 为前缀」判定，任一命中即返回；全部未命中抛 PermissionError（含 what/原 path/realpath/roots 与「显式登记」指路）。
+#
+# issue #540：为什么不能再用 `str(path).strip() == ""` 判「没给参数」
+#   str.strip() 剥的是**全部 Unicode 空白**，而其中若干在该平台上**是合法文件名字符**。
+#   实测（Windows）——这一区分是本判据的全部依据：
+#     · `'   '`（ASCII 空格）建文件 → OSError「Permission denied」
+#     · `'\t'`（TAB）建文件        → OSError「Invalid argument」
+#       ⇒ 这两个**无法成为文件名**，当作「无路径参数」不产生可落盘的落点。
+#       既有契约 `test_p14_root_fallback.c4_no_path_arg` 正是钉住这一语义
+#       （`None`/`''`/`'   '` 不触回落、不写配置）——**本修复保留它**。
+#     · `'\u00a0'`（NBSP）建文件   → **成功**
+#     · `'\u3000'`（全角空格）建文件 → **成功**
+#       ⇒ 这两个**能真的建出文件**，而旧判据把它们当「无参数」早退放行
+#       ⇒ 实测 `op=export` + `out="\u00a0"` 把整库正文写到白名单根之外。
+#   故判据 = 「全部由空白构成，**且含 ASCII 空格以外的空白**」⇒ 拒绝。
+#   **不枚举黑名单**（Unicode 空白远多于常见几个，枚举法天然滞后）。
+_ASCII_SPACE = " "
+
+
+def _whitespace_only_reason(path) -> str:
+    """path 是否为「纯空白**且含非 ASCII 空格**」的可疑串；是则返回理由，否则返回 ""。
+
+    为何放行纯 ASCII 空格：见上方注释——该形态无法成为文件名（OS 拒绝），
+    且 `test_p14_root_fallback` 的 c4 契约把它定义为「无路径参数」。
+    本函数只拦「能被平台当成实际文件名」的那一类空白。
+    """
+    if not isinstance(path, str) or path == "" or path.strip() != "":
+        return ""
+    if path.strip(_ASCII_SPACE) == "":            # 仅由 ASCII 空格构成 ⇒ 沿用 c4 契约
+        return ""
+    return (f"路径全部由空白字符构成，拒绝（疑似绕过根约束）：{path!r}"
+            f"——纯空白不是「没给路径参数」；若要表达未提供，请传 None 或空串")
+
+
 def check_path_root(path, env_var: str, what: str) -> None:
-    if path is None or str(path).strip() == "":
+    if path is None or str(path).strip(_ASCII_SPACE) == "":
         return                                   # 无路径参数（如 stat/action）
+    _why = _whitespace_only_reason(path)
+    if _why:
+        raise PermissionError(f"{what} {_why}")
     roots = _whitelist_roots(env_var)
     real = os.path.realpath(os.path.expanduser(str(path)))
     for r in roots:
@@ -466,6 +638,75 @@ def check_path_root(path, env_var: str, what: str) -> None:
         f"（P1-4；2026-10-10 设计者裁定 #85 选 A：未配置时回落 mdcg 记忆库根，"
         f"连库根也无则取工作区并把它配置下来）。库外读写请**显式登记**："
         f"设 {env_var}=<根>（os.pathsep 可多根）")
+
+
+# 生效条件：path 为 None/空串时直接返回（未指定落点，不触任何判定）；否则按 realpath 判三条——① 落在辅助存储根（datapath.aux_root()，master.key/_signer.key/令牌库缺省位置）内即拒；② 落在记忆库根 lib_root 内时只许**根顶层**且文件名不以 _ / . 开头（与 op=export 缺省落点 <root>/export_*.jsonl 同位；节点只在层目录里，_keys.json/_index.json 以下划线开头）；③ 目标（含悬空符号链接）已存在且 allow_overwrite 为假即拒。全部命中放行。
+def check_export_target(path, lib_root, what: str,
+                        allow_overwrite: bool = False) -> None:
+    """导出落点的**第二道**约束（issue #211）：与白名单无关。
+
+    为什么另立判据：check_path_root 只判「在根内」，而 MDCG_EXPORT_ROOT
+    未配置时 _whitelist_roots **回落记忆库根本身**（#85 选 A）——于是
+    _keys.json、_index.json、各层节点 .md 全在可写面里。缺省部署下，
+    持 sustain 令牌（can_admin=False）的调用方两次 MCP 调用即可把证据包
+    整份替换掉数据密钥信封库：此后属主读自己的 private 记忆一律 not_found、
+    新 private 写入报 LockedError，且库内无备份（永久数据丢失）。
+
+    本函数**只加拒绝分支、不新增放行**，且不改 evidence.write_pack
+    （CLI --out 是本机用户自选落点，行为不变）。
+
+    平台口径：比较用 normcase(realpath(...))——Windows 的盘符大小写与
+    长路径前缀形态在 realpath 下不保证归一，只按原串比较即可能被绕过。
+    """
+    if path is None or str(path).strip(_ASCII_SPACE) == "":
+        return                                   # 未指定落点（含纯 ASCII 空格，同 c4 契约）
+    # issue #540：同 check_path_root —— 含非 ASCII 空白的纯空白串不是「未指定落点」。
+    # 本函数是 #211 新增的第二道落点约束，当时照抄了 `str(path).strip() == ""`，
+    # 故同样可被 NBSP/U+3000 等绕过（实测本函数对这批输入亦全部早退放行）。
+    _why = _whitespace_only_reason(path)
+    if _why:
+        raise PermissionError(f"{what} {_why}")
+    raw = os.path.expanduser(str(path))
+
+    def _norm(p):
+        return os.path.normcase(os.path.realpath(p))
+
+    real = _norm(raw)
+
+    def _inside(root):
+        r = _norm(root)
+        return real == r or real.startswith(r.rstrip(os.sep) + os.sep)
+
+    from . import datapath
+    try:
+        _aux = datapath.aux_root()
+    except ValueError as exc:
+        # aux 根解析失败（典型：末段是 Windows 保留设备名，datapath 的 #57
+        # 守卫直判拒绝）⇒ 无法校验落点是否落在密钥/令牌库内 ⇒ fail-closed
+        # 拒绝，并把原因说清楚（不把 datapath 的原始 ValueError 直接漏给
+        # 导出调用方——那会让人以为导出本身坏了）。
+        raise PermissionError(
+            f"{what}：辅助存储根无法解析，导出落点不可校验（fail-closed 拒）："
+            f"{exc}")
+    if _inside(_aux):
+        raise PermissionError(
+            f"{what}：out 不得落在辅助存储根内（密钥与令牌库所在）：{path}")
+
+    if lib_root and _inside(lib_root):
+        lib = _norm(lib_root)
+        base = os.path.basename(real)
+        if os.path.dirname(real) != lib:
+            raise PermissionError(
+                f"{what}：out 落在记忆库根内时只许根顶层的普通文件"
+                f"（不得进层目录）：{path}")
+        if base.startswith(("_", ".")):
+            raise PermissionError(
+                f"{what}：out 落在记忆库根内时文件名不得以 _ 或 . 开头"
+                f"（密钥库/索引/元数据所在）：{path}")
+
+    if (os.path.lexists(raw) or os.path.exists(real)) and not allow_overwrite:
+        raise PermissionError(
+            f"{what} 目标已存在：{path}（不覆盖已有文件）")
 
 
 # 错误处置链路角色集（批次 28 分型）：restricted（错误处置标记）的可见性

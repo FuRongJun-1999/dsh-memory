@@ -27,14 +27,18 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import sys
 import time
 
+from . import crypto as _crypto
 from . import identity as _identity
+from . import security as _sec
 from . import signer as _signer
 from .datapath import aux_root
-from .fsutil import publish
+from . import fsutil
+from .fsutil import publish, chmod_owned
 
 NODE_ID_ENV = "MDCG_NODE_ID"
 SWARM_DIR_ENV = "MDCG_SWARM_DIR"
@@ -52,8 +56,40 @@ CARD_KIND = "mdcg.node.card"
 TAG_XNODE = "xnode:cross"
 SOURCE_PREFIX = "source:"
 
+# ---- issue #191：导入侧的层/重要度夹紧与旧包重放台账（三处收口） ----
+#: 落层白名单：对端声明**不得**自选受保护层（protect.PROTECTED_LAYERS = self/anchor）
+#: 或 goals/structural 一类特殊层，一律改落 knowledge。
+IMPORT_LAYERS = ("knowledge", "contextual")
+#: 导入重要度上限。**必须低于** protect.AUTO_PROTECT_IMPORTANCE（0.70）——否则对端
+#: 一条声明就能把节点变成不可遗忘（属主 mdcg_forget 直接 ProtectionError）。
+IMPORT_IMPORTANCE_MAX = 0.5
+#: 已见包版本台账（本根顶层）：xnode id -> 最后一次写入所用包的 created_at。
+SEEN_FILE = "_xnode_seen.json"
+
 MAX_ITEMS = 500              # 单包条目上限（防灌包）
 MAX_TEXT = 4000              # 单条正文上限
+
+# ---- issue #453（站点 2）：版本号不得由对端单方面推进 ----
+#: 允许的对端时钟前偏（秒）。`created_at` 超过 `now + 本值` ⇒ **整包拒收**（与
+#: 「非数值 / 非有限值整包拒收」同口径，fail-closed）。
+#: 为什么需要上界：#191-B 拿 `created_at` 当版本号写 `_xnode_seen` 台账（跨进程持久）。
+#: 免签名通道下该值完全由对端填写且无上界 ⇒ 一个 `9e15` 就把台账永久推高，
+#: 之后**所有**真实时间戳的合法包都被判 `replayed`（回执仍 `ok: true`）＝永久静默屏蔽。
+MAX_PACK_FUTURE_SKEW = 300.0
+
+# ---- issue #258：密级面的**单一权威**（不另立判据，直接引既有常量） ----
+_SENSITIVITY_ORDER = _sec.SENSITIVITY_ORDER
+_ENCRYPTED_LEVELS = set(_crypto.ENCRYPTED_LEVELS)
+_AccessDenied = _sec.AccessDenied
+
+# ---- issue #147（2026-10-11）：pack_id 白名单 ----
+# 病象：pack_id 未清洗即拼进归档路径（见 write_pack 缺省分支）⇒ 路径穿越；
+# 非管理员令牌**一次 import 即可覆写** _keys.json / _tokens.json（实测 k=5 段 ../ 命中）。
+# 合法生产者只产 "pack-<12hex>"（见 export_pack「pack["pack_id"] = "pack-" + pid」），
+# 故白名单取 ASCII 字母数字与 . _ -，并显式拒 .. 与前导点。
+PACK_ID_MAX = 128
+PACK_ID_OK = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
 
 
 class EvidenceError(Exception):
@@ -91,8 +127,25 @@ def node_id(root: str = None, explicit: str = None) -> str:
     优先 `MDCG_NODE_ID`（生产环境应显式设置，保证跨机器稳定）；
     缺省从根路径派生 `node-<12hex>`（同机可复现，跨机器不保证唯一）。
     """
-    nid = (explicit or os.environ.get(NODE_ID_ENV) or "").strip()
+    # issue #277 类型闸**先于 .strip()**：旧写法 (explicit or env or "").strip()
+    # 在 explicit=123 这类非字符串上会漏成 AttributeError（int 没有 strip），
+    # 既不是 fail-closed 的错误类、调用方也无法按类型判空。
+    # 语义保持：假值 explicit 仍回落环境变量；空串仍是「未提供」⇒ 走派生。
+    raw = explicit or os.environ.get(NODE_ID_ENV)
+    if raw is not None and not isinstance(raw, str):
+        raise EvidenceError(
+            f"证据节点 id 必须是字符串：{raw!r}（{type(raw).__name__}）")
+    nid = (raw or "").strip()
     if nid:
+        # issue #277：本值是**模型/环境可控输入**，而 publish_card 会把它直接
+        # 拼进 os.path.join(peers_dir(swarm), nid + ".json")——"../" 可穿越出
+        # swarm 目录（实测 MDCG_NODE_ID="../../../evil_pwned" 在 swarm 外落盘）。
+        # 旧实现只 strip、零校验 ⇒ 任意文件写。此处**先拦后拼**（同 #147 的
+        # 「汇点兜底」与 mdcos._restore_id_ok 的「先拦后读」纪律）：
+        # 判据与写面 add() 的 P0-1 白名单**同源**，不是第二份判据。
+        err = _node_id_error(nid)
+        if err:
+            raise EvidenceError(err)
         return nid
     r = _root_of(root)
     if not r:
@@ -155,7 +208,22 @@ def publish_card(root: str = None, *, swarm: str = None,
                  subsystem: str = SUBSYSTEM, signers_file: str = None) -> dict:
     """把本节点名片写入共享目录 `peers/<node_id>.json`（0600）。"""
     c = card(root, subsystem=subsystem, signers_file=signers_file)
+    # issue #277 **汇点兜底**（同 #147 的 write_pack 纪律）：即使调用方绕过
+    # node_id() 直接构造 card，恶意 node_id 也一律 fail-closed——不静默落盘。
+    err = _node_id_error(c.get("node_id"))
+    if err:
+        raise EvidenceError(err)
+    base = os.path.realpath(peers_dir(swarm))
     p = os.path.join(peers_dir(swarm), c["node_id"] + ".json")
+    # realpath 归一后判包含性：拒 ../ 穿越、绝对路径、盘符、UNC、空字节
+    # （白名单已挡住这些形态，此处是**第二道**，防白名单将来被放宽）。
+    try:
+        real = os.path.realpath(p)
+    except ValueError as exc:                    # 空字节等非法字符
+        raise EvidenceError(f"名片归档路径非法：{exc}")
+    if real != base and not real.startswith(base + os.sep):
+        raise EvidenceError(
+            f"名片归档路径越界（必须落在 peers 目录内）：{p!r}")
     _write_json(p, c)
     return {"ok": True, "file": p, "card": c}
 
@@ -206,6 +274,25 @@ def _pack_payload(pack: dict) -> bytes:
 
 
 # 生效条件：当传入 cg、subjects、since 时，遍历 cg.index["nodes"] 中按 node_id 排序的节点，仅收集标签含常量 TAG_OBS、不含 TAG_ANCHOR/TAG_TRAIT、不含 TAG_XNODE、能提取 subject: 标签且该 subject 在 subjects（subjects 为真时）或不限制（subjects 假值时）、且若 since 为真且 ts 为真则要求 float(ts) >= float(since) 的节点，返回含 node_id、subject、text（截断 MAX_TEXT）、kind、role、layer、过滤后的 tags、importance、verification_basis、ts 的列表。
+# ---- issue #258（2026-10-14）：跨节点证据包通路丢密级 ----
+# 病象：`_collect` 产出的条目**不带 sensitivity**，`import_pack` 又经
+# `identity.observe`（签名无该形参）落盘 ⇒ 走 `MdCGSecure.add` 的缺省
+# `DEFAULT_SENSITIVITY="internal"`。而 `crypto.ENCRYPTED_LEVELS =
+# ("private","secret")` ⇒ 发送方盘上是密文、接收方盘上是**明文**，且
+# `import_pack` 默认 `archive=True` 把整包明文 JSON 再落一份到收件箱。
+# 实测：A 侧 private（盘上无明文）→ B 侧 internal（盘上明文）+ 收件箱明文。
+#
+# 收口三处：① 本条读数进包；② 导入侧 fail-closed 校验（缺字段/非字符串/
+# 未知档一律不收，不降级）；③ 包内含加密档 ⇒ 不归档（归档是明文 JSON）。
+def _node_sensitivity(cg, nid):
+    """读节点密级。**与 #164 同源**（`subgraph.node_sensitivity`），不另立判据。"""
+    from . import subgraph as _sg
+    try:
+        return _sg.node_sensitivity(cg, nid)
+    except Exception:                              # noqa: BLE001
+        return None
+
+
 def _collect(cg, subjects=None, since=None) -> list:
     """收集本根**本地原始**观测证据（排除档案节点与已导入的跨节点证据）。"""
     want = set(subjects or [])
@@ -247,6 +334,8 @@ def _collect(cg, subjects=None, since=None) -> list:
             "importance": fm.get("importance"),
             "verification_basis": (e.get("verification_basis")
                                    or fm.get("verification_basis")),
+            # issue #258：密级随条目出根（此前整条通路不带该字段）
+            "sensitivity": _node_sensitivity(cg, nid),
             "ts": ts,
         })
     return items
@@ -295,8 +384,26 @@ def export_pack(cg, *, subjects=None, since=None, swarm: str = None,
 def write_pack(pack: dict, path: str = None, swarm: str = None) -> dict:
     """把证据包落盘到收件箱（或指定路径）。"""
     if not path:
+        # issue #147 **汇点兜底**：与 _validate 同源的白名单——即使调用方绕过
+        # import_pack（直接调本函数），恶意 pack_id 也一律 fail-closed，
+        # 且异常类型统一为 EvidenceError（不再漏成 OSError/ValueError）。
+        perr = _pack_id_error(pack.get("pack_id"))
+        if perr:
+            raise EvidenceError(perr)
+        base = os.path.realpath(inbox_dir(swarm))
         path = os.path.join(inbox_dir(swarm),
                             f"{_slug(pack.get('from_node'))}__{pack.get('pack_id')}.json")
+        # issue #147（2026-10-11）：归档目标必须落在收件箱根内——realpath 归一后判
+        # 包含性，越界即 fail-closed（拒 ../ 穿越、绝对路径、盘符、UNC、空字节）。
+        # 只约束**由 pack 数据派生**的缺省路径；显式 path 是调用方（CLI --out /
+        # MCP out）自选落点，属 API 层调用者权限，不在此收窄（既有调用面两处）。
+        try:
+            real = os.path.realpath(path)
+        except ValueError as exc:                    # 空字节等非法字符
+            raise EvidenceError(f"证据包归档路径非法：{exc}")
+        if real != base and not real.startswith(base + os.sep):
+            raise EvidenceError(
+                f"证据包归档路径越界（必须落在收件箱内）：{path!r}")
     _write_json(path, pack)
     return {"ok": True, "file": path}
 
@@ -313,7 +420,44 @@ def _read_pack(src) -> dict:
         return json.load(f)
 
 
-# 生效条件：当 pack 为 dict 且 kind 等于常量 KIND、int(pack.get("schema") or 0) 不大于常量 SCHEMA、from_node strip 后非空、items 为 list 时返回空字符串；否则按序返回对应错误字符串（非 dict、kind 不符、schema 过新、缺 from_node、缺 items）。
+# 生效条件：pid 为 pack["pack_id"]（任意类型）；合规返回空字符串，否则返回中文理由——非 str/空、超 PACK_ID_MAX、含 PACK_ID_OK 之外字符、以点开头或含连续两点各一条。**单一真源**：_validate 与 write_pack 汇点共用本函数，规则只有一份。
+def _node_id_error(nid) -> str:
+    """node_id 白名单判据（issue #277）。
+
+    判据与写面 MdCG.add() 的 P0-1 白名单**同源**（同一 _NODE_ID_RE、同一
+    ".." 禁令、同一 _NODE_ID_FORBIDDEN），不是第二份判据——避免两套口径漂移。
+    空串返回错误文案（调用方已 strip 过，空串即「未提供」）。
+    """
+    from .mdcg import _NODE_ID_RE, _NODE_ID_FORBIDDEN
+    if not isinstance(nid, str) or not nid:
+        return f"证据节点 id 必须是非空字符串：{nid!r}"
+    if len(nid) > 128:
+        return f"证据节点 id 过长：{len(nid)} > 128"
+    if ".." in nid:
+        return f"证据节点 id 形似路径穿越（拒 ..）：{nid!r}"
+    if nid in _NODE_ID_FORBIDDEN:
+        return f"证据节点 id 是保留字：{nid!r}"
+    if not _NODE_ID_RE.match(nid):
+        return (f"证据节点 id 含非法字符（须匹配 {_NODE_ID_RE.pattern}）：{nid!r}")
+    return ""
+
+
+def _pack_id_error(pid) -> str:
+    """pack_id 白名单判据（issue #147）。"""
+    if not isinstance(pid, str) or not pid:
+        return "证据包缺少 pack_id（归档不可命名）"
+    if len(pid) > PACK_ID_MAX:
+        return f"证据包 pack_id 过长：{len(pid)} > {PACK_ID_MAX}"
+    bad_ch = sorted({ch for ch in pid if ch not in PACK_ID_OK})
+    if bad_ch:
+        return (f"证据包 pack_id 含非法字符 {bad_ch}"
+                f"（只允许字母数字与 . _ -）：{pid!r}")
+    if pid.startswith(".") or ".." in pid:
+        return f"证据包 pack_id 形似路径（拒 .. 与前导点）：{pid!r}"
+    return ""
+
+
+# 生效条件：当 pack 为 dict 且 kind 等于常量 KIND、int(pack.get("schema") or 0) 不大于常量 SCHEMA、from_node strip 后非空、items 为 list、且 _pack_id_error(pack.get("pack_id")) 为空时返回空字符串；否则按序返回对应错误字符串（非 dict、kind 不符、schema 过新、缺 from_node、缺 items、pack_id 不合法）。
 def _validate(pack: dict) -> str:
     if not isinstance(pack, dict):
         return "证据包不是 JSON 对象"
@@ -325,7 +469,8 @@ def _validate(pack: dict) -> str:
         return "证据包缺少 from_node（来源不可溯）"
     if not isinstance(pack.get("items"), list):
         return "证据包缺少 items"
-    return ""
+    # issue #147：pack_id 进归档文件名 ⇒ 必须过白名单（拒穿越/绝对路径/盘符/UNC/空字节）。
+    return _pack_id_error(pack.get("pack_id"))
 
 
 # 生效条件：当传入 from_node 和 orig 时，返回 f"xnode_{_slug(from_node)}_{_slug(orig)}"。
@@ -334,6 +479,24 @@ def _xnode_id(from_node: str, orig: str) -> str:
 
 
 # 生效条件：当传入 pack、reason、swarm、**kw 时，构建含 at、reason、from_node、pack_id 及 kw 中非 None 项的拒绝记录，尝试追加到 inbox_dir(swarm)/_rejected.jsonl（OSError 忽略），返回 {"ok": False, "rejected": True, "reason": reason, "from_node": ...} 并合并 kw 中非 None 项。
+def _item_sensitivity(it: dict):
+    """校验包内条目的密级 → (密级, 拒收理由)。**fail-closed**。
+
+    issue #258：缺字段/非字符串/未知档一律返回理由（调用方跳过，不写盘）。
+    旧格式包（无 sensitivity）因此一律拒收——有意的行为变更。
+    """
+    raw = it.get("sensitivity")
+    if raw is None:
+        return None, "条目缺 sensitivity 字段（旧格式包一律拒收）"
+    if not isinstance(raw, str):
+        return None, "条目 sensitivity 非字符串：%r" % (raw,)
+    s = raw.strip().lower()
+    if s not in _SENSITIVITY_ORDER:
+        return None, "条目 sensitivity 未知档：%r（合法档 %s）" % (
+            raw, "/".join(_SENSITIVITY_ORDER))
+    return s, ""
+
+
 def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     rec = {"at": time.time(), "reason": reason,
            "from_node": (pack or {}).get("from_node"),
@@ -342,7 +505,10 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     try:
         from .fsutil import append_jsonl
         os.makedirs(inbox_dir(swarm), exist_ok=True)
-        append_jsonl(os.path.join(inbox_dir(swarm), "_rejected.jsonl"), rec)
+# #326-④：append_jsonl 不再上抛、以 False 报写失败——本处**仍容忍**（best-effort
+# 簿记），但失败不再静默：源头已记 fsutil.APPEND_FAILURES + 有界 stderr 告警
+# （B 面单点）。显式消费返回值：不留裸调用（守卫 AST 钉子会抓）。
+        _ok = append_jsonl(os.path.join(inbox_dir(swarm), "_rejected.jsonl"), rec)
     except OSError:
         pass
     out = {"ok": False, "rejected": True, "reason": reason,
@@ -351,7 +517,105 @@ def _note_reject(pack: dict, reason: str, swarm: str = None, **kw) -> dict:
     return out
 
 
-# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、且有签名或 signer 等于 "null" 方可通过；通过则对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+# 生效条件：当传入 cg、src、subsystem（默认 SUBSYSTEM）、swarm、signers_file、archive（默认 True）时，依次读取 src 为 pack、_validate 校验、来源 node_id 不等于本节点、_signer.verify_for 验签成功、**签名串非空**（#453 fail-closed：空签名一律拒，不看 `sig.signer`/`sig.signed` 等对端自报值）、created_at 为有限数且不超过 now+MAX_PACK_FUTURE_SKEW 方可通过；通过则先对判据载体做一次代际探活（#403：`_maybe_reload_index`，陈旧索引下同名本地节点仍须被看见），再对 pack["items"] 前常量 MAX_ITEMS 项中 subject/text 非空者以 _identity.observe 写入（带常量 TAG_XNODE 和 SOURCE_PREFIX 标签，importance 默认 0.5，verification_basis 默认 "data"），统计 written/skipped，若 archive 为真则写包到收件箱，返回含 ok、from_node、pack_id、imported、skipped、truncated、node_ids、archived 的字典；任一拒绝分支调用 _note_reject 返回拒绝结果。
+def _seen_path(cg) -> str:
+    """已见台账路径（本根顶层）。cg.root 不可用时返回空串（调用方按无账处理）。"""
+    root = getattr(cg, "root", None)
+    return os.path.join(str(root), SEEN_FILE) if root else ""
+
+
+def _load_seen(cg) -> dict:
+    """读台账。缺文件 / 坏 JSON / 非对象一律按空账——台账是防重放，不是写入前提。"""
+    p = _seen_path(cg)
+    if not p:
+        return {}
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _save_seen(cg, seen: dict) -> None:
+    """落盘台账。失败**不逃逸**（同上：台账不是写入前提）。"""
+    p = _seen_path(cg)
+    if not p:
+        return
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(seen, f, ensure_ascii=False, sort_keys=True)
+    except OSError:
+        pass
+
+
+def _import_layer(raw):
+    """落层白名单（issue #191-A）-> (层, 是否夹紧)。非白名单层一律改落 knowledge。"""
+    layer = raw.strip() if isinstance(raw, str) else "knowledge"
+    if layer not in IMPORT_LAYERS:
+        return "knowledge", 1
+    return layer, 0
+
+
+def _import_importance(raw):
+    """重要度夹到 [0, IMPORT_IMPORTANCE_MAX]（issue #191-A）-> (值, 是否夹紧)。
+
+    非数值 / bool / 非有限值按上限处理（与 #151 对越界值回落 0.5 同口径，但上限
+    更低——见 IMPORT_IMPORTANCE_MAX 说明）。缺省（None）沿用既有 0.5，不算夹紧。
+    """
+    if raw is None:
+        return IMPORT_IMPORTANCE_MAX, 0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)):
+        return IMPORT_IMPORTANCE_MAX, 1
+    v = float(raw)
+    if not math.isfinite(v):
+        return IMPORT_IMPORTANCE_MAX, 1
+    if v < 0.0:
+        return 0.0, 1
+    if v > IMPORT_IMPORTANCE_MAX:
+        return IMPORT_IMPORTANCE_MAX, 1
+    return v, 0
+
+
+def _signer_declaration_rejected(pack, signature) -> bool:
+    """#453（站点 1）：是否应**拒绝**该包的签名面（**返回 True ⇒ 拒绝**）。
+
+    判据只有一条：**签名串为空 ⇒ 拒**（fail-closed）。不看对端在 `sig` 里自称什么。
+
+    修前是豁免白名单：`if not signature and sig.signer != "null"` —— 对端写
+    `sig.signer="null"` 就让空签名绕过拒绝（形态名：**以声明值作为豁免凭据**）。
+
+    ★ 为什么**不能**改成「`signed is False` 且空串 ⇒ 放行」（本单元一度出现过的写法）：
+      `sig` 整块由**对端**书写，`signed` 与 `signer` 一样是自报字符串/布尔，没有任何
+      凭据把它绑定到真实封装动作。把豁免键从 `signer` 换到 `signed` 只是**换了一个
+      免签名通行证的名字**，伪造来源（`source:<任意节点>`）依旧无密钥可达——本单元
+      实测：`{"signer":"null","signature":"","signed":false}` ⇒ imported=1。
+      `export_pack` 自己产的无签名包（策略未对 evidence 签名）也因此不可导入——
+      与 issue #453 的「缺签名 ⇒ 一律拒收」及 import_pack docstring 逐字一致。
+    """
+    return not (signature or "").strip()
+
+
+def _local_generation_blocks(xid, prev, created) -> bool:
+    """#403：同名的「本地」节点是否应**阻断**对端写入（**返回 True ⇒ 阻断**）。
+
+    判据 = 两条全真：① prev 存在；② 非 `xnode:cross` 跨节点证据。
+
+    ★ 为什么**不**比时间戳（复核意见 3 的现场）：本仓索引条目（`MdCG._node_entry`）
+      只有 `created_at`（= fm.created_at，节点**创建**时刻），**没有 `updated_at`**
+      （全仓 grep：`updated_at` 只出现在 links/refindex/self_state，不在索引条目里）。
+      拿一个不存在的键做「本地是否更新」的比较 ⇒ 分支不可达、判据恒为 True，既给
+      守卫虚假覆盖，又埋下「将来该键入索引时 #191-C 静默变成按时间比较、陈旧本地被
+      对端覆盖」的隐患。故此处**不做**代际比较——语义回到 #191-C 逐字：
+      「本根里同名的**本地**节点不得被对端覆写」。`created` 形参保留（调用点同签名、
+      判据单点仍在；将来索引真有代际键时在此一处扩展）。
+    """
+    if prev is None:
+        return False
+    if TAG_XNODE in set(prev.get("tags") or []):
+        return False
+    return True
+
 def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
                 signers_file: str = None, archive: bool = True) -> dict:
     """导入对端证据包：验签 → 落本根（带 `source:<node>` 标签）。
@@ -377,49 +641,146 @@ def import_pack(cg, src, *, subsystem: str = SUBSYSTEM, swarm: str = None,
     if not vres.get("ok"):
         return _note_reject(pack, f"验签失败：{vres.get('reason') or '未知'}",
                             swarm=swarm, on_fail=vres.get("on_fail"))
-    if not signature and (pack.get("sig") or {}).get("signer") != "null":
+    # issue #453（SEC·P1）：**删掉 `signer == "null"` 这个豁免**——「声明为空」曾被当成
+    # 「不要求签名」，于是对端只要在包里写 `sig.signer="null"` 就能带着空签名通过。
+    # fail-closed：声明为空 ⇒ 拒（不是跳过校验）。不改 signer.verify_for：它的
+    # 「不要求且未提供 ⇒ 放行」对其它调用方是**合法语义**，本件是**调用方该判空却没判**。
+    if _signer_declaration_rejected(pack, signature):
         return _note_reject(pack, "证据包缺少签名（跨节点证据必须可溯源）",
                             swarm=swarm)
 
+    # issue #191-B：包版本以 `created_at` 为准。缺省按 0（只能新建、不能覆写）；
+    # 非数值 / 非有限值整包拒收。
+    # issue #453（站点 2）：**「在签名载荷里」不等于「对端改不了」**——站点 1 的
+    # 免签名通道下 `created_at` 完全由对端填写且原本无上界 ⇒ 一个 `9e15` 就把
+    # `_xnode_seen` 台账（跨进程持久）永久推高，之后**所有**真实时间戳的合法包都
+    # 被判 `replayed`（回执仍 `ok: true`）＝永久静默屏蔽。现加**上界**：超过
+    # `now + MAX_PACK_FUTURE_SKEW` 一律整包拒收（与「非有限值整包拒收」同口径）。
+    # 站点 1 已改为「空签名一律拒」，故此处不再需要「未签名包按本地代际」的分支。
+    created = pack.get("created_at")
+    if created is None:
+        created = 0.0
+    elif (isinstance(created, bool) or not isinstance(created, (int, float))
+          or not math.isfinite(created)):
+        return _note_reject(pack, f"证据包 created_at 非法：{created!r}", swarm=swarm)
+    if created > time.time() + MAX_PACK_FUTURE_SKEW:
+        return _note_reject(
+            pack, "证据包 created_at 超出允许前偏（%r > now+%gs）：拒绝未来时间戳"
+                  "推进版本台账" % (created, MAX_PACK_FUTURE_SKEW), swarm=swarm)
+    seen = _load_seen(cg)
     items = pack["items"][:MAX_ITEMS]
-    written, skipped = [], 0
-    for it in items:
-        if not isinstance(it, dict):
-            skipped += 1
-            continue
-        subj = (it.get("subject") or "").strip()
-        text = (it.get("text") or "").strip()
-        if not subj or not text:
-            skipped += 1
-            continue
-        tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
-        tags += [t for t in (it.get("tags") or [])
-                 if isinstance(t, str) and t
-                 and not t.startswith("subject:")
-                 and not t.startswith(SOURCE_PREFIX)
-                 and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
-        imp = it.get("importance")
-        _identity.observe(
-            cg, subj, text,
-            kind=it.get("kind"), role=it.get("role"),
-            layer=it.get("layer") or "knowledge",
-            tags=tags,
-            importance=0.5 if imp is None else imp,
-            verification_basis=it.get("verification_basis") or "data",
-            node_id=_xnode_id(from_node, it.get("node_id") or subj),
-            override=True)
-        written.append(_xnode_id(from_node, it.get("node_id") or subj))
+    written, skipped, replayed, clamped = [], 0, 0, 0
+    #: issue #258：拒收理由留痕（此前降级**不可见**——返回体只说 imported: N）
+    reasons = []
+    # issue #403：判据载体是**本进程内存索引**；他进程（review_cli / hive worker /
+    # 第二个 MCP 实例）刚写入的本地节点不在其中 ⇒ `prev is None` ⇒ #191-C 放行 ⇒
+    # 同名本地节点被 override=True 静默顶替。进循环前先做一次代际探活
+    # （N195/N196/N209/N213/N276 同款「循环外单探」；探活失败不阻塞，沿用旧内存态）。
+    _reload = getattr(cg, "_maybe_reload_index", None)
+    if callable(_reload):
+        _reload()
+    try:
+        for it in items:
+            if not isinstance(it, dict):
+                skipped += 1
+                reasons.append("条目非字典")
+                continue
+            subj = (it.get("subject") or "").strip()
+            text = (it.get("text") or "").strip()
+            if not subj or not text:
+                skipped += 1
+                reasons.append("条目缺 subject/text")
+                continue
+            # issue #258：密级 fail-closed。缺字段/非字符串/未知档一律**不写盘**，
+            # 绝不回落到 DEFAULT_SENSITIVITY（那正是本件的病象）。旧格式包（无
+            # sensitivity）因此一律不收——**有意的行为变更**，与「跨节点证据没有
+            # 签名就不可溯源，宁可不产出」同口径。
+            sens, why = _item_sensitivity(it)
+            if why:
+                skipped += 1
+                reasons.append(why)
+                continue
+            tags = [TAG_XNODE, f"{SOURCE_PREFIX}{from_node}"]
+            tags += [t for t in (it.get("tags") or [])
+                     if isinstance(t, str) and t
+                     and not t.startswith("subject:")
+                     and not t.startswith(SOURCE_PREFIX)
+                     and t not in (TAG_XNODE, _identity.TAG_ANCHOR, _identity.TAG_TRAIT)]
+            # issue #191-A：落层白名单 + 重要度夹紧——对端声明不得自选保护级。
+            layer, c_layer = _import_layer(it.get("layer"))
+            imp, c_imp = _import_importance(it.get("importance"))
+            clamped += c_layer + c_imp
+            xid = _xnode_id(from_node, it.get("node_id") or subj)
+            # issue #191-B：旧包重放不得把新证据覆写回旧内容（含属主删除后复活）。
+            last = seen.get(xid)
+            if (isinstance(last, (int, float)) and not isinstance(last, bool)
+                    and created <= last):
+                replayed += 1
+                continue
+            # issue #191-C：本根里恰好同名的**本地**节点（不带 xnode:cross 标签）不得
+            # 被对端覆写——override 只用于更新本来源自己的 xnode。
+            # issue #403（数据丢失）：判据**单点**在 `_local_generation_blocks`。
+            # 修前调用点曾把同一判据**再算一遍**（`updated_at or created_at >= created`）
+            # 并据此放行，与谓词方向相反 ⇒ 谓词说「阻断」而写入照旧发生（同一真源两份
+            # 实现，形态名「判据复制」）。此处只消费谓词结果，不再自行推导。
+            prev = (cg.index.get("nodes") or {}).get(xid)
+            if _local_generation_blocks(xid, prev, created):
+                skipped += 1
+                reasons.append("同名本地节点（非跨节点证据）不覆写：%s" % xid)
+                continue
+            try:
+                _identity.observe(
+                    cg, subj, text,
+                    kind=it.get("kind"), role=it.get("role"),
+                    layer=layer,
+                    tags=tags,
+                    importance=imp,
+                    verification_basis=it.get("verification_basis") or "data",
+                    node_id=xid,
+                    sensitivity=sens,
+                    override=True)
+            except _AccessDenied:
+                # issue #258：导入方密级不足 ⇒ **跳过，不降级落盘**（此前会落到
+                # 缺省 internal，等于把对端的 private 洗成 internal）。
+                skipped += 1
+                reasons.append("本节点密级不足（sensitivity=%s）" % sens)
+                continue
+            written.append(xid)
+            seen[xid] = created
+
+    finally:
+        _save_seen(cg, seen)
 
     archived = ""
+    archive_skipped = ""
     if archive:
-        try:
-            archived = write_pack(pack, swarm=swarm)["file"]
-        except OSError:
-            archived = ""
+        # issue #258：归档是**明文 JSON**，包内含加密档（private/secret）时
+        # 再落一份到收件箱等于绕过 ENCRYPTED_LEVELS ⇒ 不归档并给出理由。
+        sealed = sorted({it.get("sensitivity") for it in items
+                         if isinstance(it, dict)
+                         and _crypto.is_encrypted_level(it.get("sensitivity"))})
+        if sealed:
+            archive_skipped = ("包内含加密档 %s：归档为明文 JSON，"
+                               "跳过以免绕过落盘加密" % "、".join(sealed))
+        else:
+            try:
+                archived = write_pack(pack, swarm=swarm)["file"]
+            except (OSError, EvidenceError):
+                # issue #147：归档越界（EvidenceError，realpath 兜底）与写盘
+                # 失败同等处理——**不逃逸**。修前只捕 OSError：pack_id 带空
+                # 字节时 open()/realpath 抛的 ValueError 会**逸出
+                # import_pack**（实测），调用方只见崩溃且无留痕；现一并收口。
+                archived = ""
     return {"ok": True, "from_node": from_node, "pack_id": pack.get("pack_id"),
             "imported": len(written), "skipped": skipped,
+            # issue #191：被夹紧的条目数（层 / 重要度）与因旧包重放而跳过的条目数。
+            # 此前返回体只说 imported: N，看不出落了哪一层、也没提示重放。
+            "clamped": clamped, "replayed": replayed,
             "truncated": len(pack["items"]) > MAX_ITEMS,
-            "node_ids": written, "archived": archived}
+            "node_ids": written, "archived": archived,
+            # issue #258：拒收理由（封顶 20 条，防灌包刷屏）+ 归档跳过理由
+            "skipped_reasons": reasons[:20],
+            "archive_skipped": archive_skipped}
 
 
 # --------------------------------------------------------------------------
@@ -484,7 +845,7 @@ def _write_json(path: str, obj) -> str:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(obj, f, ensure_ascii=False, indent=1, sort_keys=True)
     try:
-        os.chmod(tmp, 0o600)
+        chmod_owned(tmp, 0o600)
     except OSError:
         pass
     publish(tmp, path)

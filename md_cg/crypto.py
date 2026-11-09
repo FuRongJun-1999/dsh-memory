@@ -21,11 +21,11 @@
 
 · KEK 来源（按优先级）：
     ① 环境变量 `MDCG_MASTER_KEY`（64 位 hex 或 base64）
-    ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，0600）
+    ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，**尝试** 0600——POSIX 生效；
+     Windows 上 `os.chmod` 只切只读位、真实保护来自用户目录 ACL，**失败不静默**：
+     进 `crypto.PERM_WARNINGS` 供审计读取，见 `_tighten_perms`，issue #326-⑤）
 · KEK 不落仓库；DEK 被 KEK 包裹后存租户根目录，单独拿走 `_keys.json` 无法解密。
-· **身份一致性识别**：DEK 信封绑定 `(tenant, actor)`；`clearance` 只是信封里的元数据，
-  **不参与** `identity_fingerprint()`、不进 `_dek_aad()`、`unwrap_dek()` 的条件里也不用它
-  （`crypto.py:334`/`:379`；2026-10-21 纠正了本行的旧说法）。节点密文把
+· **身份一致性识别**：DEK 信封绑定 `(tenant, actor, clearance)`，且节点密文把
   `(node_id, tenant, actor)` 作为 AEAD 的 AAD。因此
     ① 换了身份（actor / tenant 不符）→ 解不开；
     ② 把密文拷贝到另一个节点 → 校验失败。
@@ -57,7 +57,7 @@ import sys
 import time
 
 from .datapath import aux_root
-from .fsutil import FileLock
+from .fsutil import FileLock, chmod_owned
 from .rotate import Rotator
 
 # ---- 常量 ----------------------------------------------------------------
@@ -73,6 +73,42 @@ ENC_SUFFIX = " -->"
 
 # 需要加密的密级（用户私有内容）
 ENCRYPTED_LEVELS = ("private", "secret")
+
+
+# 生效条件：level 为 str 时返回 strip().lower() 后的值（空串返回 None）；非 str（含 None）返回 None。
+# 不校验是否为 SENSITIVITY_ORDER 成员（校验归 security._rank）——本函数只做**写法归一**。
+def normalize_sensitivity(level):
+    """密级写法归一 —— 全仓唯一归一口径（安全重构 P1）。
+
+    病象：「是不是加密档」的判断散在约 10 个模块，postings / writelimit /
+    evidence / forgetting 做了 strip().lower()，其余直接 `in ENCRYPTED_LEVELS`，
+    同一个 " Private" 在不同路径上判成不同档。
+
+    不适用条件：不判合法性、不判降密级（security.merge_downgrades 单点）、不判读写权限。
+    """
+    if not isinstance(level, str):
+        return None
+    s = level.strip().lower()
+    return s or None
+
+
+# 生效条件：strict=False（缺省）时，normalize_sensitivity(level) 属 ENCRYPTED_LEVELS 即返回 True；
+# strict=True 时要求 level **原样**属 ENCRYPTED_LEVELS（不归一）——仅供「密文必须配规范加密档」
+# 这类**放行**判据使用（归一会把非规范写法放行，方向是放宽，故放行判据走严格口径）。
+def is_encrypted_level(level, *, strict: bool = False) -> bool:
+    """是否属 at-rest 加密档 —— 全仓唯一谓词（安全重构 P1）。
+
+    方向约定（最易用反处）：
+      · 「要不要保护（加密/脱敏/不落明文）」类判据 → 缺省口径（归一后判，写法
+        变体一律按加密档保护，偏严）；
+      · 「密文的密级标注是否合法、可放行读」类判据 → strict=True（非规范写法
+        不放行，偏严）。
+    两种用法都是 fail-closed 方向；模块里**不得**再直接写 `in ENCRYPTED_LEVELS`
+    （守卫：md_cg/test_sensitivity_predicate_single_point.py）。
+    """
+    if strict:
+        return isinstance(level, str) and level in ENCRYPTED_LEVELS
+    return normalize_sensitivity(level) in ENCRYPTED_LEVELS
 
 KEYS_FILE = "_keys.json"
 AUDIT_FILE = "_crypto.jsonl"
@@ -234,18 +270,35 @@ def scrypt_kek(passphrase, salt):
                           n=SCRYPT_N, r=SCRYPT_R, p=SCRYPT_P, dklen=SCRYPT_DKLEN)
 
 
-# 生效条件：master_file=None、env_var=MASTER_ENV、create=None、allow_create=None 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d（读失败/内容坏抛 CryptoError，**绝不因此新建**）；文件不存在时仅 allow_create=True 才新建，未显式允许时 create is False 返回 None、其余抛 CryptoError（拒绝静默换钥）。
-def load_master_key(master_file=None, env_var=MASTER_ENV, create=None,
-                    allow_create=None):
-    """KEK 来源：环境变量 → 主密钥文件。
+# 生效条件：master_file=None、env_var=MASTER_ENV、create=True 为可选入参；从 os.environ.get(env_var) 读取并 strip，若 raw 非空则长度 64 走 bytes.fromhex、否则 _b64d，解码失败抛 CryptoError；否则 path = master_file or MASTER_FILE，若 os.path.exists(path) 为真则读取并 _b64d；若 create 为假返回 None；否则生成 KEY_LEN 随机密钥写入 path 并返回 key。
+#: 权限收紧失败的**有界**告警列表（issue #326-⑤）——口径同 `src/lib/token_store.ts` 的
+#: `writeKeyring`：「不可设则忽略，不因此中断签发」，但**绝不假装成功**：失败在此留痕，
+#: 供启动自检/审计读取（不抛异常，以免在只读介质/受限平台上阻断进程启动）。
+PERM_WARNINGS = []
+_PERM_WARN_LIMIT = 8
 
-    三态（**绝不静默换钥**）：
-      · 拿到密钥 → 返回 bytes
-      · 文件不存在且 `allow_create=True` → 新建一把并落盘（唯一允许新建的路径）
-      · 文件不存在且未显式允许 → `create=False` 时返回 None，其余抛 CryptoError
-    旧形态（`create=True` 缺省）在「密钥文件丢了」与「首次部署」两种场景下都直接新建，
-    于是**密钥丢失被静默换成新钥**：旧密文从此解不开，而系统照常启动、零报错。
-    """
+
+# 生效条件：path 给定时尝试 os.chmod(path, 0o600)：成功返回 True；抛 OSError（平台不支持/
+# 只读介质/权限拒绝）时追加一条**有界**告警（path、异常类型、截断后的文本，超 _PERM_WARN_LIMIT
+# 不再追加）并返回 False，**不上抛**。
+#
+# **平台事实（2026-10-14 本机实测，务必与声明一致）**：Windows 上 `os.chmod(path, 0o600)`
+# **只切只读位、不产生 POSIX 语义隔离**（TS 式样 / Python 式样 / 完全不设，三者 S_IMODE
+# 同为 0o666）；**真实保护来自用户目录 ACL**。故本函数在 Windows 上的返回值**不代表**已获得
+# 0600 语义——调用方不得据它宣称「已隔离」。修前是 `except OSError: pass`（**静默**），
+# 那正是「声明（0600）与实现（在 Windows 上不生效）不符」长期未被发现的原因。
+def _tighten_perms(path):
+    try:
+        chmod_owned(path, 0o600)
+        return True
+    except OSError as e:
+        if len(PERM_WARNINGS) < _PERM_WARN_LIMIT:
+            PERM_WARNINGS.append((path, type(e).__name__, str(e)[:120]))
+        return False
+
+
+def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
+    """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
     raw = (os.environ.get(env_var) or "").strip()
     if raw:
         try:
@@ -254,29 +307,17 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=None,
             raise CryptoError(f"环境变量 {env_var} 不是合法 hex / base64 主密钥") from e
     path = master_file or MASTER_FILE
     if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return _b64d(f.read().strip())
-        except (OSError, ValueError) as e:
-            # 文件在但读不出/内容坏了：这是**故障**，不是「没有密钥」。旧形态在这里会
-            # 落到下面的新建分支，把「读失败」变成「换一把新钥」。
-            raise CryptoError(
-                f"主密钥文件存在但读取失败（{path}）：{type(e).__name__}: {e}"
-                " —— 不自动新建（拒绝静默换钥）") from e
-    if allow_create is not True:
-        if create is False:
-            return None
-        raise CryptoError(
-            f"主密钥文件不存在（{path}）且未显式允许新建 —— 拒绝静默换钥；"
-            "首次部署请显式传 allow_create=True")
+        with open(path, "r", encoding="utf-8") as f:
+            return _b64d(f.read().strip())
+    if not create:
+        return None
     key = secrets.token_bytes(KEY_LEN)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(_b64e(key))
-    try:
-        os.chmod(path, 0o600)
-    except OSError:
-        pass
+    # issue #326-⑤：收敛失败**不静默**（进 PERM_WARNINGS），也不阻断启动；
+    # Windows 语义限制见 _tighten_perms 的注释（不得据返回值宣称已隔离）。
+    _tighten_perms(path)
     return key
 
 
@@ -350,6 +391,9 @@ def _save_keys(root, data):
             env[k] = v
     atomic_write(keys_path(root),
                  json.dumps(data, ensure_ascii=False, indent=1))
+    # issue #326-⑤：`_keys.json` 与 `master.key` 同为**凭据载体**——同款声明与告警
+    # （修前此处**完全无权限收敛**，两种待遇不一致）。
+    _tighten_perms(keys_path(root))
 
 
 # 生效条件：tenant、actor 为入参，返回 f"{tenant}|{actor}"。
@@ -357,11 +401,56 @@ def _envelope_key(tenant, actor):
     return f"{tenant}|{actor}"
 
 
+# 生效条件：root、tenant、actor 为入参；以 identity_fingerprint(tenant, actor) 为目标
+# 指纹，递归 root 下 *.md，正文过 is_encrypted 判为密文块且 enc_id_fp 等于目标指纹即
+# 返回 True，否则 False。
+def _actor_has_ciphertext(root, tenant, actor):
+    """该身份是否**已有密文**（rotate 护栏的判据单点，issue #132 S-1）。
+
+    复用既有单点、不另造扫描逻辑：`nodefile.loads`（节点文件格式解析单点）、
+    `is_encrypted`（密文块识别单点）、`enc_id_fp`（密文块身份指纹取单点）、
+    `identity_fingerprint`（本身份指纹计算单点）。
+
+    「最小可判据」依据：本仓没有「只给 root 就枚举节点文件」的既有单点——MdCG
+    的 _scan_nodes / _node_disk_path 都要实例与索引（crypto→mdcos 会成环），故此处
+    只做最小 IO（递归列 root 下 *.md）；判定本身全部走上列既有单点，绝不另写正则
+    或第二套密文语义。
+    """
+    from . import nodefile
+    fp = identity_fingerprint(tenant, actor)
+    for dirpath, _dirs, files in os.walk(root):
+        for fn in files:
+            if not fn.endswith(".md"):
+                continue
+            try:
+                with open(os.path.join(dirpath, fn), "r",
+                          encoding="utf-8", newline="") as f:
+                    raw = f.read()
+            except OSError:
+                continue
+            _fm, content = nodefile.loads(raw)
+            # issue #446：短路判据由**前缀**改为**结构验证**——`_actor_has_ciphertext` 拿不到 dek
+            # （rotate 护栏只需「该身份是否已有可用密文块」），所以这里是**无 dek 结构验证**：
+            # 前缀对但不可解的伪造块**不再短路**（按裁：无 dek 不短路是修复，不是损失）。
+            if verify_encrypted(content) and enc_id_fp(content) == fp:
+                return True
+    return False
+
+
 # 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则以 FileLock(keys_path(root), strict=True) 持跨进程写锁进入临界区（N184，2026-09-28 第 23 轮：读快照→签发→写回全程持锁，写者互斥——原子替换只防撕裂不防丢失更新，两写者按各自陈旧快照整份写回会无痕抹除对方信封；锁竞争超时经 TimeoutError 转 LockedError fail-closed，绝不无锁放行整份写回）；临界区内加载 keys，keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)（临界区内互见 → 同身份并发 provision 幂等同 DEK）；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k]，经 _save_keys 写前对账合并并发新增信封（N184 防线纵深）后保存，返回 dek。
-def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
+def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False,
+                  force=False):
     """为 (tenant, actor) 生成 / 取回 DEK，用 KEK 包裹后存入 `_keys.json`。
 
-    rotate=True 强制换新密钥（旧密文需先迁移，见 `reencrypt_all`）。
+    rotate=True 强制换新密钥。**本函数不做任何重加密、旧 DEK 不保留**：
+    旧信封被就地替换（经 `_save_keys`），旧 DEK 随返回值丢弃 ⇒ 该身份的
+    **历史密文立即永久不可解**（issue #132 S-1）。
+
+    护栏（默认拒绝）：当该身份**已有历史密文**时，rotate=True 不静默替换，
+    改为返回结构化拒绝体（ok 为假 + 机器可读 error 码），并保证 `_keys.json`
+    逐字节不变；确需覆盖时显式传 force=True（行为与修复前逐位一致）。
+    历史密文判据见 `_actor_has_ciphertext`（复用 `is_encrypted`、`enc_id_fp`、
+    `identity_fingerprint` 三个既有单点）。
     """
     if not kek:
         raise LockedError("无主密钥（KEK）：拒绝签发数据密钥")
@@ -378,6 +467,25 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False):
             k = _envelope_key(tenant, actor)
             if k in data["envelopes"] and not rotate:
                 return unwrap_dek(root, kek, tenant, actor, clearance)
+            # issue #132 S-1 成因：rotate 是**破坏性**操作——旧信封被就地替换
+            # （data["envelopes"][k] = ... 覆盖）、旧 DEK 随返回值丢弃、从不落盘。
+            # 若该身份**已有历史密文**（正文经该 DEK 密封），换新 DEK 会让那些
+            # 密文**立即永久不可解**，而调用方拿不到任何提示。
+            # 护栏：默认拒绝（fail-closed）——只在**确无历史密文**或调用方显式
+            # force=True 确认覆盖（其行为与修复前逐位一致）时才换新。
+            if (rotate and k in data["envelopes"] and not force
+                    and _actor_has_ciphertext(root, tenant, actor)):
+                return {
+                    "ok": False,
+                    "error": "rotate_would_orphan_ciphertext",
+                    "reason": (
+                        f"{tenant}|{actor} 已有历史密文：rotate=True 会替换其 DEK "
+                        f"信封并丢弃旧 DEK，使既有密文永久不可解。"),
+                    "hint": (
+                        "本函数不做重加密、旧 DEK 不保留。请先用旧 DEK 解开并重加"
+                        "密既有密文（迁移），再轮换；确要接受历史密文不可解时，"
+                        "显式传 force=True。"),
+                }
             dek = secrets.token_bytes(KEY_LEN)
             nonce = secrets.token_bytes(NONCE_LEN)
             ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
@@ -424,9 +532,9 @@ def has_envelope(root, tenant, actor):
 
 
 # 生效条件：root、kek、tenant、actor、clearance="private" 为入参，返回 provision_dek(root, kek, tenant, actor, clearance=clearance, rotate=True)。
-def rotate_dek(root, kek, tenant, actor, clearance="private"):
+def rotate_dek(root, kek, tenant, actor, clearance="private", force=False):
     return provision_dek(root, kek, tenant, actor, clearance=clearance,
-                         rotate=True)
+                         rotate=True, force=force)
 
 
 # 生效条件：root 为入参，遍历 _load_keys(root).get("envelopes") or {} 的每项，按 "|" partition 出 tenant/actor，收集 id_fp、clearance、created_at 后返回列表；无信封时返回 []。
@@ -441,103 +549,62 @@ def envelopes(root):
     return out
 
 
-# ---- 同租户共享数据密钥（G1，2026-10-21） --------------------------------
-#
-# 背景：`_dek_aad(tenant, actor)` 把 AAD 绑到 **写者身份** 上，而每个 actor 拿到的是
-# **自己** 的 DEK。于是「同一个库」里 A 写的 private/secret 正文，B 即使同租户、
-# 密级更高、`can_admin=True` 也一律解不开（实测生产库 5 935/10 013 节点外部不可读）。
-# 库的语义边界是**租户**（一个库＝一个主体的记忆），actor 只是写入归属；把 AAD 绑到
-# actor 上等于把「一个库两个大脑」写进了密码层。这里补一条**可选**的租户内共享：
-#   ① 信封仍按 (tenant, actor) 各存一份（不改变 `_keys.json` 结构与指纹校验）；
-#   ② 同一租户只维护**一个** DEK，新 actor 复制既有信封里的 DEK、用自己的 AAD 重包裹；
-#   ③ 解封时先按自己 AAD 试，失败再按同租户其它 actor 的 AAD 试（`open_node_any`）。
-# 默认**关闭**（`MDCG_TENANT_DEK_SHARING=1` 才开）——「同租户跨 actor 读不到」是
-# 设计者 2026-10-10 的裁定（`test_b1_foreign_read` 钉住），属用户地基，动它要点头。
-# 存量密文由旧的按 actor DEK 封存，共享开启**不会**让它们变可读 —— 那需要
-# `mdcg reencrypt` 迁移，已列入部署清单。
-
-def tenant_actors(root, tenant):
-    """同租户已签发信封的 actor 列表，按签发时间升序（旧 → 新）。"""
-    rows = []
-    for k, v in (_load_keys(root).get("envelopes") or {}).items():
-        t, _, a = k.partition("|")
-        if t == tenant:
-            rows.append((v.get("created_at") or 0, a))
-    return [a for _, a in sorted(rows)]
-
-
-def provision_tenant_dek(root, kek, tenant, actor, clearance="private"):
-    """同租户共享 DEK 的签发：已有同租户信封则复制其 DEK，否则新建。
-
-    与 `provision_dek` 的差别只有一处：新身份的 DEK 不是随机生成的，而是从同租户
-    任一既有信封里解出后**用新身份 AAD 重包裹**（同一把密钥、两份信封）。
-    损坏标记 / 写锁 / 并发合并三条 fail-closed 防线与 `provision_dek` 完全一致。
-    """
-    if not kek:
-        raise LockedError("无主密钥（KEK）：拒绝签发数据密钥")
-    try:
-        with FileLock(keys_path(root), timeout=10.0, strict=True):
-            data = _load_keys(root)
-            if data.get("load_error"):
-                raise LockedError(
-                    f"密钥库损坏/不可读（{data['load_error']}）：{keys_path(root)}")
-            data.setdefault("envelopes", {})
-            k = _envelope_key(tenant, actor)
-            if k in data["envelopes"]:
-                return unwrap_dek(root, kek, tenant, actor, clearance)
-            dek, src = None, None
-            for other in tenant_actors(root, tenant):
-                try:
-                    dek = unwrap_dek(root, kek, tenant, other, clearance)
-                    src = other
-                    break
-                except LockedError:
-                    continue           # 该信封解不开（旧 KEK / 损坏）：换下一个
-            if dek is None:
-                dek = secrets.token_bytes(KEY_LEN)
-                src = None
-            nonce = secrets.token_bytes(NONCE_LEN)
-            ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
-            data["envelopes"][k] = {
-                "id_fp": identity_fingerprint(tenant, actor),
-                "clearance": clearance,
-                "nonce": _b64e(nonce), "ct": _b64e(ct + tag),
-                "created_at": time.time(),
-                "shared_from": src,     # 审计：这把 DEK 复制自哪个 actor 的信封
-            }
-            data["v"] = ENVELOPE_VERSION
-            data["alg"] = ALG
-            _save_keys(root, data)
-            return dek
-    except TimeoutError as e:
-        raise LockedError(
-            f"密钥库写锁（{keys_path(root)}.lock）竞争超时：并发 provision "
-            f"未在限时内获得互斥——fail-closed 拒绝签发。") from e
-
-
-def open_node_any(content, dek, node_id, tenant, actors):
-    """按 `actors` 顺序逐个 AAD 试解，返回 `(明文, 命中的 actor)`。
-
-    只在「同租户共享 DEK」已开启时使用：AAD 里的 actor 仍参与认证（错 actor 的
-    AAD 一定 MAC 失败），所以这不是绕过校验，而是**同一租户内允许他 actor 归属的
-    正文被本 actor 解封**。全部失败抛最后一个 CryptoError（调用方据此分类审计）。
-    """
-    if not is_encrypted(content):
-        return content, None
-    last = None
-    for a in actors:
-        try:
-            return open_node(content, dek, node_id, tenant, a), a
-        except CryptoError as e:            # noqa: PERF203 —— 候选很少
-            last = e
-    raise last or CryptoError("无可试解的 actor 候选")
-
-
 # ---- 节点正文封装 --------------------------------------------------------
 
-# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则返回 content.lstrip().startswith(ENC_PREFIX)。
+# 生效条件：content 为入参；bool(content) 为假（如空串或 None）时返回 False；否则按 strip 后的串判定，**首尾同时成立**
+# （startswith(ENC_PREFIX) 且 endswith(ENC_SUFFIX)，且首尾之间至少 1 字符）才返回 True。
 def is_encrypted(content):
-    return bool(content) and content.lstrip().startswith(ENC_PREFIX)
+    """内容是否为**完整的密文信封**（前缀 + 后缀），而非只看开头前缀。
+
+    #446 订正：原判据只查 `lstrip().startswith(ENC_PREFIX)`——**比消费方的前置更弱**。
+    消费方（`backfill` / `ccgc` / `consolidate` 等十余处）拿到 True 即当「已加密、不可读」
+    而跳过；而真正取正文的路径要按 `[len(ENC_PREFIX):-len(ENC_SUFFIX)]` **切掉后缀**
+    ⇒ 只认前缀时，任何以 ENC_PREFIX 起头的**明文**都被误判为密文：低权写者一条伪前缀
+    节点即可令其被全线静默排除（派生字段 / CCG / 合并一律跳过），该判据被写面用作
+    「已密封」短路时同样会被骗过。⇒ 收紧为**首尾都成立**，与消费方切后缀的前置一致。
+    """
+    if not content:
+        return False
+    t = content.strip()
+    return (len(t) > len(ENC_PREFIX) + len(ENC_SUFFIX)
+            and t.startswith(ENC_PREFIX) and t.endswith(ENC_SUFFIX))
+
+
+# 生效条件：content 为入参，is_encrypted(content) 为假时返回 False；否则剥 ENC_PREFIX/SUFFIX、
+# 有 ":" 时取其后段、base64 解码，解码失败或长度 < NONCE_LEN 返回 False；dek 为 None 时仅凭
+# 结构验证通过返回 True（**未验证可解密**）；dek 给定时再走 open_node 解密试算，成功 True 失败 False。
+def verify_encrypted(content, dek=None, node_id="", tenant="", actor=""):
+    """「**验证**是密文」——与 `is_encrypted`（「**看起来**是密文」= 前缀）严格区分。
+
+    issue #446（SEC·P0）：修前全仓只有前缀判定，且它**同时充当密封短路** ⇒ 一个只要
+    `<!-- mdcg-enc:v1:` 开头的伪造块就能让密封路径短路。
+
+    ★ 两个函数名各自说清判的是什么（A4 诚实）：
+      · `is_encrypted`    —— 表面：前缀。**不得**把它当前缀判定的结果当验证结论用；
+      · `verify_encrypted` —— 可验证证据：结构（无 dek）/ 解密试算（有 dek）。
+
+    dek 缺省 ⇒ **只做结构验证**（标记段可解析 + base64 可解码 + 长度够）：能拦掉「前缀对但
+    不可解」的伪造块；但**不证明能解密**（结构验证 ≠ 解密验证，未核边界）。
+    """
+    if not is_encrypted(content):
+        return False
+    try:
+        body = content.strip()
+        body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
+        if ":" in body:
+            body = body.split(":", 1)[1]
+        raw = _b64d(body)
+    except Exception:
+        return False
+    if len(raw) < NONCE_LEN:
+        return False
+    if dek is None:
+        return True            # 结构验证通过（**未验证可解密**）
+    try:
+        open_node(content, dek, node_id, tenant, actor)   # AAD 必须与封装时一致
+        return True
+    except Exception:
+        return False
 
 
 # 生效条件：content 为入参；非密文（is_encrypted 为假）时返回 None；密文块正文中不含 ":"（旧格式，仅 base64）时返回 None；否则返回 ":" 前的 enc_id_fp 字串（空串亦返回 None）。base64 标准字母表不含 ":"，故该分隔符无歧义；旧格式密文天然无此段 ⇒ 返回 None（调用方走旧路径）。
@@ -574,8 +641,12 @@ def seal_node(content, dek, node_id, tenant, actor):
 # 生效条件：content、dek、node_id、tenant、actor 为入参；若 is_encrypted(content) 为假则原样返回 content；否则 strip 后切掉 ENC_PREFIX/ENC_SUFFIX，正文含 ":" 时丢弃其前的 enc_id_fp 段（新格式），base64 解出 raw，按 NONCE_LEN、TAG_LEN 切出 nonce/tag/ct，调 aead_decrypt(dek, nonce, ct, tag, _node_aad(node_id, tenant, actor)) 并 utf-8 解码返回；aead_decrypt 失败抛 CryptoError；旧格式（无 ":" 段）与新格式同一路径解密（向后兼容）。
 def open_node(content, dek, node_id, tenant, actor):
     """密文标记块 → 明文；未加密原样返回；失败抛 CryptoError（兼容旧格式）。"""
+    # issue #446：前缀命中后**先结构校验**——前缀对但结构坏 ⇒ 明确抛 CryptoError（「声明不可
+    # 用」），不能进解密路径再静默。
     if not is_encrypted(content):
         return content
+    if not verify_encrypted(content):
+        raise CryptoError("密文块结构校验失败（前缀命中但不可解析/不可解码）")
     body = content.strip()
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
     if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
@@ -637,7 +708,7 @@ def _note_audit_write_failure(root, exc):
     return True
 
 
-# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True；先经 _rotator(root).maybe_rotate() 做写前轮转闸门（阈值内零切分），再 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；轮转或追加抛 (OSError, TimeoutError) 时经 _note_audit_write_failure 记账 + 有界 stderr 告警，不阻断调用方（best-effort 语义不变）。
+# 生效条件：root、rec 为入参，复制 rec，若未提供 ts 则设 time.time()，设 payload_free=True；先经 _rotator(root).maybe_rotate() 做写前轮转闸门（阈值内零切分），再 append_jsonl(os.path.join(root, AUDIT_FILE), rec)；轮转抛 (OSError, TimeoutError) 或**追加返回 False**（issue #326-④ 改后 append_jsonl 不再上抛、以 False 报写失败）时经 _note_audit_write_failure 记账 + 有界 stderr 告警，不阻断调用方（best-effort 语义不变，但**失败不静默**）。
 def audit(root, rec):
     from .fsutil import append_jsonl
     rec = dict(rec)
@@ -648,7 +719,13 @@ def audit(root, rec):
     except (OSError, TimeoutError) as e:      # 轮转失败不得阻断审计写
         _note_audit_write_failure(root, e)
     try:
-        append_jsonl(os.path.join(root, AUDIT_FILE), rec)
+        # issue #326-④ 之后 append_jsonl **不再上抛 OSError**（改返回布尔：成功 True /
+        # 写失败 False）——本处必须读返回值，否则审计写失败会**静默**（N126 口径：容忍 ≠
+        # 静默）。实证：`md_cg.test_crypto_rotate` ⑭ 会转红（计数不增、无 stderr 告警）。
+        # except 分支保留，兜 append_jsonl 之外的 OSError（如 path 组装/编码面）。
+        if append_jsonl(os.path.join(root, AUDIT_FILE), rec, durable=True) is False:
+            _note_audit_write_failure(
+                root, OSError("append_jsonl 返回 False（写失败，best-effort 已容忍）"))
     except OSError as e:
         _note_audit_write_failure(root, e)
 

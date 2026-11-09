@@ -158,7 +158,16 @@ def _index_path(root):
 def _build_index(cg):
     """从 review_list() 派生索引条目（单向、可重建、不含正文）。"""
     items = []
-    for r in (cg.review_list() or []):
+    _rows = cg.review_list() or []
+    for r in _rows:
+        # M5（2026-10-31）：DEFER 指针行的正文在节点里，摘要需回读节点补上
+        # （索引只放摘要、不放正文的口径不变；读不到就留空，不阻断索引）。
+        if not (r.get("content") or "") and (r.get("extra") or {}).get("defer_ref"):
+            try:
+                _n = cg.get(str(r.get("id") or "")) or {}
+                r = dict(r, content=(_n.get("content") or ""))
+            except Exception:                     # noqa: BLE001 —— 摘要降级
+                pass
         items.append({
             "pid": r.get("pid"),
             "kind": _kind_label(r),

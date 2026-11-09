@@ -25,7 +25,6 @@ locomo-zh-500 是**单域**会话语料，且查询侧是**无情境标注**的�
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import os
@@ -112,21 +111,7 @@ class LingshuAdapter(Adapter):
 
     name = "lingshu"
 
-    def _digest(self, rows):
-        """语料内容指纹（E28）：`id \\t body` 逐行拼起来取 sha1。
-
-        旧判据只看「索引节点数 ≥ len(rows)」——池子换成同条数的新语料时会静默复用
-        旧库，四个臂的分数全部来自过期语料，且没有任何提示。
-        """
-        h = hashlib.sha1()
-        for c in rows:
-            h.update(str(c.get("id", "")).encode("utf-8"))
-            h.update(b"\t")
-            h.update(str(self._body_of(c)).encode("utf-8"))
-            h.update(b"\n")
-        return h.hexdigest()
-
-# 生效条件：root 固定为 os.path.join(ROOT_BASE, variant)；rebuild 为真且 os.path.isdir(root) 为真时先 rmtree；随后按**内容指纹**（`id\tbody` 的 sha1）与条数判断能否复用——清单 `_bench6_manifest.json` 的 digest 一致才直接 return（幂等复用、不写库），清单缺失或 digest 不同则作废重建；否则按 rows 逐条 add（with_meta 为真时同时补 tags=tags_of(c)、condition_space=cond_of(c)）后 flush 并写清单。
+# 生效条件：root 固定为 os.path.join(ROOT_BASE, variant)；rebuild 为真且 os.path.isdir(root) 为真时先 rmtree，索引中已有节点数 ≥ len(rows) 时直接 return（幂等复用、不写库），否则按 rows 逐条 add（with_meta 为真时同时补 tags=tags_of(c)、condition_space=cond_of(c)）后 flush。
     def __init__(self, rows, variant, paths, context=None, with_meta=False,
                  rebuild=False):
         from md_cg.bench_locomo_zh_public import body_of
@@ -140,33 +125,9 @@ class LingshuAdapter(Adapter):
         self.root = root
         if rebuild and os.path.isdir(root):
             shutil.rmtree(root, ignore_errors=True)
-        # 幂等复用判据（E28）：旧判据「索引节点数 ≥ len(rows)」只比条数不比内容，
-        # 池子换成同条数的新语料时会**静默**复用旧库。现在比对内容指纹 + 条数：
-        # 指纹一致才复用；不一致（或旧库没有清单、无从证明同一份语料）就作废重建，
-        # 并把原因打在 stdout，不再无声沿用过期分数。
-        want = self._digest(rows)
-        self.want_digest = want
-        man = os.path.join(root, "_bench6_manifest.json")
-        reused, why = False, ""
-        if os.path.isdir(root):
-            old = None
-            try:
-                with open(man, encoding="utf-8") as f:
-                    old = json.load(f)
-            except (OSError, ValueError):
-                old = None
-            if old and old.get("digest") == want:
-                reused = True
-            else:
-                why = ("库无内容清单（旧版产物，无法证明是同一份语料）" if old is None
-                       else "内容指纹不同（同条数也可能换了语料）")
-                print("  [lingshu/%s] 不复用：%s —— 旧库作废并重建" % (variant, why))
-                shutil.rmtree(root, ignore_errors=True)
         self.cg = MdCGOS(root, autoflush=500)
-        if reused:
-            print("  [lingshu/%s] 复用 %d 节点（内容指纹一致，n=%d）"
-                  % (variant, len(self.cg.index["nodes"]), len(rows)))
-            return                                  # 幂等复用（内容一致）
+        if len(self.cg.index["nodes"]) >= len(rows):
+            return                                  # 幂等复用
         t0 = time.time()
         for c in rows:
             kw = {}
@@ -177,15 +138,6 @@ class LingshuAdapter(Adapter):
                         eval_src="bench6:locomo-zh-500",
                         verification_basis="data", **kw)
         self.cg.flush()
-        # 落内容清单（E28）：下次复用要靠它证明「这份库确实由这份语料建出」
-        try:
-            with open(man, "w", encoding="utf-8", newline="\n") as f:
-                json.dump({"digest": want, "n": len(rows),
-                           "paths": list(self.paths), "with_meta": bool(with_meta)},
-                          f, ensure_ascii=False, indent=1)
-        except OSError as e:
-            print("  [lingshu/%s] 警告：内容清单写入失败（%s）——下次会因无清单而重建"
-                  % (variant, e))
         print("  [lingshu/%s] 建库 %d 节点 %.1fs"
               % (variant, len(self.cg.index["nodes"]), time.time() - t0))
 

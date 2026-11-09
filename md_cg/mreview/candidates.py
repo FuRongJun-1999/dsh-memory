@@ -24,6 +24,7 @@ import os
 import time
 
 from .. import conformance as CF
+from .. import nodefile as _nodefile
 from ..datapath import mdcg_root
 
 SOURCES = ("assertion", "defer_queue", "cold", "patrol")
@@ -120,6 +121,20 @@ def _assertion_items(nodes: dict) -> list:
 
 
 # 生效条件：当 root、nodes 给定，对 _read_jsonl(root/CF.INBOX_LOG) 解析出的 inbox 记录中 pid（str(r.get("pid") or "")）非空且不在 decisions 中 x.get("pid") 真值 str 集合的记录，生成 origin=proposal、issue_kind=gate_defer 条目，其中 layer 直接取 r.get("layer") 不回落、content 取 r.get("content") or ""、tags 取 r.get("tags") or []、content_hash 取 r.get("payload_hash") or ""、node_id 取 str(r.get("id") or "") or None；再对 _read_jsonl(root/FORGET_LOG) 中 str(r.get("verdict"))=="DEFER" 的记录，若 str(r.get("node_id") or "") 非空且该 nid 是 nodes 的键则加入 out，否则加入 skipped（source=defer_queue、reason=node_not_landed、detail 为 nid 或 str(r.get("reason"))）；返回 (out, skipped)；
+def _node_content(root: str, nodes: dict, nid: str) -> str:
+    """按 id 从节点文件读正文（M5；读不到返回 ""，不抛）。"""
+    if not nid:
+        return ""
+    rel = (nodes.get(nid) or {}).get("path")
+    if not rel:
+        return ""
+    try:
+        with open(os.path.join(root, rel), encoding="utf-8") as f:
+            return _nodefile.loads(f.read())[1] or ""
+    except (OSError, UnicodeDecodeError, ValueError):
+        return ""
+
+
 def _defer_items(root: str, nodes: dict):
     """闸门待裁决提案 + 遗忘日志 DEFER 留痕。返回 (items, skipped)。"""
     ib = _read_jsonl(os.path.join(root, CF.INBOX_LOG))
@@ -132,7 +147,12 @@ def _defer_items(root: str, nodes: dict):
             continue
         out.append({"node_id": str(r.get("id") or "") or None, "origin": "proposal",
                     "proposal_id": pid, "issue_kind": "gate_defer",
-                    "layer": r.get("layer"), "content": r.get("content") or "",
+                    "layer": r.get("layer"),
+                    # M5（2026-10-31）：DEFER 指针行的正文在节点里（队列只存指针），
+                    # 此处按 id 回读节点正文——否则巡检候选会把空正文当正文展示。
+                    "content": (r.get("content")
+                                or _node_content(root, nodes,
+                                                  str(r.get("id") or ""))),
                     "tags": r.get("tags") or [], "content_hash": r.get("payload_hash") or "",
                     "evidence": "闸门待裁决提案（inbox 中 %s 未被 decisions 覆盖）" % pid})
     for r in _read_jsonl(os.path.join(root, FORGET_LOG)):

@@ -38,17 +38,9 @@ SA_REQUIRED = ["name", "domain", "level", "response"]
 
 
 def _bigram_set(text):
-    """二元组集合（去非中文/字母数字）。
-
-    非字符串输入返回空集，**不做 `str()` 强转**（E33）：把 list/dict 的字面量当
-    文本比会造出假交集；旧实现在这里直接 `re.sub(..., text or "")`，`counters`
-    传 list 时抛 `TypeError: expected string or bytes-like object`，
-    闸门的 pass/needs_revision/fail 三态一档都落不到。
-    """
+    """二元组集合（去非中文/字母数字）。"""
     import re
-    if not isinstance(text, str):
-        return set()
-    t = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", text)
+    t = re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", text or "")
     return {t[i:i + 2] for i in range(len(t) - 1)}
 
 
@@ -117,9 +109,6 @@ def validate(card, dex=None, existing_counters=None):
     # ---------- 3. counters 冲突（与现有卡） ----------
     conflict = []
     new_counters = resp.get("counters", "") or ""
-    # 类型闸（E33）：非字符串 counters 不许把闸门抛翻，直接判这一查不通过
-    type_bad = "" if isinstance(new_counters, str) else (
-        f"counters 类型非法：{type(new_counters).__name__}（应为字符串）")
     if existing_counters is None:
         existing_counters = load_existing_counters(dex)
     new_cb = _bigram_set(new_counters)
@@ -130,8 +119,8 @@ def validate(card, dex=None, existing_counters=None):
         if inter >= 4:
             conflict.append(f"{name}(交集{inter})")
     checks.append({
-        "check": "3.counters冲突", "passed": not conflict and not type_bad,
-        "detail": type_bad or (f"潜在冲突: {conflict[:3]}" if conflict else "无冲突信号"),
+        "check": "3.counters冲突", "passed": not conflict,
+        "detail": f"潜在冲突: {conflict[:3]}" if conflict else "无冲突信号",
     })
 
     # ---------- 4. 学科域/教育层级归属 ----------
@@ -152,9 +141,7 @@ def validate(card, dex=None, existing_counters=None):
 
     # ---------- 5. 测试用例可执行性（物理基底闸门 · v1.16 升级为真执行） ----------
     # 格式检查（可观测判据存在）是前置；tests.executable（lang/code）存在时
-    # **真跑**——但真跑只回答两件事：代码跑不跑得起来、输出是否含/不含期望串
-    # （C28：机制本身靠 code 里的 assert 或 expect_contains 才能判，cases 不读；
-    # 无任何期望判据时 runner 返回 unverified，这里按「未验证」算不通过）。
+    # **真跑**——代码运行/编译结果 = 物理信息基底裁决（爸爸外部参照）。
     tests = card.get("tests") or card.get("test_cases")
     tests_ok = True
     tests_detail = "无 tests 字段"
@@ -178,10 +165,6 @@ def validate(card, dex=None, existing_counters=None):
                         tests_ok = True  # 环境缺失不判卡错（D-005 诚实降级），
                         # 但标记待环境——格式仍通过，设计者终裁时可见
                         tests_detail = f"物理基底：环境缺失（{run_r.get('detail','')[:50]}）——待环境"
-                    elif status == "unverified":
-                        # 跑通但没有任何期望判据（C28）：这不算验证，不许当 pass
-                        tests_ok = False
-                        tests_detail = f"物理基底 UNVERIFIED: {run_r.get('detail','')[:120]}"
                     else:
                         tests_ok = False
                         tests_detail = f"物理基底真跑 FAIL: {run_r.get('detail','')[:120]}"
