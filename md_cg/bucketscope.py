@@ -55,7 +55,7 @@ def _terms(q):
 MAX_SCAN = 800
 
 
-def _pick(store, ids, terms, cap, validity=False, now=None):
+def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=False):
     """桶内按词面命中筛选（确定性）：命中词数降序 → **时间降序** → id；取前 cap。
 
     【#842】排序键必须**在截断之前**含时间：早先只按 (-hits, nid) 排再截 cap，
@@ -77,6 +77,13 @@ def _pick(store, ids, terms, cap, validity=False, now=None):
         if hits:
             scored.append((-hits, _recency_key(node), nid, node))
     scored.sort()
+    if not scored and fallback_recency:
+        # 【外测 v2.0 建议 2】桶是按日期选进来的，说明**日期对了**；若此时再按 query 词
+        # 过滤，就会出现「日期对了、内容被过滤掉」⇒ 桶内按时间序给候选（仍受 cap 限）。
+        others = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN]) if n]
+        others.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
+        return [(n, 0.0, {"reason": "bucket_scope", "fallback": "recency"}, [])
+                for n in others[:cap]]
     return [(node, 0.0, {"reason": "bucket_scope"}, [])
             for _h, _r, _nid, node in scored[:cap]]
 
@@ -113,7 +120,20 @@ _EARLY_RE = re.compile(r"最早|最初|第一次|头一次|头回|初次|当初|
                        r"上次|上一回|上回|那回|那次|当年|那时候")
 
 #: 早段意图下向前扫多少个日桶（成本上界：每桶 ≤ MAX_SCAN 条读盘）。
-EARLY_SCAN_DAYS = 12
+EARLY_SCAN_DAYS = 16
+
+#: 早段意图的日桶集合：**最早几天 + 全时段均匀采样**。
+#: 教训（2026-11-10 外测 v2.0）：只扫「最早 12 天」会漏掉「库内最后一天」这种锚点
+#: （P16 锚点 2026-05-03 恰是最后一天、P20 锚点在第 18 天），故改为全时段覆盖。
+def _early_days(all_days, limit=EARLY_SCAN_DAYS):
+    n = len(all_days)
+    if n <= limit:
+        return list(all_days)
+    head = list(all_days[:4])                       # 最早几天（问「最初」时最可能）
+    rest = limit - len(head)
+    step = max(1, n // max(1, rest))
+    picked = head + [all_days[i] for i in range(0, n, step)][:rest]
+    return sorted(set(picked))
 
 
 def _early_intent(query):
@@ -161,6 +181,14 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     不抢正排名次，但一定进入候选（调用方可按预算追加）。
     """
     terms = _terms(query)
+    # 【外测 v2.0 建议 3】把解析出的**绝对日期**回吐给调用方（metadata.resolved_dates）：
+    # 作答侧据此直接引用日期，不必自己把「上周五」换算成具体日子（B 类 7 题的根因之一）。
+    resolved_dates = []
+    try:
+        from . import timeboost as _tbd      # noqa: PLC0415
+        resolved_dates = sorted(_tbd.query_dates(query, now))
+    except Exception:            # noqa: BLE001 —— 解析失败不影响召回
+        resolved_dates = []
     out = []
     seen = set()
     # ① 会话桶优先（自己的最近记录）
@@ -192,7 +220,7 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
         # 故：早段意图优先扫**最早的日子**，其余仍回落最近优先。
         _all_days = sorted(_bi.all_days(store))
         if _early_intent(query) and _all_days:
-            _ordered_days = _all_days[:EARLY_SCAN_DAYS]
+            _ordered_days = _early_days(_all_days)
         else:
             _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
     # ② 日桶按上述顺序取
@@ -202,12 +230,14 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
             if len(out) >= cap:
                 break
             picked = _pick(store, _bi.day_ids(store, day), terms, cap - len(out),
-                           validity=validity, now=now)
+                           validity=validity, now=now, fallback_recency=True)
             for node, score, qual, prov in picked:
                 if node.get("id") in seen:
                     continue
                 qual = dict(qual)
                 qual["bucket"] = "day:%s" % day
+                if resolved_dates:
+                    qual["resolved_dates"] = resolved_dates
                 out.append((node, score, qual, prov))
                 seen.add(node.get("id"))
     # ③ 排序：**会话桶整体优先**，再按时间降序；日桶同样按时间降序。
