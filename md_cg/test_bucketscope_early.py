@@ -55,8 +55,10 @@ def main():
 
     picked2 = bs.scope_recall(g, "最近在忙什么", session=None, now=now, cap=4)
     ids2 = [n.get("id") for n, _s, _q, _p in picked2]
-    ok(not ids2 or "n_old" not in ids2,
-       "E4 非早段意图不强行翻到最早（保持最近优先）", ids2)
+    # 非早段意图下**不翻转顺序**：最近的排第一（老的那条可能仍被带出——
+    # 这正是「日期选对了就给内容」的兜底语义，故断言排序而不是断言缺席）。
+    ok(ids2[:1] == ["n_new"],
+       "E4 非早段意图保持最近优先（最新那条排第一）", ids2)
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
