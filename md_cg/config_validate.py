@@ -78,6 +78,7 @@ RULES = {
     'MDCG_RELOAD_MIN_INTERVAL': {'type': 'str'},
     'MDCG_RETRIEVAL_PIPELINE': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_S7_FRESHNESS': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_SCOPESEL_COOC': {'type': 'str'},
     'MDCG_SCOPE_SELECT': {'type': 'str'},
     'MDCG_SCORE_MODE': {'enum': ['legacy', 'jaccard'], 'type': 'str'},
     'MDCG_SEMANTIC': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
