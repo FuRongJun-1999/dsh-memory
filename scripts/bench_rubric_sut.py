@@ -92,7 +92,9 @@ def chapters_text(bench):
     cur, title, buf = None, '', []
     out = {}
     for ln in lines:
-        m = re.match(r'^##\s*第([一二三四五六七八九十\d]+)章', ln)
+        # 语料里第 18 章是**一级**标题（`# 第十八章`），其余是 `## `——
+        # 只认 `##` 会整章丢失（实测 22/23 章，28 条断言直接引用它）。
+        m = re.match(r'^#{1,6}\s*第([一二三四五六七八九十\d]+)章', ln)
         if m:
             if cur is not None and buf:
                 out[cur] = (title, chr(10).join(buf))
