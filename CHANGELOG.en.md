@@ -6,6 +6,40 @@ This file is maintained since **0.9.15**. For earlier versions see the git tags 
 
 The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); version numbers follow semantic versioning.
 
+## [Unreleased]
+
+## [0.10.0] - 2026-11-10
+
+### Added: scope selection (`scopeselect`) — state-tracking anchors become the bucket-order standard (#844 / #847)
+
+- **Criterion change**: bucket order is no longer "which text looks more like the query" but "do these values co-occur in the same time bucket". False statements carry an element from another chapter, so co-occurrence voting is immune to that trap.
+- **Bucket term table + text skeleton**: `_bucketterms.json` (terms/df) and `_bucketskel.json` (skeleton, 600 chars/node, 20k chars/bucket) are written during bucket build; queries only do dictionary math.
+- **Declaration first**: an explicit session or date is used as the scope directly; co-occurrence inference runs only when nothing is declared.
+- **Switches**: `MDCG_SCOPE_SELECT` (default 1; 0 falls back to "most recent first") and `MDCG_SCOPESEL_COOC` (default 1; 0 uses the idf fallback path).
+- **Readings (bench rubric92, 552 assertions, pure deterministic)**: cited-chapter top-1 **97.83%**, top-3 **99.82%**; ablation (chapter number removed) identical ⇒ no dependence on the chapter literal. idf path control: 35.33%.
+- **Main-library cost**: full rebuild of 34k nodes in 53 s; `_bucketskel.json` 5.72 MB, `_bucketterms.json` 21.09 MB; first query 0.64 s (load), then 0.00–0.01 s.
+
+### Added: daily automatic bucket-index rebuild (#838)
+
+- Triggered by `cg(op=info)`; `_bucketindex_meta.json` records the last rebuild and only rebuilds after `MDCG_BUCKET_INTERVAL_H` (default 20 h); daemon thread with a module-level re-entrancy guard, never blocking info.
+- `bucket_auto` (rebuilt / reason / age_h) is surfaced in the info payload for auditing; `MDCG_BUCKET_AUTO=0` disables it.
+
+### Fixed: bucket recall dropped the newest entry (#842)
+
+- `_pick` used to sort by `(-hits, nid)` and truncate to cap before applying recency; with 9 equally matching records and cap=8 the entry dropped by id order could be the newest one.
+- Now the sort key includes recency **before** truncation, `(-hits, recency, nid)`, so truncation keeps the newest among equal hits.
+
+### Fixed: `validity=True` exclusions were re-added by bucket recall (#843)
+
+- Bucket recall appends after candidate retrieval and previously neither received `validity` nor reused the expiry test.
+- Now `_pick` filters expired nodes at the source (only `frontmatter.valid_until`; unparsable values are not treated as expired), threaded through `scope_recall` / `day_scope` / `session_scope`.
+
+### Fixed: scrub idempotency / review_cli durability / bench measurement period (#827 / #831 / #832; PR #839 / #840 / #841)
+
+- `_weaken` de-duplication now follows the node itself (the old test read a per-round-empty `_scrub.jsonl` in the shadow worktree; measured 407 negative evidences with only 83 distinct, one key recorded 52 times).
+- `review_cli` is constructed with `async_flush=False`, so "visible on any exit path" holds again.
+- `bench_swarm_parallel` measurement period moved out of the scheduler-noise band.
+
 ## [0.9.23] - 2026-11-05
 
 ### Fixed: `cg(op=read)` returned DEFER for natural phrasing (issue #722, Q1=A / Q2=A)

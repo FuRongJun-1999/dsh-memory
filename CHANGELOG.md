@@ -6,6 +6,38 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-11-10
+
+### 新增：范围选择（`scopeselect`）——状态追踪式锚定，成为桶序标准（#844 / #847）
+
+- **判据换代**：桶序不再由「哪段文字更像查询」决定，而由「这些值是否在同一时间桶里同时出现过」决定（槽位共现）。假题的错元素位于别章，共现投票天然免疫。
+- **桶词表 + 桶文本骨架**：`_bucketterms.json`（词项/df）与 `_bucketskel.json`（骨架，每节点 600 字 / 每桶 2 万字），建桶时顺手落盘；查询期只做字典运算。
+- **声明优先**：显式会话 / 显式日期直接当范围；无声明才走共现推断。
+- **开关**：`MDCG_SCOPE_SELECT`（缺省 1，=0 回落「最近优先」）、`MDCG_SCOPESEL_COOC`（缺省 1，共现优先；=0 走 idf 兜底路）。
+- **读数（bench rubric92 · 552 断言 · 纯确定性）**：所引章 top-1 **97.83%**、top-3 **99.82%**；消融（去掉「第N章」）同值 ⇒ 对章节字面零依赖。对照 idf 路 35.33%。
+- **主库代价**：全量重建 3.4 万节点 53 秒；`_bucketskel.json` 5.72 MB、`_bucketterms.json` 21.09 MB；查询首调 0.64 秒（载入）→ 之后 0.00–0.01 秒。
+
+### 新增：桶索引每日收尾自动重建（#838）
+
+- `cg(op=info)` 触发；`_bucketindex_meta.json` 记上次重建时间，超过 `MDCG_BUCKET_INTERVAL_H`（缺省 20h）才重建；后台 daemon 线程 + 模块级重入防护，不阻塞 info。
+- info 返回体透出 `bucket_auto`（rebuilt / reason / age_h）可审计；`MDCG_BUCKET_AUTO=0` 关闭。
+
+### 修复：桶召回把最新的那条丢掉（#842）
+
+- `_pick` 早先按 `(-hits, nid)` 排序后直接截 cap，时间序在截断之后才应用；9 条同等命中 + cap=8 时，被 id 序挤掉的可能正是最新那条。
+- 现排序键在**截断前**就含时间序 `(-hits, recency, nid)` ⇒ 截断即保留「同分里最新的」。
+
+### 修复：`validity=True` 排除的过期记忆被桶补召回装回（#843）
+
+- 桶补召回在候选检索之后 append，早先既没传 `validity` 也没复用过期判据。
+- 现 `_pick` 源头过滤 `validity`（只认 `frontmatter.valid_until`，解析失败不算过期），`scope_recall` / `day_scope` / `session_scope` 全链透传。
+
+### 修复：scrub 幂等 / review_cli 落账 / bench 测量周期（#827 / #831 / #832；PR #839 / #840 / #841）
+
+- `_weaken` 去重判据跟着节点走（旧判据读影子工作树里每轮归零的 `_scrub.jsonl`；实测 407 条负向证据仅 83 条不同、单键被记 52 次）。
+- `review_cli` 以 `async_flush=False` 构造，写毕即落账重新成立。
+- `bench_swarm_parallel` 测量周期拉离调度噪声区。
+
 ### 修复：`calibration` 在分母无正例时恒判 overconfident（issue #829）
 - 判据是 `Σ正例 / Σ(正例+负例)`，而 `confirmed` 只由外部裁决产生；活库
   407→409 条证据**正例恒为 0** ⇒ `actual_accuracy` 数学上恒 `0.0`、
