@@ -4362,7 +4362,7 @@ def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
             else None)
 
 
-# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
+# 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name **抛 ValueError（`raise ValueError(f"未知工具：{name}")`，见函数末尾）**，由上层转成 JSON-RPC error 响应 —— `_serve_line` 对每条请求单独 try，`server/mdcg_http.py` 的 `do_POST` 也在 `_LOCK` 内 try/except 后回 500；**进程不因此中断，但『返回 error 字典』这个说法是错的**（R-527，2026-11-10 审计）；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
 # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**。
 # 背景：令牌只在服务启动时 verify_token 一次（_identity），之后全程用缓存的
 # Principal；security.Principal.expired() 存在但**运行期没有任何调用点**读
