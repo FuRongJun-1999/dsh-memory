@@ -590,11 +590,28 @@ def fold_verdicts(rows: list) -> tuple:
 
 # 生效条件：当 rows 中 unit==REFLECT_UNIT 与 unit==VERIFY_UNIT 的执行者经 str(x.get("actor") or "") 后存在相同的非空值（空串被 discard）时返回 True，否则返回 False。
 def detect_self_verify(rows: list) -> bool:
-    """同一执行者同时充当反思与验证 = 自证（禁止）。"""
-    r = {str(x.get("actor") or "") for x in rows if x.get("unit") == REFLECT_UNIT}
-    v = {str(x.get("actor") or "") for x in rows if x.get("unit") == VERIFY_UNIT}
-    r.discard("")
-    v.discard("")
+    """同一执行者同时充当反思与验证 = 自证（禁止）。
+
+    ★R-535（2026-11-10 审计 P3 安全）：修前对 `actor` 空串做 `discard("")`，
+    于是 **`actor` 留空就能绕过自证检测** —— 两侧都空 ⇒ 交集为空 ⇒ 返回 False
+    （判「不是自证」）。判据的输入由**被判方自己填**，这是最典型的「判据可被
+    被判方关掉」。
+
+    修法分两种情形，不要一锅端：
+      · **某一侧没有行**（没做反思或没做验证）⇒ 不构成「自证」的**事实基础**，
+        返回 False（这不是绕过，是这件事没发生）；
+      · **两侧都有行、但任一侧出现空 `actor`** ⇒ **无法判定谁做的**，按 fail-closed
+        判 `True`（自证），要求调用方补齐 `actor`。题面就写在返回值语义里：
+        「要么给得出执行者，要么就当自证处理」。
+    """
+    r = {str(x.get("actor") or "").strip()
+         for x in rows if x.get("unit") == REFLECT_UNIT}
+    v = {str(x.get("actor") or "").strip()
+         for x in rows if x.get("unit") == VERIFY_UNIT}
+    if not r or not v:
+        return False                 # 缺侧：没有「同一人既反思又验证」的事实基础
+    if "" in r or "" in v:
+        return True                  # 有侧但执行者缺失：不可判定 ⇒ fail-closed
     return bool(r & v)
 
 
