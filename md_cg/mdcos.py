@@ -2670,8 +2670,19 @@ class MdCGOS(MdCG):
         # `test_bm25.test_top50_boundary_ties_and_no_zero_score_padding` 逐字要求
         # 「单路 bm25 全同分时 importance 高者居首」⇒ 单路不得被本契约改写。
         _active_paths = [n for n, s in ranked.items() if s and n not in ro]
+        # R-512（2026-11-10 审计 C2）：`_gate_on` 必须**每轮重算**，不能循环前算一次。
+        #
+        # 修前：`_gate_on = len(_active_paths) >= 2` 在循环外算一次；循环中某路弃权
+        # 会把 `name` 加进 `ro`，但 `_gate_on` 不变 ⇒ 若两路都整路同分，**两路都被判
+        # 弃权** ⇒ 全库 0 分、结果按 `nid` 字典序返回（实测 `no_rank_signal:
+        # ['entity','lexical']`，同一个 entity 路单独跑时却能正常投票 1/61、1/62）。
+        #
+        # 契约原文（本函数上方）说「只在多路竞争时启用」——「竞争」是**当下还剩几路
+        # 有排序信号**，不是「一开始有几路」。扣掉已弃权的路再判，才与契约同义。
         _gate_on = len(_active_paths) >= 2
         for name, scored in ranked.items():
+            # 每轮用「当前仍持有排序信号的路数」重判（`ro` 是已弃权集合）
+            _gate_on = sum(1 for n in _active_paths if n not in ro) >= 2
             # 终键 nid：此处 rank 直接进 RRF（w/(K+rank)），并列若回落输入序
             # 会改变融合分——同分同 importance 必须由 nid 定序才可复算。
             scored = sorted(scored, key=lambda x: (-x[1],
@@ -3078,8 +3089,16 @@ class MdCGOS(MdCG):
             items = [(r[0], r[1], r[2], []) for r in res]
 
         pack, skipped, used = [], [], 0
-        # 单条最小摘录下限：剩余预算低于此值就不值得再放一条残缺内容
-        min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
+        # 单条最小摘录下限：剩余预算低于此值就不值得再放一条残缺内容。
+        #
+        # R-513（2026-11-10 审计 C3）：修前是 `max_item_tokens // 5`（缺省 250 ⇒ **50**），
+        # 于是 `room` 只有 39 token 时整条被丢 —— 实测 `budget=70` 只用掉 31，
+        # 第二条明明有 39 token 的空间也被判 `oversize_or_over_budget`。
+        # 病根是「下限随单条上限放大」：单条上限越大，反而越容易把整条丢掉，
+        # 与这段注释自己写的「不要逆向淘汰详实条目」相反。
+        # 改成**绝对下限**（8 token ≈ 能放一小段有意义的摘录），不再随 max_item_tokens 变。
+        MIN_EXCERPT_TOKENS = 8
+        min_excerpt = MIN_EXCERPT_TOKENS if max_item_tokens else 0
         for node, score, qual, prov in items:
             content = node.get("content") or ""
             t = est_tokens(content)
