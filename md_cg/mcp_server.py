@@ -5751,6 +5751,19 @@ def main():
     # 「失败不阻塞启动、属增益」，故默认放到**后台线程**跑：握手不再等它。
     # MDCG_RECONCILE_BG=0 可退回同步（旧行为，便于对照与排障）。
     def _reconcile_bg():              # noqa: D401 —— 承接面：cg.reconcile_state()
+        # R-303a（2026-11-10 审计 B1）：审计哈希链**只写不验** ——
+        # `mdcos._audit_chain_verify` 此前全仓零调用。链每行都写 prev/sig，但从来
+        # 没有一次校验；并发写、外部改动、轮转插入无签名行，谁也不知道。
+        # 这里在启动对账之前先验一次，结果进 stderr（不阻塞启动：链异常是「要人看」
+        # 的信号，不是「服务不能跑」）。
+        try:
+            _verdict, _code, _detail = cg._audit_chain_check()
+            if _verdict != "ok":
+                sys.stderr.write(
+                    "[mdcg-mcp] 审计链校验：%s（%s）detail=%r\n"
+                    % (_verdict, _code, _detail))
+        except Exception as _exc:     # 校验故障本身不得阻塞启动
+            sys.stderr.write("[mdcg-mcp] 审计链校验失败（不阻塞启动）: %r\n" % (_exc,))
         try:
             cg.reconcile_state()
         except Exception as _exc:     # 对账故障不得影响服务可用性

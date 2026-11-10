@@ -1000,7 +1000,14 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
         state = (judge(st["age"], task_running=bool(st.get("task_running")))
                  if st else "absent")
         if state != "ok":
-            issues.append({"code": "heartbeat_" + state, "severity": "info",
+            # R-301（2026-11-10 审计 D3）：severity 分级，不再一律 info。
+            #   absent（从没 beat 过 —— 可能是刚起来的进程）⇒ info：不判病、不触发自愈；
+            #   warning / dead（beat 过但已过期/失联）⇒ **warning**：让 `ok` 变假，
+            #   自愈与本进程健康面都能看见。
+            # 修前一律 info ⇒ 心跳死亡 35 天时 `ok` 仍 True、`check-all` 全绿 ——
+            # 「还活着吗」这一层等于没有红灯。
+            sev = "info" if state == "absent" else "warning"
+            issues.append({"code": "heartbeat_" + state, "severity": sev,
                            "detail": f"本机心跳状态：{state}", "fix": "beat"})
 
     # ---- 演化巡检（G7）：盘的是「该做多少事」，不是「库有毛病」，

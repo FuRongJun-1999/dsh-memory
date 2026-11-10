@@ -6746,6 +6746,15 @@ class MdCGSecure(MdCGOS):
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
+    def _audit_chain_check(self):
+        """R-303a：把模块级 `_audit_chain_verify` 包成实例方法（本类持有 audit_log 路径）。
+
+        返回 `(verdict, code, detail)`，见 `_audit_chain_verify` 的 docstring。
+        存在的意义只有一个：**给它一个调用点**。修前该函数全仓零调用 ——
+        链每行都写 `prev`/`sig`，却从来没有一次校验。
+        """
+        return _audit_chain_verify(getattr(self, "audit_log", None) or "")
+
     def _kek_bootstrap_ok(self):
         """「库为全新」判据（R-201c）：允许自动建 KEK 的**唯一**条件。
 
