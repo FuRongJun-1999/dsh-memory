@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 
 from . import bucketindex as _bi
 
@@ -85,8 +86,12 @@ def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=Fal
     # 只命中 114 ⇒ 116 被丢）。现改为：命中优先，**按时间序补足到 cap**。
     if fill_rest and len(out) < cap:
         chosen = {n.get("id") for n, _s, _q, _p in out}
+        # 补足路径同样要过 validity 闸（#856 守卫抓到的漏洞：
+        # 早先只对「词面命中」的节点做了过期过滤，`fill_rest` 会把过期节点补进来，
+        # 等于把 #843 的修复在另一条分支上绕过了）。
         rest = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN])
-                if n and n.get("id") not in chosen]
+                if n and n.get("id") not in chosen
+                and not (validity and _is_expired(n, now))]
         rest.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
         for n in rest[:cap - len(out)]:
             out.append((n, 0.0, {"reason": "bucket_scope",
@@ -310,26 +315,39 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
         # 【外测 2026-11-11】跨日桶**轮转分配**：早先每天拿走「剩余全部名额」，
         # 第一个桶条目够多就把 cap 吃光（实测 8 桶 cap=4 只覆盖到 2 桶，末日永不入选）。
         # 现每轮每天最多取 per_day 条，保证「任何一天拿第 2 条之前，所有天都先拿到第 1 条」。
-        per_day = max(1, cap // max(1, len(days))) if days else cap
         # 判据：桶是**按理由选进来**的（声明日期 / 早段意图 / 共现）⇒ 桶内补足；
         # 若只是「最近 N 天」兜底，桶本身不携带查询证据，仍严格按词面筛选（避免塞无关条目）。
         _fill = bool(_declared_days or _early_hit)
-        for day in days:
-            if len(out) >= cap:
-                break
-            picked = _pick(store, _bi.day_ids(store, day), terms,
-                           min(per_day, cap - len(out)),
-                           validity=validity, now=now, fallback_recency=True,
-                           fill_rest=_fill)
-            for node, score, qual, prov in picked:
-                if node.get("id") in seen:
-                    continue
-                qual = dict(qual)
-                qual["bucket"] = "day:%s" % day
-                if resolved_dates:
-                    qual["resolved_dates"] = resolved_dates
-                out.append((node, score, qual, prov))
-                seen.add(node.get("id"))
+        # 先各桶取一批（保证覆盖），必要时**再跑下一轮**取第二批。
+        # 【#857】早先只跑一轮：9 条匹配 + cap=8 时，若某些日桶只出 0–1 条就永远补不满（实测只回 6 条）。
+        _taken = {d: 0 for d in days}
+        _round = 0
+        while len(out) < cap and _round < 3:
+            _round += 1
+            _per = max(1, (cap - len(out)) // max(1, len(days))) if _round == 1 else 2
+            _progress = False
+            for day in days:
+                if len(out) >= cap:
+                    break
+                picked = _pick(store, _bi.day_ids(store, day), terms,
+                               _per + _taken[day],
+                               validity=validity, now=now, fallback_recency=True,
+                               fill_rest=_fill)
+                for node, score, qual, prov in picked:
+                    if len(out) >= cap:
+                        break
+                    if node.get("id") in seen:
+                        continue
+                    qual = dict(qual)
+                    qual["bucket"] = "day:%s" % day
+                    if resolved_dates:
+                        qual["resolved_dates"] = resolved_dates
+                    out.append((node, score, qual, prov))
+                    seen.add(node.get("id"))
+                    _taken[day] += 1
+                    _progress = True
+            if not _progress:
+                break           # 所有桶都取不出新条目 ⇒ 提前结束，不空转
     # ③ 排序：**会话桶整体优先**，再按时间降序；日桶同样按时间降序。
     # 使用者口径「会话优先使用会话桶，然后按日期倒排」——只按时间排会让日桶插到会话前面（实测发生过）。
     def _key(it):
