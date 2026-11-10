@@ -453,6 +453,20 @@ def weaker_than(pol: dict, base: dict) -> str:
             < _FAIL_RANK.get(base.get("on_verify_fail"), 0)):
         return ("on_verify_fail 由 %s 降为 %s"
                 % (base.get("on_verify_fail"), pol.get("on_verify_fail")))
+    # ★R-522（2026-11-10 审计 P1-B7，实测修正）：**第三件此前漏了** —— `sign_on`
+    # 的**收缩**。`sign_on` 是「哪些动作必须签名」；从 3 项降到 1 项或 0 项，等于
+    # 少签了几个动作，是**明确的放宽**，但本函数此前只看前两件。
+    # 实测（现行 `sign_on=["handshake","evidence","withdrawal"]`、`require_peer=True`、
+    # `on_verify_fail="reject"`）：
+    #   `loosening(sign_on=[])`            → ''   ← 一个都不签，却判「没放宽」
+    #   `loosening(sign_on=["handshake"])` → ''   ← 少了两个动作，也判「没放宽」
+    # 审计原文说「`loosening(sign_on=[])` 返回非空（判为收紧）」——**与实测不符**
+    # （实测返回 ''）；但它指出的「sign_on 这一维没被管」是真的，且比它说的更严重：
+    # 不是误报收紧，而是**完全没判**。
+    _lost = set(base.get("sign_on") or ()) - set(pol.get("sign_on") or ())
+    if _lost:
+        return ("sign_on 少了 %s（原本要签的动作不再签）"
+                % "、".join(sorted(_lost)))
     return ""
 
 
