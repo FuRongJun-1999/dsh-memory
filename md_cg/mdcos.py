@@ -3075,6 +3075,21 @@ class MdCGOS(MdCG):
         # 提示词让它「按日期排序再取最早」，它排的是自己回忆的顺序而不是材料里的日期序。
         # 这里按 created_at 升序给出 (date, id, head) 三列——模型读表即得时序，不必归纳。
         # 注意：这是**节点级**时间线（不含实体/槽位抽取），是「状态追踪」的便宜中间态。
+        # 【2026-11-12 外测】pack 条目自带**格式化日期**：`frontmatter.created_at` 是 epoch 浮点，
+        # 下游任何 `str(v)[:10]` 都会截出 `1784043360` 这种假日期（外测脚手架真实踩过：
+        # 材料前缀变成 `[1784043360]`，模型被喂了机器值；连带把『模型编造时间戳』这条归因带偏）。
+        # 结构性根治：在这里给出 `created_at_date`（YYYY-MM-DD），下游不该再自己截字符串。
+        # 取不到合法时间戳时不编造：置 None（下游按缺失处理，不得当今天）。
+        for _e in pack or []:
+            _fm = _e.get("frontmatter") or {}
+            _ts = _fm.get("created_at") or _fm.get("valid_from")
+            _d = None
+            if _ts is not None:
+                try:
+                    _d = time.strftime("%Y-%m-%d", time.localtime(float(_ts)))
+                except (TypeError, ValueError, OSError):
+                    _d = None
+            _e["created_at_date"] = _d
         timeline = self._pack_timeline(pack)
         # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
         # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，
