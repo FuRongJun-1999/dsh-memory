@@ -193,6 +193,28 @@ def main() -> int:
     _cg()                                      # 启动即验：拿不到凭据就别假装在线
     import threading
     threading.Thread(target=_warm_bg, name="warm", daemon=True).start()
+
+    # R-409（2026-11-10 审计 D1/D2/D3）：把 sustain 自维持循环挂进**常驻进程**。
+    #
+    # 为什么现在才挂：`mcp_server._start_sustain` 是 sustain 的唯一触发点，而它只在
+    # `mdcg_http.py` 之外被调（DSH 拉起的**短命 stdio 子进程**）。本文件是 systemd
+    # 起的长命进程（实测 uptime 24.3h），却从来没启动过 sustain ⇒ 心跳/睡眠永远不跑
+    # （`~/.mdcg/sustain/` 空、`_sleep.jsonl` 不存在、`_heartbeat.jsonl` 停在 11-05）。
+    #
+    # 前置条件（均已就绪，故此处才敢挂）：
+    #   · R-104 默认值定案（auto_scrub/auto_evolve/scrub_apply 三处口径统一）
+    #   · R-203 索引 rebuild 改用日志字节水位（不再锁外扫描 13.4s）
+    #   · R-301 心跳 severity 分级（死掉会让 ok 变假、自愈能看见）
+    # 三者缺一，挂上去就是「定时丢节点 + 每晚真改盘 + 没有红灯」。
+    #
+    # 失败不阻塞 HTTP 服务：sustain 是增益，不是收请求的前提；但必须上报（stderr）。
+    try:
+        from md_cg import mcp_server as _ms
+        _ms._start_sustain(_cg())
+        sys.stderr.write("[mdcg-http] sustain 自维持循环已挂载（R-409）\n")
+    except Exception as _exc:                  # noqa: BLE001
+        sys.stderr.write("[mdcg-http] sustain 挂载失败（不阻塞 HTTP）: %r\n" % (_exc,))
+    sys.stderr.flush()
     srv = ThreadingHTTPServer((host, port), _H)
     sys.stderr.write("[mdcg-http] listening on http://%s:%d/mcp  root=%s\n"
                      % (host, port, os.environ.get("MDCG_ROOT")))

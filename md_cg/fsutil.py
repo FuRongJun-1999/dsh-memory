@@ -417,7 +417,13 @@ def append_jsonl(path: str, record: dict, strict: bool = False,
             # 与本文件其他写点（inbox/decisions）同构。
             # 失败契约与下方共用：临界区内抛 OSError 同样落到 _note_append_failure；
             # `strict=True` 时同一条腿再上抛（两参数正交，见上方契约注释）。
-            with FileLock(path, strict=True):
+            # R-303b（2026-11-10）：`durable` 分支改用**同线程可重入**的
+            # `_ReentrantFileLock` —— 否则调用方一旦在外层先持同一把锁（审计链要
+            # 「读 prev + 写」同临界区），内层再取就会自锁到超时（实测 4 写者
+            # 100% `FileLock 超时未获锁（strict）`、写入行数 0）。
+            # 跨进程互斥语义不变：`_ReentrantFileLock` 的互斥完全由内层 `FileLock`
+            # 提供，只是同线程同 key 时按深度计数、不重复取 OS 锁。
+            with _ReentrantFileLock(path, 10.0):
                 if ends_mid_line(path):
                     line = "\n" + line
                 fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_APPEND, 0o600)

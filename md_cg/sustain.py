@@ -916,6 +916,23 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
         issues.append({"code": "index_drift", "severity": "warning",
                        "detail": f"索引 {len(nodes)} ≠ 磁盘 {disk}",
                        "fix": "rebuild_index"})
+    else:
+        # R-305（2026-11-10 审计）：上面那条是**计数判据**，而 `mdcg._covers_disk`
+        # 的 docstring 明确写过「#409 的全部形态（改名 / 换目录 / 两文件对调 /
+        # 外部删一加一）都恰好是『计数没变而路径变了』，计数判据**必然假阳**」。
+        # 这里补上同一判据的 sound 版：**路径集合相等**。成本是一次 os.walk
+        # （3,722 节点实测约 0.08 s，一次性体检，不进热路径）。
+        # 判据形态与 `_covers_disk` **同源**（直接调它），不写第二份走查。
+        try:
+            _covers = bool(cg._covers_disk(nodes))
+        except Exception:
+            _covers = True          # 判据本身不可用时不臆造告警
+        if not _covers:
+            issues.append({"code": "index_pathset_drift", "severity": "warning",
+                           "detail": (f"索引与磁盘**条数相等**（{len(nodes)}）但"
+                                      "路径集合不等 —— 改名/换目录/对调/"
+                                      "外部删一加一这类形态，计数判据看不见"),
+                           "fix": "rebuild_index"})
     # H-4 止血：快照迭代（N138：前台 add/flush 与后台巡检共用一个 MdCG 实例，
     # 索引 dict 是共享可变面；裸 items() 撞并发写即 RuntimeError）。
     # 面**不止本文件**：本函数默认参数还会经 evolution_candidates → weights.recalc

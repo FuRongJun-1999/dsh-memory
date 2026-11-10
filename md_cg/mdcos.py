@@ -51,7 +51,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                self_state, predict, evolution, weights, pooling,
                writelimit, reach, trust, roleviews, autonomy_modes, lifecycle,
                rrf_candidates)
-from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
+from .fsutil import (_ReentrantFileLock, FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish,
                      merge_rmw_lock, node_write_lock)
 from .rotate import Rotator
@@ -1035,11 +1035,19 @@ class MdCGOS(MdCG):
             count_max_bytes=self.AUDIT_COUNT_MAX_BYTES,
             counter=lambda p: count_jsonl(p),
             scale_reader=self._log_scale,
-            mark_factory=lambda name, size, events, pruned, reason: {
-                "t": time.time(), "op": "audit_rotate", "id": name,
-                "actor": self.actor, "bytes": size, "events": events,
-                "pruned": pruned, "reason": reason,
-                "session": getattr(self, "session", None)},
+            # R-303c（2026-11-10 审计 B3）：轮转自述行**也要进链**。
+            # 修前它是一条裸 dict（无 prev / 无 sig），而它是**新分片的第一行** ——
+            # `_audit_chain_verify` 见到「无 sig 且无退化标记」就判 `unknown_foreign`
+            # （硬失败）⇒ 每轮转一次，台账就永久多一条 hard 违规。实测：
+            # `活动分片 verdict=unknown_foreign detail={'line': 1, 'why': '无 sig 且无退化标记'}`。
+            # 修后：自述行走 `_audit_chain_link`，prev=GENESIS（它确实是一个新分片的
+            # 首行），后续行接它的 sig —— 跨分片链的语义不变。
+            mark_factory=lambda name, size, events, pruned, reason: _audit_chain_link(
+                self.audit_log,
+                {"t": time.time(), "op": "audit_rotate", "id": name,
+                 "actor": self.actor, "bytes": size, "events": events,
+                 "pruned": pruned, "reason": reason,
+                 "session": getattr(self, "session", None)}),
             clock=lambda: time.time())
         # 审核队列增量对账缓存（issue #32）：inbox/decisions 均为 append-only
         # （写点全在 strict 锁内经 append_jsonl，无轮转/截断），propose 的
@@ -1102,18 +1110,24 @@ class MdCGOS(MdCG):
                "session": _attribution_session_of(self, sens)}
         rec.update(meta)
         try:
-            try:
-                _audit_chain_link(self.audit_log, rec)
-            except OSError:
-                pass
-            self._rotate_audit_if_needed()
-            # issue #549：审计账本是**不可丢**的治理面（被 admission 等消费做状态
-            # 推断；缺行使「发生过」与「没发生过」不可区分），而缺省 append_jsonl
-            # 在 Windows 上多写者并发实测丢 29–39%。故此处走 durable=True ——
-            # 把「判半截行 + 追加」收进 FileLock(strict=True) 临界区。
-            # #326-④：同时显式消费返回值（不留裸调用，守卫 AST 钉子会抓）——
-            # 失败源已记 fsutil.APPEND_FAILURES + 有界 stderr 告警（B 面单点）。
-            _ok = append_jsonl(self.audit_log, rec, durable=True)
+            # R-303b（2026-11-10 审计 B2）：**整段**（轮转 → 算 prev → 追加）收进同一
+            # 把锁。修前的形态是「读最后一行算 prev」在锁外、而 `append_jsonl(durable)`
+            # 自己另取一把锁 ⇒ 两个写者可以在「读 prev」与「写」之间交错，双双拿到
+            # 同一个 prev，链从此断开（4 写者 × 25 条实测 78/100 断点）。
+            # 同线程重入由 `fsutil._ReentrantFileLock` 按 `normcase(abspath)` 记深度，
+            # 所以下面 `append_jsonl(durable=True)` 内部再取同一把锁不会自锁。
+            with _ReentrantFileLock(self.audit_log, 10.0):
+                self._rotate_audit_if_needed()
+                try:
+                    _audit_chain_link(self.audit_log, rec)
+                except OSError:
+                    pass
+                # issue #549：审计账本是**不可丢**的治理面（被 admission 等消费做状态
+                # 推断；缺行使「发生过」与「没发生过」不可区分），而缺省 append_jsonl
+                # 在 Windows 上多写者并发实测丢 29–39%。故此处走 durable=True。
+                # #326-④：显式消费返回值（不留裸调用，守卫 AST 钉子会抓）——
+                # 失败源已记 fsutil.APPEND_FAILURES + 有界 stderr 告警（B 面单点）。
+                _ok = append_jsonl(self.audit_log, rec, durable=True)
         except OSError:
             pass
 
