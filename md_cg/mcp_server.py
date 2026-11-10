@@ -4193,15 +4193,30 @@ def call_tool(cg, name, args):
     # 的授权；与上方「session 不参与任何 ops 裁决」的原设计意图一致）。
     if scope is p and not sess:
         return _dispatch(cg, name, a)
+    # ★R-528（2026-11-10 审计 P2）：原注释「单线程 stdin 循环：无并发竞争」在
+    # stdio 形态下成立，但 `server/mdcg_http.py` 是 `ThreadingHTTPServer` —— 多个
+    # 请求线程会**互相覆盖** `cg.principal`（保存→换→恢复 三步可交错，A 的 finally
+    # 可能把 B 设的身份冲掉）。审计记的「三处后台线程互相覆盖」是同一病根的另一面。
+    # 改用 `MdCGSecure` 的线程本地覆盖层（见该类 `principal` property）：
+    # 每个请求线程写自己的槽，彼此不可见；后台线程不设 tls ⇒ 读实例值（服务身份）。
+    _tl = getattr(cg, "_principal_tls", None)
     saved_p, saved_s = cg.principal, getattr(cg, "session", None)
     had_s = hasattr(cg, "session")
-    cg.principal = scope             # 单线程 stdin 循环：无并发竞争
+    if _tl is not None:
+        _prev = getattr(_tl, "value", None)
+        _tl.value = scope
+    else:                            # 非 MdCGSecure（纯库层替身）：退回原写法
+        _prev = None
+        cg.principal = scope
     if had_s:
         cg.session = sess or scope.session
     try:
         return _dispatch(cg, name, a)
     finally:
-        cg.principal = saved_p
+        if _tl is not None:
+            _tl.value = _prev
+        else:
+            cg.principal = saved_p
         if had_s:
             cg.session = saved_s
 

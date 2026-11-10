@@ -6776,8 +6776,37 @@ class MdCGSecure(MdCGOS):
     """
 
 # 生效条件：传入 root 时 principal 为假值（None 等）则新建 Principal()，以 self.principal.actor 作 actor 调父类 MdCGOS.__init__(root, actor=..., **kw)，再设 self.session = self.principal.session 并执行 self._init_crypto(master_key)（master_key 缺省 None）。
+    # ★R-528（2026-11-10 审计 P2）：`principal` 加**线程本地覆盖层**。
+    #
+    # 病根：`mcp_server._serve_line` 给每个请求临时改 `cg.principal`（保存 → 换 → 恢复），
+    # 那在**单线程 stdin 循环**下是对的。但 `server/mdcg_http.py` 是
+    # `ThreadingHTTPServer`，它的 `_LOCK` 只护住 `_dispatch`，而**后台线程**
+    # （`_reconcile_bg` / `_warm_bg` / R-409 挂的 sustain）不持那把锁却要读
+    # `cg.principal` ⇒ 读到的是**别的请求正在用的身份**（越权判据用错主体）。
+    #
+    # 修法：不改那 105 个读点（它们写 `cg.principal`/`self.principal`），只把属性
+    # 变成「线程本地优先、否则回落实例值」：
+    #   · 主线程 / 单线程 stdio：行为**逐位不变**（没人设 tls 就回落实例属性）；
+    #   · 请求线程：`_serve_line` 改走 tls（见该处），彼此不覆盖；
+    #   · 后台线程：没人设 tls ⇒ 读实例值 = 启动时的那个 principal（即"服务身份"），
+    #     正是后台任务该用的主体。
+    @property
+    def principal(self):
+        tl = getattr(self, "_principal_tls", None)
+        if tl is not None:
+            v = getattr(tl, "value", None)
+            if v is not None:
+                return v
+        return self._principal
+
+    @principal.setter
+    def principal(self, v):
+        self._principal = v
+
     def __init__(self, root: str, principal: Principal = None,
                  master_key=None, **kw):
+        import threading as _thr528
+        self._principal_tls = _thr528.local()
         self.principal = principal or Principal()
         self.kek = None
         self.dek = None
