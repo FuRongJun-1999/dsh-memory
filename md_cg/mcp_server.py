@@ -2945,9 +2945,10 @@ def _cg_dispatch(cg, a):
         if a.get("budget_tokens") is not None:
             # #188：`excerpt_strategy` 透传；#303 O4 的 k 越界 warning 仍走
             # 下方 `_out` 后处理（两处改动正交——一个加参数、一个加返回体字段）。
+            _ctx_r = a.get("context") or (a.get("condition_space") if a.get("condition_space") else None)
             _out = cg.recall(q, budget_tokens=int(a["budget_tokens"]),
                              excerpt_strategy=a.get("excerpt_strategy") or "prefix",
-                             k=_int_arg(a, "k", 20), context=a.get("context"),
+                             k=_int_arg(a, "k", 20), context=_ctx_r,
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
@@ -2981,8 +2982,16 @@ def _cg_dispatch(cg, a):
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
         _doc_filter_on = _as_flag(a.get("exclude_doc", False))
+        # 【issue #811】`condition_space` 早先**没有进链路**（只透传 context）⇒ 传了等于没传。
+        # 判据同源：condition_space 与 context 都是「条件过滤面」，context 显式给了就优先，
+        # 否则用 condition_space 顶上（不再静默丢弃）。
+        _ctx = a.get("context")
+        _ctx_from = "context" if _ctx is not None else None
+        if _ctx is None and a.get("condition_space"):
+            _ctx = a.get("condition_space")
+            _ctx_from = "condition_space"
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
-                           context=a.get("context"), session=a.get("session"),
+                           context=_ctx, session=a.get("session"),
                            validity=a.get("validity"),
                            # issue #722：**只在显式传参时透传**（读面纪律：不编造默认）。
                            **({"strict_conditions": _as_flag(a["strict_conditions"])}
@@ -2995,7 +3004,10 @@ def _cg_dispatch(cg, a):
             # 结果会假性空掉，故两者共用同一条超取规则。
             search_args["k"] = min(max(_k_want * 4, _k_want + 32), 400)
         if a.get("bm25", True) and hasattr(cg, "search_rrf"):
-            ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
+            # 【issue #811】read 面早先**忽略 `semantic`**（该参数只在 mdcg_search 生效）⇒ 传了等于没传。
+            # 现显式并入第 6 路（向量/语义仅在库里有向量时才产候选，没有则自然为空，不造假）。
+            _paths = ("bm25", "semantic") if a.get("semantic") else ("bm25",)
+            ranked, meta = cg.search_rrf(q, paths=_paths, **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
             res, meta = cg.search(q, **search_args)
