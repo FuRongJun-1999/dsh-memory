@@ -115,7 +115,10 @@ def main():
            "E1 blindspots 仍恒空（口径后置，未被本批顺带改动）")
         expected = {"subject", "slot", "value", "state", "t_from", "t_to",
                     "seq_from", "seq_to", "tier", "alternatives",
-                    "blindspots", "event_count"}
+                    "blindspots", "event_count",
+                    # 【2026-11】租约参数透传（与 tier 同形：取最后产生当前值的事件）：
+                    # kind 供 state_view 判「值会不会被改写」；ttl 是调用方 extra.ttl 声明的租约。
+                    "kind", "ttl"}
         ok(expected <= set(zs2), "E2 单元键集未减少", str(sorted(set(zs2) - expected)))
         ok(set(zs2) - expected <= {"history"}, "E3 无未经登记的新键",
            str(sorted(set(zs2) - expected)))
