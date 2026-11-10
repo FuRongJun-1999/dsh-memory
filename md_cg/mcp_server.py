@@ -2416,6 +2416,9 @@ def _task_call(cg, a):
     return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 
 
+#: require 词别名：新 op 复用既有 op 词，不给令牌 face 引入新词（对账见 scripts/check_op_table_parity.py）。
+_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}
+
 # 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；fork：op=="forget" 的**删除**分支走 cg.forget_gated（三档自治批次②：档位判定在既有资格闸之后，变更确认档出变更单且不软删；restore 分支不变），op=="write" 经 writepipe 默认链（链尾 autonomy 档位闸）；
 def _gate_link_signers_file(a):
     """issue #167：signers_file 由调用方指定 = 调用方自选「验签策略来源」。
@@ -2552,7 +2555,10 @@ def _cg_dispatch(cg, a):
         # P3 写口（state_event）映射到既有 "write" op 词——不给令牌 face 引入新
         # op 词（角色白名单/派生收窄面零改动）：凡 ops 白名单含 write 的角色可
         # 记账，guest/只读令牌照拒。其余 op 逐位不变。
-        _p.require_op("write" if op == "state_event" else op)
+        # 【require 词别名】新 op 不引入新 require 词（角色白名单/派生收窄面零改动）：
+        #   state_event（写账本）→ "write"；state_view（只读回放+租约）→ "read"。
+        # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
+        _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
@@ -3245,6 +3251,17 @@ def _cg_dispatch(cg, a):
                          evidence=a.get("evidence") or "",
                          actor=_actor)
         return {"ok": True, "event": rec}
+
+    if op == "state_view":
+        # 【设计稿 docs/设计_状态账本与终态投影_v0.1.md §3.2/§3.3】
+        # 账本是源（state_events）、槽位是回放投影（state_slots）、本 op 在其上加**租约语义**：
+        #   stable ⟺ (now - t_from) < TTL 且值非撤回；超时 ⇒ weak=True 但**不删值**（智能论 3.2.2 P1-003）。
+        # 并把同一 subject 的全部槽位**联合给出**——多要素题要求时间/参与人/地点同时在场。
+        # 纯只读：不写盘、不建缓存；同一账本 + 同一 now 必得同一结果。
+        from . import state_view as _sv
+        return _sv.state_view(cg, subject=a.get("subject"), slot=a.get("slot"),
+                              include_retired=bool(a.get("include_retired")),
+                              limit=a.get("limit"))
 
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),

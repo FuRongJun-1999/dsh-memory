@@ -61,10 +61,10 @@ try:
     _rep = G.parity(_base)
     check("A1 三向对账基线无失败项", not _rep["errors"], _rep["errors"])
     r = _rep["readings"]
-    check("A2 enum == dispatch == 表（各 38）",
-          r["n_enum"] == r["n_dispatch"] == r["n_table"] == 38,
+    check("A2 enum == dispatch == 表（各 39）",
+          r["n_enum"] == r["n_dispatch"] == r["n_table"] == 39,
           (r["n_enum"], r["n_dispatch"], r["n_table"]))
-    check("A3 段落面 37 段（help 无段）", r["n_sections"] == 37, r["n_sections"])
+    check("A3 段落面 38 段（help 无段）", r["n_sections"] == 38, r["n_sections"])
     check("A4 参数归属无缺口（并集 %d + 通用 %d == schema %d − 1）"
           % (r["n_params_union"], r["n_generic"], r["n_props"]),
           r["n_params_union"] + r["n_generic"] == r["n_props"] - 1,
@@ -138,9 +138,10 @@ try:
           G.parity(_y)["errors"][:1])
     # C3 require 词不符
     _z = dict(_b4)
+    # 变异点随 dispatch 改形（2026-11：三元 → 显式别名表 _REQUIRE_ALIAS）
     _z["src_ms"] = _b4["src_ms"].replace(
-        '        _p.require_op("write" if op == "state_event" else op)',
-        '        _p.require_op("read")')
+        '_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}',
+        '_REQUIRE_ALIAS = {"state_event": "read", "state_view": "read"}')
     import ast as _ast
     _z["tree_ms"] = _ast.parse(_z["src_ms"])
     check("C3 require 词不符 ⇒ 报「require 词对不上」",
