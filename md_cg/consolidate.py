@@ -1646,6 +1646,8 @@ def induce_memories(cg_or_root, source_layer="contextual", target_layer="knowled
         # 属**语义结论**，故显式落 kind=text。不落 kind 的后果：写闸按
         # 「未知内容类型」判 BLINDSPOT、kind 也不进 fm，policy 的 required_kinds
         # 整库空转（实测 859/859 为 None）。
+        # R-531：不传 `consistency`（库层默认 False）—— 批量归纳一次几十张卡，
+        # 逐张做节点间冲突检测会放大成 O(N×M)；冲突裁决由上层（decide/审核队列）做。
         cg.add(cid, content, layer=target_layer, tags=list(CONCEPT_TAGS),
                content_kind="text",
                importance=CONCEPT_IMPORTANCE, verification_basis="other",

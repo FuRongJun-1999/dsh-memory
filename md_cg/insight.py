@@ -207,6 +207,7 @@ def record(cg, statement=None, conditions=None, category="", source="",
         "insight_history": [],
     }
     fm_extra.update(extra)
+    # R-531：同 consolidate —— 生成式写入，冲突检测留上层。
     cg.add(nid, body, layer=INSIGHT_LAYER, tags=tg,
            importance=float(importance), actor=actor, **fm_extra)
     _append(cg, {"action": "record", "node_id": nid, "category": category,

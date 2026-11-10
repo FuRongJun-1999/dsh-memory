@@ -3303,6 +3303,18 @@ class MdCG:
             tags=None, condition_space=None, importance=None,
             confidence: float = None, edges=None, verification_basis: str = None,
             non_applicable_conditions=None, override: bool = False,
+            # ★R-531（2026-11-10 审计）：`consistency` 的**三层缺省是有意的分层**，
+            # 不是笔误 —— 实测三层取值：
+            #   · 工具面 `mdcg_remember`：**true**（`mcp_server.py` 的 `_p(... "默认 true")`）
+            #   · 本层 `MdCG.add`：**False**（底层、性能敏感）
+            #   · `MdCGOS.add`：继承本层 ⇒ False
+            # 为什么合理：库层是**地基**，冲突检测要遍历已有节点做 comparable 判定
+            # （3,722 节点约 0.08s/次），批量归纳（`consolidate` 一次几十张概念卡）会把
+            # 它放大成 O(N×M)；工具面是**产品入口**，单条写入付这点成本换安全性值得。
+            # 审计说「5 个生产调用方都没传」——实测只有 **2 个**（`consolidate.py:1649`
+            # 的概念卡、`insight.py:210` 的洞察记录），且两者都是**生成式批量写**，
+            # 冲突检测由上层裁决阶段做（见两处的行内注）。故本项按「登记为有意分层」处置，
+            # **不改默认** —— 改库层默认会让所有 bench 与批量路径付出不必要的代价。
             consistency: bool = False, on_conflict: str = "reject",
             consistency_out: dict = None,
             derived_from=None, relation: str = provenance.DEFAULT_RELATION,
