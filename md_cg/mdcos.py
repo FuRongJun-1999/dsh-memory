@@ -1120,16 +1120,26 @@ class MdCGOS(MdCG):
                 self._rotate_audit_if_needed()
                 try:
                     _audit_chain_link(self.audit_log, rec)
-                except OSError:
-                    pass
+                except OSError as _exc:
+                    # R-509（2026-11-10 审计）：此处原为 `except OSError: pass` ——
+                    # 静默吞掉会让这条记账**没有 prev/sig**，而 `_audit_chain_verify`
+                    # 见「无 sig 且无退化标记」就判 `unknown_foreign`（**硬失败**）⇒
+                    # 一次瞬态 IO 故障会在链上留下一条永久 hard 违规，且**现场什么都不说**。
+                    # 签名失败不是「可忽略」，必须留痕（与 fsutil.APPEND_FAILURES 同向）。
+                    sys.stderr.write(
+                        "[mdcg-audit] 审计行签名失败（该行将无 sig，链校验会判 "
+                        "unknown_foreign）: %r" % (_exc,) + chr(10))
                 # issue #549：审计账本是**不可丢**的治理面（被 admission 等消费做状态
                 # 推断；缺行使「发生过」与「没发生过」不可区分），而缺省 append_jsonl
                 # 在 Windows 上多写者并发实测丢 29–39%。故此处走 durable=True。
                 # #326-④：显式消费返回值（不留裸调用，守卫 AST 钉子会抓）——
                 # 失败源已记 fsutil.APPEND_FAILURES + 有界 stderr 告警（B 面单点）。
                 _ok = append_jsonl(self.audit_log, rec, durable=True)
-        except OSError:
-            pass
+        except OSError as _exc:
+            # R-509：同款 —— 外层也不许静默。锁/轮转层面的 OSError 说明这一行
+            # **可能根本没落盘**，那是「发生过 vs 没发生过不可区分」，属治理面故障。
+            sys.stderr.write("[mdcg-audit] 审计写入失败（该行可能未落盘）: %r" % (_exc,)
+                             + chr(10))
 
 # 生效条件：limit 为 None 时返回 audit_archive 各分片与 audit_log 依 paths 顺序 extend 的全部记录；limit 非 None（含 0）时从 reversed(paths) 读取并在 len(out) >= limit 时停止，返回 out[-limit:]（limit=0 时立即返回空列表）；
     def audit_records(self, limit: int = None):
