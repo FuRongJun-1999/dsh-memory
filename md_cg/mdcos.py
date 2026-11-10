@@ -2734,6 +2734,14 @@ class MdCGOS(MdCG):
                 ro.add(name)
                 continue
             w = float((path_weights or {}).get(name, 1.0))
+            # R-514（2026-11-10 审计 C4）：`path_weights[路] = 0` 的语义是**静音**
+            # （该路不参与本次融合），不是「以 0 分把该路独有候选塞进结果」。
+            # 修前 `w=0` 时 contrib 恒 0，但条目照样进 `rrf` / `prov` ⇒ 该路独有的
+            # 候选会以 `score=0.0` 出现在返回体里（实测 `kn_charlie 0.0`），
+            # 调用方看到的是「这条被召回了」，而它的分数被自己显式调成了 0。
+            if w <= 0:
+                _muted = getattr(self, "_muted_paths", None)
+                continue
             for rank, (node, _s) in enumerate(scored[:RRF_PATH_TERM_CAP], 1):
                 nid = node["id"]
                 contrib = w / (RRF_K + rank)

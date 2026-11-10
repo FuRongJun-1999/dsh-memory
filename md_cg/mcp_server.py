@@ -1177,8 +1177,14 @@ def _clip_text(text: str, *, offset: int = 0, max_lines: int = READ_MAX_LINES,
                 "returned_lines": 0, "total_lines": total_lines,
                 "total_bytes": total_bytes, "truncated": False,
                 "note": f"offset={start + 1} 超出总行数 {total_lines}，返回空"}
+    # R-516（2026-11-10 审计）：`max_lines=0` 此前被当成「取 0 行」——
+    # `lines[start:start+0]` 是空切片 ⇒ `end = start` ⇒ `next_offset = start + 1`。
+    # 于是续读传 `offset=1` 永远拿回 `next_offset=1`（**同一页**），调用方按提示
+    # 续读就是死循环。0 在这里的语义应是「不限行数」（与 `max_bytes` 的「首行即便
+    # 超限也收」同一取向：不因为一个上限参数把整页吞成空）。
+    _window = lines[start:] if max_lines <= 0 else lines[start:start + max_lines]
     got, used = [], 0
-    for ln in lines[start:start + max_lines]:
+    for ln in _window:
         b = len(ln.encode("utf-8")) + 1
         if got and used + b > max_bytes:
             break
