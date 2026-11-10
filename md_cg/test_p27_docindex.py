@@ -52,7 +52,40 @@ PASS = FAIL = 0
 FAILS = []
 
 _BASE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ROOT = os.path.join(_BASE, "_md_cg_p27")
+
+
+# ── R-408（2026-11-10 审计 F6）：测试隔离 ──────────────────────────────
+# 本测试原先直接把 `ROOT` 指到仓内数据分片 `_md_cg_p*`，于是**每跑一次就改一次
+# 真实数据面**：实测跑一遍全量后 `_md_cg_p0` 从 22 字节非法 JSON 变成 336 节点、
+# `_md_cg_p1` 353→356、`_md_cg_p26` 21→16，并让 `项目现状.mjs --check` FAIL。
+# 现改为：**只读一次源目录 → 复制到临时目录 → 全部写操作落在临时目录**。
+# 源目录不存在时退回「空库」，不再静默跳过（跳过会让判据变成空转）。
+def _r408_isolate(src, tag):
+    import atexit, shutil, tempfile
+    if not os.path.isdir(src):
+        sys.stderr.write("[R-408] %s 源目录不存在（%s）—— 本测试以空库运行\n" % (tag, src))
+        return tempfile.mkdtemp(prefix="r408_%s_" % tag)
+    dst = tempfile.mkdtemp(prefix="r408_%s_" % tag)
+    atexit.register(shutil.rmtree, dst, True)
+    for name in os.listdir(src):
+        if name.startswith("_index_log"):        # 增量日志不复制（会与快照代际打架）
+            continue
+        s, d = os.path.join(src, name), os.path.join(dst, name)
+        try:
+            if os.path.isdir(s):
+                shutil.copytree(s, d, symlinks=False)
+            else:
+                shutil.copy2(s, d)
+        except OSError:
+            pass
+    return dst
+
+
+_R408_SRC = None  # 由下面各自的 ROOT 赋值处设置
+
+ROOT_SRC = os.path.join(_BASE, "_md_cg_p27")
+ROOT = _r408_isolate(ROOT_SRC, "_md_cg_p27")
+
 DOCS = os.path.join(_BASE, "docs")
 PLAN_DOC = "mdcg/认知图_MD目录方案_v0.1.md"
 

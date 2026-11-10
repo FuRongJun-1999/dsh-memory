@@ -4217,23 +4217,23 @@ _MDCG_TOOL_OP = {
     "mdcg_rejected": "write", "mdcg_unresolved": "write",
     "mdcg_propose": "write", "mdcg_review_decide": "write",
     "mdcg_forget": "write", "mdcg_restore": "write",
-    "mdcg_ingest": "write",
-    "mdcg_consistency": "write",
+    "mdcg_ingest": "ingest",
+    "mdcg_consistency": "consistency",
     # 读面
     "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read",
     # issue #398 站点 2：裁决记录台账属**裁决面**（`cg(op=review, action=records)` 要
     # require_op("review")），此前映射粗粒度 read ⇒ 无令牌访客（guest，仅 read）可经
     # 工具面明文读回裁决台账（id/path/tags[含 pid、round]/created_at）。对齐真源 review。
     "mdcg_review_records": "review",
-    "mdcg_identity": "read",
+    "mdcg_identity": "identity",
     # issue #398 站点 1：自我状态机（refresh 会**真写 self 层**状态卡、override=True）
     # 在规范出口要 require_op("self_state")，此前工具面只查 read ⇒ 无 self_state op 的
     # 令牌可经工具面驱动它。对齐真源 self_state。
-    "mdcg_metacognition": "read", "mdcg_self_state": "self_state",
-    "mdcg_predict": "read", "mdcg_causal": "read",
+    "mdcg_metacognition": "metacognition", "mdcg_self_state": "self_state",
+    "mdcg_predict": "predict", "mdcg_causal": "causal",
     "mdcg_health": "read",
     "mdcg_whoami": "read", "mdcg_watermarks": "read",
-    "mdcg_whitebox": "read",
+    "mdcg_whitebox": "whitebox",
     # issue #578 / dsh-bounty#435：本入口**不在这张表里** ⇒ _dispatch 取
     # `_MDCG_OP_REQUIRE.get(name)` 得 None ⇒ 跳过 require_op。而它回吐的
     # `principal.as_dict()` 与受 read 闸管着的 `mdcg_whoami` 是**同一份**身份清单
