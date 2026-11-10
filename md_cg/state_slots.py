@@ -136,12 +136,14 @@ def _replay(subject, slot, recs, *, history=True) -> dict:
         # 全程无有值事件（孤立撤回）：起端无可溯源 ⇒ None（不编造）。
         t_from, seq_from = None, None
         tier = TIER_UNSPECIFIED
+        kind, ttl = None, None
     else:
         lv = recs[last_valued]
         t_from, seq_from = lv.get("t"), lv.get("seq")
         tier = lv.get("tier")
         if tier is None:
             tier = TIER_UNSPECIFIED
+        kind, ttl = lv.get("kind"), lv.get("ttl")
     # 覆盖者：retired 态＝撤回事件（最后一条，闭合点＝值作废时刻）；否则＝有值事件的
     # **下一条**事件（存在则闭合，不存在＝None＝未闭合）；两者共用同一取舍。
     nxt = (len(recs) - 1) if retired else (
@@ -155,6 +157,8 @@ def _replay(subject, slot, recs, *, history=True) -> dict:
             "t_from": t_from, "t_to": t_to,
             "seq_from": seq_from, "seq_to": seq_to,
             "tier": tier,
+            "kind": kind,
+            "ttl": ttl,
             # alternatives 本批已落地（判据见模块头）；blindspots 仍后置、恒空。
             "alternatives": _alternatives_of(recs, value),
             "blindspots": [],

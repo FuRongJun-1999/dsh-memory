@@ -107,6 +107,26 @@ def main():
     ok(state_events.read(g) and len(state_events.read(g)) == 7, "T19 撤回收 7 条事件（记录未删）",
        len(state_events.read(g)))
 
+
+    # ---- TTL 显式声明（2026-11：判据=「值会不会被改写」）----
+    ok(sv.ttl_days_of("日期", kind="enablement", ttl="immutable") is None,
+       "T20 ttl=immutable ⇒ None（永不 weak）", sv.ttl_days_of("日期", kind="enablement", ttl="immutable"))
+    ok(sv.ttl_days_of("日期", kind="enablement", ttl=120) == 120.0,
+       "T21 ttl=数字 ⇒ 该天数优先于槽位名启发式", sv.ttl_days_of("日期", ttl=120))
+    ok(sv.ttl_days_of("随便", kind="migration") == 30.0,
+       "T22 kind=migration ⇒ 30d（承诺类会改写）", sv.ttl_days_of("随便", kind="migration"))
+    ok(sv.ttl_days_of("日期", kind="enablement") == 30.0,
+       "T23 未声明时回落槽位名启发式（日期=30d，保守缺省）", sv.ttl_days_of("日期", kind="enablement"))
+
+    # 端到端：同一条「已发生事实」声明 immutable 后，40 天后查询不再 weak
+    state_events.append(g, "交稿1", "交稿日", old=None, new="2026-07-20",
+                        kind="enablement", actor="test", extra={"ttl": "immutable"})
+    out_i = sv.state_view(g, subject="交稿1", now=now + 40 * 86400)
+    card_i = (out_i["view"][0]["slots"].get("交稿日")) or {}
+    ok(card_i.get("weak") is False and card_i.get("weak_reason") == "immutable",
+       "T24 声明 immutable 的已发生事实 40 天后仍不 weak", card_i.get("weak_reason"))
+    ok(card_i.get("value") == "2026-07-20", "T25 immutable 只影响租约，不改值")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

@@ -55,12 +55,40 @@ def _env_ttl():
     return v if v > 0 else None
 
 
-# 生效条件：slot 为字符串（可为 None）；按 _TTL_RULES 顺序匹配槽位名，未命中返回 TTL_DEFAULT_DAYS
-def ttl_days_of(slot):
-    """槽位 TTL 天数（启发式缺省；env 全局覆盖优先）。"""
+#: `extra.ttl` 表示「永不过期」的取值（已发生事实：事件时点/交稿日期/获得日）。
+IMMUTABLE_WORDS = ("immutable", "never", "none", "-", "0")
+
+
+# 生效条件：slot 为字符串（可为 None）；返回 TTL 天数，**None 表示不可变（永不 weak）**
+def ttl_days_of(slot, kind=None, ttl=None):
+    """槽位租约天数。**判据：这个值会不会被改写**（2026-11 定）。
+
+    优先级（前者胜）：
+      ① 调用方显式声明 `extra.ttl`：`"immutable"` ⇒ None（永不 weak）；数字 ⇒ 该天数；
+      ② env `MDCG_STATE_TTL_DAYS` 全局覆盖；
+      ③ `kind == "migration"`（改期/变更）⇒ 30d：承诺类**会**被改写，必须复核；
+      ④ 槽位名启发式（时间30/地点365/状态7/其余180）。
+
+    为什么①优先且要支持 immutable：外测实证——「7 月 20 日交的稿」是不可变历史，
+    按槽位名（含『日期』）判 30d 会在 9 月查询时被标 weak，判官看到「需核实」反而降分；
+    而「尚未寄出」是状态量，45 天后确实可能已变 ⇒ 该标 weak。**槽位名分不出这两类**，
+    只有写入方知道，故以显式声明为准，推断只做保守缺省。
+    """
+    raw = ttl
+    if raw is not None:
+        if isinstance(raw, str) and raw.strip().lower() in IMMUTABLE_WORDS:
+            return None
+        try:
+            v = float(str(raw).strip())
+        except (TypeError, ValueError):
+            v = None
+        if v is not None and v > 0:
+            return v
     env = _env_ttl()
     if env is not None:
         return env
+    if str(kind or "").strip().lower() == "migration":
+        return 30.0
     s = str(slot or "").lower()
     for keys, days in _TTL_RULES:
         for k in keys:
@@ -73,7 +101,8 @@ def ttl_days_of(slot):
 def lease_of(unit, now=None):
     """算一条槽位单元的租约状态（3.2.2 stable 租约）。"""
     now = time.time() if now is None else float(now)
-    ttl = ttl_days_of((unit or {}).get("slot"))
+    u = unit or {}
+    ttl = ttl_days_of(u.get("slot"), kind=u.get("kind"), ttl=u.get("ttl"))
     t_from = (unit or {}).get("t_from")
     age = None
     if t_from is not None:
@@ -83,8 +112,10 @@ def lease_of(unit, now=None):
             age = None
     weak = False
     reason = None
-    if (unit or {}).get("state") == "retired":
+    if u.get("state") == "retired":
         reason = "retired"          # 值已撤回：不是 weak，是"没有当前值"
+    elif ttl is None:
+        reason = "immutable"        # 显式声明不可变：已发生事实，永不 weak
     elif age is None:
         weak, reason = True, "no_timestamp"   # 不知道什么时候确认的 ⇒ 不敢当稳定值
     elif age >= ttl:
@@ -113,6 +144,8 @@ def build_view(units, now=None):
             "tier": u.get("tier"),
             "alternatives": u.get("alternatives") or [],
             "event_count": u.get("event_count"),
+            "kind": u.get("kind"),
+            "ttl_declared": u.get("ttl"),
             **lease,
         }
         by_subject.setdefault(subj, {"subject": subj, "slots": {}, "weak_slots": []})
