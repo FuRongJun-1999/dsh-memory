@@ -3246,6 +3246,17 @@ def _cg_dispatch(cg, a):
                          actor=_actor)
         return {"ok": True, "event": rec}
 
+    if op == "state_view":
+        # 【设计稿 docs/设计_状态账本与终态投影_v0.1.md §3.2/§3.3】
+        # 账本是源（state_events）、槽位是回放投影（state_slots）、本 op 在其上加**租约语义**：
+        #   stable ⟺ (now - t_from) < TTL 且值非撤回；超时 ⇒ weak=True 但**不删值**（智能论 3.2.2 P1-003）。
+        # 并把同一 subject 的全部槽位**联合给出**——多要素题要求时间/参与人/地点同时在场。
+        # 纯只读：不写盘、不建缓存；同一账本 + 同一 now 必得同一结果。
+        from . import state_view as _sv
+        return _sv.state_view(cg, subject=a.get("subject"), slot=a.get("slot"),
+                              include_retired=bool(a.get("include_retired")),
+                              limit=a.get("limit"))
+
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
                          a.get("verdict", ""),

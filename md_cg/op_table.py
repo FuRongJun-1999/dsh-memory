@@ -588,6 +588,20 @@ _OP_TABLE = {
     ),
         ),
     },
+    "state_view": {
+        "doc_order": 37,
+        "doc": "状态视图：账本回放 + stable 租约（TTL/weak）+ 同主体多槽位联合（终态求解用）。",
+        "impl": "inline",
+        "require": "read",
+        "params": (
+            "subject",
+            "slot",
+            "limit",
+        ),
+        "actions": (),
+        "default_action": None,
+        "sigs": (),
+    },
     "state_event": {
         "doc_order": 36,
         "doc": "状态事件记账（追加一条五元事件subject/slot/old/new/kind；actor 恒取令牌；查询走 stg(op=state_chain)）。",
