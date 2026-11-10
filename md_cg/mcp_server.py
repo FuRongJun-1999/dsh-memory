@@ -2514,6 +2514,27 @@ def _require_verify_for_vstate(p, a):
     p.require_op("verify")
 
 
+
+
+#: 落盘索引节点数缓存：{path: (mtime, size, count)}。issue #812 后续——60MB JSON 不该每次重解析。
+_DISK_COUNT_CACHE: dict = {}
+
+
+# 生效条件：path 指向 _index.json；返回其 nodes 条目数（按 mtime+size 缓存，外部改动自动失效）
+def _disk_index_count(path: str) -> int:
+    """落盘索引的节点数（缓存版）。解析失败由调用方兜底，这里只负责计数。"""
+    import json as _json
+    st = os.stat(path)
+    key = (st.st_mtime, st.st_size)
+    hit = _DISK_COUNT_CACHE.get(path)
+    if hit and hit[0] == key[0] and hit[1] == key[1]:
+        return hit[2]
+    with open(path, encoding="utf-8") as fh:
+        n = len(((_json.load(fh) or {}).get("nodes")) or {})
+    _DISK_COUNT_CACHE[path] = (key[0], key[1], n)
+    return n
+
+
 def _cg_dispatch(cg, a):
     # issue #722（Q1=A）：**工具面 read/route 缺省放宽**——在派发入口补默认，
     # 而不是在每个调用点编造参数：读面「不编造默认」约束的是**参数推导/回显**，
@@ -2764,9 +2785,10 @@ def _cg_dispatch(cg, a):
         # issue #812：落盘索引 vs 内存索引的偏差（只在 full=true 时解析——58MB JSON，快照面不能付这个成本）。
         if _full and _idx_path:
             try:
-                import json as _json
-                with open(str(_idx_path), encoding="utf-8") as _fh:
-                    _disk_nodes = len(((_json.load(_fh) or {}).get("nodes")) or {})
+                # 【issue #812 后续】60 MB 索引每次都整份 json.load 太重：
+                # 实测本机 0.7s，但在持 3.4 万节点内存索引的进程里会触发内存压力 ⇒ info(full=true) 曾 60s 超时。
+                # 现按 (mtime, size) 缓存计数：外部改库 ⇒ mtime 变 ⇒ 自动失效；只读面重复调用零成本。
+                _disk_nodes = _disk_index_count(str(_idx_path))
                 h["index_node_count"] = _disk_nodes
                 h["index_stale"] = _disk_nodes != len(_nodes_info)
                 h["index_stale_hint"] = ("index_stale=true 表示内存索引与落盘索引不一致。两种成因："
