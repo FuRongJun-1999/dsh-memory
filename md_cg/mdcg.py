@@ -32,6 +32,23 @@ import threading
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews, fsutil, freshness)
 from . import timeanchor as _timeanchor
+# ── R-506b（2026-11-10，用户裁定「并发写入该支持」）───────────────────────
+# 「读-改-写」原语的丢失更新闸（乐观不选、悲观上：把整段包进同一把节点锁）。
+# 为什么 `_write_node` 里的锁不够：丢失发生在**锁外** ——
+#   `got = self._edge_node(id)` 读旧 fm → 改 → `_write_node(...)` 写回旧基线。
+# 两条路径各自这么做 ⇒ 后写覆盖前写（实测 4 进程 × 5 次 `update_tags`，
+# 期望 20 个 tag，无锁丢 5~12、只锁 `_write_node` 仍丢 9~10）。
+# `node_write_lock` 返回 `_ReentrantFileLock`（按 normcase(abspath) 记深度），
+# 所以原语互调、以及与 `add()` / `_move_layer()` 的既有锁域嵌套都不会自锁。
+def _rmw_locked(fn):
+    """把「读-改-写」原语整段收进同一把节点锁。第一个参数必须是 node_id。"""
+    import functools
+
+    @functools.wraps(fn)
+    def _w(self, node_id, *a, **kw):
+        with node_write_lock(self, node_id):
+            return fn(self, node_id, *a, **kw)
+    return _w
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl, node_write_lock,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -4165,6 +4182,7 @@ class MdCG:
             pass
 
 # 生效条件：node_id 取不到节点返回 False；fm.edges 非 list 时重置为 []；已存在 dict 边其 str(target or "") 与 str(relation_type or "") 同时等于 edge 归一值（缺键为 ""）时返回 False（幂等），否则追加 dict(edge)、写盘并同步后返回 True；
+    @_rmw_locked
     def append_edge(self, node_id: str, edge: dict) -> bool:
         """向既有节点追加一条出边（fm.edges），幂等去重。
 
@@ -4190,6 +4208,7 @@ class MdCG:
         return True
 
 # 生效条件：node_id 取不到节点返回 False；subgraph 非 dict 时重置为 {"nodes":[]}、其 nodes 非 list 时重置为 []；child_id 已在列表中返回 False（幂等），否则追加 str(child_id)、写盘并同步后返回 True；
+    @_rmw_locked
     def append_subgraph_node(self, node_id: str, child_id: str) -> bool:
         """向既有父节点追加层级子节点（fm.subgraph.nodes），幂等去重。
 
@@ -4214,6 +4233,7 @@ class MdCG:
         return True
 
 # 生效条件：node_id 取不到节点返回 False；tags 非 list 时重置为 []；先按 remove（假值按空集合）删除、再把 add（假值按空列表）中不在结果内的 str 项追加，结果等于原 tags 时返回 False 不落盘，否则写盘、同步索引 tags、标脏并返回 True；
+    @_rmw_locked
     def update_tags(self, node_id: str, add=None, remove=None) -> bool:
         """节点 tags 增删（节点状态更新窄原语——causal 候选状态迁移面）。
 
@@ -4245,6 +4265,7 @@ class MdCG:
         return True
 
 # 生效条件：node_id 取不到节点返回 False；在 fm.get("edges") or [] 中找首个 dict 且 str(target or "")==str(target_id)、str(relation_type or "")==str(relation_type) 的边，找不到返回 False；命中则把该边 condition_space 置为 dict(condition_space or {})、写盘并同步后返回 True；
+    @_rmw_locked
     def set_edge_condition(self, node_id: str, target_id: str,
                            relation_type: str, condition_space: dict) -> bool:
         """改既有节点上指定出边的 condition_space（模式分离更新面）。
