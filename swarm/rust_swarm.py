@@ -60,6 +60,20 @@ def make_swarm_config(instances: List[Dict], routes: Optional[List[Dict]] = None
         if "|" in _et:
             raise ValueError(
                 "路由 event_type 不得含 |（issue #99，同上）：%r" % _et)
+        # ★R-574（2026-11-10 审计 P1-H2）：#99 的修复**漏了 from / to** ——
+        # 上面对 `id` 与 `event_type` 都堵了，唯独最该堵的这两个没堵。
+        # 而 #99 的伪造形态原文就写着：
+        #   `from=inst_a|inst_b / to=inst_c` 与 `from=inst_a / to=inst_b|inst_c`
+        #   签名串完全相同 ⇒ 两条不同的路由共用同一签名。
+        # 也就是说：**堵了 event_type 却没堵 from/to，攻击面一点没变**。
+        # 三者一起堵才算堵住「字段边界可挪动」这个已知形态（仍不是修协议 ——
+        # 彻底解要长度前缀或 JSON 规范化，且 Rust 侧同步）。
+        for _k in ("from", "to"):
+            _v = str((_r or {}).get(_k) or "")
+            if "|" in _v:
+                raise ValueError(
+                    "路由 %s 不得含 |（issue #99：签名串以 | 拼接且不转义，"
+                    "含 | 的端点可被挪动字段边界后伪造签名）：%r" % (_k, _v))
     if not shared_secret:
         raise ValueError(
             "WAL 验签密钥不得为空（shared_secret 必填，issue #81）："
