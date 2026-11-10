@@ -4345,10 +4345,22 @@ def _runtime_token_recheck(p):
             return "令牌记录已不存在（可能已被吊销或清理）"
         if isinstance(rec, dict) and rec.get("revoked_at"):
             return "令牌已吊销（revoked_at=%s）" % rec.get("revoked_at")
-    except Exception as _e86:
-        sys.stderr.write("[mdcg-mcp] ⚠ #86 运行期令牌复检异常（已放行）：%s: %s\n"
-                         % (type(_e86).__name__, _e86))
+    except FileNotFoundError:
+        # ★R-526（2026-11-10 审计 P1-G4）：令牌文件**不存在**是「这台机器没启用
+        # 令牌体系」的正常态（与非令牌身份 `tid` 为空的放行同义），放行但留痕 ——
+        # 安静放行会让人以为「复检跑过了」。
+        sys.stderr.write(
+            "[mdcg-mcp] #86 运行期令牌复检：令牌文件不存在，按「未启用」放行\n")
         return None
+    except Exception as _e86:
+        # 其余异常（权限拒绝 / IO 错误 / _load 内部故障）⇒ **不可判定**。
+        # 修前一律 `return None`（fail-open）意味着「读不到令牌库 = 全部放行」——
+        # 一个被吊销的令牌只要能让复检抛异常就能继续用。改成 **fail-closed**：
+        # 拒绝并留痕，把「复检不可用」变成显式失败而不是静默放行。
+        sys.stderr.write(
+            "[mdcg-mcp] ✗ #86 运行期令牌复检不可用（**已拒绝**）：%s: %s\n"
+            % (type(_e86).__name__, _e86))
+        return "运行期令牌复检不可用（%s: %s）" % (type(_e86).__name__, _e86)
     return None
 
 
