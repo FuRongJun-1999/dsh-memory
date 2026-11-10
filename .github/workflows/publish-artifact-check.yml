@@ -64,3 +64,10 @@ jobs:
         run: python scripts/check_local_paths.py --selftest
       - name: 追踪面本机路径扫描（git ls-files 全量）
         run: python scripts/check_local_paths.py
+      # 【issue #807】行为面判据必须进 CI：check_publish_smoke.py 早先只在本地 `npm run gate` 生效，
+      # 8 个 workflow 无一调用 ⇒ #792 想消灭的「静态面全绿、链路实际断开」在门禁上等于不存在
+      # （与本判据当初要消灭的缺陷同型）。脚本已绿（本地 32s / 7 条判据全过），接线纯增益、零风险。
+      # 它做的是「真装一遍再握手」：utf8_boot 在包内 → 装好的目录结构 → 字符集表解析 →
+      # initialize/tools/list 真握手 → tools 面 == 缺省面 → 策略来源。
+      - name: 发布件行为面冒烟（真装一遍 + MCP 握手，issue #807）
+        run: python scripts/check_publish_smoke.py

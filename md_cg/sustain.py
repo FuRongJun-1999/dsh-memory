@@ -476,6 +476,30 @@ def _hb_prune_shards(root: str):
 
 
 # 生效条件：开关关（heartbeat_ledger_enabled() 为假）时返回 None 且不写盘；否则先经 _hb_rotate_if_needed(root) 有界闸门，再向 root/HEARTBEAT_LOG 追加一行 {"t","name","pid","kind":"beat","ok"(,"error")}，返回该行；任何写入异常被吞掉并返回 None（心跳不可因台账而中断）。
+
+
+# 生效条件：e 为 tick 内捕获的异常；返回「类名: 消息 @ 文件:行（末3帧摘要）」单行字符串（≤600 字）
+def _tick_error_summary(e: BaseException) -> str:
+    """tick 失败的**可定位**摘要（issue #804）。
+
+    早先只记 `类名: 消息` —— `RuntimeError: dictionary changed size during iteration`
+    这种没有栈的报错等于零定位信息（实测 5 次、5 个不同 pid 全无 traceback）。
+    现在追加末 3 帧 `文件:行 函数` 与最终错误行；仍压成**一行**，不破坏 `_heartbeat.jsonl` 的逐行 JSON 契约。
+    """
+    import traceback
+    head = "%s: %s" % (type(e).__name__, str(e)[:200])
+    try:
+        tb = traceback.extract_tb(e.__traceback__)
+    except Exception:                 # noqa: BLE001 —— 取栈失败也不影响主流程
+        return head
+    if not tb:
+        return head
+    frames = tb[-3:]
+    where = " <- ".join("%s:%d %s" % (os.path.basename(f.filename), f.lineno, f.name)
+                       for f in frames)
+    return ("%s @ %s" % (head, where))[:600]
+
+
 def record_heartbeat(root: str, name: str, *, ok: bool = True, error=None,
                      t=None, pid=None, extra=None,
                      kind: str = HB_KIND_BEAT) -> dict:
@@ -1583,9 +1607,11 @@ class SustainLoop:
                 if name != "beat":
                     # D2：失败档**必须在台账可见**——非 beat 业务档每轮失败追加
                     # 一条 kind="tick" 行（beat 自身失败已由 beat() 记 ok=False）。
+                    # 【issue #804】早先只记「类名: 消息」⇒ 5 次 RuntimeError 全无定位信息
+                    # （连抛在哪一行都不知道）。现追加 traceback 尾部（最后 3 帧 + 错误行），
+                    # 台账仍是一条 JSON 行（不破坏既有解析）。
                     record_heartbeat(self.cg.root, name, ok=False,
-                                     error="%s: %s" % (type(e).__name__,
-                                                       str(e)[:200]),
+                                     error=_tick_error_summary(e),
                                      kind=HB_KIND_TICK)
                 self.last_tick_error = {"name": name, "t": time.time(),
                                         "error": "%s: %s" % (type(e).__name__,
