@@ -530,8 +530,18 @@ def _audit_rollback(cg, tgt, act, rel, res, actor=None, pid=None, reason=""):
         rec["chain"] = _degraded_mark
     rec.update(meta)
     try:
-        fsutil.append_jsonl(os.path.join(cg.root, "_audit.jsonl"), rec)
-        return True
+        # ★R-532（2026-11-10 审计 P2 治理）：退化直写此前**无锁、非 durable** ——
+        # 而首选路径 `cg._audit(...)` 在 R-303b 之后是「轮转→算 prev→durable 追加」
+        # 全套同一临界区（`_ReentrantFileLock`）。两条路对同一个文件写入，一条有锁一条没有
+        # ⇒ 退化期（`cg._audit` 不可用）恰好与正常写者并发时会丢行。
+        # 这里补同一把锁 + `durable=True`，与 mdcos 侧同口径。
+        # 仍然**不进链**（`chain=known_degraded` 已标）—— 那是刻意的软信号：
+        # 退化行的语义是「我知道自己没进链」，与 `unknown_foreign`（有人插入）必须不同。
+        from .fsutil import _ReentrantFileLock as _RL532
+        _lp532 = os.path.join(cg.root, "_audit.jsonl")
+        with _RL532(_lp532, 10.0):
+            _ok532 = fsutil.append_jsonl(_lp532, rec, durable=True)
+        return bool(_ok532)
     except Exception:                      # noqa: BLE001
         return False
 
