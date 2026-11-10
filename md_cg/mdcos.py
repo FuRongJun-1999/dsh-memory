@@ -3069,9 +3069,50 @@ class MdCGOS(MdCG):
             if det_reranked:
                 meta["det_clock_source"] = _clock_source
                 meta["det_mode"] = _mode
+        # 【2026-11-11 外测】状态序列必须作为**一等公民**进材料：
+        # 实测（Ornn8 B 类 19 题）——模型面对 20–30 条按检索分排的片段，
+        # **没有确定性的时序依据**去选「最早那次」：同一题两次跑给出不同锚点，
+        # 提示词让它「按日期排序再取最早」，它排的是自己回忆的顺序而不是材料里的日期序。
+        # 这里按 created_at 升序给出 (date, id, head) 三列——模型读表即得时序，不必归纳。
+        # 注意：这是**节点级**时间线（不含实体/槽位抽取），是「状态追踪」的便宜中间态。
+        timeline = self._pack_timeline(pack)
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
-                "aggregates": aggregates}
+                "aggregates": aggregates, "timeline": timeline}
+
+
+
+    # 生效条件：pack 为 recall 装好的条目列表；返回按 created_at **升序**的时间线 [{"date","id","head"}]
+    def _pack_timeline(self, pack):
+        """把装好的条目压成「日期 | 事件首句」时间线（issue：模型无法从片段做时序归纳）。
+
+        为什么必须由算法给：实测同一道「最早那次」题两次跑给出不同锚点 —— 说明模型没有
+        确定性依据在多个同主题候选里挑最早的。日期与事件首句都是**已有字段**，
+        压成表零成本；模型只需读表，不必排序。
+
+        只取首句（≤80 字）并跳过 CCG 头（`# 功能名：` 等六要素行），避免把元数据当事件。
+        """
+        out = []
+        for e in pack or []:
+            fm = e.get("frontmatter") or {}
+            ts = fm.get("created_at") or fm.get("valid_from")
+            date = None
+            if ts is not None:
+                try:
+                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
+                except (TypeError, ValueError, OSError):
+                    date = None
+            body = ""
+            for line in str(e.get("content") or "").splitlines():
+                s0 = line.strip()
+                if not s0 or s0.startswith("#"):
+                    continue
+                body = s0[:80]
+                break
+            out.append({"date": date or "", "id": e.get("id"), "head": body})
+        out.sort(key=lambda x: (x["date"] or "9999-99-99", str(x.get("id") or "")))
+        return out
+
 
     # ================= 1. Fix pairs 自动挖掘 =================
 
