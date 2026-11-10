@@ -15,9 +15,9 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH support](https://img.shields.io/badge/DSH-0.2.1--rc.5%20verified-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**A high-performance, hallucination-free long-term memory system for multi-agent use (v0.10.0)**
+**A high-performance, hallucination-free long-term memory system for multi-agent use (v0.10.1)**
 
-> **Current version: `0.10.0`** (npm `latest`) · verified on **DSH `0.2.1-rc.5`** (tested by the maintainer).
+> **Current version: `0.10.1`** (npm `latest`) · verified on **DSH `0.2.1-rc.5`** (tested by the maintainer).
 > **Roadmap**: development now focuses on the **LINGSHU 1.0 architecture**; fixes for existing issues are **deferred**
 > (still accepted, but lower priority than 1.0).
 

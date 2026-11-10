@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-11-11
+
+### Time-retrieval fixes (#849 / #850 / #851 / #852 / #853 / #855 / #858 / #859)
+
+- Relative-date parsing extended: 3 days ago / last Wednesday / last week / last month (incl. Chinese numerals).
+- `pick_scopes(now=)` logical clock injection; `recall(now=)` threaded through (external harnesses no longer fall back to the real clock).
+- `_pick` hit-suppression fix: matching nodes first, then fill by recency (an anchor inside the bucket no longer vanishes).
+- Three parallel causes: early-intent session quota 4→2 (days get 6), buckets without term overlap also filled, evidence-first pool generation.
+- Readings: anchor coverage **41.2% -> 83.2%**, stable set **52 -> 55** (two arms x two repeats, zero jitter).
+- Three-column table: anchor-in & correct 50 / anchor-in & wrong 19 / not-all-in & correct 5 / not-in & wrong 1.
+- Boundaries: on-vs-off is -1 (55 vs 56) because the answer-side fix lifted both arms; 714 was not fully re-run.
+
 ## [0.10.0] - 2026-11-10
 
 ### Added: scope selection (`scopeselect`) — state-tracking anchors become the bucket-order standard (#844 / #847)
