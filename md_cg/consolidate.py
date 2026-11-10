@@ -635,7 +635,7 @@ def replay_check(pos_terms, neg_terms, body: str) -> dict:
     #    「pnpm 以外的包管理器」「不用 pnpm 的工程」（实测过两闸）。
     #    实测窗口非空但窄：15 条候选里 5 条过两闸。
     #    ⚠ 改 0.34（DEFAULT_GROUNDING）或下面这个 0.5 都会**平移窗口**，
-    #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。
+    #      二者是一对，须一起看；守卫 test_issue278_neg_window.py 钉住该窗口。  （R-401b：该守卫未落盘）
     if neg_terms:
         # ★ #278 (c) 分层 —— **L1 只判「是否易混」**：负条件词是否与本条正文的领域词有交集。
         #   **L1 不判「是否域外」**（那是 grounding 与 no_conflict 的事）；

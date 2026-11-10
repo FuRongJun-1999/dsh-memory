@@ -109,7 +109,7 @@ _REPLACEMENT_CHAR = "\ufffd"
 # 「查账号库」语义，宁同留字面量）。
 # 收敛代价（如实）：POSIX 上 MDCG_ROOT=~someone/mem 从「展开成 /home/someone/mem」
 # 变成「原样 ~someone/mem」，需用户写全路径。
-# 源码面断言：md_cg/test_datapath_tilde_home.py（扫 md_cg/ 与 scripts/ 的 .py，第二处
+# 源码面断言：md_cg/test_datapath_tilde_home.py（扫 md_cg/ 与 scripts/ 的 .py，第二处  （R-401b：该守卫未落盘）
 # 同判据即报红）。
 def _expand_home(p: str) -> str:
     """波浪线展开——本判据在 python 侧的唯一实现（与 node 侧 expandHome 同口径）。"""

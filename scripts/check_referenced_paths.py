@@ -5,7 +5,7 @@
 **注释、判据、清单、架构表点名了某个文件，而那个文件不存在**。它不会被任何测试发现：
 文件不存在不报错，调用点不存在不报错，只有人肉读的时候才「怎么找不到」。已知实例：
 
-  · `scripts/arch-check.py:72` 的注释写「`gate-tree-hygiene.mjs` 负责把它变成显式红」，
+  · `scripts/arch-check.py:72` 的注释写「`gate-tree-hygiene.mjs` 负责把它变成显式红」，  （R-401b：该守卫未落盘）
     该文件在四处候选目录里都不存在（真正的 tmp 门叫 `gate-tmp-hygiene.mjs`）；
   · `md_cg/semantic/__init__.py` 的模块清单列了 `build_en_index.py`，该目录里没有它；
   · 备份入口在两仓都缺：`lingshu-src` 与 `assistant-gateway` 底下都没有那个 backup 脚本。

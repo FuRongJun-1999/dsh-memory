@@ -899,7 +899,7 @@ def _gate_consistency(ctx):
 #   · _write_values(ctx) —— 语义键 → 落盘值的**唯一取值点**（两出口都只许调它）；
 #   · _OUTLET_PARAMS    —— 语义键 → 两出口各自的**形参名**；
 #   · _OUTLET_ONLY      —— 值为 None 的格（该出口无此形参）必须在此登记理由。
-# 守卫 md_cg/test_issue414_write_args_parity.py 用 **AST 抽取两处调用的实参名**，
+# 守卫 md_cg/test_issue414_write_args_parity.py 用 **AST 抽取两处调用的实参名**，  （R-401b：该守卫未落盘）
 # 与 _OUTLET_PARAMS 做全表**双向**断言：漏传 / 新增未登记 / 登记了却没有 —— 三者都红。
 #
 # ★importance vs importance_hint 的等价性判定（#414 报告把 importance 列进差集，

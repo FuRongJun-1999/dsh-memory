@@ -453,7 +453,7 @@ def _plan_actions(plan):
 #: `MdCGSecure.verify` 两处**写 E 类字段却不在清单里**（plan 档照旧写盘），
 #: 且全仓同族候选远不止这两处（AST 实测 27 处写/裁决入口 ⇒ 同族 8 处+）。
 #: 故把清单收成**本表**：docstring 的「边界」段由它渲染（改表即改文档，勿手改正文），
-#: 守卫 `md_cg/test_issue408_eface_registry.py` 用 AST 枚举全仓写/裁决入口做**双向**
+#: 守卫 `md_cg/test_issue408_eface_registry.py` 用 AST 枚举全仓写/裁决入口做**双向**  （R-401b：该守卫未落盘）
 #: 全表断言（新增未登记即红 ∧ 登记却不存在也红）。
 #:
 #: 处置（disposition）三值闭集：

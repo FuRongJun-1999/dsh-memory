@@ -515,7 +515,7 @@ def _audit_rollback(cg, tgt, act, rel, res, actor=None, pid=None, reason=""):
                 #   2) **回落触发条件**：`from .mdcos import ...` 失败（循环导入等）；
                 #   3) **已知漂移风险**：若有人只改 mdcos 侧的值，**回落到字面量的这条路径会静默
                 #      地用旧值** —— 这是「两份副本必然漂」在语言机制层的又一次落地。
-                #   ⇒ 该偏差**已被腿钉住**：`md_cg/test_issue472_audit_chain.py` 的 C2 腿断言
+                #   ⇒ 该偏差**已被腿钉住**：`md_cg/test_issue472_audit_chain.py` 的 C2 腿断言  （R-401b：该守卫未落盘）
                 #      「本回落字面量 == mdcos.AUDIT_KNOWN_DEGRADED 的真值」（AST 静态比对，
                 #      不需构造循环导入 ⇒ 可行）。
                 _KD = "AUDIT_KNOWN_DEGRADED"

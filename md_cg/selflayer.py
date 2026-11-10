@@ -15,9 +15,12 @@
   frontmatter 键会让索引膨胀且丢进恒空统计；正文用 `# 键：值` 行，取数腿解析，
   零索引代价。
 
-生效条件：`materialize()` 由 `scripts/self-materialize.py`（cron 或手动）调用；
-`claims()` 由 MCP `cg(op="self_claims")` 调用；两者都不参与主检索排序
-（`RECALL_SKIP_LAYERS` 含 `self`）。
+生效条件（**R-401b 校正，2026-11-10**）：本模块目前**没有任何调用点** ——
+`materialize()` 与 `claims()` 都未接线。原注释声称的两个入口
+（一个 cron 侧物化脚本、一个 `cg(op="self_claims")` 工具）经机械扫描确认
+**均未落盘**（脚本从未创建，op 不在 `op_table._OP_TABLE` 的 38 个 op 里）。
+故「本层已在用」的说法不成立；要启用需先补入口 + 一个守卫。
+设计意图（未变）：两者都不参与主检索排序（`RECALL_SKIP_LAYERS` 含 `self`）。
 """
 import hashlib
 import json

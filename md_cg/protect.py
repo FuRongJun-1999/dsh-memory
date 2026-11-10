@@ -524,7 +524,7 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
     #      密级更高，即 #359 记的「private 已被记录」那类；#359 的裁定只绑定 merge
     #      场景，本处沿用其「unknown 视同缺省档」口径但不外推）。
     #      密级更高），故按「成本>收益取小」**保持 internal 回落**，把边界与代价
-    #      钉在守卫 `md_cg/test_issue450_writegate_unknown_sens.py`。
+    #      钉在守卫 `md_cg/test_issue450_writegate_unknown_sens.py`。  （R-401b：该守卫未落盘）
     #   ③ 何时改判：出现「缺键且真实密级应为高密级」的实例（届时按 fail-closed 改，
     #      并同批把 legacy 节点回填 sensitivity，否则就是上面的全库只读）。
     #   边界：节点**不存在** ⇒ 新写入面，沿用 `DEFAULT_SENSITIVITY`（保护的是
@@ -551,7 +551,7 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
         #   等于把全库 legacy 节点对非 secret 身份变成只读——功能代价大于它堵的
         #   fail-open（后者需要攻击者已持 internal clearance 且目标真实密级更高）。
         #   故按「成本>收益取小」维持原语义，并把边界钉在守卫
-        #   `md_cg/test_issue450_writegate_unknown_sens.py`（登记 + 代价 + 何时改判）。
+        #   `md_cg/test_issue450_writegate_unknown_sens.py`（登记 + 代价 + 何时改判）。  （R-401b：该守卫未落盘）
         return _layer or "knowledge", DEFAULT_SENSITIVITY
     return _layer or "knowledge", _sens
 
@@ -656,7 +656,7 @@ def stats(cg):
     这条路径经 `cg(op=info)` 的 `protection` 段把 UI 概览页首屏拖到 5 分钟（用户现场）。
     语义不变：两个判定函数本就是「取 fm → 调 *_entry」的同一构造（见各函数注释），
     条目与 frontmatter 的字段同源（`_node_entry` 从 fm 派生）；等价性由守卫
-    `md_cg/test_protect_stats_parity.py` 用真实库抽样 + 合成库逐位比对钉住。
+    `md_cg/test_protect_stats_parity.py` 用真实库抽样 + 合成库逐位比对钉住。  （R-401b：该守卫未落盘）
     并发面：迭代仍**先取快照**（`list(nodes.items())`，H-4 判据：共享 dict 迭代
     期间若有同进程写入会 `dictionary changed size during iteration`）。
     """

@@ -94,7 +94,7 @@ def install_default(cg) -> bool:
     同款——**内存随本进程读过的节点数线性常驻且无淘汰面**（path 键字典，
     无 LRU），长跑全库 CLI 会全量驻留；进程内一致性边界（跨进程/外部直改
     md 文件不保证可见）也随之下移到基类。内存增量实测与一致性边界影响面
-    判定见 `md_cg/test_issue370_readcache_assembly.py` 的「不适用条件」。
+    判定见 `md_cg/test_issue370_readcache_assembly.py` 的「不适用条件」。  （R-401b：该守卫未落盘）
     """
     if not enabled():
         return False

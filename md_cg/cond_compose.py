@@ -5,7 +5,7 @@
 # 生效条件：已取得模板（md_cg/cond_template.json，由 LLM 产出并留痕）且有 cond_facts 事实时；用于批量生成候选注释文本
 # 子功能：按模板槽位 symbol/required/optional/externals/guards/returns/doc 组句；externals 剔除 import 来源与内置名；证据不足按模板规则输出 BLINDSPOT
 # 执行：python -X utf8 -m md_cg.cond_compose <file>... [--terse] [--json]；库内调用 compose_file(path)
-# 验证方式：md_cg/test_cond_compose.py；生成文本须过 condition_anchor.judge（ANCHORED 或 BLINDSPOT，不得 WEAK/REJECT_META）
+# 验证方式：md_cg/test_cond_compose.py；生成文本须过 condition_anchor.judge（ANCHORED 或 BLINDSPOT，不得 WEAK/REJECT_META）  （R-401b：该守卫未落盘）
 # 不适用条件：①本器只按事实填模板，**不新增语义**；证据不足即 BLINDSPOT ②--terse 会省略空槽位（与模板逐字填充不同，属受控偏离，见 README）③模板变更须同步本器槽位
 """
 from __future__ import annotations

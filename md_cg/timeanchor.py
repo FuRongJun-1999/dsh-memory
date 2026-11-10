@@ -5,7 +5,7 @@
 # 生效条件：MDCG_TIME_ANCHOR=="1"；写入侧仅在节点**无显式 temporal**、非加密密级、规则能解析时落派生字段；查询侧仅在问句含规则表内的日期写法时启用
 # 子功能：①规则表（英文/中文相对表达 + 带年份绝对日期）②derive：正文 → 派生字段 ③parse_query：问句 → 区间 ④node_interval：节点 → 事件区间（显式 temporal > 派生 > 观测当日）
 # 执行：被 md_cg/mdcg.py::MdCG.add（写入侧）与 md_cg/mdcos.py::MdCGOS.search_rrf（查询侧）调用；本模块纯函数、只用标准库
-# 验证方式：md_cg/test_time_anchor.py（守卫 + 定点变异）；md_cg/bench_timeanchor.py（LoCoMo 复现）
+# 验证方式：md_cg/test_time_anchor.py（守卫 + 定点变异）；md_cg/bench_timeanchor.py（LoCoMo 复现）  （R-401b：该守卫未落盘）
 # 不适用条件：规则表外的写法（「国庆前后」「上上周」）不解析；时长推理（「多久」）不做；观测时刻不是说话时刻（批量导入统一写成导入时间）时参照日错位
 
 ## 为什么有这个文件
@@ -370,7 +370,7 @@ ABS_RULES: List[Rule] = [
 ]
 
 #: **污染声明**（见设计文档）：lingshu 版开发时看过一次含 test 的失败样例后加的 6 族规则。
-#: 只供基准报「去掉这 6 族」的下界用（`bench_timeanchor.py --minus-posthoc`），运行时不读。
+#: 只供基准报「去掉这 6 族」的下界用（`bench_timeanchor.py --minus-posthoc`），运行时不读。  （R-401b：该守卫未落盘）
 POST_HOC_RULE_IDS = frozenset({"en.on_nth", "en.in_year", "en.for_n_units",
                                "en.month_last_year", "en.this_month", "en.this_year"})
 

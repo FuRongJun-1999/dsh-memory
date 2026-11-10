@@ -37,7 +37,7 @@ def nfkc_text(text) -> str:
     （负条件判据与边界摘词面）都经此函数取 NFKC。为什么必须抽成函数：本仓的返工教训
     是「两份实现 + 注释写着同源 = 口径必分叉」（见 `mdcg.py` 里 `_ccg_line` 的副本案）。
     仓内**不得**再出现第二处 NFKC 归一实现（本模块的单点是唯一入口）——由
-    `md_cg/test_issue362_neg_condition.py` 的 E 组做源码面单点断言钉死。
+    `md_cg/test_issue362_neg_condition.py` 的 E 组做源码面单点断言钉死。  （R-401b：该守卫未落盘）
     """
     return unicodedata.normalize("NFKC", "" if text is None else str(text))
 
@@ -45,7 +45,7 @@ def nfkc_text(text) -> str:
 #: 繁→简折叠表（#362c：**机制在位、数据待补**）。
 #:
 #: 为什么是空表：仓内**没有**既有的繁简映射表（证据与检索口径见
-#: `md_cg/test_issue362_neg_condition.py` 的 C 组注释）。而「只覆盖本 issue 语料的
+#: `md_cg/test_issue362_neg_condition.py` 的 C 组注释）。而「只覆盖本 issue 语料的  （R-401b：该守卫未落盘）
 #: 最小表」会在守卫里全绿、在真实流量上静默漏拒——那是**假绿**，比没有表更坏。
 #: 故按 Lead 裁定（2026-10-14）：**c 项本轮挂起**，只落机制单点；表默认空 ⇒
 #: 生产行为一字不动。注入点见 `trad_to_simp()` / `set_trad_to_simp()`。

@@ -431,7 +431,7 @@ def controlled_drain(cg, *, limit=BATCH_LIMIT, dry_run=False, principal=None):
       dry_run 亦须过同一权限闸（否则可借预演侧读队列组成）。
     【子功能】单批限量消费 / 预演 / 失败重入队与 dead-letter / 聚合审计。
     【执行】controlled_drain(cg, limit=N, dry_run=False, principal=None)
-    【验证方式】md_cg/test_issue72_coldverify_controlled_drain.py（含 --mutate）。
+    【验证方式】md_cg/test_issue72_coldverify_controlled_drain.py（含 --mutate）。  （R-401b：该守卫未落盘）
     【不适用条件】不适用于后台常驻消费（那仍是 start_worker 的 opt-in 语义）；
       不改变 drain() 既有契约（本函数在它之上加闸，不改其行为）。
     """

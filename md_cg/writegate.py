@@ -3,7 +3,7 @@
 # 生效条件：MDCG_WRITE_GATE=warn|enforce 时经 security.require_layer_write 生效；off（缺省）时完全不介入
 # 子功能：①LAYER_TIERS 四档严格度 ②REQUIRED_REVIEWERS 每档所需复核单元 ③review_channels() 读可用复核通道（hive/subagent/team）④decide_write() 产出 allow/require_review/deny ⑤无任何复核通道时仅情景类层（tier 0）可直写，其余 deny
 # 执行：写入路径 → require_layer_write → decide_write(layer, reviewers, channels, mode) → off 放行 / warn 记录并放行 / enforce 阻断
-# 验证方式：md_cg/test_writegate_tiers.py（四档矩阵、无通道放宽、单通道不足、双单元齐备、自我层需人工、warn 不阻断、enforce 阻断、off 不介入）
+# 验证方式：md_cg/test_writegate_tiers.py（四档矩阵、无通道放宽、单通道不足、双单元齐备、自我层需人工、warn 不阻断、enforce 阻断、off 不介入）  （R-401b：该守卫未落盘）
 # 不适用条件：不做「复核证据真伪」校验（本层只认声明与单元归属，真伪由蜂巢/子代理侧签章承接）；不改 PROTECTED_LAYERS 的不可遗忘/不可覆盖语义
 """分层写入严格度闸（2026-10-27 使用者裁定）。
 

@@ -5,7 +5,7 @@
 # 生效条件：给定一个 Python 源文件路径时；用于「白箱写功能级生效条件」的原料生成与门禁复核
 # 子功能：逐符号（函数/类，含嵌套）提取：必需/可选形参及默认值源码、体内引用的外部名、前置守卫（if/assert/raise 的首行）、返回表达式、docstring 摘要、行号区间
 # 执行：from md_cg import cond_facts；cond_facts.file_facts(path) -> list[dict]
-# 验证方式：md_cg/test_cond_facts.py（对样例源逐字段断言）
+# 验证方式：md_cg/test_cond_facts.py（对样例源逐字段断言）  （R-401b：该守卫未落盘）
 # 不适用条件：①只取静态可判定事实，**不解释语义**②动态分派/装饰器改写签名时不保证签名即真实契约（须标 ambiguous）③非 Python 文件不支持
 """
 from __future__ import annotations

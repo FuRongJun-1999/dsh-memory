@@ -71,7 +71,7 @@ _HIST_FIELDS = ("t", "seq", "old", "new", "kind", "evidence", "actor")
 #: `state_events.is_void`（记录面，`None` ∪ 空白串）。本模块**只绑定、不实现**——
 #: 「同一语义在两个落点各写一份判据」正是 #375（投影侧）与 #383（写入口侧）的同一
 #: 病灶形态；绑定同一函数对象即结构性消除该形态。守卫
-#: `md_cg/test_issue383_state_event_write_gate.py` 以 AST 面「全仓含两条腿的判据实现恰
+#: `md_cg/test_issue383_state_event_write_gate.py` 以 AST 面「全仓含两条腿的判据实现恰  （R-401b：该守卫未落盘）
 #: 1 处」＋「本模块里它是绑定不是 def」＋运行时 `is` 同一性三条断言钉住。
 _is_void = state_events.is_void
 

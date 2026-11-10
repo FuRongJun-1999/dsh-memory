@@ -162,7 +162,7 @@ VERIFICATION_BASIS = ("compiler", "test", "measurement", "formal_proof", "data",
                       #   · 沿用 :107 口径「值域控制已有真源，勿另造词表」⇒ 本件是**扩既有词表**。
                       #   · 子档归属：**在两档外**（REPRODUCIBLE_BASIS / CONSISTENCY_BASIS）——
                       #     外部内容既非可复现、亦非来源一致，归任何一档都是错的。
-                      #     守卫 md_cg/test_issue466_basis_registry.py 的 A 组钉住这三点。
+                      #     守卫 md_cg/test_issue466_basis_registry.py 的 A 组钉住这三点。  （R-401b：该守卫未落盘）
                       "untrusted")
 
 #: 可复现档：理科断言必须落在这一档（复现证据）

@@ -106,7 +106,7 @@ def is_encrypted_level(level, *, strict: bool = False) -> bool:
       · 「密文的密级标注是否合法、可放行读」类判据 → strict=True（非规范写法
         不放行，偏严）。
     两种用法都是 fail-closed 方向；模块里**不得**再直接写 `in ENCRYPTED_LEVELS`
-    （守卫：md_cg/test_sensitivity_predicate_single_point.py）。
+    （守卫：md_cg/test_sensitivity_predicate_single_point.py）。  （R-401b：该守卫未落盘）
     """
     if strict:
         return isinstance(level, str) and level in ENCRYPTED_LEVELS
