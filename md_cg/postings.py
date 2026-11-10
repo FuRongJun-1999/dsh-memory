@@ -469,7 +469,20 @@ def build(cg, limit: int = None) -> dict:
 
 # 生效条件：无条件把 node_id 追加进 table 中每个 bigram 的列表（bigram 不存在则新建列表），返回追加的 bigram 个数。
 def add_to_table(table: dict, node_id, text, tags=None) -> int:
-    """增量维护：把某节点的 bigram 追加进表（调用方负责持久化）。v1 未接入写入路径。"""
+    """v2 预留：把某节点的 bigram 追加进表（调用方负责持久化）。
+
+    ★R-503（2026-11-10 审计）：本函数与下面的 `remove_from_table` **在 v1 全仓零调用**，
+    这是**设计决定**不是遗漏 —— 见模块 docstring 第 7 点：每次写都 `load + save 75MB`
+    不可接受，故 v1 只做全量重建（`build_postings`），改写后请重建。
+    在 `scripts/check_dead_code.py` 的 `BASELINE` 里按「v2 里程碑」登记，不算死码。
+
+    已知坑（v2 实现时必看）：
+      · 本函数**不去重** —— 同一 node_id 重复 add 会在同一 bigram 下出现多次；
+      · `remove_from_table` 会把该 id 的**所有出现**清掉，所以「重复 add + 一次 remove」
+        在语义上是自洽的（不会漏删），但会放大表体积；
+      · `tags` 参与 bigram（与打分口径同源），但 `remove_from_table` 不看 tags ——
+        如果 tags 变了而 content 没变，remove 仍需按 id 全清（这是对的）。
+    """
     gs = ngrams(text, tags)
     for g in gs:
         table.setdefault(g, []).append(node_id)

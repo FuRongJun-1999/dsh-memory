@@ -4709,6 +4709,18 @@ class MdCG:
             _entry = self.index["nodes"].get(node_id)
             if _entry is not None:
                 _entry["content_hash"] = nodefile.content_hash(sealed)
+                # ★R-507（2026-11-10 审计）：上面这行**直接改索引 dict**，不走
+                # `_set_index_entry` ⇒ 不触发 `MdCGSecure._on_index_mutation` ⇒
+                # hotcache / 工具层 query 缓存**都不失效**。
+                # 可观测的后果：`add()` 路径会 `_stage`（走 `_set_index_entry`，失效照旧），
+                # 而 `update_tags` / `append_edge` / `retag` 这类**只改 fm 不 _stage** 的
+                # 写点写完以后，缓存里该节点仍是旧内容（实测 `update_tags` 后
+                # `_index_gen` 停在 1，不推进）。
+                # 用 duck-typing 取失效单点：`MdCG`（纯库层）没有这个方法，`MdCGSecure`
+                # 有 —— 不 import 子类，免循环依赖（与本方法里 `has_sealer` 同一手法）。
+                _bump = getattr(self, "_on_index_mutation", None)
+                if _bump is not None:
+                    _bump(node_id)
         return sealed
 
     # ---------- S1 前置元数据：域标签回填 ----------

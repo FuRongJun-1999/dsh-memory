@@ -66,7 +66,10 @@ BASELINE = {
     "unresolved.listing": "unresolved 查询面未接线",
     "value_conflict.find_in": "value_conflict 未接线",
     "writegate.check_condition_quality": "条件质量 warn 通道未接线（审计 P2，R-503 待做）",
-    "postings.add_to_table": "倒排增量维护未接线（审计 P2，R-503 待做）",
+    # R-503（2026-11-10 已裁定）：这两个**不是遗漏**，是 v1 的设计决定
+    # （mdcg 的 postings 模块 docstring 第 7 点：每次写都 load+save 75MB 不可接受，
+    #  v1 只做全量重建，改写后请重建）。属 v2 里程碑，按「公开 API 待用」保留。
+    "postings.add_to_table": "v1 不接增量（设计决定），v2 里程碑",
     "postings.remove_from_table": "同上",
     "state_slots._project": "状态槽投影未接线",
     "state_slots._project_current": "同上",
