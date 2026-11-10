@@ -75,6 +75,16 @@ def main():
             ordered = False
     ok(ordered, "T8 组内仍按日期升序")
 
+
+    # ---- created_at_date（2026-11-12：防下游 epoch 截断）----
+    import re as _re
+    dates = [e.get("created_at_date") for e in (pack.get("pack") or [])]
+    ok(all(d is None or _re.fullmatch(r"\d{4}-\d{2}-\d{2}", d) for d in dates),
+       "T9 pack 条目带 created_at_date 且格式为 YYYY-MM-DD（不得是 epoch 截断）", dates)
+    ok(all(d is not None for d in dates), "T10 有 created_at 的条目日期不为 None", dates)
+    ok(all(_re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "") is None for d in dates) is False,
+       "T11 不出现 10 位纯数字（下游 str(created_at)[:10] 的形态）", dates)
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
