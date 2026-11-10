@@ -780,6 +780,20 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
     「预测校准」面，形成「预测 → 事实 → 误差 → 自我更新」闭环。
     自我模型是二阶观测，其刷新失败不阻塞一阶反馈结果。
     """
+    # ★R-521（2026-11-10 审计 P0-2）：本函数**会写盘** —— `_append` 追加
+    # `_predict.jsonl`，命中时还改边置信度（走 `_write_node`）—— 但此前**零权限闸**：
+    # 持 guest 令牌的调用方走 `cg(op=predict, action=feedback)` 被拒，而走工具面
+    # `mdcg_predict`（映射到粗粒度 `read`）却落盘成功且留痕。审计 T3 有实测 PoC。
+    # 权限面与 `MdCGSecure.add` 同口径：写动作按缺省密级判 `require_write`。
+    # 纯库层 `MdCG` 无 `principal` 属性 ⇒ 跳过（与 `_write_node` 里 `has_sealer`
+    # 同一手法：不 import 子类、不臆造权限）。
+    _p = getattr(cg, "principal", None)
+    if _p is not None:
+        try:
+            from .security import DEFAULT_SENSITIVITY as _DS
+        except Exception:                                  # noqa: BLE001
+            _DS = "internal"
+        _p.require_write(_DS)
     pred = str(predicted_node_id or "").strip()
     act = str(actual_node_id or "").strip() or pred
     if hit is None:
