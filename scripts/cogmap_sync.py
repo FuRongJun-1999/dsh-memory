@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -173,7 +174,16 @@ def _func_span(src_lines: list[str], tree: ast.Module, fname: str) -> tuple[int,
 
 # 生效条件：以模块常量 ROOT 为 cwd 执行 git remote get-url origin 成功、且其 stdout.strip() 能匹配 r"github\.com[:/](.+?)(?:\.git)?/?$" 时返回 f"https://github.com/{m.group(1)}"；子进程抛 OSError 或无匹配则 raise SystemExit；
 def _repo_base() -> str:
-    """git origin → GitHub 仓库基址（https://github.com/Owner/repo）。"""
+    """GitHub 仓库基址：**优先取 COGMAP_REPO_BASE**，否则从 git origin 推导。
+
+    【issue #835】早先只认本机 `git remote get-url origin` ⇒ fork 里 check 必红
+    （文档里已提交的 owner 与本机 remote 不同，4 处差异全是 URL 里的 owner 字符串）。
+    现在：① 显式 env 优先（CI/fork 可钉住 canonical 仓库）；② 未设时仍从 origin 推导，
+    但 `check` 侧对链接只比对齐尾段（见 _same_link_tail），owner 不同不再判红。
+    """
+    env_base = (os.environ.get("COGMAP_REPO_BASE") or "").strip().rstrip("/")
+    if env_base:
+        return env_base
     try:
         url = subprocess.run(
             ["git", "remote", "get-url", "origin"],
@@ -501,6 +511,17 @@ _MDCG_RE = re.compile(r"\bmdcg_[a-z_]+\b")
 
 
 # 生效条件：e 含 "op_lines"/"branch_counts"/"cg_ops"/"stg_ops"/"mdcg_tools"/"op_modules" 键时，依次做 FUNC_DESC 覆盖、宽松与规范分支计数相等、README 与功能调用映射表两文档的标记段一致、op/工具引用、op_modules 模块候选、相对链接与锚点、段外手写行号锚校验，返回错误列表（无错为空列表）；文档 dpath 不满足 .exists() 时记一条错误并跳过该文档；
+
+
+_GH_REPO_RE = re.compile(r"https://github\.com/[^/\s)]+/[^/\s)#]+")
+
+
+# 生效条件：入参为任意文本；把其中所有 https://github.com/<owner>/<repo> 归一为占位符
+def _norm_repo_base(text: str) -> str:
+    """把 GitHub 仓库基址归一（issue #835）：owner/repo 不同不算漂移，只比路径与行号。"""
+    return _GH_REPO_RE.sub("https://github.com/OWNER/REPO", text or "")
+
+
 def check(e: dict) -> list[str]:
     errors: list[str] = []
 
@@ -542,6 +563,8 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
     """
     errors: list[str] = []
 
+    # 1) 标记段一致性（issue #835：链接只比对齐尾段——owner/host 不同不算漂移，
+    #    因为文档是提交进仓库的，fork 的 remote 与本体 owner 天然不同）
     # 1) 标记段一致性
     for begin, end, want in sections:
         label = "COGMAP" if begin == BEGIN else begin.split("id=")[1].split(" ")[0]
@@ -551,12 +574,16 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
             errors.append(f"{dname} 缺少 {label} 标记段")
             continue
         have = m.group(0)
-        if want != have:
-            for wl, hl in zip(want.splitlines(), have.splitlines()):
+        # issue #835：比较前把「任意 GitHub 仓库基址」归一为占位符。
+        # 文档是提交进仓库的、带了 canonical owner；fork 的 remote 不同，
+        # 直接在字面上比会 4 处全红且差异只在 owner 字符串（行号/op 名一字不差）。
+        want_c, have_c = _norm_repo_base(want), _norm_repo_base(have)
+        if want_c != have_c:
+            for wl, hl in zip(want_c.splitlines(), have_c.splitlines()):
                 if wl != hl:
                     errors.append(f"{dname} {label} 段与真源不一致：\n  期望: {wl}\n  实际: {hl}")
                     break
-            if len(want.splitlines()) != len(have.splitlines()):
+            if len(want_c.splitlines()) != len(have_c.splitlines()):
                 errors.append(
                     f"{dname} {label} 段行数漂移：期望 {len(want.splitlines())} 行，实际 {len(have.splitlines())} 行"
                 )
