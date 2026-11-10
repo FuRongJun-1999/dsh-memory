@@ -599,7 +599,10 @@ _OP_TABLE = {
         "doc": "身份+健康+审核体系自描述；",
         "impl": "inline",
         "require": "info",
-        "params": ("min_severity", "full"),
+        # R-523（2026-11-10 审计）：`min_severity` 此前错挂在这里 —— `info` 的 handler
+        # 只读 `full`（mcp_server `if op == "info":` 之后仅 `_as_flag(a.get("full"))`）。
+        # `min_severity` 是 `scrub` 的键（它在 :2019 被真读）。
+        "params": ("full",),
         "actions": (),
         "default_action": None,
         "sigs": (),
@@ -628,7 +631,13 @@ _OP_TABLE = {
         "doc": "按目录索引 md 文档的**章节**（只切 level<=3，只存标题+摘要、不存全文），doc_ref 指回原文行区间；layer 与密级显式声明（默认 knowledge/internal，路径命中私有提示降为 private）；正文里的 --- 与围栏代码块内的 # 不会被误切；",
         "impl": "inline",
         "require": "index_doc",
-        "params": ("sensitivity", "allow_nested", ),
+        # R-523：此前只登记 `sensitivity` / `allow_nested` 两个，而 handler 实际读
+        # 9 个（`sed -n '3238,3275p' mcp_server.py` 逐个 grep 出来的）：
+        # path / patterns / layer / incremental / max_files / max_items / skip_dirs /
+        # sensitivity / allow_nested。漏登记的直接后果：调用方按 schema 猜不到
+        # `patterns` / `skip_dirs` 这类**能大幅改变行为**的键存在。
+        "params": ("path", "patterns", "layer", "incremental", "max_files",
+                   "max_items", "skip_dirs", "sensitivity", "allow_nested", ),
         "actions": (),
         "default_action": None,
         "sigs": (),
