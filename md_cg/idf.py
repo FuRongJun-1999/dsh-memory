@@ -178,21 +178,16 @@ def idf(term, root=None):
     return _idf_raw(term)
 
 
-def idf_of(n, df):
-    """R-9：两腿共用的 idf 公式（唯一口径 `ln(1 + N/(1+df))`）。
-
-    BM25 腿（`/opt/assistant-gateway/app/lexical.py::_idf`）历史上用
-    `ln(1 + (N-df+0.5)/(df+0.5))`，与主库不同源。切换由
-    `GW_LEXICAL_IDF=unified` 控制（默认 legacy，零行为变化）。
-    """
-    try:
-        n = float(n)
-        df = float(df)
-    except (TypeError, ValueError):
-        return 0.0
-    if n < 0 or df < 0:
-        return 0.0
-    return math.log(1.0 + n / (1.0 + df))
+# R-515（2026-11-10 审计）：这里原有 `idf_of(n, df)` 函数，docstring 称自己是
+# 「两腿共用的 idf 公式（**唯一口径** `ln(1 + N/(1+df))`）」。两个事实都不对：
+#   ① **没有调用方** —— 全仓零调用，连本模块的 `idf_mass` 都是**内联**同一算术
+#      （见下方 `total += math.log(1.0 + base / (1.0 + float(df.get(g, max_df))))`）；
+#   ② **不是唯一口径** —— `md_cg/mdcg.py:781` 另有一个 `idf_of(df, n_docs)`
+#      （参数顺序相反），公式是 `log1p((N - df + 0.5) / (df + 0.5))`。
+# 两套公式的关系已实测（N=100 扫 df 0..100）：**分数差很大**（df=90 时 0.741 vs
+# 0.110），但 **rank 顺序逐位相同** ⇒ 对 RRF（用 rank 不用分数）无影响，对
+# `min_score` 一类绝对阈值有影响。故两处各自在路内使用是可接受的，**但不得再声称
+# 「唯一口径」**。此处删掉死函数，把公式留在 `idf_mass` 内联处（那才是活的那一份）。
 
 
 def idf_mass(grams, root=None):
