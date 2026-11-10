@@ -331,7 +331,21 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=None,
     if os.path.exists(path):
         try:
             with open(path, "r", encoding="utf-8") as f:
-                return _b64d(f.read().strip())
+                _k = _b64d(f.read().strip())
+            # ★R-534 续（2026-11-10 实测补）：`_b64d` 走的是 `b64decode(validate=False)`，
+            # 它会**丢弃非 base64 字符**而不报错。于是 `'x' * 500` 这种明显不是密钥的内容
+            # 也能解出一堆字节并被**当成主密钥返回**（实测返回 375 字节垃圾）。
+            # 后果分两种：
+            #   · 已有库：用垃圾 KEK 解封 DEK 失败 ⇒ 报「解封失败」，根因（主密钥坏了）
+            #     被埋在下一层；
+            #   · **首次部署**（allow_create=True）：直接把这堆垃圾**当 KEK 落盘** ⇒
+            #     之后所有加密都用错钥，而且回不去。
+            # 长度闸：主密钥恒为 32 字节（scrypt 输出的 KEK 长度也是 32）。
+            if len(_k) != 32:
+                raise CryptoError(
+                    f"主密钥长度应为 32 字节，实得 {len(_k)} 字节（{path}）"
+                    f" —— 内容不是合法 base64 主密钥，拒绝使用")
+            return _k
         except (OSError, ValueError) as e:
             # 文件在但读不出/内容坏了：这是**故障**，不是「没有密钥」。旧形态在这里会落到
             # 下面的新建分支，把「读失败」变成「换一把新钥」；且 binascii.Error /
