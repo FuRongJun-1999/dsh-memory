@@ -2833,7 +2833,7 @@ class MdCGOS(MdCG):
                validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
                start_time=None, end_time=None, start_operator=None,
                end_operator=None, time_axis=None, view=None,
-               excerpt_strategy: str = "prefix"):
+               excerpt_strategy: str = "prefix", now=None):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -2986,8 +2986,12 @@ class MdCGOS(MdCG):
                 from . import bucketscope as _bs      # noqa: PLC0415
                 # 【#843】validity 必须透传：桶补召回在候选检索**之后**追加，
                 # 不传就会把调用方显式排除的过期记忆重新装回 pack（issue #843 复现）。
-                _extra = _bs.scope_recall(self, query, session,
-                                          _rerank_clock if '_rerank_clock' in dir() else time.time(),
+                # 【外测 2026-11-11 卡点 2】时钟必须从**最外层 API** 透传：
+                # 早先这里只认内部 _rerank_clock / time.time()，宿主或外部复测走 recall 时
+                # 逻辑时间被真实时钟覆盖（resolved_dates 返回真实今天）。与 #111 同纪律。
+                _scope_now = (now if now is not None else
+                              (_rerank_clock if '_rerank_clock' in dir() else time.time()))
+                _extra = _bs.scope_recall(self, query, session, _scope_now,
                                           validity=bool(validity))
                 _have = {e.get("id") for e in pack}
                 for _node, _score, _qual, _prov in _extra:

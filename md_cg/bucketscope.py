@@ -55,7 +55,8 @@ def _terms(q):
 MAX_SCAN = 800
 
 
-def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=False):
+def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=False,
+          fill_rest=False):
     """桶内按词面命中筛选（确定性）：命中词数降序 → **时间降序** → id；取前 cap。
 
     【#842】排序键必须**在截断之前**含时间：早先只按 (-hits, nid) 排再截 cap，
@@ -77,15 +78,20 @@ def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=Fal
         if hits:
             scored.append((-hits, _recency_key(node), nid, node))
     scored.sort()
-    if not scored and fallback_recency:
-        # 【外测 v2.0 建议 2】桶是按日期选进来的，说明**日期对了**；若此时再按 query 词
-        # 过滤，就会出现「日期对了、内容被过滤掉」⇒ 桶内按时间序给候选（仍受 cap 限）。
-        others = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN]) if n]
-        others.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
-        return [(n, 0.0, {"reason": "bucket_scope", "fallback": "recency"}, [])
-                for n in others[:cap]]
-    return [(node, 0.0, {"reason": "bucket_scope"}, [])
-            for _h, _r, _nid, node in scored[:cap]]
+    out = [(node, 0.0, {"reason": "bucket_scope"}, [])
+           for _h, _r, _nid, node in scored[:cap]]
+    # 【外测 2026-11-11 卡点 1】命中抑制：只要有一条命中，早先就把**同桶其余节点全丢**，
+    # 于是「锚点在桶里但没命中 query 词」的条目直接消失（P16/d03：桶 [114,115,116]，
+    # 只命中 114 ⇒ 116 被丢）。现改为：命中优先，**按时间序补足到 cap**。
+    if fill_rest and len(out) < cap:
+        chosen = {n.get("id") for n, _s, _q, _p in out}
+        rest = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN])
+                if n and n.get("id") not in chosen]
+        rest.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
+        for n in rest[:cap - len(out)]:
+            out.append((n, 0.0, {"reason": "bucket_scope",
+                        "fallback": ("recency" if not scored else "fill")}, []))
+    return out
 
 
 def day_scope(store, query, day, cap=CAP, validity=False, now=None):
@@ -214,12 +220,15 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     #    MDCG_SCOPE_SELECT=1（缺省）→ 用 scopeselect 排序；=0 回落「最近优先」。
     #    依据：bench 实测共现推断时间桶 94.20%（字面无关），词面消融仅 90.76%。
     _ordered_days = None
+    _declared_days = False      # 这些日桶是否来自「声明日期 / 共现推断」
+    _early_hit = False
     try:
         if os.environ.get("MDCG_SCOPE_SELECT", "1") != "0":
             from . import scopeselect as _ss      # noqa: PLC0415
             _picked = _ss.pick_scopes(store, query, session=session,
                                       limit=DAY_LOOKBACK, now=now)
             _ordered_days = [key for kind, key, _s in _picked if kind == "day"]
+            _declared_days = bool(_ordered_days)
     except Exception:          # noqa: BLE001 —— 推断失败回落最近优先
         _ordered_days = None
     if not _ordered_days:
@@ -228,18 +237,28 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
         # 3–5 个月前的锚点必然被排除（实测 10/17 稳定失败属此类）。
         # 故：早段意图优先扫**最早的日子**，其余仍回落最近优先。
         _all_days = sorted(_bi.all_days(store))
-        if _early_intent(query) and _all_days:
+        _early_hit = bool(_early_intent(query) and _all_days)
+        if _early_hit:
             _ordered_days = _early_days(_all_days)
         else:
             _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
     # ② 日桶按上述顺序取
     if len(out) < cap:
-        days = _ordered_days
+        days = list(_ordered_days or [])
+        # 【外测 2026-11-11】跨日桶**轮转分配**：早先每天拿走「剩余全部名额」，
+        # 第一个桶条目够多就把 cap 吃光（实测 8 桶 cap=4 只覆盖到 2 桶，末日永不入选）。
+        # 现每轮每天最多取 per_day 条，保证「任何一天拿第 2 条之前，所有天都先拿到第 1 条」。
+        per_day = max(1, cap // max(1, len(days))) if days else cap
+        # 判据：桶是**按理由选进来**的（声明日期 / 早段意图 / 共现）⇒ 桶内补足；
+        # 若只是「最近 N 天」兜底，桶本身不携带查询证据，仍严格按词面筛选（避免塞无关条目）。
+        _fill = bool(_declared_days or _early_hit)
         for day in days:
             if len(out) >= cap:
                 break
-            picked = _pick(store, _bi.day_ids(store, day), terms, cap - len(out),
-                           validity=validity, now=now, fallback_recency=True)
+            picked = _pick(store, _bi.day_ids(store, day), terms,
+                           min(per_day, cap - len(out)),
+                           validity=validity, now=now, fallback_recency=True,
+                           fill_rest=_fill)
             for node, score, qual, prov in picked:
                 if node.get("id") in seen:
                     continue
