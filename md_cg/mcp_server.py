@@ -4440,10 +4440,22 @@ def _dispatch(cg, name, args):
     # P1-1：mdcg_* 面的角色作用域闸（与 cg 工具的 require_op 同一语义——
     # ops_allow=None 令牌不受影响；受限令牌越权即 AccessDenied）
     _need_op = _MDCG_OP_REQUIRE.get(name)
+    _p = getattr(cg, "principal", None)
     if _need_op:
-        _p = getattr(cg, "principal", None)
         if _p is not None and hasattr(_p, "require_op"):
             _p.require_op(_need_op)
+    # ★R-525（2026-11-10 审计 P1-G3）：`verification_state` 的**自证闸**此前只在
+    # `_cg_dispatch`（cg 工具）里生效，`mdcg_remember` **不调它** ——
+    # 于是同一个声明走两条路两种结果：
+    #   · `cg(op=write, verification_state="verified")` 无 verify op ⇒ **AccessDenied**
+    #   · `mdcg_remember(..., verification_state="verified")` 无 verify op ⇒ **落盘成功**
+    # 而 `mdcg_remember` 分支里 `"verification_state": a.get("verification_state")`
+    # 是**直接透传**进 `remember_gated` 的（不是丢弃），所以「静默丢弃」这个说法不准 ——
+    # 真实形态是「**同一条约束在两条路上一个有一个没有**」。
+    # 放在 `_dispatch`（唯一外部入口）而不是各分支里：新增写工具自动覆盖，不用逐个记。
+    # `verification_state` 只在写面存在（`mdcg_verify` 用的是 `verdict`），所以对
+    # 其它工具是零影响的空操作。
+    _require_verify_for_vstate(_p, a)
     if name == "cg":
         return _cg_call(cg, a)
     if name == "stg":
