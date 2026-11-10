@@ -250,7 +250,23 @@ TOOLS = [
                                                "{\"coords3d\": {x,y,z}} 自定义键直存米制；"
                                                "可选 bbox 投影后补（不改既有 bbox 2D 语义）"),
                           verification_basis=_p("string", "验证基底"),
-                          non_applicable_conditions=_p("array", "不适用条件")),
+                          non_applicable_conditions=_p("array", "不适用条件"),
+                          # ★R-524（2026-11-10 审计 P1-G2）：下面 5 个键**分发层真读**
+                          # （见 `mdcg_remember` 分支：`sensitivity=a.get("sensitivity")`
+                          # 进 `remember_gated` / `derived_from=_split_ids(...)` /
+                          # `relation=a.get("relation")` / `check_strength=...` /
+                          # `a.get("source_kind")`），但 schema 此前一个都没写。
+                          # 其中 `sensitivity` 影响**落盘加密与读授权**、`derived_from`/
+                          # `relation` 影响**出处链**——正是审计点名「优先修的两处」。
+                          sensitivity=_p("string", "密级声明：internal（默认）|private|secret；"
+                                                   "决定落盘是否加密与读授权档位"),
+                          check_strength=_p("string", "验证强度：hoop|smoking_gun|"
+                                                       "doubly_decisive"),
+                          derived_from=_p("string", "派生来源节点 id（可用逗号/空格分隔多个）"),
+                          relation=_p("string", "与 derived_from 的关系：derived_from|"
+                                                "extracted_from|refined_from|split_from|"
+                                                "merged_from|source"),
+                          source_kind=_p("string", "来源类别（缺省 conversation）")),
                           },
     {
         "name": "mdcg_recall",
@@ -315,6 +331,12 @@ TOOLS = [
                           roles=_p("array", "限定角色"), include_work=_p("boolean", "含工作角色"),
                           session=_p("string", "会话归属过滤（frontmatter.session；缺省不过滤）"),
                           validity=_p("boolean", "时效过滤（显式启用，缺省不过滤）：仅排除已过期（valid_until 已过）节点，未生效（valid_from 未到）保留"),
+                          # ★R-524（2026-11-10 审计 P1-G2）：下面两个键分发层真读
+                          # （`pools=a.get("pools")` 进 RRF 融合 / `a.get("exclude_doc")`
+                          # 两处：过滤文档索引候选 + 记 meta 的丢弃数），schema 没写。
+                          pools=_p("object", "融合路权重池（{路名: 权重}）；路名见 recall 的 paths"),
+                          exclude_doc=_p("boolean", "排除 doc_ 索引节点（会话日志切片），"
+                                                   "缺省 false"),
                           # 异步检索（2026-10-21）：怕 MCP 超时的客户端用它——提交后立刻拿
                           # job_id，隔若干秒带 job_id 再来取结果（后台线程跑同一条检索）。
                           defer_s=_p("number", "异步检索：大于 0 时立刻返回工单（job_id），检索在后台跑"),
@@ -326,7 +348,10 @@ TOOLS = [
                        "id 不存在或密级不可读时返回 {ok:false, error:'not_found', "
                        "readable_sensitivities, hint}（不再返回裸 null——"
                        "调用方须能区分「没有」与「读不到」）。",
-        "inputSchema": _s("", node_id=_p("string", "节点 id", True)),
+        # R-524（2026-11-10 审计 P1-G2）：分发层读 `offset`（续读窗口，见 `_clip_text`
+        # 那条链），schema 此前没写 ⇒ 调用方按契约猜不到能分页读长正文。
+        "inputSchema": _s("", node_id=_p("string", "节点 id", True),
+                          offset=_p("integer", "续读起始行（1 基；上次返回的 next_offset）")),
     },
     {
         "name": "mdcg_reflect",
@@ -358,13 +383,17 @@ TOOLS = [
     {
         "name": "mdcg_rejected",
         "description": "写入负记忆（被证伪的假设），防重复踩坑；同内容幂等。",
+        # R-524：分发层读 `node_id`（把负记忆挂到某节点，见 `rejected` 分支），schema 没写。
         "inputSchema": _s("", hypothesis=_p("string", "假设", True), reason=_p("string", "否决原因", True),
+                          node_id=_p("string", "关联节点 id（可选：把这条负记忆挂到该节点）"),
                           verification_basis=_p("string", "验证基底"), tags=_p("array", "标签")),
     },
     {
         "name": "mdcg_unresolved",
         "description": "写入未解问题（驱动主动探索）。",
+        # R-524：分发层读 `node_id`（把未解问题挂到某节点），schema 没写。
         "inputSchema": _s("", question=_p("string", "问题", True), known_clues=_p("string", "已知线索"),
+                          node_id=_p("string", "关联节点 id（可选）"),
                           goal=_p("string", "目标")),
     },
     {
@@ -395,6 +424,10 @@ TOOLS = [
                           reason=_p("string", "裁决理由"),
                           redteam=_p("object", "红队裁决 {verdict:pass|reject, issues:[], round:n}"),
                           issues=_p("array", "问题清单（打回理由）"),
+                          # R-524：分发层读 `decided_by` / `reviewed_by`（裁决人 / 复核人
+                          # 归因，进 decisions 台账），schema 没写 ⇒ 审计字段无从声明。
+                          decided_by=_p("string", "裁决人（缺省 actor）"),
+                          reviewed_by=_p("string", "复核人（可选）"),
                           override=_p("boolean", "merge 进受保护目标需显式 true")),
     },
     {
@@ -625,7 +658,10 @@ TOOLS = [
     {
         "name": "mdcg_restore",
         "description": "恢复被 forget 的节点；若在删除清单中且未 force 则拒绝（恢复时删除检查）。",
-        "inputSchema": _s("", node_id=_p("string", "节点 id", True), force=_p("boolean", "强制恢复")),
+        # R-524：分发层读 `overwrite_live`（墓碑等前置条件不满足时要不要强推），schema 没写。
+        "inputSchema": _s("", node_id=_p("string", "节点 id", True),
+                          force=_p("boolean", "强制恢复"),
+                          overwrite_live=_p("boolean", "覆盖仍在用的活节点（忽略前置条件）")),
     },
     {
         "name": "mdcg_health",
