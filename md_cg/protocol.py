@@ -196,7 +196,10 @@ VERB_SPECS = {
                 # （持久验证状态）**语义不同**，同一条可同时是 ACCEPT + unverified。
                 "entry_required": ("id", "score", "state", "tokens", "content",
                                    "frontmatter", "provenance", "metadata"),
-                "entry_optional": ("truncated",),
+                # created_at_date（2026-11-12）：pack 条目的**格式化日期**（YYYY-MM-DD）。
+                # 存在理由：`frontmatter.created_at` 是 epoch 浮点，下游 `str(v)[:10]` 会截出
+                # `1784043360` 这种假日期（外测脚手架真实踩过）。此字段是唯一正确格式化的出口。
+                "entry_optional": ("truncated", "created_at_date"),
                 "entry_metadata_required": ("state", "reason", "verification_state"),
                 "entry_metadata_optional": ("verification_basis", "check_strength",
                                             "derived_from", "derived_relation",
