@@ -278,9 +278,19 @@ def _judge(cg, intent: dict):
         # 尾换行），而升级前写入的旧版 intent 指纹是「去尾换行后直接哈希」——两者
         # 对同一正文差一个尾换行字节。此处对**旧 intent** 一次性放行，避免把已落盘
         # 的旧单误报成 interrupted（假阳性会污染账本）；新 intent 仍是单口径。
-        # 复核：**必须复用同一函数**——手写 sha256 少一次 normalize_body（补尾换行），
-        # 与旧 begin 的 content_hash(_norm(x)) 差一个字节 ⇒ 恒不命中（等于死代码）。
-        _legacy = nodefile.content_hash(_norm(node.get("content") or ""))
+        # ★R-505（2026-11-10 审计，P1-D4）：这条兼容腿此前**恒不命中**，原因是它
+        # 走的是**新**的 `content_hash`：
+        #   · 旧 begin 写的 `want` = `sha256(rstrip(content))`（旧版 content_hash 不补尾换行）
+        #   · 而 `content_hash(_norm(x))` = `sha256(rstrip(x) 再补一个尾换行)`
+        #     （#741 起恒补尾换行）
+        # ⇒ 两者对任何正文都差一个尾换行字节 ⇒ 旧 intent 永远对不上 ⇒ 被误判
+        # `interrupted/content_mismatch` 写进 append-only 账本（假阳性污染账本）。
+        # 更糟的是：`got = content_hash(content)` 也等于 `content_hash(_norm(content))`
+        # ⇒ 这条腿判的其实和上面 `want != got` 完全一样，**等于不存在**。
+        # 修法：兼容腿必须用**旧版算法**（不经过 normalize_body），直接算 sha256[:12]。
+        import hashlib as _hl
+        _legacy = _hl.sha256(_norm(node.get("content") or "")
+                             .encode("utf-8")).hexdigest()[:12]
         if want != _legacy:
             return STATUS_INTERRUPTED, R_MISMATCH
     return STATUS_COMMITTED, R_NODE_OK

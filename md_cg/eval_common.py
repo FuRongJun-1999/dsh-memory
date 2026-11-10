@@ -184,58 +184,10 @@ def _date_tag(title):
 
 
 # 生效条件：r 为语料 turn 行（缺 text/role 等键时按空串处理）；date_key/title_key 为 None 时对应日期取空串；返回 (CCG 五要素正文, tags, condition_space) 三元组，仅当原文出现强否定标记才生成不适用条件、否则显式写「（无）」；
-def calibrate_turn(r, date_key=None, title_key=None):
-    """turn 行 → (CCG 五要素正文, tags, condition_space)。
-
-    v2 归因修正：自建语料 100% 召回的机制条件是「查询-证据词面同源」
-    （对照实验：节点特异词在查询中出现 → 100%；全同质问法 → 11.9%）。
-    因此——
-      1. 特异词（说话人/日期/实体）必须进五要素**每一行**（词法路对全文打
-         Jaccard：条件行的特异词是净增益，同质模板词是净稀释——v1 抽样
-         3.3% < legacy 16% 的根源，与 corpus.body 把 dom/point/aspect 内嵌
-         每一行同构）；
-      2. 模板骨架压到最短（corpus.body 固定尾巴仅 12 字，v1 有 30+ 字同质词）；
-      3. 五要素行承担条件结构职责（semantic 路/judge 读），不承诺解决
-         查询-证据表述鸿沟——那是公开数据集词法召回的真实天花板。
-    tags 用裸词（说话人/日期/实体）：_path_entity 的匹配是 `t in query or
-    query in t`，带 `ent:` 前缀的 tag 在自然语言查询下永不命中（实测教训，
-    corpus 的 `domain:` 桶 tag 是给 bucket/条件路由用的，两者用途不同）。
-    不适用条件仅当原文含强否定标记时生成（对 adversarial「是否说过」类问题
-    有真实判别力）；否则显式写「（无）」。
-    """
-    import re
-    text = str(r.get("text") or "").strip()
-    speaker = str(r.get("speaker") or "").strip()
-    date = str(r.get(date_key) or "").strip() if date_key else ""
-    title = str(r.get(title_key) or "").strip() if title_key else ""
-    ents = [e for e in _extract_entities(text) if e != speaker]
-    who = speaker or (next((e for e in ents if not e[0].isdigit()), None) or "匿名")
-    dtag = date or _date_tag(title)
-    low = f" {text.lower()} "
-    neg = next((m for m in _NEG_MARKS if m in low), None)
-    when = f"于{dtag}" if dtag else ""
-    ents_head = "/".join(ents[:2])
-
-    body = (
-        f"# 功能名：{who}·会话记忆{when}\n"
-        f"# 生效条件：查询涉及「{who}」{when}"
-        + (f"所述「{ents_head}」" if ents_head else "") + "时生效\n"
-        f"# 子功能：{who}的会话条目{when}\n"
-        f"# 执行：{who}会话原文回溯\n"
-        f"# 验证方式：data\n"
-        f"# 不适用条件："
-        + (f"断言与原文相反（含{neg.strip()}语义）" if neg else "（无）") + "\n\n"
-        + text
-    )
-    tags = [t for t in (who, dtag) if t] + ents[:3]
-    cond_space = {
-        "observation_position": f"{who} 的会话陈述" + (f"（{dtag}）" if dtag else ""),
-        "observation_tool": "会话记录",
-        "existence_constraint": "公开",
-    }
-    return body, tags, cond_space
-
-
+# R-504（2026-11-10 审计）：此处原有 `calibrate_turn` 的 **v2 定义**（约 50 行），
+# 被下方 v3（带 `ctx=None`，叠加三步写入时加工）同名覆盖 ⇒ Python 后者胜，v2 永不执行。
+# ruff 报 `F811 Redefinition of unused calibrate_turn`。已删；v2 的设计背景（特异词进每一
+# 行、模板骨架压到最短）仍然成立，其要点已写在 v3 的 docstring 里。
 # 生效条件：任意 t 与可选 ctx（默认 None）传入即原样转调 calibrate_turn(t, date_key="date", ctx=ctx)，返回其结果；
 def calibrate_lm_turn(t, ctx=None):
     return calibrate_turn(t, date_key="date", ctx=ctx)
