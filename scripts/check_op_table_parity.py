@@ -190,6 +190,22 @@ def collect() -> dict:
 # ---------------------------------------------------------------------------
 # 对账判据（纯函数：输入 → 失败项列表；便于变异注入）
 # ---------------------------------------------------------------------------
+
+
+def _require_alias_map(tree: ast.AST) -> dict:
+    """读出模块级 `_REQUIRE_ALIAS = {...}` 字面量（str→str）；读不到返回 {}。"""
+    for n in ast.walk(tree):
+        if isinstance(n, ast.Assign) and len(n.targets) == 1:
+            t = n.targets[0]
+            if isinstance(t, ast.Name) and t.id == "_REQUIRE_ALIAS":
+                try:
+                    val = ast.literal_eval(n.value)
+                except (ValueError, SyntaxError):
+                    return {}
+                return {k: v for k, v in val.items() if isinstance(k, str) and isinstance(v, str)}
+    return {}
+
+
 def _require_op_map(tree: ast.AST) -> dict:
     """从 `_cg_dispatch` 源码 AST 提取 op → require 词（`require_op` 实参）。
 
@@ -218,6 +234,16 @@ def _require_op_map(tree: ast.AST) -> dict:
                 out[key] = val
                 out.setdefault("*", arg.orelse.id if isinstance(arg.orelse, ast.Name) else None)
                 continue
+        # 【新形态】`_REQUIRE_ALIAS.get(op, op)`：从同文件的 _REQUIRE_ALIAS 字面量取映射，
+        # 未命中者仍用 op 自身（与三元形态等价，不放宽判据）。
+        if (isinstance(arg, ast.Call) and isinstance(arg.func, ast.Attribute)
+                and arg.func.attr == "get" and isinstance(arg.func.value, ast.Name)
+                and arg.func.value.id == "_REQUIRE_ALIAS" and len(arg.args) == 2
+                and isinstance(arg.args[1], ast.Name)):
+            for k, v in (_require_alias_map(tree) or {}).items():
+                out[k] = v
+            out.setdefault("*", arg.args[1].id)
+            continue
         if isinstance(arg, ast.Name):
             out.setdefault("*", arg.id)
     return out
@@ -492,10 +518,16 @@ def mutations() -> tuple:
         return inp
 
     def m_break_require(inp):
+        """M3：把 state_event 的 require 别名从 write 改成 read（表仍写 write）⇒ 必红。
+
+        2026-11 改：dispatch 侧由 `_p.require_op("write" if op == "state_event" else op)`
+        改为显式别名表 `_REQUIRE_ALIAS.get(op, op)`（新增 state_view → read）。
+        变异点随之移到别名表——判据（表 ↔ dispatch 的 require 词必须一致）不变。
+        """
         inp = dict(inp)
         src = inp["src_ms"].replace(
-            '        _p.require_op("write" if op == "state_event" else op)',
-            '        _p.require_op("read")')
+            '_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}',
+            '_REQUIRE_ALIAS = {"state_event": "read", "state_view": "read"}')
         inp["src_ms"] = src
         inp["tree_ms"] = ast.parse(src)
         return inp

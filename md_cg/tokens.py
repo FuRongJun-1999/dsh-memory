@@ -58,7 +58,7 @@ ALL_LAYERS = ("anchor", "structural", "knowledge", "contextual", "self",
 # 认知图 op 全集（与 mcp_server._cg_call 对齐，供 ops_allow 收窄）
 #   help  按需披露入口：工具面投影（见 md_cg/tool_face.py）后，被外置的完整
 #         op/参数语义在此从真源取回；只读元信息，不经角色闸（不属于写/裁决面）
-ALL_OPS = ("help", "info", "route", "read", "write", "goal", "task", "recent", "verify",
+ALL_OPS = ("state_view", "help", "info", "route", "read", "write", "goal", "task", "recent", "verify",
            "review", "forget", "protect", "identity", "consistency",
            "metacognition", "self_state", "evolution", "sustain", "scrub",
            "predict", "causal", "whitebox", "index_code", "index_doc", "ref",
