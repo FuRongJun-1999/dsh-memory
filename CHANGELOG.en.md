@@ -8,6 +8,71 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-11-12
+
+### Added: `recall` now returns a timeline — the state sequence becomes first-class (#868 / #869)
+
+**Headline of this release, and the single largest gain in a dozen versions.**
+
+- **Root cause**: given 20–30 fragments ordered by retrieval score, the model has **no deterministic
+  temporal basis** for picking "the earliest occurrence". The same question produced different
+  anchors across two runs (`P20-037`: 6-22 right / 5-22 wrong); more directly, `P01-ADD-004`
+  (gold 2026-06-10) still answered 2026-06-19 and `P17-025` (gold 2026-04-01) still answered
+  2026-07-20 — **those dates were printed in the material**. Prompting it to "sort by date and
+  take the earliest" makes it sort its own recollection, not the material. Hence: **temporal
+  induction is not the model's job.**
+- `recall` returns `timeline: [{date, id, head}]`, sorted ascending by `created_at`.
+  All inputs are existing fields (`frontmatter.created_at` + first body sentence) — zero extra
+  extraction cost; each row carries `id` for traceability, skips CCG headers, ≤80 chars.
+- `recall` returns `timeline_groups`: sequences merged along a **topic axis**
+  (`frontmatter.bucket` condition bucket → first `tag` → "ungrouped"; ascending within a group,
+  groups ordered by size). A **heuristic merge layer** requiring no extractor; when coverage is
+  partial, the flat `timeline` still backstops.
+- **Readings (time subset, 75 questions, 2 arms × 2 repeats)**:
+
+  | Stage | Stable set | Delta |
+  |---|---:|---:|
+  | Five algorithm patches (#851→#858) | 52 | — |
+  | + three answer-side fixes | 55 | +3 |
+  | **+ `timeline` + `timeline_groups`** | **66** | **+11** |
+
+  Time subset: **62.7% (baseline 47/75) → 88.0% (66/75)**.
+- **Two decisive pieces of evidence**:
+  1. **Timeline only, no source text** still scores 14/19 on the B-class subset ⇒ the information
+     lives mainly in the sequence; the extractor should be "sequence-first, text-second";
+  2. **Arm on / off `MDCG_SCOPE_SELECT` ties (66 vs 66)** ⇒ the +11 comes from **material shape**,
+     not from the bucket-selection algorithm.
+- **Merge coverage**: all 75/75 questions contain a topic group with ≥2 entries (mean 28.6/question).
+- **Boundary**: the remaining 4 questions are "rescheduled final value" and "multi-element
+  composition" — they still need entity/slot extraction; groups here are **bucket-level heuristics**,
+  not a four-column state table. The full 714 was not re-run (75 is the time subset).
+
+### Fixed: `info(full=true)` 60-second timeout from disk index counting (#863)
+
+- The full surface parsed a 60.4 MB `_index.json` on every call; inside a process already holding
+  a 34k-node index this caused memory pressure and hit the 60s tool timeout. Now counted with an
+  `(mtime, size)` cache: 0.77s first call, 0.000s afterwards, auto-invalidated on external writes.
+
+### Fixed: `validity=True` silently disabled bucket recall (#856)
+
+- `bucketscope._is_expired` used `time.*` without `import time` ⇒ `NameError` swallowed by the
+  outer `except`, killing the whole bucket-recall path. The old guard was a false green.
+  Also fixed `fill_rest` bypassing the validity gate.
+
+### Fixed: cross-day bucket rotation ran only one round (#857)
+
+- With 9 matches and `cap=8`, days yielding 0–1 items could never fill the cap (only 6 returned).
+  Now multi-round (≤3 rounds plus an idle-progress check).
+
+### Fixed: read surface silently dropped `condition_space` / `semantic` (#811)
+
+### Gates and tooling
+
+- `check_publish_smoke.py` wired into CI (#807): static → tracked-files → **behavioral** gates.
+- `cogmap check` decoupled from the git remote owner (#835); forks no longer fail.
+- Tick failures now carry a traceback summary (#804).
+- dependabot: paused `@deepseek-ai/{cordis,schemastery}` (pinned to `~3.18.4` / `4.0.5` upstream).
+
 ## [0.10.1] - 2026-11-11
 
 ### Time-retrieval fixes (#849 / #850 / #851 / #852 / #853 / #855 / #858 / #859)

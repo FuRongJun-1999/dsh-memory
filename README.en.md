@@ -17,7 +17,7 @@
 
 **A high-performance, hallucination-free long-term memory system for multi-agent use (v0.10.1)**
 
-> **Current version: `0.10.1`** (npm `latest`) · verified on **DSH `0.2.1-rc.5`** (tested by the maintainer).
+> **Current version: `0.10.2`** (npm `latest`) · verified on **DSH `0.2.1-rc.5`** (tested by the maintainer).
 > **Roadmap**: development now focuses on the **LINGSHU 1.0 architecture**; fixes for existing issues are **deferred**
 > (still accepted, but lower priority than 1.0).
 
