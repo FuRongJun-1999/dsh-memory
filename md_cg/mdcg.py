@@ -6779,6 +6779,21 @@ class MdCG:
             entry["sensitivity"] = old_entry["sensitivity"]
         self._stage(node_id, entry)
         self.index["buckets"] = self._count_buckets(self.index["nodes"])
+        # ★R-536（2026-11-10 审计 P3 安全）：**搬迁此前一行审计都不写** ——
+        # 它是「删除源层文件 + 写目标层文件」的破坏性写，却在本仓的台账里完全隐形。
+        # 后果：`insight._verify_superseded` 的 weakened→demoted 路径（confidence 跌破
+        # `DEMOTE_CONFIDENCE` 时调本函数）在账本上只留下 `_write_node` 那一侧的痕迹，
+        # 「节点为什么换层了」无从回溯（审计记的「账本 op 与实际动作一一对应」）。
+        # 用 duck-typing 取审计口：纯库层 `MdCG` 无 `_audit` ⇒ 跳过（与 `_write_node`
+        # 里 `has_sealer` / `_on_index_mutation` 同一手法）。
+        _aud = getattr(self, "_audit", None)
+        if callable(_aud):
+            try:
+                _aud("move_layer", node_id, meta={"from": from_layer,
+                                                  "to": to_layer,
+                                                  "reason": reason})
+            except Exception:                              # noqa: BLE001
+                pass                                       # 审计失败不阻断搬迁
         return {"id": node_id, "from": from_layer, "to": to_layer,
                 "path": rel, "reason": reason}
 
