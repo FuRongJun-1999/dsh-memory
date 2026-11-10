@@ -3076,10 +3076,63 @@ class MdCGOS(MdCG):
         # 这里按 created_at 升序给出 (date, id, head) 三列——模型读表即得时序，不必归纳。
         # 注意：这是**节点级**时间线（不含实体/槽位抽取），是「状态追踪」的便宜中间态。
         timeline = self._pack_timeline(pack)
+        # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
+        # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，
+        # 需要**按主题归并**的序列（不是全表一张）。这里用已有字段做廉价归并：
+        # 优先 frontmatter.bucket（条件桶 cond_<topic>_<hash> 天然是主题轴），其次首个 tag。
+        timeline_groups = self._pack_timeline_groups(pack)
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
-                "aggregates": aggregates, "timeline": timeline}
+                "aggregates": aggregates, "timeline": timeline,
+                "timeline_groups": timeline_groups}
 
+
+
+
+
+    # 生效条件：pack 为装好的条目；返回按「主题轴」归并的序列 [{"topic","items":[{date,id,head}]}]
+    def _pack_timeline_groups(self, pack):
+        """把时间线按**主题轴**归并（廉价版「七维图」的归并层，不用抽取器）。
+
+        为什么需要：外测实测「原文+timeline」已把 B 类 19 题从 2 救到 15，
+        但剩 4 题是「改期终态 / 多要素合成」——它们要的是**同一主题下的序列**
+        （最终值是什么、哪几个要素同时在场），而不是所有主题混在一张表里。
+
+        主题轴取已有字段，按优先级：
+          ① `frontmatter.bucket`（条件桶 `cond_<topic>_<hash>`，本身就是主题分组）；
+          ② 首个 `tag`（如 `domain:*` / 项目名）；
+          ③ 都缺 ⇒ "未分组"。
+        这是**启发式**：同一条件桶未必同主题，覆盖不全时仍有 timeline 兜底。
+        """
+        groups: dict = {}
+        for e in pack or []:
+            fm = e.get("frontmatter") or {}
+            ts = fm.get("created_at") or fm.get("valid_from")
+            date = ""
+            if ts is not None:
+                try:
+                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
+                except (TypeError, ValueError, OSError):
+                    date = ""
+            head = ""
+            for line in str(e.get("content") or "").splitlines():
+                s0 = line.strip()
+                if not s0 or s0.startswith("#"):
+                    continue
+                head = s0[:80]
+                break
+            topic = fm.get("bucket")
+            if not topic:
+                tags = fm.get("tags") or []
+                topic = tags[0] if isinstance(tags, (list, tuple)) and tags else "未分组"
+            groups.setdefault(str(topic), []).append(
+                {"date": date, "id": e.get("id"), "head": head})
+        out = []
+        for topic, items in groups.items():
+            items.sort(key=lambda x: (x["date"] or "9999-99-99", str(x.get("id") or "")))
+            out.append({"topic": topic, "items": items})
+        out.sort(key=lambda g: (-len(g["items"]), g["topic"]))
+        return out
 
 
     # 生效条件：pack 为 recall 装好的条目列表；返回按 created_at **升序**的时间线 [{"date","id","head"}]

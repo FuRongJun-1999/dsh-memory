@@ -62,6 +62,19 @@ def main():
     ok(all(h and not h.startswith("#") for h in heads), "T4 事件首句非空且跳过 CCG 头", heads[:2])
     ok(any("陪爸" in h or "排队" in h for h in heads), "T5 首句确实是事件内容", heads[:3])
 
+    # ---- timeline_groups（主题归并，廉价版归并层）----
+    groups = pack.get("timeline_groups")
+    ok(isinstance(groups, list) and len(groups) >= 1, "T6 timeline_groups 存在且非空",
+       [g.get("topic") for g in (groups or [])][:3])
+    total_in_groups = sum(len(g.get("items") or []) for g in (groups or []))
+    ok(total_in_groups == n_pack, "T7 归并后条目总数与 pack 一致（不丢件）", (total_in_groups, n_pack))
+    ordered = True
+    for g in (groups or []):
+        ds = [x.get("date") or "" for x in (g.get("items") or [])]
+        if ds != sorted(ds):
+            ordered = False
+    ok(ordered, "T8 组内仍按日期升序")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
