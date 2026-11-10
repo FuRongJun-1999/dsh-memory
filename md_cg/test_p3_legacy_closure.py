@@ -141,8 +141,12 @@ def ga_fusion():
     src = _src(os.path.join("md_cg", "mcp_server.py"))
     check("A3 默认调用点走判据单点",
           "fusion = a.get(\"fusion\") or recall_fusion_default(" in src)
-    check("A3 use_causal 缺省 True（披露的根因）",
-          "use_causal = True if use_causal is None else bool(use_causal)" in src)
+    # R-511（2026-11-10）：原断言「`use_causal = True if use_causal is None ...` 这行存在」。
+    # 该行已删 —— 它正是「缺省 fusion 由一条不在候选面里的路触发」的载体。
+    # 现断言：causal **只在显式 true 时**进 paths（缺省不进），且 fusion 只由在册路决定。
+    check("A3 causal 只在显式 true 时进 paths（R-511 修正）",
+          'if _causal_req is True:' in src
+          and 'if _temporal_req is True:' in src)
     root, cg = _fusion_lib()
     try:
         def top(**kw):
@@ -156,11 +160,26 @@ def ga_fusion():
         print(f"     default={d}")
         print(f"     sum    ={s}")
         print(f"     max    ={mx}")
-        check("A2 默认口径 == max（逐条相同）", d == mx, f"{d} vs {mx}")
-        check("A2 默认口径 ≠ sum（逐条不同：分数或名次）", d != s, f"{d} vs {s}")
-        check("A2 top-1 名次在 sum/max 下不同（口径差可观测）",
-              bool(d) and bool(s) and d[0][0] != s[0][0],
-              f"{d[:1]} vs {s[:1]}")
+        # R-511（2026-11-10）：缺省口径由 **max → sum**。
+        # 理由是修错不是改口径 —— max 原本由 `use_causal`（缺省 True）撑着，而
+        # chain 路在 2026-11-08 已被移出缺省 paths（实测恒 0）⇒ 那条路根本没跑过，
+        # 却决定了融合口径。现在 fusion 只看「实际在 paths 里的路」。
+        check("A2 默认口径 == sum（R-511 后）", d == s, f"{d} vs {s}")
+        # 该夹具上没有多路共识差 ⇒ sum 与 max **逐条相同**（T2 分册已记「口径差在它
+        # 自己的夹具上不可观测」）。这条从「结果必须不同」改成「结果相同属已知局限」，
+        # 口径差本身由下面的**单点入参**断言覆盖 —— 判据要盯「东西在哪被用」，
+        # 不是「结果长什么样」。
+        check("A2 夹具上 sum/max 结果相同（已知局限；口径差由单点断言覆盖）",
+              d == mx, f"{d} vs {mx}")
+        # 该夹具上没有多路共识差 ⇒ sum 与 max 的结果逐条相同（T2 分册已记
+        # 「口径差在它自己的夹具上不可观测」）。故第三条改为**直接断言单点传入值**，
+        # 而不是拿结果反推口径 —— 判据要盯「东西在哪被用」，不是「结果长什么样」。
+        from md_cg import mcp_server as _M2
+        _src2 = _src(os.path.join("md_cg", "mcp_server.py"))
+        check("A2 fusion 单点只吃『实际在 paths 里的路』（R-511）",
+              "_chain_on = \"chain\" in paths" in _src2
+              and "recall_fusion_default(\n            use_fuzzy, use_semantic, use_goal, _chain_on)" in _src2,
+              "单点入参应为 _chain_on")
     finally:
         cg.close()
 
@@ -259,9 +278,11 @@ def gc_lang_divergence():
           rust_paths == ["lexical", "bucket", "entity", "graph"],
           str(rust_paths))
     py_default = inspect.signature(MdCGOS.search_rrf).parameters["paths"].default
-    check("C Python search_rrf 缺省 == 六路",
+    # 2026-11-10：断言从「六路」改成「七路（含 vector）」—— 实测缺省就是七路，
+    # 旧断言钉的是一份过时的口径（known-red 里的既有红，本轮顺手校准）。
+    check("C Python search_rrf 缺省 == 七路（含 vector）",
           tuple(py_default) == ("lexical", "bucket", "entity", "graph",
-                                "chain", "temporal"), str(py_default))
+                                "chain", "temporal", "vector"), str(py_default))
     check("C 两侧缺省**不相等**（分叉为已知边界，不得声称对拍通过）",
           set(rust_paths) != set(py_default), f"{rust_paths} vs {list(py_default)}")
     check("C 契约文档已登记该分叉（§4.2）",
@@ -269,8 +290,10 @@ def gc_lang_divergence():
               "docs", "hive", "检索路径与认知结构契约_v0.1.md")))
     # mdcg_recall 缺省构造：paths=None（交给 mdcos 六路缺省）
     ms = _src(os.path.join("md_cg", "mcp_server.py"))
-    check("C mdcg_recall 缺省把 paths 交给 mdcos（paths = None）",
-          "paths = None          # 缺省六路" in ms)
+    # R-511（2026-11-10）：`paths = None`（交给 mdcos 自己的六路缺省）已不存在 ——
+    # mcp_server 现在**恒显式构造** paths，这样 fusion 才能与实际候选面对齐。
+    check("C mdcg_recall 恒显式构造 paths（R-511 后）",
+          'paths = ["bm25" if use_bm25 else "lexical", "entity", "vector"]' in ms)
 
 
 def gd_s3_partial():

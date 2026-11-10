@@ -123,7 +123,11 @@ def main():
     print("== P4 覆写防悬空（病灶复发形态的结构守卫）==")
     src_os = inspect.getsource(MdCGOS.search)
     src_cg = inspect.getsource(MdCG.search)
-    check("P4a MdCGOS.search 引用共享门控", "apply_retrieval_gates" in src_os)
+    # 2026-11-10（审计 T3/T7 + R-511）：`MdCGOS.search` 已改成预筛回退**外壳**，
+    # 门控随实现下沉到 `_search_impl`。判据跟着走：外壳委托 + 实现引用共享门控。
+    check("P4a MdCGOS.search 委托 _search_impl 且其引用共享门控",
+          "_search_impl" in src_os
+          and "apply_retrieval_gates" in inspect.getsource(MdCGOS._search_impl))
     check("P4b MdCG.search 引用共享门控", "apply_retrieval_gates" in src_cg)
     check("P4c 共享函数存在且可调（两路 MRO 都能到达）",
           callable(apply_retrieval_gates))

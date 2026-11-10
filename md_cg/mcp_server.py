@@ -4634,32 +4634,41 @@ def _dispatch(cg, name, args):
         # 但**每路可单独关**——显式传 causal=false / temporal=false 即从本次调用剔除。
         # 未显式传（None）= 缺省进路；与既有 fuzzy/semantic/goal 的「显式启用」语义相反，
         # 这是刻意的非对称：这两路在无 edges / 无时间参数的库上自然为空，缺省开不产噪声。
-        use_causal = a.get("causal")
-        use_temporal = a.get("temporal")
-        use_causal = True if use_causal is None else bool(use_causal)
-        use_temporal = True if use_temporal is None else bool(use_temporal)
-        if (use_bm25 or use_fuzzy or use_semantic or use_goal
-                or not use_causal or not use_temporal):
-            # 2026-11-08（4 路零信号摘除）：bucket/graph 实测候选恒 0，
-            # chain/temporal 在无 edges / 无时间参数的库上自然为空。
-            # 实测 meta.paths：lexical 500 · bucket 0 · entity 3 · graph 0 ·
-            # chain 0 · temporal 0 · vector 36 —— 四路不是「差」，是没产出。
-            paths = ["bm25" if use_bm25 else "lexical", "entity", "vector"]
-            if use_fuzzy:
-                paths.append("fuzzy")
-            if use_semantic:
-                paths.append("semantic")
-            if use_goal:
-                paths.append("goal")
-            if use_causal:
-                paths.append("chain")
-            if use_temporal:
-                paths.append("temporal")
-            paths = tuple(paths)
-        else:
-            # 2026-11-08：缺省从七路收到三路（依据同上）。vector 必须留——
-            # 它是唯一让同义改写不靠字面命中的那一路，去掉金标会掉。
-            paths = ("lexical", "entity", "vector")
+        # R-511（2026-11-10 审计 C1）：原实现有两个逻辑错，都在这一段。
+        #
+        # 错一「关掉反而多开」：原来外层条件是
+        #   `if (use_bm25 or use_fuzzy or use_semantic or use_goal
+        #        or not use_causal or not use_temporal):`
+        # `not use_causal` 会被「显式传 causal=false」点亮 ⇒ 走进显式构造分支；而该分支里
+        # 又按 `if use_temporal:` 追加 —— 于是 **causal=false 反而多开 temporal**，
+        # `temporal=false` 同理多开 chain，`causal=true` 与缺省**逐字相同**。
+        #
+        # 错二「融合口径由一条不在候选面里的路触发」：缺省 paths 只有三路
+        # （lexical/entity/vector，2026-11-08 依实测把 chain/temporal 摘掉——它们
+        # 在无 edges / 无时间参数的库上恒 0），而 fusion 判据仍把 `use_causal`（缺省
+        # True）当输入 ⇒ 默认 fusion=**max**，可 max 的语义前提是「多路独有召回」，
+        # 而那条路根本没在候选面里跑过。
+        #
+        # 修法：① 统一一条构造路径，删掉那个会把「关」读成「开」的分支条件；
+        # ② causal / temporal **只在显式传 true 时**进 paths（缺省不进，与实测一致）；
+        # ③ fusion 判据只看「实际在 paths 里的路」——chain 不在就不参与。
+        # 语义变化（如实登记）：默认 recall 的 fusion 由 **max → sum**。这是修错，
+        # 不是改口径 —— max 原本由一个不存在的路撑着。
+        _causal_req = a.get("causal")
+        _temporal_req = a.get("temporal")
+        paths = ["bm25" if use_bm25 else "lexical", "entity", "vector"]
+        if use_fuzzy:
+            paths.append("fuzzy")
+        if use_semantic:
+            paths.append("semantic")
+        if use_goal:
+            paths.append("goal")
+        if _causal_req is True:
+            paths.append("chain")
+        if _temporal_req is True:
+            paths.append("temporal")
+        paths = tuple(paths)
+        _chain_on = "chain" in paths
         # fuzzy 路缺省用 max 融合：实测（memory-bench-1000，870 查询）sum 会把
         # self@1 拉低 10.1%，因为求和奖励「多路共识」、低估「模糊路独有」的目标。
         # semantic 路同理：条件结构命中常是「独有召回」，故一并缺省 max。
@@ -4668,7 +4677,7 @@ def _dispatch(cg, name, args):
         # P3-遗留 A（2026-10-01）：表达式提为 `recall_fusion_default` 单点，
         # 使「缺省口径 = max」可被守卫直接断言（防静默漂移）。
         fusion = a.get("fusion") or recall_fusion_default(
-            use_fuzzy, use_semantic, use_goal, use_causal)
+            use_fuzzy, use_semantic, use_goal, _chain_on)
         # 默认单条上限从 mdcos 取（该模块只在 main() 里惰性导入，模块级没有名字，
         # 直接引用 mdcos.DEFAULT_MAX_ITEM_TOKENS 会 NameError —— 故此处按需导入）。
         from .mdcos import DEFAULT_MAX_ITEM_TOKENS as _DEFAULT_MAX_ITEM

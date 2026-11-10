@@ -476,10 +476,17 @@ def main():
                       (MdCGOS, os.path.join(os.path.dirname(__file__), "mdcos.py"))):
         with io.open(path, encoding="utf-8") as f:
             src[mod] = f.read()
-    for name, fn in (("MdCG.search", MdCG.search), ("MdCGOS.search", MdCGOS.search),
+    for name, fn in (("MdCG.search", MdCG.search),
                      ("MdCGOS.search_rrf", MdCGOS.search_rrf)):
         check(f"P6a {name} 源码引用共享门控 apply_retrieval_gates",
               "apply_retrieval_gates" in inspect.getsource(fn))
+    # 2026-11-10（审计 T3/T7 + R-511）：`MdCGOS.search` 已改成预筛回退**外壳**
+    # （`*args, **kwargs` → `_search_impl`），门控随实现下沉。判据跟着走：
+    # 外壳必须委托到 `_search_impl`，且**那个实现**必须引用共享门控。
+    # 这不是放宽 —— 是判据要盯「东西在哪被用」（外壳的委托目标），不是「哪一行出现过」。
+    check("P6a MdCGOS.search 委托 _search_impl（门控在该实现里）",
+          "_search_impl" in inspect.getsource(MdCGOS.search)
+          and "apply_retrieval_gates" in inspect.getsource(MdCGOS._search_impl))
     check("P6b MdCGSecure.search_rrf 经 super().search_rrf 委托（不自建门控）",
           "super().search_rrf" in inspect.getsource(MdCGSecure.search_rrf))
     check("P6c 门控实现只有一份（gates[\"s1b\"] 仅出现在 mdcg.py）",
