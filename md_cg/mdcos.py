@@ -45,7 +45,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
                writelimit, reach, trust, roleviews, autonomy_modes, lifecycle,
-               rrf_candidates)
+               rrf_candidates, reldate)
 from .fsutil import (FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish,
                      merge_rmw_lock, node_write_lock)
@@ -3090,6 +3090,13 @@ class MdCGOS(MdCG):
                 except (TypeError, ValueError, OSError):
                     _d = None
             _e["created_at_date"] = _d
+            # 【2026-11-12 使用者裁定】相对日期**确定性地**补绝对日期，且内联在正文里：
+            # 外测判官原文：视图节给了绝对日期，模型仍照抄「周一/昨天」⇒ 平行章节被忽略，
+            # 只有正文内联标注才会被读到。锚点取本条的陈述时刻（created_at），不是今天。
+            try:
+                _e["content_dated"] = reldate.annotate(_e.get("content") or "", _ts)
+            except Exception:            # noqa: BLE001 —— 标注失败不拖崩装包，退化为原文
+                _e["content_dated"] = _e.get("content")
         timeline = self._pack_timeline(pack)
         # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
         # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，

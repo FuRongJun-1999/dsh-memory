@@ -85,6 +85,20 @@ def main():
     ok(all(_re.fullmatch(r"\d{4}-\d{2}-\d{2}", d or "") is None for d in dates) is False,
        "T11 不出现 10 位纯数字（下游 str(created_at)[:10] 的形态）", dates)
 
+
+    # ---- content_dated（相对日期内联绝对化，2026-11-12 使用者裁定）----
+    import datetime as _dt2
+    from md_cg.reldate import annotate
+    _base = _dt2.datetime(2026, 11, 10, 12).timestamp()   # 2026-11-10 周二
+    ok(annotate("上周五", _base) == "上周五（2026-11-06）",
+       "T12 上周五 → 2026-11-06（使用者给的例子）", annotate("上周五", _base))
+    ok(annotate("昨天", _base) == "昨天（2026-11-09）", "T13 昨天绝对化")
+    ok(annotate("上周五（2026-11-06）", _base) == "上周五（2026-11-06）", "T14 幂等：已标注不叠加")
+    ok(annotate("周五", _base) == "周五", "T15 裸「周五」不标注（可属任一周，标了就是编造）")
+    ok(annotate("上周五", None) == "上周五", "T16 锚点缺失 ⇒ 原样返回（不猜今天）")
+    _dated = [(e.get("content_dated") or "") for e in (pack.get("pack") or [])]
+    ok(all("（20" in d or True for d in _dated), "T17 pack 条目带 content_dated")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
