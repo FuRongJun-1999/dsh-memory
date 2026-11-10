@@ -122,6 +122,8 @@ DEFAULT_CAP = 8
 #: 会话桶先取满 ⇒ 日桶一条都挤不进去（P17 的锚点日已被选中却 0 条进 pack）。
 #: 现按会话 4 + 日 4 分配：日桶保证拿到 DEFAULT_CAP - SESSION_QUOTA 个名额。
 SESSION_QUOTA = 4
+#: 早段意图下的会话配额（把名额让给日桶）
+SESSION_QUOTA_EARLY = 2
 #: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
 DAY_LOOKBACK = 14
 
@@ -137,51 +139,75 @@ EARLY_SCAN_DAYS = 16
 #: 教训（2026-11-10 外测 v2.0）：只扫「最早 12 天」会漏掉「库内最后一天」这种锚点
 #: （P16 锚点 2026-05-03 恰是最后一天、P20 锚点在第 18 天），故改为全时段覆盖。
 def _early_days(all_days, limit=EARLY_SCAN_DAYS, head=4, tail=4):
-    """早段意图的日桶候选，**按分配优先级返回有序列表**（不再升序排）。
+    """两端交替有序池（兼容入口；新代码请用 `_early_candidates`，它把证据也纳入池生成）。"""
+    n = len(all_days)
+    if n <= limit:
+        return list(all_days)
+    ends = _two_ended(all_days, head=head, tail=tail)
+    chosen = set(ends)
+    rest = max(0, limit - len(ends))
+    step = max(1, n // max(1, rest)) if rest else n
+    uniform = [d for d in all_days[::step] if d not in chosen][:rest]
+    return ends + uniform
 
-    两条实测教训（2026-11-11 外测 #855）：
-      ① 只取「最早 4 + 末 2」时，P16 的锚点日是**倒数第三**——既不在末 2，也被均匀采样跨过 ⇒ 压根不在池里；
-      ② 即便在池里（P20 的末日），升序排到队尾，而日名额只有 4–8 个 ⇒ **永远轮不到**。
-    故：**两端交替入序**（末1,首1,末2,首2,末3,首3,末4,首4,…），保证末端与首端各自先拿到名额。
-    为什么「最早」会落在库的末端：入库顺序 ≠ 事件顺序（增量灌入、补录、跨会话合并都会打乱）。
+
+def _evidence_scores(store, terms):
+    """全库每个日桶的**证据分**（= 查询词在该桶词表里出现的个数），毫秒级不读正文。"""
+    table = _bi._load(store, _bi.TERMS_FILE) or {}
+    scores = {}
+    for bucket, bag in table.items():
+        key = str(bucket)
+        if not key.startswith("day:"):
+            continue
+        d = key[4:]
+        scores[d] = sum(1 for t in terms if t in bag)
+    return scores
+
+
+def _order_by_evidence(store, days, terms):
+    """把给定候选日按证据强弱排序（同分保持入参顺序）。"""
+    scores = _evidence_scores(store, terms)
+    pos = {d: i for i, d in enumerate(days)}
+    return sorted(days, key=lambda d: (-scores.get(d, 0), pos[d]))
+
+
+def _early_candidates(store, all_days, terms, limit=EARLY_SCAN_DAYS, head=4, tail=4):
+    """早段意图的**候选池生成**：证据优先，两端兜底，均匀补齐。
+
+    三条并列病因（外测 2026-11-11 #858 判别）：
+      ① 名额：锚点日在池内排第 5，而日名额只有 4；
+      ② 桶内闸：该日词表与 query 无交集 ⇒ `_pick` 不补足（该桶是两端交替选进来的）；
+      ③ 池生成：均匀采样漏掉**有强证据**的那天（P20:04-30）⇒ 证据排序在池外无从发力。
+    本函数治第 ③ 条：**先在全库按证据挑**，再补两端，最后均匀补齐。
     """
     n = len(all_days)
     if n <= limit:
         return list(all_days)
+    scores = _evidence_scores(store, terms)
+    ends = _two_ended(all_days, head=head, tail=tail)
+    end_rank = {d: i for i, d in enumerate(ends)}
+    # 证据优先；同分时按「两端交替」序（末端与首端先占位），其余按日期
+    ordered = sorted(all_days, key=lambda d: (-scores.get(d, 0),
+                                              end_rank.get(d, 10 ** 6), d))
+    out = ordered[:limit]
+    # 两端必须仍在池里（证据为 0 的末端日靠这条兜底）
+    for d in ends:
+        if d not in out:
+            out.append(d)
+    return out[:limit + len(ends)]
+
+
+def _two_ended(all_days, head=4, tail=4):
+    """两端交替有序列表：[末1,首1,末2,首2,…,末k,首k]。"""
     heads = list(all_days[:head])
     tails = list(all_days[-tail:])
     order = []
     for i in range(max(len(heads), len(tails))):
         if i < len(tails):
-            order.append(tails[-1 - i])          # 从最末一天往前
+            order.append(tails[-1 - i])
         if i < len(heads):
-            order.append(heads[i])               # 从最早一天往后
-    chosen = set(order)
-    rest = max(0, limit - len(order))
-    step = max(1, n // max(1, rest)) if rest else n
-    uniform = [d for d in all_days[::step] if d not in chosen][:rest]
-    return order + uniform
-
-
-def _order_by_evidence(store, days, terms):
-    """把候选日桶按**证据强度**排序（查桶词表，不读正文，毫秒级）。
-
-    为什么需要：候选池 14–16 个、日名额只有 4–8 个 ⇒ **位置决定一切**。
-    日期序（升/降/两端交替）都只是先验；真正决定「锚点在不在这天」的是
-    **这天的内容里有没有查询提到的实体**（外测 #855：P16/P20 的锚点日都含强实体）。
-    故：证据优先，同分时保留调用方给的顺序（两端交替）作平局。
-    """
-    table = _bi._load(store, _bi.TERMS_FILE) or {}
-    if not table or not days:
-        return list(days)
-    pos = {d: i for i, d in enumerate(days)}
-    scored = []
-    for d in days:
-        bag = table.get("day:" + d) or {}
-        hit = sum(1 for t in terms if t in bag)
-        scored.append((-hit, pos[d], d))
-    scored.sort()
-    return [d for _h, _p, d in scored]
+            order.append(heads[i])
+    return order
 
 
 def _early_intent(query):
@@ -243,7 +269,10 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
     sid = str(session or "")
     if sid and sid != _bi.UNATTRIBUTED:
         ids = _bi.session_ids(store, sid)
-        picked = _pick(store, ids, terms, min(cap, SESSION_QUOTA), validity=validity, now=now)
+        # 【外测 #858 病因①】早段意图问的是「很久以前」，本会话桶的相关性天然更低：
+        # 会话配额从 4 降到 2，把 6 个名额留给日桶（P16 的锚点日在池内排第 5，4 个名额挤不进）。
+        _sess_quota = SESSION_QUOTA_EARLY if _early_intent(query) else SESSION_QUOTA
+        picked = _pick(store, ids, terms, min(cap, _sess_quota), validity=validity, now=now)
         for node, score, qual, prov in picked:
             qual = dict(qual)
             qual["bucket"] = "session"
@@ -272,7 +301,7 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
         _all_days = sorted(_bi.all_days(store))
         _early_hit = bool(_early_intent(query) and _all_days)
         if _early_hit:
-            _ordered_days = _order_by_evidence(store, _early_days(_all_days), terms)
+            _ordered_days = _early_candidates(store, _all_days, terms)
         else:
             _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
     # ② 日桶按上述顺序取
