@@ -32,7 +32,7 @@ import threading
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews, fsutil, freshness)
 from . import timeanchor as _timeanchor
-from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
+from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl, node_write_lock,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
 
@@ -4679,15 +4679,25 @@ class MdCG:
                     durable: bool = False, declared_sensitivity: str = None):
         """统一节点写盘口：先封装再原子写。**所有写盘点都应走这里**，
         否则 `get()` 解密后的明文会被直接回写（破坏加密）。"""
-        sealed = self._seal_content(node_id, content, fm.get("sensitivity"))
-        # B2 密级一致性闸：位置在 atomic_write **之前**——判据单点在此，
-        # 全部写盘点（add / backfill / rewrite / move_layer）自动覆盖。
-        # `has_sealer`＝本实例是否覆写了密封钩子（鸭子判据，不 import 子类，
-        # 免循环依赖）：无密封能力的实例落 private 明文是既有语义，判据② 不适用。
-        _check_sensitivity_landing(
-            node_id, fm.get("sensitivity"), declared_sensitivity, sealed,
-            has_sealer=(type(self)._seal_content is not MdCG._seal_content))
-        atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
+        # ★R-506（2026-11-10 审计，P1-D5）：本方法自称「**所有写盘点都应走这里**」，
+        # 但此前**一把锁都不持**。全仓 60+ 个调用点分属两个互不相交的锁域
+        # （按节点锁 `node_write_lock` 的 `add`/`_move_layer`，与按根锁
+        # `merge_rmw_lock` 的 `converge_into`/`reinforce`/merge），其余路径
+        # **两把锁都不持** ⇒ 同一 `node_id` 可被两条路径同时对 `atomic_write`
+        # 整份覆写（#322 / #348-B 记过的形态）。
+        # 在**单一入口**补锁，一次覆盖全部调用点；`node_write_lock` 返回
+        # `_ReentrantFileLock`（按 `normcase(abspath)` 记深度），所以已在外层持同一把
+        # 锁的调用方不会自锁。锁只护「封 → 闸 → 写 → 索引 hash」这一段，不护上层事务。
+        with node_write_lock(self, node_id):
+            sealed = self._seal_content(node_id, content, fm.get("sensitivity"))
+            # B2 密级一致性闸：位置在 atomic_write **之前**——判据单点在此，
+            # 全部写盘点（add / backfill / rewrite / move_layer）自动覆盖。
+            # `has_sealer`＝本实例是否覆写了密封钩子（鸭子判据，不 import 子类，
+            # 免循环依赖）：无密封能力的实例落 private 明文是既有语义，判据② 不适用。
+            _check_sensitivity_landing(
+                node_id, fm.get("sensitivity"), declared_sensitivity, sealed,
+                has_sealer=(type(self)._seal_content is not MdCG._seal_content))
+            atomic_write(path, nodefile.dumps(fm, sealed), durable=durable)
         # issue #53-C：写盘口同步索引内容指纹——「所有写盘点都应走这里」的
         # 同一收口面延伸。元数据更新族写点（update_tags / append_edge /
         # append_subgraph_node / set_edge_condition / backfill_* …）走
@@ -4696,9 +4706,9 @@ class MdCG:
         # **旧密文**上 ⇒ 启动对账每次报 hash_drift 假阳性（实测可经 compact
         # 快照与进程重开持久存活，直到某次全量重建；报告 issue #53-C）。
         # 新节点首次写入时条目尚未装入（_stage 紧随其后，值同源）→ 取不到即跳过。
-        _entry = self.index["nodes"].get(node_id)
-        if _entry is not None:
-            _entry["content_hash"] = nodefile.content_hash(sealed)
+            _entry = self.index["nodes"].get(node_id)
+            if _entry is not None:
+                _entry["content_hash"] = nodefile.content_hash(sealed)
         return sealed
 
     # ---------- S1 前置元数据：域标签回填 ----------
