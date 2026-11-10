@@ -98,7 +98,15 @@ def _scan_disk(cg):
                                      "detail": str(exc)[:120]})
                     continue
                 fm, content = nodefile.loads(text)
-                if not fm and text.startswith("---\n"):
+                # R-202b：判据消费单点——BOM 剥离与「以分隔行开头」的行语义只在
+                # nodefile.starts_with_delim 里写一次（R-202 的口径）；此处再要求
+                # 「完整起始分隔行」（--- + 行尾），避免把 `---abc` 这类正文误判成
+                # 无闭合残头。不剥 BOM 的旧判据会让 BOM 残头在此判假、被当「缺失
+                # 条目」重新 _stage 回索引，与 _scan_nodes 的隔离结论互相打脸
+                # （实测 before index=[] → after index=['broken']）。
+                if not fm and nodefile.starts_with_delim(text) and (
+                        text.lstrip("\ufeff").startswith("---\n")
+                        or text.lstrip("\ufeff").startswith("---\r\n")):
                     # 结构非法：有 frontmatter 起始符但无闭合——loads 无法切出
                     # 字段（正常节点必有 frontmatter；无 frontmatter 的裸文件
                     # 按 _scan_nodes 旧例仍以文件名登入，不判损坏）。

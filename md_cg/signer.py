@@ -397,6 +397,32 @@ def save_policies(data: dict, path: str = None) -> str:
 
 
 # 生效条件：subsystem 为假值（None/空串）时按空串键在 d.get("subsystems") or {} 中查策略，取不到则用默认策略，且 out["signer"] 为假值时回落 d.get("default_signer") or DEFAULT_SIGNER。
+# 生效条件：path 为策略文件路径（假值走 signers_file(path) 的缺省解析）时恒返回四键只读探针体：
+# file = signers_file(path)；exists = os.path.exists(file)；effective = 缺省子系统（子键 ""）归一化后的
+# require_peer_signature / on_verify_fail / signer（signer 为空时回落 d["default_signer"] or DEFAULT_SIGNER）；
+# missing_strict = 文件不存在，或（on_verify_fail == "reject" 且 require_peer_signature 为真）——「默认即最严」
+# 的判据本体。零写入。
+# R-103 恢复：原实现见 d293921f（病灶 C「signer 补覆盖范围」），dbc1aaa4 服务器活体回流时删除，开发线
+# test_t98a_default_strict（经 scripts/check_security_defaults.py 的只读探针）仍引用。**语义变更：无**
+# （逐位取回原实现；所依赖的 signers_file / load_policies / _normalize / DEFAULT_SIGNER / os 均在位）。
+def policy_source(path: str = None) -> dict:
+    """只读探针：这次实际读的是哪个策略文件、它存不存在、生效的是什么。"""
+    p = signers_file(path)
+    exists = os.path.exists(p)
+    d = load_policies(path)
+    sub = (d.get("subsystems") or {}).get("") or {}
+    eff = _normalize(sub)
+    if not eff.get("signer"):
+        eff["signer"] = d.get("default_signer") or DEFAULT_SIGNER
+    missing_strict = (not exists) or (eff.get("on_verify_fail") == "reject"
+                                      and bool(eff.get("require_peer_signature")))
+    return {"file": p, "exists": exists,
+            "effective": {"require_peer_signature": bool(eff.get("require_peer_signature")),
+                          "on_verify_fail": eff.get("on_verify_fail"),
+                          "signer": eff.get("signer")},
+            "missing_strict": missing_strict}
+
+
 def policy_for(subsystem: str = None, path: str = None) -> dict:
     """取子系统策略；未声明则用默认（`default_signer` + handshake 签名）。"""
     d = load_policies(path)

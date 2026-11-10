@@ -1773,8 +1773,8 @@ class SustainLoop:
         主库真源面在非合并阶段逐字节不变。四个开关全取 `md_cg/sleep.py` 的 §4.7
         env 表真源：`MDCG_SLEEP`（总开关，缺省开）、`MDCG_SLEEP_MERGE`（缺省
         auto＝自动走四阶段，冲突仍挂起）、`MDCG_SLEEP_WINDOW`（缺省 23:00-07:00，
-        **窗口外只记账不迭代**）、`MDCG_SLEEP_SCRUB_APPLY`（缺省 **关**——第④步
-        缺省只在副本上盘点、不落盘）。
+        **窗口外只记账不迭代**）、`MDCG_SLEEP_SCRUB_APPLY`（缺省 **开**——第④步
+        缺省真实落盘；置 0 退回只在副本上盘点）。
 
         ⑤权重刷新与衰减 / ⑥索引重建两步本轮是**显式 no-op 占位**（台账里标
         `skipped: "未接线"`），故本轮**不动检索读数**。
@@ -1827,11 +1827,11 @@ class SustainLoop:
             self.evolves.append(rec)
             self.evolves = self.evolves[-20:]
 
-# 生效条件：self.scrub_round 自增后以 seed=f"sustain:{self.scrub_round}"、dry_run=not self.auto_scrub 调 scrub.sweep(self.cg)，把 t/ok/n_issues/n_high_medium/applied/already_handled/planned_dry_run/checked_breakdown/seed/dry_run 记入 last_scrub 与 scrubs（保留最近 20 条）；auto_scrub=False（默认）时 dry_run=True 只读巡检；
+# 生效条件：self.scrub_round 自增后以 seed=f"sustain:{self.scrub_round}"、dry_run=not self.auto_scrub 调 scrub.sweep(self.cg)，把 t/ok/n_issues/n_high_medium/applied/already_handled/planned_dry_run/checked_breakdown/seed/dry_run 记入 last_scrub 与 scrubs（保留最近 20 条）；auto_scrub 缺省为 True（见 AUTO_DEFAULTS）时 dry_run=False 真执行去污染；置 False 退回只读巡检；
     def _tick_scrub(self):
         """记忆自净：抽查 → 联想 → 去污染 → 校准偏差。
 
-        `auto_scrub=False`（默认）时只做只读巡检并记账，不动任何节点；
+        `auto_scrub` 缺省为 True（见 AUTO_DEFAULTS）时真执行去污染并记账；置 False 退回只读巡检、不动任何节点；
         开启后才执行去污染（仍只做可逆动作、永不删节点）。
 
         抽样轮转（issue #66）：seed 按**轮次**派生（`scrub_round` 每 tick

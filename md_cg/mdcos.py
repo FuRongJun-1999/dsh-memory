@@ -920,6 +920,95 @@ class MdCGOS(MdCG):
     HIPPOCAMPUS = "hippocampus"
     TRASH = "trash"
 
+    # ---------- R-103：回流删掉的两个公开接口（兼容层，语义见各自 docstring） ----------
+    #
+    # 原实现位于 `mdcg.py` 的 `MdCG` 类（d293921f 病灶 C 引入），dbc1aaa4 服务器活体
+    # 回流时被删除；开发线 test_t14a_acceptance / test_t15a_supersede / test_t65a_* /
+    # test_t10a_* / test_t25a_* 全部经 `MdCGOS` 实例引用。裁定「以开发线为准」⇒ 在此
+    # 恢复为 `MdCGOS` 的同类方法（**不动 mdcg.py**：另一修复线正在改它的
+    # rebuild_index/compact_index）。基类若日后补回同名方法，本类实现按 MRO 覆盖之，
+    # 语义以本文件为准——两处并存时删这边的一份。
+
+    # 生效条件：include_superseded=False（缺省）时跳过 frontmatter 里 superseded is True 的节点，
+    # 为 True 时一并返回；逐条经 self.get(nid) 读盘解真 frontmatter，读不到/正文为 None 的跳过；
+    # 返回 [{**索引条目, nid, frontmatter, content, path}]；索引条目非 dict 的跳过。只读。
+    def list_nodes(self, include_superseded: bool = False) -> list:
+        """列出节点（默认排除已废弃；include_superseded=True 时含之）。
+
+        E-T15a t1 读取侧薄方法：判定面开关（MDCG_JUDGMENT）开启时，同
+        key/topic 二次写入会把旧节点 frontmatter 标成 `superseded=true`
+        并记 `superseded_by`。默认口径（include_superseded=False）据此
+        跳过旧节点，使「默认只见新值」可被程序化断言；显式
+        include_superseded=True 时返回两条，供回溯审计。
+
+        与 index["nodes"] 的区别：索引条目是**扁平**快照（path/layer/tags…），
+        不含 frontmatter；本方法逐条经 `self.get()` 读盘解出真 frontmatter，
+        故这里也是 `superseded` 标记的唯一判读处。
+        """
+        _maybe_reload = getattr(self, "_maybe_reload_index", None)
+        if callable(_maybe_reload):
+            _maybe_reload()          # P1b-2：读面代际感知（与 get 同口径）
+        out = []
+        for nid, e in list((self.index.get("nodes") or {}).items()):
+            if not isinstance(e, dict):
+                continue
+            got = self.get(nid)
+            if not got or got.get("content") is None:
+                continue
+            fm = got.get("frontmatter") or {}
+            if not include_superseded and fm.get("superseded") is True:
+                continue
+            row = dict(e)
+            row["nid"] = nid
+            row["frontmatter"] = fm
+            row["content"] = got.get("content")
+            if not row.get("path"):
+                row["path"] = got.get("path")
+            out.append(row)
+        return out
+
+    # 生效条件：node_ids 为空返回 {}；否则对每个 id：索引里没有（幽灵 id / 已摘除）跳过、_read(e)
+    # 读不出 fm 跳过，命中者 access_count += 1、last_access = max(原值, ts or now)，经 _write_node
+    # 落盘并同步索引快照，返回 {nid: {"access_count", "last_access"}}。日志**不删**（审计痕迹保留）。
+    def fold_access_records(self, node_ids, ts=None):
+        """把一批命中**即时**折进候选节点（frontmatter + 索引快照）。
+
+        与 `compact_access()` 的区别只在**范围与计数来源**：
+          · `compact_access()` 读整个 `_access.log` 的历史计数、清日志，
+            对全部历史命中 id 写盘（sustain 的批量折叠路径，语义不动）；
+          · 本方法只处理**本次传进来的这一批** id，每个 id 加 1，日志**不删**
+            （审计痕迹保留）。两条路各记各的增量，不会重复计数：
+            折叠不推进任何「已消费水位」，`compact_access()` 之后重放日志
+            会把同一批再加一次——这正是改动前的既有语义（日志是账本，
+            折叠是入账），本次不改变这一口径，只把入账推迟到「不迟于下次召回」。
+
+        索引同步是必须的（不是可选优化）：`_index.json` 重建取的是 fm，
+        而**在役进程**读的是内存条目——不同步就会出现「落盘了但本次进程
+        仍读到 0」的假象（与 `_node_entry` / `add()` 的定向 upsert 同款纪律：
+        写路径的索引键口径必须与重建路径一致）。
+        """
+        out = {}
+        if not node_ids:
+            return out
+        now = float(ts if ts is not None else time.time())
+        for nid in node_ids:
+            e = self.index["nodes"].get(nid)
+            if not e:
+                continue          # 索引里没有（幽灵 id / 已摘除）→ 不计
+            fm, content = self._read(e)
+            if fm is None:
+                continue          # 读盘失败（含无密钥）→ 跳过，不猜测
+            c = int(fm.get("access_count") or 0) + 1
+            last = max(float(fm.get("last_access") or 0), now)
+            fm["access_count"] = c
+            fm["last_access"] = last
+            self._write_node(nid, self._node_disk_path(e), fm, content)
+            # 索引快照同步（免读文件可判的扁指标量，见 _node_entry 同款注释）
+            e["access_count"] = c
+            e["last_access"] = last
+            out[nid] = {"access_count": c, "last_access": last}
+        return out
+
 # 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)；读缓存装配走 readcache.install_default（#370：自动装配的唯一入口，基类已装则为幂等空操作，MDCG_READ_CACHE=0 时不装配）。
     def __init__(self, root: str, autoflush: int = 64, actor: str = "system"):
         super().__init__(root, autoflush=autoflush)
@@ -6657,16 +6746,43 @@ class MdCGSecure(MdCGOS):
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
+    def _kek_bootstrap_ok(self):
+        """「库为全新」判据（R-201c）：允许自动建 KEK 的**唯一**条件。
+
+        判据两条同时成立：
+          ① `_keys.json` 不存在（本库从未签发过任何身份 DEK）
+          ② 索引里没有任何**加密档**节点（没有既存密文依赖旧 KEK）
+
+        任一不成立 ⇒ 不得新建。否则就是把「KEK 丢了 / 主密钥文件没带上」
+        当成「首次启动」——那正是 P0-7 要堵的静默换钥：旧密文全部失联，
+        而且没有任何错误码指向「密钥没了」。
+        """
+        if os.path.exists(crypto.keys_path(self.root)):
+            return False
+        for e in (self.index.get("nodes") or {}).values():
+            sens = (e or {}).get("sensitivity")
+            if sens and crypto.is_encrypted_level(sens):
+                return False
+        return True
+
     def _init_crypto(self, master_key=None):
         """解析 KEK（显式 → 环境变量 → 仓库外主密钥文件），签发本身份 DEK。
 
-        主密钥缺失时自动生成于仓库外 `~/.mdcg/master.key`（0600）；
-        仍取不到才 `dek=None`，写 private/secret 时 fail-closed。
+        三态（R-201 / R-201c，2026-11-10）：
+          · 显式传入 `master_key` → 用它
+          · 环境变量 / 主密钥文件可读 → 用它
+          · **库为全新**（见 `_kek_bootstrap_ok`）→ 显式 `allow_create=True`
+            新建一把并落盘——这是唯一允许新建的路径
+          · 其余（有 `_keys.json` 却取不到 KEK、或文件损坏）→ **fail-closed**，
+            绝不新建（「绝不静默换钥」）
+
+        取不到 KEK 时 `dek=None`，写 private/secret 时 fail-closed。
         """
         try:
             kek = (self._resolve_master_key(master_key)
                    if master_key is not None
-                   else crypto.load_master_key())
+                   else crypto.load_master_key(
+                       allow_create=True if self._kek_bootstrap_ok() else None))
             if not kek:
                 self._crypto_error = "no_master_key"
                 self.kek = self.dek = None

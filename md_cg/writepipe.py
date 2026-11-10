@@ -1327,13 +1327,17 @@ def _executor(ctx):
     # 不传就一律放行。这里补上唯一一条转发（空值不写，保持缺键语义）。
     _ck = (a.get("content_kind") or "").strip()
     _ck_kw = {"content_kind": _ck} if _ck else {}
+    # R-206（P0，2026-11-10 审计发现）：`_hyperedge_extra(a)` 在
+    # content_kind=hyperedge 时**也会**返回 `content_kind`（`hyperedge.EXTRA_FM_KEYS`
+    # 首项就是它），与上方 `_ck_kw` 在同一个调用里各展开一次 ⇒ Python 报
+    # `got multiple values for keyword argument 'content_kind'`，**任何超边写入必崩**
+    # （实测 `test_hyperedge` 26 通过 / 1 未捕获异常）。此处合并为一个 dict：
+    # 同键时两者取值相同（都是同一个 `_ck`），语义零变、消除重复关键字。
+    _fm_kw = {**_ck_kw, **_hyperedge_extra(a)}
     cg.add(ctx["nid"], _content, layer=a.get("layer") or "knowledge",
            **_outlet_kwargs("direct", ctx),
            **_extra_fm,
-           **_ck_kw,
-           # 超边写入的 fm 扩展键（content_kind=hyperedge 时非 None 者）——
-           # 出口专有，登记见守卫（与 7 项漏传的处置不同，理由在汇报里）。
-           **_hyperedge_extra(a))
+           **_fm_kw)
     out = {"ok": True, "id": ctx["nid"], "committed": True,
            "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:

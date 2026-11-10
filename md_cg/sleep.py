@@ -189,7 +189,7 @@ def sleep_merge_mode(environ=None) -> str:
     return m if m in SLEEP_MERGE_MODES else "auto"
 
 
-# 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "0" → 假）。
+# 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "1" → 真）。
 def sleep_scrub_apply(environ=None) -> bool:
     """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省开；置 0 退回只盘点）。"""
     return sleep_env("scrub_apply", environ) not in SLEEP_OFF_VALUES
@@ -917,10 +917,16 @@ STEP_NAMES = {
     "feedback": "反馈",
     "self_check": "方向性自检",
 }
-#: 本轮落成**显式 no-op 占位**的两步（后批接线）——台账里标 `skipped: "未接线"`。
-#: 这是本批**有意不改检索读数**的那两步（设计稿 §3.1 的 5/6 行；接线归 P4 / P2P3）。
-NOT_WIRED = {"weights": "P4（权重刷新与衰减进主分数）",
-             "reindex": "P2/P3（六要素索引 / 图检索路）"}
+#: ⑤⑥ 的接线条目（替代旧 `planned` 占位）：说明这两步接的是哪个既有入口。
+#: R-103：原 `NOT_WIRED` 常量（台账硬写 `skipped: "未接线"`）随 ⑤⑥ 真接线一并删除
+#: ——占位与真读数在台账上长得一样，看不出「到底跑没跑」（t91a 判据 ①）。
+WIRED_NOTES = {
+    "weights": "weights.recalc（既有「结构重要性重算」入口；apply 由本轮放行开关决定）",
+    "reindex": "refindex.rebuild（索引重建）+ provenance.rebuild_ledger（六面/因果台账）",
+}
+#: ⑤⑥ 只读预演时台账里记的「为何没写盘」——不许静默（t91a 判据 G5a5 / G2d2）。
+WIRED_SKIP_REASON = ("只读预演：本轮不放行 wired 写盘（写盘会在主库留下未提交的 .md 与 "
+                     "_maintain.jsonl，污染下一轮 semantic_delta 与 git revert）")
 #: 第⑨步方向性自检的节奏（§3.1：对齐理论「默认每 100 轮」）。
 SELF_CHECK_EVERY = 100
 #: 语义四闸的名字（§4.4 ③，顺序即裁决顺序）。
@@ -1517,12 +1523,93 @@ def iterate(sh_root: str, *, scrub_apply: bool = False) -> dict:
     return out
 
 
-# 生效条件：给定九步台账的原始读数（scan / iterated / delta_digest / 相位 / 轮次 / 上一轮候选数 / skip_reason）时，**恒返回九条**按 STEPS 顺序的台账条目：①恒在（只读）、②③④在有 iterated 时并入读数否则记 skipped=skip_reason、⑤⑥恒记 skipped="未接线"、⑦记本轮 Δ 摘要与台账落点、⑧记候选数前后变化、⑨记方向性自检（只产记录，不自动触发修改）。
+# 生效条件：cg 为已打开的库实例、name 取 "weights"/"reindex" 之一时，**真调既有入口**并返回
+# {"ok","readout","error","wired"}：weights 走 weights.recalc(cg, apply=allow_apply)（读数取
+# nodes_scanned/changed/unchanged/written/skipped 计数/elapsed_ms）；reindex 走 refindex.rebuild
+# （allow_apply 为真挂 Ledger(cg.root)，否则传 None）并并调 provenance.rebuild_ledger(cg,
+# apply=allow_apply)（读数取 entries/indexed/groups/edges/written/elapsed_ms）。两条路各自
+# try/except 吞异常（ok=False + error="<异常类型>: <消息>"），**绝不向上抛**——⑤⑥ 失败不许阻断
+# 整轮 sleep 台账（判据 ④）。name 不认识时返回 ok=False + error="unknown_step:<name>" 且不触任何
+# 既有入口。allow_apply=False（缺省）时两条路都只读预演。
+def wired_steps(cg, name, allow_apply: bool = False) -> dict:
+    """⑤权重 / ⑥索引重建的**真接线**入口（t91a-20261011/t1）。
+
+    ★实现来源（R-103b，2026-11-10 审计裁定，必须如实标注）：本函数**不是**
+    从历史恢复的实现——`git log --all -S "def wired_steps"` 在开发线与服务器
+    两侧均零命中，服务器侧 `sleep.py` 至今仍是「未接线」占位（实测
+    `grep -c wired_steps` 为 0，占位常量名仍在其源码里出现 2 次）。测试
+    `test_t91a_sleep_wiring`（64 条断言）先于任何实现落地，本实现是**照该
+    测试的规格反向构造**的。因此：①它的对错由那 64 条断言裁决，不由「与历史
+    一致」裁决；②若日后服务器那份真实现回流，应以它为准并删除本份；③它修掉
+    的是审计 P2「⑤⑥ 是显式 no-op 占位」这一确认缺陷。
+
+    本函数只做一件事：**真调既有入口**，把返回值归一成台账能直接记账的读数——
+    绝不在这里重写第二份权重算法 / 索引重建逻辑（同款委托纪律见
+    `sustain.heal` 调 `refindex.rebuild`）。
+
+    失败各自吞掉：⑤ 或 ⑥ 任一失败只让该步记 `ok=False` + `error` 摘要，整轮台账
+    仍是九条（判据 ④：后台维护步骤不许把一轮 sleep 打断——用户的睡眠轮次不该
+    因为一次索引重建失败而整轮没有记录）。
+
+    写盘面：`allow_apply=True` 才真写（weights 改 importance、refindex 挂 Ledger
+    落水位），缺省只预演；`run_cycle` 固定传 False（见该处注释：写盘会留脏工作树）。
+    """
+    key = str(name or "")
+    if key == "weights":
+        from . import weights as _w
+        try:
+            t0 = time.time()
+            got = _w.recalc(cg, apply=allow_apply, actor="sleep")
+            readout = {"apply": bool(allow_apply),
+                       "nodes_scanned": int(got.get("nodes_scanned") or 0),
+                       "changed": int(got.get("changed") or 0),
+                       "unchanged": int(got.get("unchanged") or 0),
+                       "written": int(got.get("written") or 0),
+                       "skipped": int(got.get("skipped") or 0),
+                       "min_delta": got.get("min_delta"),
+                       "elapsed_ms": int((time.time() - t0) * 1000)}
+            return {"ok": bool(got.get("ok", True)), "readout": readout,
+                    "error": None, "wired": WIRED_NOTES["weights"]}
+        except Exception as exc:                     # noqa: BLE001
+            return {"ok": False, "readout": None,
+                    "error": "%s: %s" % (type(exc).__name__, exc),
+                    "wired": WIRED_NOTES["weights"]}
+    if key == "reindex":
+        from . import refindex as _ri
+        from . import provenance as _pv
+        try:
+            t0 = time.time()
+            got = _ri.rebuild(cg, ledger=(
+                _ri.Ledger(cg.root) if allow_apply else None))
+            ms = int((time.time() - t0) * 1000)
+            pv = _pv.rebuild_ledger(cg, apply=allow_apply)
+            idx = int(got.get("indexed") or 0)
+            errors = [str(x) for x in (got.get("errors") or [])[:5]]
+            readout = {"apply": bool(allow_apply), "entries": idx, "indexed": idx,
+                       "groups": int(got.get("groups") or 0),
+                       "edges": int((pv or {}).get("edges") or 0),
+                       "written": int((pv or {}).get("written") or 0),
+                       "elapsed_ms": ms, "errors": errors}
+            return {"ok": bool(got.get("ok")) and bool((pv or {}).get("ok", True)),
+                    "readout": readout,
+                    "error": (errors[0] if errors
+                              else (pv or {}).get("error")),
+                    "wired": WIRED_NOTES["reindex"]}
+        except Exception as exc:                     # noqa: BLE001
+            return {"ok": False, "readout": None,
+                    "error": "%s: %s" % (type(exc).__name__, exc),
+                    "wired": WIRED_NOTES["reindex"]}
+    return {"ok": False, "readout": None, "error": "unknown_step:%s" % key,
+            "wired": ""}
+
+
+# 生效条件：给定九步台账的原始读数（scan / iterated / delta_digest / 相位 / 轮次 / 上一轮候选数 / skip_reason / wired）时，**恒返回九条**按 STEPS 顺序的台账条目：①恒在（只读）、②③④在有 iterated 时并入读数否则记 skipped=skip_reason、⑤⑥并入 `wired` 的真读数（ok/readout/wired；未写盘时补 not_written_reason，**不再**记 skipped="未接线"）、⑦记本轮 Δ 摘要与台账落点、⑧记候选数前后变化、⑨记方向性自检（只产记录，不自动触发修改）。
 def ledger_steps(*, scan: dict, iterated: dict = None, delta_digest: dict = None,
                  phases: dict = None, round_index: int = 1,
                  prev_candidates=None, skip_reason: str = "",
-                 self_check_every: int = SELF_CHECK_EVERY) -> list:
-    """九步台账（§3.1）——**逐步留读数**；⑤⑥ 恒标 `skipped: "未接线"`。"""
+                 self_check_every: int = SELF_CHECK_EVERY,
+                 wired: dict = None, wired_skip_reason: str = "") -> list:
+    """九步台账（§3.1）——**逐步留读数**；⑤⑥ 记 `wired_steps()` 的真读数。"""
     it = iterated or {}
     steps = [dict(scan, step="recall_scan", name=STEP_NAMES["recall_scan"],
                   readonly=True)]
@@ -1533,8 +1620,19 @@ def ledger_steps(*, scan: dict, iterated: dict = None, delta_digest: dict = None
             rec["skipped"] = skip_reason or "本轮未迭代"
         steps.append(rec)
     for key in ("weights", "reindex"):
-        steps.append({"step": key, "name": STEP_NAMES[key],
-                      "skipped": "未接线", "planned": NOT_WIRED[key]})
+        w = dict((wired or {}).get(key) or {})
+        readout = dict(w.get("readout") or {})
+        entry = {"step": key, "name": STEP_NAMES[key],
+                 "ok": w.get("ok"), "readout": readout or None,
+                 "wired": w.get("wired") or WIRED_NOTES[key]}
+        if w.get("error"):
+            entry["error"] = w["error"]
+        if not readout.get("apply"):
+            # 预演轮：如实记「为何没写盘」（旧形态的「未接线」占位已撤）
+            entry["not_written_reason"] = (w.get("not_written_reason")
+                                           or wired_skip_reason
+                                           or WIRED_SKIP_REASON)
+        steps.append(entry)
     steps.append({"step": "record", "name": STEP_NAMES["record"],
                   "ledger": ledger_path(), "round": round_index,
                   "delta": delta_digest or {"n": 0, "ids": [], "kinds": {}},
@@ -1612,13 +1710,24 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
     elif not scan["candidates"]:
         gate_reason = "稳态：盘点候选数为 0（只记账不动手）"
 
+    # ⑤⑥ 真接线（t91a-20261011/t1）：**每轮都跑只读预演**，allow_apply 恒 False。
+    # 为什么不放行写盘：weights.recalc(apply=True) 改 importance 并写 _maintain.jsonl、
+    # refindex 挂 Ledger 落水位——这两类写都落在**主库**上，会留下未提交的工作树，
+    # 连带污染下一轮 semantic_delta 与 git revert（返工守卫 G5 的判据）。
+    # 确要写盘走 weights.recalc / sustain.heal 的直接调用面，不从这里更放行开关。
+    wired = {k: wired_steps(cg, k, allow_apply=False)
+             for k in ("weights", "reindex")}
+    wired_skip_reason = ("只读预演：本轮%s，不放行 wired 写盘"
+                         % (gate_reason or "已过四道门（run_cycle 固定不放行写盘）"))
+
     if dry_run:
         # 预览档：四道门已评完即止——**不物化、不记账**（连影子都不建）。
         rec.update(dry_run=True, skipped=gate_reason,
                    planned=(None if gate_reason
                             else "将执行物化→迭代→对账→合并"),
                    steps=ledger_steps(scan=scan, round_index=round_index,
-                                      prev_candidates=prev,
+                                      prev_candidates=prev, wired=wired,
+                                      wired_skip_reason=wired_skip_reason,
                                       skip_reason=gate_reason or ""))
         return rec
 
@@ -1696,6 +1805,7 @@ def run_cycle(cg=None, *, root: str = None, batch: str = None,
     rec["steps"] = ledger_steps(scan=scan, iterated=iterated,
                                 delta_digest=digest, phases=phases,
                                 round_index=round_index, prev_candidates=prev,
+                                wired=wired, wired_skip_reason=wired_skip_reason,
                                 skip_reason=gate_reason or mat_fail or "")
     rec["skipped"] = gate_reason
     _append_ledger(rec)

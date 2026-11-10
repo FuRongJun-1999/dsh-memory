@@ -1185,7 +1185,7 @@ def bounded_record(rec) -> bool:
 def chown_like_dir(p: str):
     """把 p 的属主/属组对齐到所在目录（仅 root 执行时生效）。返回是否改动。"""
     try:
-        if os.geteuid() != 0:
+        if not hasattr(os, 'geteuid') or os.geteuid() != 0:
             return False
         d = os.path.dirname(os.path.abspath(p)) or "."
         st = os.stat(d)

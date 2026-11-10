@@ -47,6 +47,13 @@ EDGE_WEIGHTS = {
     # ≠ 语义相似 ≠ 因果依赖，故与 DEFAULT_EDGE_WEIGHT 同值；显式登记的意义在
     # 「类型已知」（可审计、可按类型调参、可区分于未登记类型的兜底默认）。
     "reference": 0.50,
+    # 出处链三类边（derived_from / extracted_from / refined_from）：写入侧
+    # provenance 与 `cg(op=write, relation=…)` 会产出这三种关系。值与兜底
+    # DEFAULT_EDGE_WEIGHT 相同，登记的意义只在「类型已知」（可审计、可按类型
+    # 调参、可区分于未登记类型的兜底）——与上面 "reference" 同一条理由。
+    "derived_from": 0.50,
+    "extracted_from": 0.50,
+    "refined_from": 0.50,
 }
 DEFAULT_EDGE_WEIGHT = 0.50
 

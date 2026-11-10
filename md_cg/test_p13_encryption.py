@@ -86,8 +86,34 @@ def main():
     tmp = tempfile.mkdtemp(prefix="mdcg_p13b_")
     try:
         mf = os.path.join(tmp, "master.key")
-        k1 = load_master_key(master_file=mf, env_var="MDCG_TEST_KEY_NONE")
-        check("B3 主密钥文件自动生成 32B", os.path.exists(mf) and len(k1) == 32)
+        # B3（R-201 三态，绝不静默换钥）：不给 allow_create ⇒ 抛错且**不落盘**；
+        # 给 allow_create=True ⇒ 生成 32B。旧断言写的是「缺省自动生成」这一被修掉的
+        # 行为，留着会让 P0-7 的病灶反过来变绿。
+        try:
+            load_master_key(master_file=mf, env_var="MDCG_TEST_KEY_NONE")
+            check("B3a 无 allow_create 且文件缺失 → 拒绝静默换钥", False)
+        except CryptoError:
+            check("B3a 无 allow_create 且文件缺失 → 拒绝静默换钥",
+                  not os.path.exists(mf))
+        k1 = load_master_key(master_file=mf, env_var="MDCG_TEST_KEY_NONE",
+                             allow_create=True)
+        check("B3b allow_create=True → 生成 32B",
+              os.path.exists(mf) and len(k1) == 32)
+        # 旧参数名 create 仍是 allow_create 的别名（既有调用不受影响）
+        check("B3c create=True 别名仍可生成",
+              len(load_master_key(master_file=os.path.join(tmp, "alias.key"),
+                                  env_var="MDCG_TEST_KEY_NONE",
+                                  create=True)) == 32)
+        bad_path = os.path.join(tmp, "corrupt.key")
+        with open(bad_path, "w", encoding="utf-8") as f:
+            f.write("!!!!not-base64!!!!")
+        try:
+            load_master_key(master_file=bad_path, env_var="MDCG_TEST_KEY_NONE")
+            check("B3d 主密钥文件损坏 → 抛 CryptoError（不新建）", False)
+        except CryptoError:
+            with open(bad_path, encoding="utf-8") as f:
+                check("B3d 主密钥文件损坏 → 抛 CryptoError（不新建）",
+                      f.read() == "!!!!not-base64!!!!")
         check("B4 再次读取一致",
               load_master_key(master_file=mf, env_var="MDCG_TEST_KEY_NONE") == k1)
         os.environ["MDCG_TEST_KEY_HEX"] = k1.hex()
@@ -105,6 +131,40 @@ def main():
         check("B8 KEK 指纹稳定且不泄露密钥",
               crypto.kek_fingerprint(k1) == crypto.kek_fingerprint(k1)
               and k1.hex() not in crypto.kek_fingerprint(k1))
+        # B9–B12（R-201b）：信封必须记下「包裹它的 KEK 指纹」，解封时**按信封**比对
+        rk = tempfile.mkdtemp(prefix="mdcg_p13b_fp_")
+        try:
+            dek1 = provision_dek(rk, k1, "t1", "alice")
+            check("B9 信封记录 kek_fp",
+                  crypto.envelopes(rk)[0]["kek_fp"] == crypto.kek_fingerprint(k1)
+                  and unwrap_dek(rk, k1, "t1", "alice") == dek1)
+            # 混装：另一把 KEK 往同一 _keys.json 再签发一个身份
+            k_other = os.urandom(32)
+            provision_dek(rk, k_other, "t1", "bob")
+            check("B10 混装后各自用对的 KEK 仍可解（按信封判定，不牵连全库）",
+                  unwrap_dek(rk, k1, "t1", "alice") == dek1
+                  and len(unwrap_dek(rk, k_other, "t1", "bob")) == 32)
+            try:
+                unwrap_dek(rk, k1, "t1", "bob")
+                check("B11 用错 KEK 解他封 → 报 kek_mismatch（不静默跳过）", False)
+            except LockedError as e:
+                check("B11 用错 KEK 解他封 → 报 kek_mismatch（不静默跳过）",
+                      "kek_mismatch" in str(e))
+            # 存量旧格式（无 kek_fp）不得因新闸而读不出：按旧格式放行
+            import json as _json
+            with open(crypto.keys_path(rk), encoding="utf-8") as f:
+                d = _json.load(f)
+            legacy_root = os.path.join(rk, "legacy")
+            os.makedirs(legacy_root)
+            d["envelopes"] = {"t1|alice": {kk: vv for kk, vv in
+                                           d["envelopes"]["t1|alice"].items()
+                                           if kk != "kek_fp"}}
+            with open(crypto.keys_path(legacy_root), "w", encoding="utf-8") as f:
+                _json.dump(d, f)
+            check("B12 无 kek_fp 的存量信封按旧格式仍可解",
+                  unwrap_dek(legacy_root, k1, "t1", "alice") == dek1)
+        finally:
+            shutil.rmtree(rk, ignore_errors=True)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

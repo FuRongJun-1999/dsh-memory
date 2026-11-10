@@ -21,9 +21,11 @@
 
 · KEK 来源（按优先级）：
     ① 环境变量 `MDCG_MASTER_KEY`（64 位 hex 或 base64）
-    ② 主密钥文件 `~/.mdcg/master.key`（首次自动生成，**尝试** 0600——POSIX 生效；
-     Windows 上 `os.chmod` 只切只读位、真实保护来自用户目录 ACL，**失败不静默**：
-     进 `crypto.PERM_WARNINGS` 供审计读取，见 `_tighten_perms`，issue #326-⑤）
+    ② 主密钥文件 `~/.mdcg/master.key`（**只在显式传 `allow_create=True` 时**新建，
+     **绝不静默生成**：文件丢失/路径配错一律抛 `CryptoError`，见 `load_master_key`；
+     新建后**尝试** 0600——POSIX 生效；Windows 上 `os.chmod` 只切只读位、真实保护来自
+     用户目录 ACL，**失败不静默**：进 `crypto.PERM_WARNINGS` 供审计读取，见
+     `_tighten_perms`，issue #326-⑤）
 · KEK 不落仓库；DEK 被 KEK 包裹后存租户根目录，单独拿走 `_keys.json` 无法解密。
 · **身份一致性识别**：DEK 信封绑定 `(tenant, actor, clearance)`，且节点密文把
   `(node_id, tenant, actor)` 作为 AEAD 的 AAD。因此
@@ -297,20 +299,53 @@ def _tighten_perms(path):
         return False
 
 
-def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
-    """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
+# 生效条件：master_file=None、env_var=MASTER_ENV、create=None、allow_create=None 为可选入参；
+# 先读 os.environ.get(env_var) 并 strip，raw 非空时长度 64 走 bytes.fromhex、否则 _b64d（解码失败
+# 抛 CryptoError）并直接返回；否则 path = master_file or MASTER_FILE：文件存在则以 utf-8 读并
+# _b64d 返回（读失败 / 内容坏抛 CryptoError，**绝不因此新建**）；文件不存在时 **仅**
+# allow_create=True 才生成 KEY_LEN 随机密钥、makedirs、写入 path、_tighten_perms 并返回 key；
+# allow_create 为 False 返回 None；allow_create 为 None（缺省）抛 CryptoError（拒绝静默换钥）。
+# allow_create 为 None 时回落旧参数名 create（向后兼容：既有调用传 create=True / create=False）。
+def load_master_key(master_file=None, env_var=MASTER_ENV, create=None,
+                    allow_create=None):
+    """KEK 来源：环境变量 → 主密钥文件。
+
+    三态（**绝不静默换钥**，P0-7 / R-201）：
+      · 拿到密钥 → 返回 bytes
+      · 文件不存在且 `allow_create=True` → 新建一把并落盘（**唯一**允许新建的路径）
+      · 文件不存在且未显式允许 → `allow_create=False` 返回 None，其余抛 CryptoError
+
+    旧形态（缺省 `create=True`）在「密钥文件丢了」与「首次部署」两种场景下都直接新建，
+    于是**密钥丢失被静默换新钥**：旧 DEK 从此全部解不开，而系统照常启动、零报错。
+    `create` 保留为 `allow_create` 的**别名**（既有调用仍传 `create=`）。
+    """
     raw = (os.environ.get(env_var) or "").strip()
     if raw:
         try:
             return bytes.fromhex(raw) if len(raw) == 64 else _b64d(raw)
         except ValueError as e:
             raise CryptoError(f"环境变量 {env_var} 不是合法 hex / base64 主密钥") from e
+    if allow_create is None:
+        allow_create = create
     path = master_file or MASTER_FILE
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return _b64d(f.read().strip())
-    if not create:
-        return None
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                return _b64d(f.read().strip())
+        except (OSError, ValueError) as e:
+            # 文件在但读不出/内容坏了：这是**故障**，不是「没有密钥」。旧形态在这里会落到
+            # 下面的新建分支，把「读失败」变成「换一把新钥」；且 binascii.Error /
+            # UnicodeDecodeError 本不在 (CryptoError, OSError) 兜底面内，会以初始化崩溃
+            # 的形式逃出 mdcos._init_crypto（P1-B4）。
+            raise CryptoError(
+                f"主密钥文件存在但读取失败（{path}）：{type(e).__name__}: {e}"
+                f" —— 不自动新建（拒绝静默换钥）") from e
+    if allow_create is not True:
+        if allow_create is False:
+            return None
+        raise CryptoError(
+            f"主密钥文件不存在（{path}）且未显式允许新建 —— 拒绝静默换钥；"
+            f"首次部署请显式传 allow_create=True")
     key = secrets.token_bytes(KEY_LEN)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
@@ -353,7 +388,26 @@ def keys_path(root):
     return os.path.join(root, KEYS_FILE)
 
 
-# 生效条件：root 为入参；keys_path(root) 不存在时返回 {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}（缺文件=fresh install，零告警零标记）；否则尝试 json.load，结果为 dict 且 "envelopes" 为 dict 时原样返回；json 解析 ValueError、OSError、或顶层为 dict 但 "envelopes" 缺失/非 dict（版本漂移）时向 stderr 写「密钥库损坏/不可读」告警（N139，2026-09-27 第 5 轮：静默回落会让 provision_dek 据空表重签新 DEK 并经 _save_keys 整份覆盖写回，旧信封无痕抹除、旧密文永久不可解——告警必须开口）并返回带 load_error 标记的空结构；provision_dek 见 load_error 即 fail-closed 拒绝重签，unwrap_dek 照旧按无信封抛 LockedError（读面零闸变）。
+# 生效条件：env、kek 为入参；env 不是 dict 时返回 False；env["kek_fp"] 为 None（存量旧格式、
+# 无归属证据）时返回 False（**不回填**：给无据信封补一个指纹等于伪造归属）；否则返回
+# bool(env["kek_fp"] == kek_fingerprint(kek))。调用方须自行区分「旧格式无证据」与「证据不符」：
+# 前者按旧格式放行（aead 的 MAC 仍是唯一解密判据），后者必须报错。
+def _envelope_kek_matches(env, kek):
+    """该信封是否由**这把** KEK 包裹（P0-7 叠加项 / R-201b 的单封判据）。
+
+    `kek_fp` = `kek_fingerprint(包裹该信封的 KEK)`，16 位非敏感指纹、不含密钥材料。
+    判据**按信封**做而不是按整库做：一封外来信封不该让持正确 KEK 的所有者连自己
+    那一封都读不出（整库拒绝会把「半库不可归属」升级成「整库不可用」）。
+    """
+    if not isinstance(env, dict):
+        return False
+    got = env.get("kek_fp")
+    if got is None:
+        return False
+    return got == kek_fingerprint(kek)
+
+
+# 生效条件：root 为入参；keys_path(root) 不存在时返回 {"v": ENVELOPE_VERSION, "alg": ALG, "envelopes": {}}（缺文件=fresh install，零告警零标记）；否则尝试 json.load，结果为 dict 且 "envelopes" 为 dict 时原样返回（每个信封可能带 kek_fp——「包裹它的 KEK 指纹」，缺该键=存量旧格式；本函数**不回填**，无据回填等于伪造归属，比对归 unwrap_dek 的 _envelope_kek_matches）；json 解析 ValueError、OSError、或顶层为 dict 但 "envelopes" 缺失/非 dict（版本漂移）时向 stderr 写「密钥库损坏/不可读」告警（N139，2026-09-27 第 5 轮：静默回落会让 provision_dek 据空表重签新 DEK 并经 _save_keys 整份覆盖写回，旧信封无痕抹除、旧密文永久不可解——告警必须开口）并返回带 load_error 标记的空结构；provision_dek 见 load_error 即 fail-closed 拒绝重签，unwrap_dek 照旧按无信封抛 LockedError（读面零闸变）。
 def _load_keys(root):
     p = keys_path(root)
     if not os.path.exists(p):
@@ -437,7 +491,23 @@ def _actor_has_ciphertext(root, tenant, actor):
     return False
 
 
-# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则以 FileLock(keys_path(root), strict=True) 持跨进程写锁进入临界区（N184，2026-09-28 第 23 轮：读快照→签发→写回全程持锁，写者互斥——原子替换只防撕裂不防丢失更新，两写者按各自陈旧快照整份写回会无痕抹除对方信封；锁竞争超时经 TimeoutError 转 LockedError fail-closed，绝不无锁放行整份写回）；临界区内加载 keys，keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)（临界区内互见 → 同身份并发 provision 幂等同 DEK）；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后写入 envelopes[k]，经 _save_keys 写前对账合并并发新增信封（N184 防线纵深）后保存，返回 dek。
+# 生效条件：root、kek、tenant、actor、clearance="private"、rotate=False 为入参；若 kek 为假抛 LockedError；否则以 FileLock(keys_path(root), strict=True) 持跨进程写锁进入临界区（N184，2026-09-28 第 23 轮：读快照→签发→写回全程持锁，写者互斥——原子替换只防撕裂不防丢失更新，两写者按各自陈旧快照整份写回会无痕抹除对方信封；锁竞争超时经 TimeoutError 转 LockedError fail-closed，绝不无锁放行整份写回）；临界区内加载 keys（_load_keys 不做 kek_fp 比对 —— 比对是**读面**的事，损坏库的**恢复性**签发不被它挡住），keys 带 load_error 损坏标记时抛 LockedError（N139：损坏/漂移回落下静默重签会经 _save_keys 整份覆盖写回并无痕抹除旧信封——旧密文永久不可解）；若 _envelope_key(tenant, actor) 已在 envelopes 中且 rotate 为假则返回 unwrap_dek(root, kek, tenant, actor, clearance)（临界区内互见 → 同身份并发 provision 幂等同 DEK；该路径经 unwrap_dek 带 kek_fp 校验）；否则生成新 DEK 与 nonce，用 aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor)) 包裹后连同 id_fp、kek_fp=kek_fingerprint(kek)、clearance、nonce、ct、created_at 写入 envelopes[k]（R-201b：记下包裹它的 KEK 指纹，供解封时比对），经 _save_keys 写前对账合并并发新增信封（N184 防线纵深）后保存，返回 dek。
+# 生效条件：root、tenant 为入参；keys_path(root) 不存在（fresh install）或无本租户信封时返回 []；否则读
+# _load_keys(root) 的 envelopes，按 `_envelope_key` 的 `tenant|actor` 键切分、只留 t == tenant 的行，按
+# v["created_at"]（缺键取 0）升序返回 actor 列表。零写入。
+# R-103 恢复：原实现见 bdd44232（病灶 G「同租户共享 DEK」），dbc1aaa4 服务器活体回流时删除，开发线
+# test_g1_tenant_sharing:125 仍引用。**语义变更：无**（逐位取回原实现；所依赖的 _load_keys /
+# _envelope_key 均在位且形状未变）。密钥库损坏时 _load_keys 回落空 envelopes ⇒ 返回 []，不静默猜测。
+def tenant_actors(root, tenant):
+    """同租户已签发信封的 actor 列表，按签发时间升序（旧 → 新）。"""
+    rows = []
+    for k, v in (_load_keys(root).get("envelopes") or {}).items():
+        t, _, a = k.partition("|")
+        if t == tenant:
+            rows.append((v.get("created_at") or 0, a))
+    return [a for _, a in sorted(rows)]
+
+
 def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False,
                   force=False):
     """为 (tenant, actor) 生成 / 取回 DEK，用 KEK 包裹后存入 `_keys.json`。
@@ -491,6 +561,9 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False,
             ct, tag = aead_encrypt(kek, nonce, dek, _dek_aad(tenant, actor))
             data["envelopes"][k] = {
                 "id_fp": identity_fingerprint(tenant, actor),
+                # R-201b：记录「这个信封是哪把 KEK 包的」（16 位非敏感指纹，不含密钥材料）。
+                # 缺此字段时同一 _keys.json 可混装两把 KEK 且事后不可分辨（T4 P1-5）。
+                "kek_fp": kek_fingerprint(kek),
                 "clearance": clearance,
                 "nonce": _b64e(nonce), "ct": _b64e(ct + tag),
                 "created_at": time.time(),
@@ -506,16 +579,25 @@ def provision_dek(root, kek, tenant, actor, clearance="private", rotate=False,
             f"抹除他身份信封，N184）。请稍后重试。") from e
 
 
-# 生效条件：root、kek、tenant、actor、clearance=None 为入参；若 kek 为假抛 LockedError；否则取 _load_keys(root)["envelopes"] 中 _envelope_key(tenant, actor) 的信封，无则抛 LockedError；若 env["id_fp"] 不等于 identity_fingerprint(tenant, actor) 抛 LockedError；否则从 env["ct"] 解出 raw，按 TAG_LEN 切出 ct/tag，调 aead_decrypt；若 aead_decrypt 抛 CryptoError 则转抛 LockedError；clearance 形参默认 None 但源码未在条件中使用。
+# 生效条件：root、kek、tenant、actor、clearance=None 为入参；若 kek 为假抛 LockedError；否则取 _load_keys(root)["envelopes"] 中 _envelope_key(tenant, actor) 的信封，无则抛 LockedError；若 env["id_fp"] 不等于 identity_fingerprint(tenant, actor) 抛 LockedError；若信封带 kek_fp 且 _envelope_kek_matches(env, kek) 为假（即指纹不符）抛 LockedError，错误文本含机器可读码 kek_mismatch（**按信封**判定：不静默跳过该信封，也不牵连库里其他 KEK 的信封）；无 kek_fp 的存量信封按旧格式继续（MAC 仍为唯一解密判据）；否则从 env["ct"] 解出 raw，按 TAG_LEN 切出 ct/tag，调 aead_decrypt；若 aead_decrypt 抛 CryptoError 则转抛 LockedError；clearance 形参默认 None 但源码未在条件中使用。
 def unwrap_dek(root, kek, tenant, actor, clearance=None):
-    """解出 DEK；身份指纹不符 / KEK 不对 / 无信封 → LockedError。"""
+    """解出 DEK；身份指纹不符 / KEK 指纹不符（kek_mismatch）/ KEK 不对 / 无信封 → LockedError。"""
     if not kek:
         raise LockedError("无主密钥（KEK）：无法解开数据密钥")
-    env = (_load_keys(root).get("envelopes") or {}).get(_envelope_key(tenant, actor))
+    env = (_load_keys(root).get("envelopes") or {}).get(
+        _envelope_key(tenant, actor))
     if not env:
         raise LockedError(f"无 {tenant}|{actor} 的密钥信封")
     if env.get("id_fp") != identity_fingerprint(tenant, actor):
         raise LockedError("身份指纹不符：密钥信封不属于当前身份")
+    # R-201b：信封自报「我是哪把 KEK 包的」。带该字段却不符 ⇒ 报错（不静默跳过、
+    # 不假装「主密钥不匹配」——两者的处置完全不同：前者是配错/混装，后者是密钥本身错）。
+    got_fp = env.get("kek_fp") if isinstance(env, dict) else None
+    if got_fp is not None and not _envelope_kek_matches(env, kek):
+        raise LockedError(
+            f"kek_mismatch：{tenant}|{actor} 的信封由另一把 KEK 包裹（信封 "
+            f"kek_fp={got_fp} / 当前 KEK {kek_fingerprint(kek)}）——拒绝解封，"
+            f"不静默跳过。请改用签发该信封的那把 KEK，或先重封装该身份。")
     raw = _b64d(env["ct"])
     ct, tag = raw[:-TAG_LEN], raw[-TAG_LEN:]
     try:
@@ -537,14 +619,15 @@ def rotate_dek(root, kek, tenant, actor, clearance="private", force=False):
                          rotate=True, force=force)
 
 
-# 生效条件：root 为入参，遍历 _load_keys(root).get("envelopes") or {} 的每项，按 "|" partition 出 tenant/actor，收集 id_fp、clearance、created_at 后返回列表；无信封时返回 []。
+# 生效条件：root 为入参，遍历 _load_keys(root).get("envelopes") or {} 的每项，按 "|" partition 出 tenant/actor，收集 id_fp、kek_fp、clearance、created_at 后返回列表；无信封时返回 []（不校验 KEK，故运维可在无钥情况下读出「哪几个信封由同一把 KEK 包裹」）。
 def envelopes(root):
     """信封清单（不含密钥材料）：供运维审计「谁被签发了密钥」。"""
     out = []
     for k, v in (_load_keys(root).get("envelopes") or {}).items():
         tenant, _, actor = k.partition("|")
         out.append({"tenant": tenant, "actor": actor,
-                    "id_fp": v.get("id_fp"), "clearance": v.get("clearance"),
+                    "id_fp": v.get("id_fp"), "kek_fp": v.get("kek_fp"),
+                    "clearance": v.get("clearance"),
                     "created_at": v.get("created_at")})
     return out
 

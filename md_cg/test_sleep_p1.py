@@ -9,14 +9,14 @@
         标 `skipped == "未接线"`（不许悄悄跳过）。
     【2】四阶段——物化 / 影子迭代 / 对账+四闸 / 语义重放 + `--no-ff` 合并；
         Δ 空 ⇒ 零提交零写入；同批次幂等；冲突项**挂起**且**不进主库**。
-    【3】§4.7 七键 + 缺省关的 `MDCG_SLEEP_SCRUB_APPLY`；缺省**只有一份**
+    【3】§4.7 七键 + 缺省开的 `MDCG_SLEEP_SCRUB_APPLY`；缺省**只有一份**
         （`sleep.SLEEP_ENV_DEFAULTS` / `SLEEP_ENV_KEYS`），两入口共用读取器。
     【4】机械判据（本文件即其守卫）：跨午夜窗口三态、Δ 空零提交、幂等、
         冲突挂起、九步台账在场且 ⑤⑥ 标 skipped、P0-1 判据仍成立。
 
 断言分组：
 
-  G0 沙箱与真源——四根全落守卫临时目录；§4.7 七键缺省逐项对表；④实改闸缺省关；
+  G0 沙箱与真源——四根全落守卫临时目录；§4.7 七键缺省逐项对表；④实改闸缺省开；
      缺省字面量全仓只有一份（`MDCG_SLEEP*` 带引号字面量只许出现在 sleep.py 的
      SLEEP_ENV_KEYS 里）。
   G1 窗口判定——跨午夜（23:00-07:00）在 23:30 / 03:00 判在窗内、12:00 判窗外；
@@ -88,7 +88,7 @@ ENV_TABLE = {
     "merge": ("MDCG_SLEEP_MERGE", "auto"),
     "gitdir": ("MDCG_SLEEP_GITDIR", ""),
     "shadow": ("MDCG_SLEEP_SHADOW", ""),
-    "scrub_apply": ("MDCG_SLEEP_SCRUB_APPLY", "0"),
+    "scrub_apply": ("MDCG_SLEEP_SCRUB_APPLY", "1"),
 }
 _CCG = ("# 功能名：%s\n# 生效条件：全时窗\n# 子功能：s\n# 执行：e\n"
         "# 验证方式：test\n# 不适用条件：无\n")
@@ -203,8 +203,8 @@ def g0():
        "G0j MDCG_SLEEP_MERGE=never 可显式取到")
     ok(S.sleep_merge_mode({"MDCG_SLEEP_MERGE": "乱写"}) == "auto",
        "G0k 越界策略回落 auto（不静默降级成 never）")
-    ok(S.sleep_scrub_apply() is False,
-       "G0l **MDCG_SLEEP_SCRUB_APPLY 缺省关**（第④步缺省只在副本上盘点）")
+    ok(S.sleep_scrub_apply() is True,
+       "G0l **MDCG_SLEEP_SCRUB_APPLY 缺省开**（第④步缺省真实落盘；R-104 定案）")
     ok(S.sleep_scrub_apply({"MDCG_SLEEP_SCRUB_APPLY": "1"}) is True,
        "G0m 显式 =1 才放行第④步实改")
     ok(S.sleep_window() == "23:00-07:00",
@@ -405,7 +405,7 @@ def g3():
                        d=os.environ["MDCG_SUSTAIN_DIR"])
     ok(lp.sleep_interval == 3600.0 and lp.auto_sleep is True
        and lp.sleep_merge == "auto" and lp.sleep_window == "23:00-07:00"
-       and lp.sleep_scrub_apply is False,
+       and lp.sleep_scrub_apply is True,
        "G3b SustainLoop 五个 sleep 属性取自 §4.7 真源读取器",
        (lp.sleep_interval, lp.auto_sleep, lp.sleep_merge, lp.sleep_window,
         lp.sleep_scrub_apply))
@@ -488,10 +488,10 @@ def g4():
     sh = os.path.join(state, "sleep", "shadow")
     ok(os.path.isdir(sh), "G4k 影子工作树落在 state_root()/sleep/shadow", sh)
     sc = r["steps"][3]
-    ok(sc.get("step") == "scrub" and sc.get("apply") is False
-       and sc.get("dry_run") is True,
-       "G4l 第④步缺省只在副本上盘点（未设 MDCG_SLEEP_SCRUB_APPLY ⇒ "
-       "dry_run=True、不落盘）", sc)
+    ok(sc.get("step") == "scrub" and sc.get("apply") is True
+       and sc.get("dry_run") is False,
+       "G4l 第④步缺省真实落盘（未设 MDCG_SLEEP_SCRUB_APPLY ⇒ "
+       "dry_run=False；R-104 定案）", sc)
     # ④ 的正向通路：显式放行时 dry_run=False（闸真的接线，不是恒 dry_run）
     gen3, root3, state3 = _fixture(contextual_hot=1, unverified=1)
     cg3 = MdCGOS(root3)
@@ -920,14 +920,12 @@ _MUTATIONS = (
     ("Δ 不看内容哈希（未改动也算差异）", "md_cg/sleep.py",
      "        if a and b:\n            if ha == hb:\n                continue\n            kind = \"changed\"",
      "        if a and b:\n            kind = \"changed\""),
-    ("⑤⑥ 不再标「未接线」（悄悄跳过）", "md_cg/sleep.py",
-     '        steps.append({"step": key, "name": STEP_NAMES[key],\n'
-     '                      "skipped": "未接线", "planned": NOT_WIRED[key]})',
-     '        steps.append({"step": key, "name": STEP_NAMES[key],\n'
-     '                      "planned": NOT_WIRED[key]})'),
-    ("④实改闸缺省翻成开", "md_cg/sleep.py",
-     '    "scrub_apply": "0",      # 第④步去污染**实改**闸（缺省关：只盘点不落盘）',
-     '    "scrub_apply": "1",      # 第④步去污染**实改**闸（缺省关：只盘点不落盘）'),
+    ("⑤ 权重步退化成 no-op（不真调 weights.recalc）", "md_cg/sleep.py",
+     '            got = _w.recalc(cg, apply=allow_apply, actor="sleep")',
+     '            got = {"nodes_scanned": 0, "changed": 0, "unchanged": 0}'),
+    ("④实改闸缺省翻成关", "md_cg/sleep.py",
+     '    "scrub_apply": "1",      # 第④步去污染**实改**闸（默认开：真实落盘；置 0 退回只盘点）',
+     '    "scrub_apply": "0",      # 第④步去污染**实改**闸（默认开：真实落盘；置 0 退回只盘点）'),
     ("并发闸不记 conflict（主库不再优先）", "md_cg/sleep.py",
      '                conflicts.append({"id": nid, "gate": "concurrent", "kind": kind,',
      '                accepted.append(nid)\n                conflicts.append({"id": nid, "gate": "concurrent", "kind": kind,'),

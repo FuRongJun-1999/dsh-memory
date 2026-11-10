@@ -43,6 +43,17 @@ import re
 import time
 
 _DELIM = "---"
+# R-202 / P0-5（2026-11-10）：节点文件的**编码前缀与行尾形态**——读面的两个 Windows
+# 常见写法，修前都让 `loads` 的首字符判据失效（把整个文件当正文）：
+#   · U+FEFF（UTF-8 BOM）：记事本 / PowerShell 5 `Set-Content -Encoding UTF8` 会写出，
+#     与 `datapath._read_user_paths` 的 `encoding="utf-8-sig"` 同一口径（那里已改）。
+#   · CRLF：Git for Windows autocrlf / CRLF 编辑器落下的 `---\r\n`，`startswith("---\n")`
+#     同样为假。只认 LF 等于「修了 BOM 又漏 CRLF」。
+_BOM = "\ufeff"
+#: frontmatter 的**首行/闭合行**判据：分隔行必须独占一行，行尾 LF 与 CRLF 都算。
+#: 用 \r? 而非 str.find：同一个正则同时覆盖两种行尾，不用维护两份字面量。
+_HEAD_OPEN_RE = re.compile(r"\A---(?:\r\n|\n)")
+_HEAD_CLOSE_RE = re.compile(r"\r?\n---\r?\n")
 # 完整的 6 行 MARKS：功能名（标题）+ 5 要素（条件、子功能、执行、验证、不适用）。
 # 「验证方式」与「不适用条件」是白箱的关键新增，缺则不可证 ACCEPT/REJECT。
 CCG_MARKS = ("功能名", "生效条件", "子功能", "执行", "验证方式", "不适用条件")
@@ -425,16 +436,25 @@ def dumps(frontmatter: dict, content: str) -> str:
     return "\n".join(lines) + "\n" + body
 
 
-# 生效条件：text 以 "---\n" 开头且其后存在 "\n---\n" 时才解析——head 段内含 ":" 的行按首个 ":" 拆键值（json.loads 成功取值、抛 ValueError 则保留原字符串），不含 ":" 的行跳过，返回 (fm, content)；不满足上述两个起始条件时返回 ({}, text)。
+# 生效条件：text（可带 UTF-8 BOM，可 CRLF 行尾）首行为分隔行且其后存在独占一行的闭合分隔行时才解析——head 段内含 ":" 的行按首个 ":" 拆键值（json.loads 成功取值、抛 ValueError 则保留原字符串），不含 ":" 的行跳过，返回 (fm, content)；不满足上述两个起始条件时返回 ({}, 剥掉 BOM 后的原文)。
 def loads(text: str):
     """返回 (frontmatter dict, content str)。非法格式返回 ({}, 原文)。"""
-    if not text.startswith(_DELIM + "\n"):
+    # R-202 / P0-5：入口先剥 BOM——与 `datapath._read_user_paths` 的 `utf-8-sig`
+    # 同一口径。修前 `startswith("---\n")` 对 BOM 文件为假 ⇒ 返回 ({}, 全文)，
+    # 而 `frontmatter_problem({})` 缺省一律合法 ⇒ 静默接受；随后任何治理回写
+    # （`dumps({}, 整个旧文件)`）把旧头嵌进正文，`rest.find("\n---\n")` 逐层
+    # 吃掉 `id:` / `layer:`（节点逐次降级，见审计 P0-5）。
+    if text[:1] == _BOM:
+        text = text.lstrip(_BOM)
+    # CRLF 同一条判据：`_HEAD_OPEN_RE` 认 `---\n` 与 `---\r\n` 两种行尾。
+    m_open = _HEAD_OPEN_RE.match(text)
+    if not m_open:
         return {}, text
-    rest = text[len(_DELIM) + 1:]
-    end = rest.find("\n" + _DELIM + "\n")
-    if end < 0:
+    rest = text[m_open.end():]
+    m_close = _HEAD_CLOSE_RE.search(rest)
+    if not m_close:
         return {}, text
-    head, content = rest[:end], rest[end + len(_DELIM) + 2:]
+    head, content = rest[:m_close.start()], rest[m_close.end():]
     fm = {}
     for line in head.split("\n"):
         if ":" not in line:
@@ -462,7 +482,22 @@ def valid_role(x) -> bool:
     return x is None or isinstance(x, str)
 
 
-# 生效条件：fm 为任意值、content 为节点正文（str 或 None，仅供后续扩展使用，当前判据不读它）时——fm 非 dict 返回单元素问题清单；否则逐项校验**下游按类型直接消费**的字段（condition_space/subgraph 须 dict，tags/non_applicable_conditions 须 list/tuple，importance/confidence/created_at/access_count/last_access/evidence_count 须 number，id/layer/role/sensitivity/verification_basis 须 str，bool 一律不算 number），返回按发现顺序的问题描述列表；全部合法（含字段缺省）返回空列表 []。无副作用、不抛异常。
+# 生效条件：content 为 str（或 None，按空串处理）时，剥掉前导 BOM 后判断是否以分隔行 "---" 开头，返回 True/False；无副作用、不抛异常。
+def starts_with_delim(content) -> bool:
+    """正文是否**以 frontmatter 分隔行开头**——`frontmatter_problem` 的「空 fm」判据。
+
+    R-202 / P0-5（2026-11-10）：这是 `loads` 与 `frontmatter_problem` 之间的
+    **同一份行语义**——`loads` 说「切不出 fm」时，正文里留下的那行 `---` 就是
+    没被切掉的起始分隔行。BOM 一并剥（与 `loads` 入口同口径），否则同一文件
+    在「读」与「判」两处得到相反结论。
+    """
+    s = content or ""
+    if s[:1] == _BOM:
+        s = s.lstrip(_BOM)
+    return s.startswith(_DELIM)
+
+
+# 生效条件：fm 为任意值、content 为节点正文（str 或 None）时——fm 非 dict 返回单元素问题清单；fm 为空且 content 以分隔行 "---" 开头时返回「frontmatter 未切出」一条问题；否则逐项校验**下游按类型直接消费**的字段（condition_space/subgraph 须 dict，tags/non_applicable_conditions 须 list/tuple，importance/confidence/created_at/access_count/last_access/evidence_count 须 number，id/layer/role/sensitivity/verification_basis 须 str，bool 一律不算 number），返回按发现顺序的问题描述列表；全部合法（含字段缺省）返回空列表 []。无副作用、不抛异常。
 def frontmatter_problem(fm, content=None) -> list:
     """单节点 frontmatter 的**类型可用性**判据（唯一单点，issue #146）。
 
@@ -489,10 +524,28 @@ def frontmatter_problem(fm, content=None) -> list:
         「未声明」判成「损坏」。
       · bool **不算** number（`True` 是 `int` 子类，落盘会成 `importance: true`
         ——与 add 拒 `node_id=True` 同款理由）。
+      · **「空 fm」不是合法态**（R-202 / P0-5，2026-11-10 修）：`fm == {}` 且
+        正文以分隔行 `---` 开头 ⇒ 判损坏。修前这条是「缺省一律合法」的漏口：
+        BOM / CRLF 节点文件被 `loads` 读成 `({}, 全文)`，本判据放行，随后治理
+        回写把旧 frontmatter 嵌进正文（见 `loads` 的 R-202 注）。真正的裸 md
+        （无 frontmatter、正文不以 `---` 开头）仍合法——那是 `_scan_nodes`
+        「以文件名登入」的旧例，不受本条影响。
     """
     if not isinstance(fm, dict):
         return ["frontmatter 不是对象：%s" % type(fm).__name__]
     problems = []
+    # R-202 / P0-5：「空 fm」**不再一律合法**。空 fm + 正文以 `---` 开头，说明
+    # 这个文件本带 frontmatter，只是 `loads` 没切出来（分隔行无闭合 / 行尾或
+    # 编码前缀未识别）。此处若按「缺省合法」放行，`get` / `_read_status` 会把
+    # 它当成「合法但无元数据的节点」交给治理面，而治理回写的 `dumps({}, 全文)`
+    # 会把旧头嵌进正文——正文里的两条 `---` 又把 `id:`/`layer:` 逐层吃掉，
+    # 节点一次编辑降一级。判损坏即 fail-closed：隔离并留痕，不静默改写盘面。
+    # 边界：判据只看「空 fm + 起始分隔行」；真有 fm 的文件不受影响（那是
+    # loads 已切出的正常形态），无 fm 的裸 md（正文不以 `---` 开头）照旧合法
+    # ——`_scan_nodes` 以文件名登入的旧例不变。
+    if not fm and starts_with_delim(content):
+        problems.append("frontmatter 为空且正文以 '---' 开头：分隔行无闭合或"
+                        "编码/行尾前缀未识别（判为损坏）")
 
     def _bad(key, want, got):
         problems.append("%s 类型非法：期望 %s，实为 %s"

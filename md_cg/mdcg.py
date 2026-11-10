@@ -2560,7 +2560,7 @@ class MdCG:
                 buckets[b] = buckets.get(b, 0) + 1
         return buckets
 
-# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 且 self._snapshot_trusted(该快照) 为真时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象、schema 不符或**指纹不符（#409）**时不作基底——损坏/schema 不符降级 self._scan_nodes() 全库扫描（宁重扫勿清池），仅指纹不符改以本进程内存索引 self.index["nodes"] 的副本为基底；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225：与 _load_index **同一实现**），随后**重放之前**过**完整性闸** self._covers_disk（#409：基底路径集合 == 盘面 .md 路径集合且条数相等；**闸在重放之前**——日志条目按合作写者协议是权威写入记录、允许指向盘外路径，见守卫 E3/E6），不过即以 self._scan_nodes() 换基底（宁重扫勿写缺账快照），再对最终基底**恰好重放一次**；落盘（_fingerprint 恒为 self._dir_fingerprint()，**只在过闸之后**写）并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
+# 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 且 self._snapshot_trusted(该快照) 为真时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象、schema 不符或**指纹不符（#409）**时不作基底——损坏/schema 不符降级 self._scan_nodes() 全库扫描（宁重扫勿清池），仅指纹不符改以本进程内存索引 self.index["nodes"] 的副本为基底；基底确定后先过**预闸** self._covers_disk（#409：基底路径集合 == 盘面 .md 路径集合且条数相等；不过闸即以 self._scan_nodes() 换基底，宁重扫勿写缺账快照），再经 self._apply_log 对 index_log_dir **恰好重放一次**（N225：与 _load_index **同一实现**），随后过**终闸** self._covers_disk（**重放之后**再判最终基底：重放会引入日志里的盘外路径（含指向已删文件的幽灵），不过闸**不盖 _fingerprint**——重放结果照采纳，但快照不自证新鲜，下次打开必重扫）；落盘（_fingerprint 只在终闸通过时写）并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
         with FileLock(self.index_path):
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
@@ -2611,20 +2611,18 @@ class MdCG:
                        "nodes": dict(self.index.get("nodes") or {}),
                        "buckets": {}}
 
-            # #409：基底确定后、**重放之前**先过完整性闸。**这是另一个问题**——
-            # 「写完这份快照是否安全」（完整性），不是「是否可信」（新鲜度，
-            # 只有 _snapshot_trusted 一条，两者互不调用）。判据由「.md **计数**
-            # 相等」升级为「索引**路径集合** == 盘面 .md 路径集合」：集合相等
-            # ⇒ 计数相等，反之不然；#409 的全部形态恰好是「计数没变而路径变了」
-            # （改名/换目录/对调），或同时造出幽灵与不可见（删一加一），计数
-            # 判据必然假阳。不过闸 ⇒ 宁重扫（_scan_nodes 是唯一真源判据），与
-            # _load_index 的兜底同向：缺账快照会被重开路径的指纹校验放行，
-            # 节点从此「在盘上但不可见」。
-            # **闸在重放之前**（不是之后）：闸问的是「我拿到的这份**基底**是否
-            # 恰好描述当前盘面」；增量日志是**权威写入记录**（合作写者协议），
-            # 其条目本就允许指向盘外路径（N225 守卫 E3/E6 钉死「合法 upsert 仍
-            # 生效」），拿重放后的结果去比盘面会把日志的正确性误判成基底不完整，
-            # 并多付一次重放（守卫 E6 的记账面会立刻转红）。
+            # #409：**完整性闸（这是另一个问题）**——「写完这份快照是否安全」
+            # （完整性），不是「是否可信」（新鲜度，只有 _snapshot_trusted 一条，
+            # 两者互不调用）。判据由「.md **计数**相等」升级为「索引**路径集合**
+            # == 盘面 .md 路径集合」：集合相等 ⇒ 计数相等，反之不然；#409 的全部
+            # 形态恰好是「计数没变而路径变了」（改名/换目录/对调），或同时造出
+            # 幽灵与不可见（删一加一），计数判据必然假阳。不过闸 ⇒ 宁重扫
+            # （_scan_nodes 是唯一真源判据），与 _load_index 的兜底同向：缺账快照
+            # 会被重开路径的指纹校验放行，节点从此「在盘上但不可见」。
+            #
+            # **预闸**（保留 #409 原判据，位置不动）：基底自己就不描述盘面时
+            # 立刻换重扫基底——省掉一整次注定无效的重放，也保住 N225 守卫 E6
+            # 「同一分片在一次 compact 里只重放一次」的记账口径。
             if not scan_fallback and not self._covers_disk(idx["nodes"]):
                 idx = {"schema": SCHEMA, "nodes": self._scan_nodes(),
                        "buckets": {}}
@@ -2634,7 +2632,35 @@ class MdCG:
             # 重放**恰好一次**（重扫分支也只重放一次：先换基底、后统一重放）。
             self._apply_log(idx["nodes"])
             idx["buckets"] = self._count_buckets(idx["nodes"])
-            idx["_fingerprint"] = self._dir_fingerprint()
+            # **终闸**（P0-4，2026-11-10 修）：重放之后再判一次「**最终基底**是否
+            # 恰好描述当前盘面」。旧实现只有预闸，等于只查了基底、没查重放的结果：
+            # 日志里一条指向「已被外部删除的文件」的 upsert 记录重放进来就是一个
+            # **幽灵 id**（索引有、盘上无），随后 `_fingerprint` 照盖**当前**指纹
+            # ⇒ 下一次打开 _snapshot_trusted 判真、_load_index 不再重扫 ⇒ 幽灵在
+            # 检索面里活过整个进程生命周期（`get()` 返回 None 而非报错，调用方
+            # 无法区分「从没存在过」与「存在过但文件没了」）。这正是本文件
+            # 2594-2601 与 _apply_log 的 tombstone 注释自己点名的失败形态。
+            #
+            # 旧注释用「日志条目按合作写者协议允许指向盘外路径（N225 守卫 E3/E6
+            # 钉死『合法 upsert 仍生效』）」为「闸只能放在重放之前」辩护。它辩护
+            # 的是「**不许把在途 upsert 判成基底不完整并丢掉它**」，不是「可以盖
+            # 新鲜指纹」——两条可以同时满足，办法是**把两种后果分开处置**：
+            #   · 不覆盖盘面 ≠ 基底不可用：重放结果**照采纳**（在途 upsert 与
+            #     tombstone 的语义一字不改，E3/E6 与 nodes 逐键相等都不受影响，
+            #     也不会多付一次重放/重扫——N225 守卫 E6 的记账面钉着这一条）；
+            #   · 不覆盖盘面 ＝ **不许自证新鲜**：不写 `_fingerprint`。指纹是
+            #     「我这份快照描述得了当前盘面」的证书，覆盖不了盘面的基底无权
+            #     领取；没有指纹 ⇒ `_snapshot_trusted` 判假 ⇒ 下一次打开走
+            #     `_load_index` 的「重放 → _covers_disk → 不成立 ⇒ 全库重扫」
+            #     兜底：幽灵当场不可见，而盘面上的真节点一个不少。
+            # 代价诚实声明：这类库的每一次打开都要付一次全库扫描，直到下一次
+            # compact 写出覆盖盘面的快照（`close()` 自动 compact 即收敛）。
+            # 「宁多扫一次，不可自证新鲜」——与本文件「宁重扫勿清池」同向。
+            if self._covers_disk(idx["nodes"]):
+                idx["_fingerprint"] = self._dir_fingerprint()
+            else:
+                # 不认证：留一份「自称不可信」的快照，下次打开走重扫兜底
+                idx.pop("_fingerprint", None)
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
             ShardedLog.clear(self.index_log_dir)
         self.index = idx
@@ -2764,12 +2790,18 @@ class MdCG:
 
 # 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
     def _flush_batch(self, batch, superseded):
-        # 世代/互斥防线（批次9，M3.3 落地）：append 必须与 compact/rebuild 的
-        # 「read 日志 → clear 分片」临界区互斥（同一把 index_path 锁）——
-        # 否则 B 实例的 append 落在 A 实例 read_all 之后、clear 之前时，
-        # 记录随分片被删，节点「在盘但索引不可见」（9·12 病灶：3 实例并发，
-        # apply 留痕 7590 vs 盘面 ~1036 的成因链之一）。锁内 append 后，
-        # 后续 clear 必然已包含本批记录。
+        # 世代/互斥防线（批次9，M3.3 落地）：append 与 compact 的「read 日志 →
+        # clear 分片」在同一把 index_path 锁内互斥——否则 B 实例的 append 落在
+        # A 实例 read_all 之后、clear 之前时，记录随分片被删，节点「在盘但索引
+        # 不可见」（9·12 病灶：3 实例并发，apply 留痕 7590 vs 盘面 ~1036 的成因
+        # 链之一）。锁内 append 后，后续 clear 必然已包含本批记录。
+        # **rebuild_index 不在这个互斥面里**（R-203，2026-11-10）：它只做
+        # 「扫描 + 按日志水位清 ≤ 水位的条目」，锁外扫描**不删**本批记录——
+        # 水位以外的记录（本批若落在扫描窗口内即属此类）原样保留，由下一次
+        # _apply_log 重放。故本方法的正确性**不依赖** rebuild 的扫描是否在锁内，
+        # 也不依赖 rebuild 的 clear 与本批 append 的先后（这把锁的缺省语义是
+        # best-effort：超时 10s 后放行且不持锁，任何「必须靠持锁才成立」的
+        # 不变量在长临界区上都不成立）。
         with FileLock(self.index_path):
             if self._log is None:
                 self._log = ShardedLog(self.index_log_dir)
@@ -3015,7 +3047,7 @@ class MdCG:
         # 排序后重建序恒定（增量路径另由 cut_by_relevance 的 nid 终键兜住）。
         return {k: nodes[k] for k in sorted(nodes)}
 
-# 生效条件：每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path 并 ShardedLog.clear(index_log_dir)，随后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
+# 生效条件：先记日志水位 self._log_watermark()（各分片当前字节数），随后每次调用都以 self._scan_nodes() 的结果重建 nodes 与 buckets 并附 _dir_fingerprint()，在 FileLock 下 atomic_write 覆盖 index_path、并按该水位只清 ≤ 水位的分片条目（self._clear_log_to_watermark，窗口内新增记录原样保留待下次重放），随后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）、清空 _dirty 并返回 idx（无 .md 时也照样覆盖为空索引）；
     def _cache_generation(self):
         """O(1) generation for metadata writes and replaced node snapshots.
 
@@ -3032,14 +3064,131 @@ class MdCG:
             self._cache_generation_state = (nodes, dirty, version)
         return self._cache_generation_value
 
+# 生效条件：返回 self.index_log_dir 下每个以 ".log" 结尾的分片「当前字节数」的 {文件名: size}（目录不可列或单文件 stat 失败时跳过该条，恒不写盘、恒不抛）——rebuild_index 的**日志水位**：水位以内的记录在扫描开始前就已入册，故可安全并入快照并清掉；
+    def _log_watermark(self):
+        """扫描**之前**取的分片字节水位（R-203）。
+
+        为什么是字节数而不是记录数：分片是 append-only 的独立文件（每写者一个），
+        记录里只有写者**自己**的 (_t, _s) 序号，跨分片不构成全序，能唯一标识
+        「扫描开始前已入册」这条边界的只有各分片当时的字节长度。
+        """
+        wm = {}
+        try:
+            names = os.listdir(self.index_log_dir)
+        except OSError:
+            return wm
+        for fn in names:
+            if not fn.endswith(".log"):
+                continue
+            try:
+                wm[fn] = os.path.getsize(os.path.join(self.index_log_dir, fn))
+            except OSError:
+                continue
+        return wm
+
+# 生效条件：wm 为 self._log_watermark() 的产物（"分片名"→字节数）时，把 index_log_dir 下每个 ".log" 分片里 **≤ 水位** 的字节前缀清掉（总长 ≤ 水位 ⇒ 整份 os.remove；总长 > 水位 ⇒ 只保留超出部分，水位落点不在行首时补一个换行对齐）；wm 里没有的分片（扫描窗口内新建）整份保留；任何一条改写失败（他进程持有句柄 / delete-pending / 权限）都按「整份保留」降级且绝不抛；返回 {"cleared": [分片名…], "kept": [分片名…]}；
+    def _clear_log_to_watermark(self, wm):
+        """只清「扫描开始前已入册」的那部分分片日志（R-203 的 B 案）。
+
+        为什么不是整目录清空（`ShardedLog.clear`）：扫描在锁外（同文件 `_load_index`
+        注释自陈真实库 31,688 节点冷扫 13.4s；本机 3,722 节点实测 2.76s），窗口内的
+        并发写者 B 已经落盘 `.md` 并 append 了日志记录；整份清空会把 B 的记录一起
+        丢掉 ⇒ 节点「在盘上但索引里没有」，而 rebuild 随后盖上的指纹反映的是 B
+        落盘**之后**的目录 mtime ⇒ 下一次打开判「新鲜」、不重扫，节点整场不可见。
+
+        水位以外的记录一律保留，交给下一次 `_apply_log` 重放（重放幂等：
+        已在快照里的条目再写一遍无副作用）。清理失败也只退化为「多一次重放」，
+        绝不丢记录——清理是优化，不是正确性依赖。
+        """
+        res = {"cleared": [], "kept": []}
+        if not isinstance(wm, dict):
+            return res
+        try:
+            names = sorted(os.listdir(self.index_log_dir))
+        except OSError:
+            return res
+        for fn in names:
+            if not fn.endswith(".log"):
+                continue
+            p = os.path.join(self.index_log_dir, fn)
+            base = wm.get(fn)
+            if base is None:
+                res["kept"].append(fn)      # 扫描窗口内新建的分片：整份保留
+                continue
+            try:
+                size = os.path.getsize(p)
+            except OSError:
+                continue
+            if size <= base:
+                try:
+                    os.remove(p)
+                    res["cleared"].append(fn)
+                except OSError:
+                    res["kept"].append(fn)
+                continue
+            # 只读水位之后的那一段（分片可能很大，整份读进内存在锁内是浪费）
+            try:
+                with open(p, "rb") as f:
+                    if base > 0:
+                        f.seek(base - 1)
+                        head_tail = f.read(1)
+                    else:
+                        head_tail = b"\n"
+                    tail = f.read()
+            except OSError:
+                res["kept"].append(fn)
+                continue
+            # 水位落点不在行首（上一次崩溃留下半行残尾）时补一个换行：否则尾条
+            # 记录会与残尾粘成一行——语法完整但解析失败，那条好记录跟着丢
+            # （append_many / append_jsonl 的 ends_mid_line 是同一条防线）。
+            if tail and head_tail != b"\n" and not tail.startswith(b"\n"):
+                tail = b"\n" + tail
+            tmp = os.path.join(self.index_log_dir,
+                               ".%s.tailtmp-%d" % (fn, os.getpid()))
+            for _try in range(8):
+                try:
+                    with open(tmp, "wb") as f:
+                        f.write(tail)
+                        f.flush()
+                    os.replace(tmp, p)
+                    res["kept"].append(fn)
+                    break
+                except OSError:
+                    # Windows 上他进程正持有句柄 / delete-pending 窗口：5ms×8
+                    # 短重试（与 ShardedLog.read_all 同款容忍），耗尽则整份保留
+                    if _try == 7:
+                        res["kept"].append(fn)
+                    else:
+                        time.sleep(0.005)
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
+        return res
+
     def rebuild_index(self):
+        # R-203（P0-3）：**扫描不进锁，改用「日志水位」收口**。
+        # 病灶：原实现锁外扫全库 → 锁内 atomic_write + `ShardedLog.clear`（整目录
+        # 清空）。窗口 = 一次全库扫描（13.4s 量级，仓内 50 处调用点），窗口内并发
+        # 写者 add+flush 后其日志记录被整份清掉 ⇒ 节点只有 `.md` 在盘、索引里没有，
+        # 而随后盖上的 `_fingerprint` 反映的是写者落盘后的目录 mtime ⇒ 下一次打开
+        # `_snapshot_trusted` 判真、不重扫，节点整场不可见（丢的是召回，不是文件）。
+        # 为什么不选「把 _scan_nodes() 挪进 FileLock」：这把锁的持有者正是
+        # `_flush_batch`，而 FileLock 缺省 timeout=10.0 / strict=False —— **超时后
+        # 放行且显式标记未持锁**（fsutil.FileLock.__enter__）。把 13.4s 的扫描塞进
+        # 临界区，写者会在 10s 后无锁 append，P0-3 换个形态回来，另加 13.4s 写阻塞。
+        # 取 B 案：扫描前记水位，只清 ≤ 水位的条目；水位以外的记录（窗口内的并发
+        # 写）原样保留，扫描没覆盖到的节点由下一次 `_apply_log` 重放补上。
+        wm = self._log_watermark()
         nodes = self._scan_nodes()
         idx = {"schema": SCHEMA, "nodes": nodes,
                "buckets": self._count_buckets(nodes)}
         with FileLock(self.index_path):
             idx["_fingerprint"] = self._dir_fingerprint()
             atomic_write(self.index_path, json.dumps(idx, ensure_ascii=False))
-            ShardedLog.clear(self.index_log_dir)
+            # 只清水位以内的分片条目（替代原 ShardedLog.clear 的整目录清空）
+            self._clear_log_to_watermark(wm)
         self.index = idx
         # 第 3 层结构索引随全量重建失效（新快照 = 新盘面语义）：下次 stg 访问
         # 重建——重建后的划分不变量由守卫钉住（写/删/rebuild/compact 后三表与

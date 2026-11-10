@@ -848,7 +848,7 @@ def current_path(cg) -> str:
     return os.path.join(longterm_dir(cg), "current.json")
 
 
-# 生效条件：apply 为真且由 cg.index 的 nodes（layer 为假值时不过滤、为真时仅取 layer 字段相等者，max_rows 为真值时先取 ids[:int(max_rows)]）算出的 snapshot_id 与 current.json 所记 snapshot_id 不同或其记录的 path 文件不存在（same 为假）时，才写断面文件、原子更新 current 指针、执行 _prune 并追加维护日志；apply 为假时只返回 dry_run=True 的统计（out 与 force 在源码中未被引用）。
+# 生效条件：apply 为真且由 cg.index 的 nodes（layer 为假值时不过滤、为真时仅取 layer 字段相等者，max_rows 为真值时先取 ids[:int(max_rows)]）算出的 snapshot_id 与 current.json 所记 snapshot_id 不同或其记录的 path 文件不存在（same 为假）时，才写断面文件、原子更新 current 指针、执行 _prune 并追加维护日志（该条记录恒带 pruned 被删名单与 prune_failed 删失败名单，长度即实际删除数）；apply 为假时只返回 dry_run=True 的统计（out 与 force 在源码中未被引用）。
 def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
                     max_rows=None, force=False, actor="maintain"):
     """评估后分层落盘：生成一个可回溯的长期记忆断面。
@@ -886,7 +886,7 @@ def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
         cur = None
     same = bool(cur and cur.get("snapshot_id") == snapshot_id
                 and os.path.exists(os.path.join(cg.root, cur.get("path") or "")))
-    written, pruned = 0, []
+    written, pruned, prune_failed = 0, [], []
     if apply and not same:
         d = longterm_dir(cg)
         os.makedirs(d, exist_ok=True)
@@ -909,15 +909,20 @@ def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
             {"snapshot_id": snapshot_id, "ts": time.time(), "path": rel,
              "total": total, "tiers": tiers, "by_layer": by_layer,
              "islands": islands}, ensure_ascii=False))
-        pruned = _prune(cg, keep)
+        pruned = _prune(cg, keep, failed=prune_failed)
         append_jsonl(os.path.join(cg.root, MAINTAIN_LOG), {
             "t": time.time(), "action": "longterm", "snapshot_id": snapshot_id,
-            "path": rel, "total": total, "tiers": tiers, "actor": actor})
+            "path": rel, "total": total, "tiers": tiers, "actor": actor,
+            # R-205 / P0-6：断面记的是**当时读数**，删掉不可重建 ⇒ 被删名单
+            # 必须进台账，事后才答得出「删了哪几个」。两个字段恒存在（空列表
+            # 也照写，表示本次确实没删），长度即实际删除/失败数。
+            "pruned": list(pruned), "prune_failed": list(prune_failed)})
     return {
         "ok": True, "action": "longterm", "dry_run": not apply,
         "snapshot_id": snapshot_id, "path": rel, "same_as_current": same,
         "total": total, "tiers": tiers, "by_layer": by_layer,
         "islands": islands, "written": written, "pruned": pruned,
+        "prune_failed": prune_failed,
         "elapsed_ms": int((time.time() - t0) * 1000), "log": MAINTAIN_LOG,
         "note": ("dry-run：未写盘" if not apply else
                  (f"断面与 current 相同，跳过重写（id={snapshot_id}）" if same
@@ -925,9 +930,14 @@ def longterm_assess(cg, apply=False, out=None, layer=None, keep=LONGTERM_KEEP,
     }
 
 
-# 生效条件：cg 与 keep 必填；keep<=0 时不删除任何断面返回 []；否则删除除最近 keep 个 .jsonl 外的旧断面。
-def _prune(cg, keep):
-    """只保留最近 keep 个断面文件（按文件名时间前缀排序）。"""
+# 生效条件：cg 与 keep 必填；keep<=0 时不删除任何断面并返回 []；否则按文件名升序删除除最近 keep 个 .jsonl 外的旧断面，删成的按序记入返回值，删失败（OSError）的记入 failed 列表（failed 省略/为 None 时仍然只返回删成的，兼容既有调用面）；目录不可列出时返回 []。
+def _prune(cg, keep, failed=None):
+    """只保留最近 keep 个断面文件（按文件名时间前缀排序）。
+
+    删除**不可逆**：断面记的是「当时读数」，事后不可重建 ⇒ 被删名单必须
+    回传给调用方写进 `_maintain.jsonl`（R-205 / P0-6）。删失败的也回传，
+    不许静默 pass —— 静默失败会让「台账名单」与「盘上事实」对不上。
+    """
     d = longterm_dir(cg)
     try:
         files = sorted(x for x in os.listdir(d) if x.endswith(".jsonl"))
@@ -939,7 +949,8 @@ def _prune(cg, keep):
             os.remove(os.path.join(d, x))
             removed.append(x)
         except OSError:
-            pass
+            if failed is not None:
+                failed.append(x)
     return removed
 
 
