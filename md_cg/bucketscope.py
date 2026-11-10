@@ -136,19 +136,52 @@ EARLY_SCAN_DAYS = 16
 #: 早段意图的日桶集合：**最早几天 + 全时段均匀采样**。
 #: 教训（2026-11-10 外测 v2.0）：只扫「最早 12 天」会漏掉「库内最后一天」这种锚点
 #: （P16 锚点 2026-05-03 恰是最后一天、P20 锚点在第 18 天），故改为全时段覆盖。
-def _early_days(all_days, limit=EARLY_SCAN_DAYS):
+def _early_days(all_days, limit=EARLY_SCAN_DAYS, head=4, tail=4):
+    """早段意图的日桶候选，**按分配优先级返回有序列表**（不再升序排）。
+
+    两条实测教训（2026-11-11 外测 #855）：
+      ① 只取「最早 4 + 末 2」时，P16 的锚点日是**倒数第三**——既不在末 2，也被均匀采样跨过 ⇒ 压根不在池里；
+      ② 即便在池里（P20 的末日），升序排到队尾，而日名额只有 4–8 个 ⇒ **永远轮不到**。
+    故：**两端交替入序**（末1,首1,末2,首2,末3,首3,末4,首4,…），保证末端与首端各自先拿到名额。
+    为什么「最早」会落在库的末端：入库顺序 ≠ 事件顺序（增量灌入、补录、跨会话合并都会打乱）。
+    """
     n = len(all_days)
     if n <= limit:
         return list(all_days)
-    head = list(all_days[:4])                       # 最早几天（问「最初」时最可能）
-    tail = list(all_days[-2:])                      # **末日强制入池**：写入顺序≠事件顺序，
-    #                                                「最早那回」可能落在库内最后一天（P16 实测）
-    head = sorted(set(head) | set(tail))
-    rest = max(0, limit - len(head))
+    heads = list(all_days[:head])
+    tails = list(all_days[-tail:])
+    order = []
+    for i in range(max(len(heads), len(tails))):
+        if i < len(tails):
+            order.append(tails[-1 - i])          # 从最末一天往前
+        if i < len(heads):
+            order.append(heads[i])               # 从最早一天往后
+    chosen = set(order)
+    rest = max(0, limit - len(order))
     step = max(1, n // max(1, rest)) if rest else n
-    uniform = [d for d in all_days[::step] if d not in head][:rest]
-    picked = head + uniform
-    return sorted(set(picked))
+    uniform = [d for d in all_days[::step] if d not in chosen][:rest]
+    return order + uniform
+
+
+def _order_by_evidence(store, days, terms):
+    """把候选日桶按**证据强度**排序（查桶词表，不读正文，毫秒级）。
+
+    为什么需要：候选池 14–16 个、日名额只有 4–8 个 ⇒ **位置决定一切**。
+    日期序（升/降/两端交替）都只是先验；真正决定「锚点在不在这天」的是
+    **这天的内容里有没有查询提到的实体**（外测 #855：P16/P20 的锚点日都含强实体）。
+    故：证据优先，同分时保留调用方给的顺序（两端交替）作平局。
+    """
+    table = _bi._load(store, _bi.TERMS_FILE) or {}
+    if not table or not days:
+        return list(days)
+    pos = {d: i for i, d in enumerate(days)}
+    scored = []
+    for d in days:
+        bag = table.get("day:" + d) or {}
+        hit = sum(1 for t in terms if t in bag)
+        scored.append((-hit, pos[d], d))
+    scored.sort()
+    return [d for _h, _p, d in scored]
 
 
 def _early_intent(query):
@@ -239,7 +272,7 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
         _all_days = sorted(_bi.all_days(store))
         _early_hit = bool(_early_intent(query) and _all_days)
         if _early_hit:
-            _ordered_days = _early_days(_all_days)
+            _ordered_days = _order_by_evidence(store, _early_days(_all_days), terms)
         else:
             _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
     # ② 日桶按上述顺序取
