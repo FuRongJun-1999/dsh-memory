@@ -423,7 +423,20 @@ def check(cg, *, path: str = None, limit: int = 20,
     # （mcp_memory_add / remember_exchange / api/memory/import / gateway-profile:…），
     # 它们从来不是本库节点；按「端点不在索引」一律算悬空，会把整库报成 60% 破损。
     # 所以先认 id 形态：本库真实出现过的前缀族才算节点引用，其余记 external_origin。
+    # ★R-533（2026-11-10 审计 P2 治理）：前缀族此前**只从当前索引 `known` 取** ——
+    # 于是某一族节点**整族被忘掉**（或整族还没重建索引）时，`_pfx` 里没有那个前缀，
+    # 该族的悬空派生边会被判成 `external_origin`（外部来源标签）而不是 `dangling`
+    # ⇒ **整族被忘这件事报不出来**，而它恰恰是最该报的形态。
+    # 修法：前缀族 = 当前索引 ∪ **台账历史里出现过的所有 id**。历史 id 就在 `rows` 里
+    # （`all_edges` 已读出），不需要额外读盘。
+    # 为什么仍然要前缀族（而不是「像 id 就判悬空」）：派生边的 parent 位常被写成来源标签
+    # （`mcp_memory_add` / `remember_exchange` / `gateway-profile:…`），那些也匹配 id 形态；
+    # 去掉前缀族过滤会把整库报成 ~60% 破损。前缀族的作用是**区分「本库 id」与「来源标签」**，
+    # 这个作用保留，只是判据来源从「当前库」扩到「当前库 + 历史」。
     _pfx = {str(k).split("_")[0] for k in known if "_" in str(k)}
+    _pfx |= {str(e.get(k)).split("_")[0]
+             for e in rows for k in ("child", "parent")
+             if "_" in str(e.get(k) or "")}
 
     def _local_shape(x):
         s = str(x or "")
