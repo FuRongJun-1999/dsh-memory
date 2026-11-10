@@ -118,6 +118,17 @@ dsh plugin --profile web add .
 
 > **一句话运维前提**：**换了代码就重启常驻 MCP 进程**——别等报 `ImportError` 再去排查。
 
+> **「常驻」是两种形态，别混**（R-404，2026-11-10 审计 D2）：
+>
+> | 形态 | 入口 | 谁拉起 | 生命周期 | 谁在跑 |
+> |---|---|---|---|---|
+> | **stdio** | `python -m md_cg.mcp_server` | 宿主（DSH / CodeBuddy / Codex / Claude Code） | **随宿主**，用完即退 | 每次调用一个新进程 |
+> | **HTTP 常驻** | `server/mdcg_http.py`（systemd `mdcg.service`，端口 8301） | systemd | **长命**（实测 uptime 24h+） | 单进程 + 全局锁 |
+>
+> 两种形态的「重启」动作不同：stdio 侧是**重连 MCP / 刷新宿主**；HTTP 侧是 `systemctl restart mdcg`（或 `node scripts/deploy-mdcg.mjs` 一条命令带备份与回滚）。
+>
+> 而 **sustain 自维持循环（心跳 / 自愈 / 演化 / 睡眠）只挂在 HTTP 常驻这一形态上**（R-409，`mdcg_http.py` 启动时调 `_start_sustain`）。stdio 形态是短命进程，挂上去也没有意义 —— 所以「心跳台账停在几个月前」不是 sustain 坏了，而是**没有长命进程在跑它**。判据：`ls ~/.mdcg/sustain/` 有 `heartbeat.<name>.stamp`、`journalctl -u mdcg | grep sustain` 有挂载记录。
+
 **根因（已定因）**：灵枢的大脑（`md_cg`）是 **stdio 长驻进程**，只在模块**首次导入**时读盘；而 `md_cg` 内有**大量写在函数里的延迟导入**（相当一部分是为避开循环导入）。两者叠加 ⇒ 升级（换包 / `git pull` / 重装）后，**升级前已载入的旧代模块**与**升级后才被惰性导入的新代模块**会在同一个进程里跨代混用。实测症状：`cg` 写入返回 `ImportError: cannot import name 'mint_auto_id' from 'md_cg.mdcg'`，而此刻**盘面完全正常**（新解释器导入同一模块正常）——报错点离根因很远，极易被误判成「代码坏了」。
 
 **自检**：对**运行中**的 serve 调一次 `cg(op=info)`，看这五个字段：
