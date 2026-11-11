@@ -22,7 +22,7 @@
    'reinforced':{'importance':0.95,'merge_count':1,'protected':True}}`，
    同身份对同层 `add(self214, layer='self')` 却是 `AccessDenied`。
 
-② **N215 `writelimit.converge_into`（CONVERGE 落库动作，`md_cg/writelimit.py:211/225`）**
+② **N215 `writelimit.converge_into`（CONVERGE 落库动作，`md_cg/writelimit.py:338/225`）**
    同构聚合兜底：`remember_gated` 先以 `(node_id=<anchor 节点>, layer='contextual')`
    预占位签名（该次 `add` 被保护闸拒，但 `check` 已落盘 `sig→anchor id` 映射，
    `writelimit.py:187`），再换正文重发 → `gate.verdict=CONVERGE/target=anchor`

@@ -37,7 +37,7 @@ accept 原文给了退路：「若该函数签名复杂就按 retained/not_retai
     本仓行为，但传一个**显式的大 now** 让「陈旧」这条判据与挂钟无关，换台
     机器/换天跑结果同形。
   · **必须传 `policy`**：`sink.candidates` 在 `policy=None` 时恒调
-    `load_policy()`（sink.py:360），**故意忽略** env `MDCG_LIFECYCLE_FILE`。
+    `load_policy()`（sink.py:6），**故意忽略** env `MDCG_LIFECYCLE_FILE`。
     若不显式传策略，一个并发的守卫进程把该 env 设上（本仓既有守卫确实会设，
     见 test_t14a_retain_verdict G8），本用例的判据②③就会用到第三方阈值而假红。
     故 G4 显式传 `sink.load_policy()` 的返回值——**仍走单点读取**，只是把
@@ -46,7 +46,7 @@ accept 原文给了退路：「若该函数签名复杂就按 retained/not_retai
 ## 为什么 A 的引用要真走引擎路径（不是手改 fm）
 
 A 的 `access_count=5` 由 `cg.fold_access_records(['A'], ts=...)` **真落盘**
-五次得到——那是 E-T63a 修复后的唯一正路（mdcg.py:5050 `record_access` 的
+五次得到——那是 E-T63a 修复后的唯一正路（mdcg.py:7196 `record_access` 的
 即时折叠口径）。手改 frontmatter 也能造出 5，但那样钉住的只是「retain 会读
 access_count」；走引擎路径才能同时证明「E-T63a 的计数面」与「E-T14a 的判据面」
 **接得上**——这正是本条收口链要验的东西。`ts` 显式给一个固定基准，使

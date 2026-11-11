@@ -39,7 +39,10 @@ r"""test_t12a_short_ttl —— design 短 TTL 档（add(ttl_hours=...)）五段�
       `trust.py:298-357` 的纯函数——本段不依赖任何写入副作用。
   [D] 回归 ≥2（2 条）：无 `ttl_hours` 的历史调用面**逐字节不变**——
       传旧参数 `valid_until=` 时照旧落旧键 `valid_until`、`effective_until`
-      不落（现行 `mdcg.py:2846-2871` 行为）；`expired_at` 仍随终点派生落。
+      不落（现行 ttl 档在 `md_cg/mdcg.py:3358` 起的 `add()` 签名里，旧键
+      仍原样落盘）；`expired_at` 仍随终点派生落（派生点在
+      `md_cg/mdcg.py:3964`，键名真源 `nodefile.EXPIRED_AT_FIELD`
+      → `md_cg/nodefile.py:214`）。
   [E] 边界 ≥3（3 条）：`ttl_hours=-5` 负值零行为（不落任何 ttl 键、
       不改 `effective_until`）；`ttl_hours=1e-6` 极小正值**要走 ttl 档**
       （`> 0` 判据，终点 ≈ now，`ttl_source` 落 `design`——锁「0 与极小正
@@ -114,7 +117,7 @@ def _drop(cg):
     """收尾一个临时 cg：先 `close()`、清空内存索引、再删根。
 
     **顺序是硬要求**：`MdCGOS` 把自身登记进模块级 `_LIVE_CGS`
-    （`mdcg.py:1699`）并注册 `atexit` 兜底钩子 `_atexit_flush_all`
+    （`mdcg.py:25`）并注册 `atexit` 兜底钩子 `_atexit_flush_all`
     （`mdcg.py:146-151`、`1700`）——进程退出时对每个仍存活实例调 `close()`
     → `flush()` / `compact_index()` / `rebuild_index()`（`mdcg.py:2097-2114`、
     `2261-2281`）。

@@ -69,6 +69,7 @@ FUNCMAP_END = "<!-- FUNCMAP:END -->"
 NAME_ALLOWLIST = {
     "mdcg_eval": "rust/ 检索库评测器 CLI 名（rust/README.md），非 mcp_server 工具",
     "mdcg_client": "DSH 插件仓 TS 客户端模块文件名 mdcg_client.ts，非 mcp_server 工具",
+    "mdcg_http": "服务器侧 HTTP 常驻脚本 server/mdcg_http.py（README 部署段引用），非 mcp_server 工具",
 }
 
 # 文档链接但外部 clone 后不存在的仓内路径（带理由）：链接语义=「本地会有此文件」。

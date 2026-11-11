@@ -46,10 +46,10 @@ ssh aliyun 'cd /home/ubuntu/mdcg && git diff --numstat | awk "{s+=\$1+\$2} END {
 
 | 接口 | 本树历史 | 服务器现状 | 裁定 | 落地 |
 |---|---|---|---|---|
-| `crypto.tenant_actors` | `bdd44232` 引入 | **无** | 以本树为准恢复 | `crypto.py:501` |
-| `signer.policy_source` | `d293921f` 引入 | **无** | 以本树为准恢复 | `signer.py:408` |
-| `MdCGOS.fold_access_records` | `d293921f` 引入（原在 `mdcg.py` 的 `MdCG`） | **无** | 以本树为准恢复，落子类 | `mdcos.py:973` |
-| `MdCGOS.list_nodes` | `d293921f` 引入 | **无** | 以本树为准恢复，落子类 | `mdcos.py:935` |
+| `crypto.tenant_actors` | `bdd44232` 引入 | **无** | 以本树为准恢复 | `crypto.py:515`（`tenant_actors`） |
+| `signer.policy_source` | `d293921f` 引入 | **无** | 以本树为准恢复 | `signer.py:408`（`policy_source`） |
+| `MdCGOS.fold_access_records` | `d293921f` 引入（原在 `mdcg.py` 的 `MdCG`） | **无** | 以本树为准恢复，落子类 | `mdcos.py:973`（`fold_access_records`） |
+| `MdCGOS.list_nodes` | `d293921f` 引入 | **无** | 以本树为准恢复，落子类 | `mdcos.py:935`（`list_nodes`） |
 | `sleep.wired_steps` | **两侧历史均无** | **无**（仍是「未接线」占位，`grep -c` = 0） | **不是恢复，是按测试规格新实现** | `sleep.py::wired_steps` |
 
 前 4 个是「回流删了、本树历史有 ⇒ 恢复」。第 5 个不同：`test_t91a_sleep_wiring`（64 条断言）先于任何实现落地，两侧都没有 `def wired_steps` ⇒ 本树按测试规格反向构造了一份，**它修掉的是审计 P2「⑤⑥ 显式 no-op 占位」**，docstring 已写明来源、裁决依据与「若服务器真实现回流则以它为准」。

@@ -3,7 +3,7 @@
 
 病（已核实）：`sustain.py:_tick_scrub` **无条件每轮都跑** `scrub.sweep`，
 dry_run 由 `not self.auto_scrub` 取反；而 `AUTO_DEFAULTS["auto_scrub"] is False`
-（`sustain.py:100`）。于是默认部署下 `_scrub.jsonl` 每轮都有一行，
+（`sustain.py:36`）。于是默认部署下 `_scrub.jsonl` 每轮都有一行，
 **有行 ≠ scrub 已启用**——读台账的人会把「每轮只读巡检」误读成「修剪已上线」。
 
 本套判据（对应 accept ①②③④⑤，全部在**真 tick** 上取证，非静态读码）：
@@ -56,7 +56,7 @@ FAILS = []
 #: 回拨 2h 保证必被判陈旧（确定性，不靠等时间）。
 STALE_BACKDATE_S = 7200.0
 
-#: G4 钉死的既有键（`_tick_scrub` 的**内存账行**形态基线 = 改动前 `sustain.py:1708-1718`）。
+#: G4 钉死的既有键（`_tick_scrub` 的**内存账行**形态基线 = 改动前 `sustain.py:1986-1718`）。
 LEGACY_KEYS = ("t", "ok", "n_issues", "n_high_medium", "applied",
                "already_handled", "planned_dry_run", "checked_breakdown",
                "seed", "dry_run")

@@ -62,6 +62,25 @@ _CG = None
 _STARTED = 0.0
 
 
+# ---- R-405c（2026-11-10 审计 P2 外围 3）：检索后端可切换 ----
+# `MDCG_BACKEND=lingshu`（缺省，Python 内嵌）/ `rust`（server/rust_bridge.py 桥）。
+# 纪律：**切到 rust 但桥不通 ⇒ /health 必须报 degraded 且 5xx**，不许静默回落
+# 到 Python —— 静默回落等于「读数说是 rust、实际跑的是 Python」，比不可用更糟。
+BACKEND = (os.environ.get("MDCG_BACKEND") or "lingshu").strip().lower()
+_BACKENDS = ("lingshu", "rust")
+
+
+def _bridge():
+    """取（必要时拉起）Rust 桥；失败返回 (None, 原因) —— 调用方负责报 degraded。"""
+    if BACKEND != "rust":
+        return None, None
+    from . import rust_bridge as _rb
+    b = _rb.bridge(os.environ.get("MDCG_ROOT"))
+    if b.start() if not b.degraded else False:
+        return b, None
+    return None, b.error or "rust 桥不可用"
+
+
 # R1（账 158 冷启 / 判据 E 组）：/health 必须能区分「进程起来了」与「随时能查」。
 #
 # 冷启首查 25.7 秒（10,801 节点全解密）只在**第一次检索**发生；进程早已 listening，
@@ -137,8 +156,21 @@ class _H(BaseHTTPRequestHandler):
                 ok, why = True, None
             except Exception as exc:               # noqa: BLE001
                 cg, nodes, ok, why = None, None, False, "%s: %s" % (type(exc).__name__, exc)
+            _br, _brwhy = (None, None)
+            if BACKEND == "rust":
+                try:
+                    _br, _brwhy = _bridge()
+                except Exception as exc:           # noqa: BLE001
+                    _br, _brwhy = None, "%s: %s" % (type(exc).__name__, exc)
+                if _br is None:                    # 切了 rust 但桥不通 ⇒ 明确降级
+                    ok, why = False, "backend=rust 但桥不可用：%s" % (_brwhy,)
+            _bstat = (_br.status() if _br is not None else
+                      ({"backend": BACKEND, "degraded": BACKEND == "rust",
+                        "error": _brwhy} if BACKEND == "rust" else
+                       {"backend": "lingshu", "degraded": False}))
             return self._send(200 if ok else 503,
-                              {"ok": ok, "why": why, "backend": "lingshu",
+                              {"ok": ok, "why": why, "backend": BACKEND,
+                               "bridge": _bstat,
                                "root": os.environ.get("MDCG_ROOT"), "nodes": nodes,
                                "warm": _WARM["ready"],
                                "warm_s": _WARM["took_s"],
@@ -147,7 +179,46 @@ class _H(BaseHTTPRequestHandler):
                                "uptime_s": round(time.time() - _STARTED, 1) if _STARTED else 0})
         return self._send(405, {"error": "use POST /mcp"})
 
+    def _do_search(self):
+        """`POST /search {"query": …, "k": …}` —— 按 `MDCG_BACKEND` 选后端（R-405c）。"""
+        try:
+            n = int(self.headers.get('Content-Length') or 0)
+        except ValueError:
+            n = 0
+        try:
+            _raw = (self.rfile.read(n) if n else b'').decode('utf-8', 'replace')
+            body = json.loads(_raw or '{}')
+        except Exception:                      # noqa: BLE001
+            return self._send(400, {'error': 'parse error'})
+        q = str(body.get('query') or '')
+        k = int(body.get('k') or 10)
+        import time as _t
+        t0 = _t.perf_counter()
+        if BACKEND == 'rust':
+            br, why = _bridge()
+            if br is None:
+                return self._send(503, {'ok': False, 'backend': 'rust',
+                                        'degraded': True, 'error': why,
+                                        'hint': '切回 MDCG_BACKEND=lingshu 或先 cargo build --release'})
+            try:
+                rows = br.search(q, k)
+            except Exception as exc:           # noqa: BLE001  桥半路死 ⇒ 明确降级
+                return self._send(503, {'ok': False, 'backend': 'rust',
+                                        'degraded': True,
+                                        'error': '%s: %s' % (type(exc).__name__, exc)})
+        else:
+            cg = _cg()
+            res, _meta = cg.search_rrf(q, k=k)
+            rows = [(h.get('id'), h.get('score')) for h in (res or [])]
+        return self._send(200, {'ok': True, 'backend': BACKEND, 'query': q,
+                                'k': k,
+                                'hits': [{'id': a, 'score': b} for a, b in rows],
+                                'took_ms': round((_t.perf_counter() - t0) * 1000.0, 2)})
+
     def do_POST(self):                             # noqa: N802
+        # R-405c：`POST /search` 是后端可切换的检索面（写路径仍只走 Python）。
+        if self.path.rstrip('/') == '/search':
+            return self._do_search()
         if not self.path.startswith("/mcp"):
             return self._send(404, {"error": "not found"})
         tok = (os.environ.get("MDCG_TOKEN") or "").strip()

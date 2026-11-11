@@ -90,12 +90,12 @@
 | 测试 | 失败项（原文摘要） |
 |---|---|
 | `md_cg.test_audit_rotate_parity` | got = _sha(os.path.join(root, rel)) / ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ / File "D:\wook\lingshu-src\md_cg\test_audit_rotate_parity.py", line 99, in _sha |
-| `md_cg.test_autonomy_modes` | 不满足：缺 R1、R2、R3、R4 ——实际生效档位回落 confirm（不静默降级；读数详情：python -X utf8 -m md_cg.admission --root "C:\Users\Raven243\AppData\Local\Temp\autonomy_modes_sandbox_sbi3f6ox\l_empty_r0"）。 / [MdCG 三档自治] MDCG_AUTONOMY=full 但准入读数不满足：缺 R1、… |
+| `md_cg.test_autonomy_modes` | 不满足：缺 R1、R2、R3、R4 ——实际生效档位回落 confirm（不静默降级；读数详情：python -X utf8 -m md_cg.admission --root "~\AppData\Local\Temp\autonomy_modes_sandbox_sbi3f6ox\l_empty_r0"）。 / [MdCG 三档自治] MDCG_AUTONOMY=full 但准入读数不满足：缺 R1、… |
 | `md_cg.test_b4_shard_dir_selfheal` | - B4-D5·生产链自愈也告警（stderr 含「缺失」与 _index_log） |
-| `md_cg.test_b4_shard_dir_selfheal_guard` | File "C:\Users\Raven243\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 615, in _rmtree_unsafe / onerror(os.scandir, path, sys.exc_info()) / File "C:\Users\Raven243\AppData\Local\Programs\Python\Python311\Li… |
+| `md_cg.test_b4_shard_dir_selfheal_guard` | File "~\AppData\Local\Programs\Python\Python311\Lib\shutil.py", line 615, in _rmtree_unsafe / onerror(os.scandir, path, sys.exc_info()) / File "~\AppData\Local\Programs\Python\Python311\Li… |
 | `md_cg.test_c8_search_rrf_gates` | FAIL P6a MdCGOS.search 源码引用共享门控 apply_retrieval_gates / OK   P6a MdCGOS.search_rrf 源码引用共享门控 apply_retrieval_gates / OK   P6b MdCGSecure.search_rrf 经 super().search_rrf 委托（不自建门控） |
 | `md_cg.test_ccg_prose` | PASS D1 超长截断带省略号 120 / FAIL E1 回包有内容 0 / PASS E2 每条都带 plain |
-| `md_cg.test_export_snapshots` | PermissionError: export：辅助存储根无法解析，导出落点不可校验（fail-closed 拒）：MDCG_AUX_ROOT 归一后末段是 Windows 保留设备名（'C:\\Users\\Raven243\\AppData\\Local\\Temp\\mdcg-export-xi7s8jg0\\aux'）：GetFullPathNameW 可能把整个目录吞成设备路径（\\.\aux 形态，目录语义静默丢失）；较新 … |
+| `md_cg.test_export_snapshots` | PermissionError: export：辅助存储根无法解析，导出落点不可校验（fail-closed 拒）：MDCG_AUX_ROOT 归一后末段是 Windows 保留设备名（'~\\AppData\\Local\\Temp\\mdcg-export-xi7s8jg0\\aux'）：GetFullPathNameW 可能把整个目录吞成设备路径（\\.\aux 形态，目录语义静默丢失）；较新 … |
 | `md_cg.test_fuzzy_substring_equivalence` | Diff is 7033 characters long. Set self.maxDiff to None to see it. / ---------------------------------------------------------------------- / Ran 6 tests in 0.442s |
 | `md_cg.test_g1_tenant_sharing` | - ⑥共享签发：两 actor 得同一把 DEK / - ⑥d重建读方仍是同一把 DEK / - ②b批量只写 1 条 read_cross_actor_batch（O(1) 不放大） |
 | `md_cg.test_generation_guard` | [PASS] 四·调用点 —— 1 处调用全在函数体内：main:5803 / == 五 键集对拍：cg(op=info) 真调（临时 root） == / [FAIL] 五·键集 —— 既有键集被改动：多出 ['flush_state', 'full', 'node_count', 'write_gate'] / 丢失 ['bucket_scope', 'buckets', 'ccg_by_layer', 'neg_memory_co… |

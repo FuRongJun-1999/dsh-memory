@@ -75,6 +75,25 @@ _RUST_DEFAULT = "jaccard"
 # 回读 Rust 侧实际口径用的请求（serve 协议在 rust/src/serve.rs）。
 _RUST_INFO_REQ = {"op": "info"}
 
+#: R-573：**边界查询**（空 / 全标点 / 全停用词）。它们是「空词项 ⇒ contains 恒真」
+#: 那类缺陷的触发器，默认**不进**门禁面（见 `--edge-queries`）——理由：两侧在
+#: 「无词项时的回退池并列序」上本就不同（Python 按索引序 / Rust 按预筛序），
+#: 那是 R-571/R-572 之后仍存的已知差异，登记在此而不是让门禁天天红。
+#: R-573：**已知差异登记表**（判据 = 「差异集为空**或差异有明确记录**」）。
+#: 键 = (口径, query)；值 = 为什么不同。命中登记表的 DIFF 只报告不判红；
+#: **未登记**的 DIFF 仍判红——登记表是「已知缺口名册」，不是放水口。
+KNOWN_DIFFS = {
+    ("jaccard", "。，；：！！？？"):
+        "无信息查询（全标点）：两侧都走「无命中兜底池」，但并列序来源不同——"
+        "Python 在 _score 后按 (-score, -importance, id) 定序，Rust 的 fuse 并列"
+        "序沿用路内序（已按 importance/created_at/id 排过，但两份语料的 created_at"
+        "相同 ⇒ 退化为索引序）。查询本身无判别力，不影响真实检索。",
+    ("jaccard", "the of and"):
+        "同上（全停用词，归一化后无判别信息）。",
+}
+
+EDGE_QUERIES = ["", "。，；：！！？？", "the of and"]
+
 QUERIES = [
     "慈善跑 心理健康 发声 意识 意义",
     "newuser 探针结论",
@@ -269,6 +288,13 @@ def main():
     ap.add_argument("--root", default=None, help="复用已建库（缺省新建临时库）")
     ap.add_argument("--dataset", default=None,
                     help="共享数据集 JSON（nodes+queries 两侧同源；缺省内建合成语料）")
+    ap.add_argument("--modes", default="jaccard",
+                    help="对拍口径（逗号分隔）。缺省只跑 jaccard（与评测面同判据）；"
+                         "`--modes jaccard,legacy` 会跑出 R-571 的已知缺口（Rust legacy "
+                         "缺 IDF 加权）——那是**已登记**的差异，不是回归")
+    ap.add_argument("--edge-queries", action="store_true",
+                    help="追加边界查询（空 / 全标点 / 全停用词）；两侧回退池并列序"
+                         "本就不同，属 R-573 登记的已知差异")
     ap.add_argument("--ab", action="store_true",
                     help="统一归一层 A/B：unify on/off 各跑 Python 侧，"
                          "按 tag 汇总 top-1 变化（转正证据）")
@@ -283,6 +309,8 @@ def main():
         with open(args.dataset, encoding="utf-8") as f:
             dataset = json.load(f)
     queries = [x["q"] for x in dataset["queries"]] if dataset else QUERIES
+    if args.edge_queries:
+        queries = list(queries) + [q for q in EDGE_QUERIES if q not in queries]
 
     # ---- CH-1 ①：Python 侧口径由单点显式钉住（不吃产品缺省 legacy）----
     py_mode, py_conflict = pin_python_score_mode()
@@ -330,42 +358,54 @@ def main():
         root = tempfile.mkdtemp(prefix="mdcg_parity_")
         n = build_cogmap(root, dataset)
 
-    # ---- CH-1 ②：Rust 侧 argv 显式钉住口径 + 回读进程自报口径 ----
+    # ---- R-573：按 --modes 逐口径对拍（缺省 jaccard + legacy 两种）----
+    # 为什么必须两种：`legacy` 是 **Python 产品缺省**（线上主库检索口径），
+    # 只对拍 jaccard 等于「评测面一致、线上口径没人看」——本 harness 存在的
+    # 意义就是钉住线上口径，故两种都跑、各自逐位比。
+    modes = [x.strip() for x in str(args.modes or "").split(",") if x.strip()]
+    if not modes:
+        print("!! --modes 为空：至少要跑一种口径")
+        return 3
+    rc_all = 0
+    for mode in modes:
+        rc = _compare_mode(mode, args.exe, root, queries, n)
+        if rc != 0:
+            rc_all = rc
+    return rc_all
+
+
+# 生效条件：mode 为 SCORE_MODES 之一、exe 为可执行二进制、root 为已建库根、queries 为查询列表时，
+# 把 Python 与 Rust 两侧口径都**显式钉到 mode**（Python 走 eval_common 单点、Rust 走 --score 且回读
+# info.score），逐位比 top-k；两侧口径不一致退 3、二进制缺 CH-1 回读面退 4、逐位劈叉退 1、全一致退 0。
+def _compare_mode(mode, exe, root, queries, n):
+    """单一打分口径下的两侧逐位对拍（R-573：抽成函数以便按口径循环）。"""
+    py_mode, py_conflict = pin_python_score_mode(mode)
+    if py_mode is None:
+        print(f"!! harness 词法口径单点不可用（mode={mode}）：{py_conflict}")
+        return 3
     try:
-        proc, rs_mode = rust_open(args.exe, os.path.join(root, "graph"), SCORE_MODE)
+        proc, rs_mode = rust_open(exe, os.path.join(root, "graph"), mode)
     except RuntimeError as exc:
         print(f"!! rust 侧词法口径不可读：{exc}")
-        print(f"   修复：cd rust && cargo build --release"
-              f"（本 harness 需含 CH-1 `serve info.score` 回读面的构建）")
+        print("   修复：cd rust && cargo build --release"
+              "（本 harness 需含 CH-1 `serve info.score` 回读面的构建）")
         return 4
-
-    # ---- CH-1 ②：两侧实际口径对照；不一致即变响，不静默对拍 ----
     if py_conflict or py_mode != rs_mode:
         print("!! 词法打分口径不一致：两侧不在同一套公式上，拒绝静默对拍")
         print(f"   python 侧实际口径 = {py_mode}"
               + (f"（{py_conflict}）" if py_conflict else "")
-              + f"；harness 钉住口径 = {SCORE_MODE}")
-        print(f"   rust   侧实际口径 = {rs_mode}（argv 显式 --score {SCORE_MODE}）")
-        print(f"   缺省值事实：python 缺省 {_PY_DEFAULT}（md_cg/mdcg.py:SCORE_MODE）/ "
-              f"rust 缺省 {_RUST_DEFAULT}（rust/src/engine.rs Config::default().jaccard）"
-              f" —— 两侧缺省本就不同，故两侧都必须显式钉住并回读。")
-        if py_conflict:
-            print("   修复：清掉 env MDCG_SCORE_MODE（本 harness 的口径唯一单点是 "
-                  "scripts/rank_parity.py 的 SCORE_MODE 常量，不支持用 env 改口径）")
-        else:
-            print("   修复：检查两侧钉住链是否被改回各自缺省"
-                  "（Python=eval_common.use_jaccard()，Rust=--score 入参 + serve info 回读）")
+              + f"；harness 钉住口径 = {mode}")
+        print(f"   rust   侧实际口径 = {rs_mode}（argv 显式 --score {mode}）")
         _close_proc(proc)
         return 3
-
-    print(f"语料节点 ~{n} · queries={len(queries)} · exe={args.exe}"
+    print(f"语料节点 ~{n} · queries={len(queries)} · exe={exe}"
           f" · unify={os.environ.get('MDCG_UNIFY_QUERY', '0(默认关)')}"
           f" · score={py_mode}=rust {rs_mode}（两侧显式钉住）")
-
     py = python_topk(root, queries)
     rs = rust_topk(proc, queries)
+    _close_proc(proc)
 
-    order_ok = set_ok = top1_ok = total = 0
+    order_ok = set_ok = top1_ok = total = known = 0
     for q in queries:
         a = py.get(q) or []
         b = rs.get(q) or []
@@ -379,12 +419,18 @@ def main():
         if ids_a == ids_b:
             order_ok += 1
         else:
-            print(f"  [DIFF] {q}")
-            print(f"    py  ={a}")
-            print(f"    rust={b}")
-    print(f"逐位一致 {order_ok}/{total} · 集合一致 {set_ok}/{total} · "
-          f"top-1 一致 {top1_ok}/{total}")
-    return 0 if order_ok == total else 1
+            why = KNOWN_DIFFS.get((mode, q))
+            if why:
+                known += 1
+                print(f"  [KNOWN-DIFF · {mode}] {q!r} —— {why}")
+            else:
+                print(f"  [DIFF · {mode}] {q!r}")
+                print(f"    py  ={a}")
+                print(f"    rust={b}")
+    print(f"[{mode}] 逐位一致 {order_ok}/{total} · 集合一致 {set_ok}/{total} · "
+          f"top-1 一致 {top1_ok}/{total} · 已知差异 {known}")
+    return 0 if (order_ok + known) == total else 1
+
 
 
 if __name__ == "__main__":

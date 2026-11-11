@@ -33,7 +33,7 @@
 | mdcos 面板 | `md_cg/mdcos.py:2282` / `:2292` / `:2303` / `:1912-1924` | `predict_routes(...)`、`predict_feedback(predicted_node_id, actual_node_id=None, hit=None, note="", actor="predict", sync_self=True)`、`predict_stats(...)`、`insight(action="explore"/"learn")` | 高层入口；predict_feedback **无 channel 参数**（缺口 G5） |
 | 输出端口对照 | `md_cg/sustain.py:230` / `:297` | `mutual_watch(cg, peer, *, restart_cmd=None, d=None, interval, restart_cooldown, fresh_timeout, poll=0.5, spawner=None)` | #25 既有最小具身形态；本实验是其**环境侧**补充，不替换 |
 
-**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py:62`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py:36`）、`_reflection.jsonl`（`md_cg/metacognition.py:105`）、`_self_state.jsonl`（`md_cg/self_state.py:74`）。统一形态：`type`/`t`/`actor` 前置字段 + `append_jsonl` 失败不阻塞（如 `md_cg/predict.py:86-90`）。本实验新增 **`_gridworld.jsonl`** 同构留痕（§5）。
+**账本同构约定**：既有 append-only jsonl——`_prediction.jsonl`（`md_cg/predict.py`）、`_learn.jsonl`（`:724`）、`_explore.jsonl`（`md_cg/autonomy.py`）、`_reflection.jsonl`（`md_cg/metacognition.py`）、`_self_state.jsonl`（`md_cg/self_state.py::jsonl`）。统一形态：`type`/`t`/`actor` 前置字段 + `append_jsonl` 失败不阻塞（如 `md_cg/predict.py`）。本实验新增 **`_gridworld.jsonl`** 同构留痕（§5）。
 
 ---
 

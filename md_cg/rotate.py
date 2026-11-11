@@ -106,7 +106,7 @@ class Rotator:
         self.active = os.path.join(root, basename + ".jsonl")
         self.archive = os.path.join(root, archive_name)
         self.index_name = index_name
-        # issue #521：`FileLock` 自己会补 ".lock"（fsutil.py:124）⇒ 此处**只给不含 .lock 的基名**，
+        # issue #521：`FileLock` 自己会补 ".lock"（fsutil.py:107）⇒ 此处**只给不含 .lock 的基名**，
         # 否则 `basename.rotate.lock` + `.lock` = `…rotate.lock.lock`（后缀拼接职责重叠）。
         # ★ 形态（本条正文自带）：「不在清单里 ≠ 不存在；做差集前必须先判『清单是否穷举』」。
         self.lock_path = os.path.join(root, lock_name or

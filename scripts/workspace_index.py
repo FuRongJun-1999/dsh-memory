@@ -56,6 +56,10 @@ DIR_ROLES = {
              ["README.md", "exec_cmd.py", "exec.py"]),
     "skills": ("灵枢自我认知技能包（管线生成的条件单元投影，随插件分发）",
                ["README.md", "plugin.json"]),
+    "server": ("服务器侧运行时（HTTP 常驻 / 维护脚本 / 密钥初始化）——"
+               "2026-11-10 从服务器回流进仓，部署面唯一来源",
+               ["mdcg_http.py", "maintain.py", "seal_default_private.py"]),
+    "_archive": ("归档区（历史批次产物与旧版分册；不进发布面，只供溯源）", []),
     "src": ("DSH 插件 TypeScript 源码（构建产物落 lib/）",
             ["index.ts", "tools.ts", "bridge.ts"]),
     "dsh": ("DSH profile 配置样例与插件启停脚本",
@@ -88,6 +92,7 @@ DIR_ROLES = {
 # 根级文件（同上：未登记即亮红）
 ROOT_FILES = {
     "README.md": "对外主入口（定位 / 核心亮点 / 平台全景 / 接入 / 评测 / 纪律）",
+    "AGENTS.md": "本树地基分册（权威侧裁定 / 部署判据 / 不许项）——2026-11-09 起入库",
     "LICENSE": "许可",
     "package.json": "npm 包清单（@furongjun1999/dsh-memory，bin 入口与脚本）",
     "package-lock.json": "npm 锁文件（npm ci 可复现）",

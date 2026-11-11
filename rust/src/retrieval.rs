@@ -46,6 +46,37 @@ fn like(doc: &Doc, terms: &[String]) -> bool {
 /// `_lexical`：LIKE 预筛 → 覆盖率打分。
 ///
 /// `cap` 对齐 `GLOBAL_CAP`（评测侧 `unlock_global_cap()` 置 1e9 → 不截断）。
+/// R-571（2026-11-10 审计 P2 外围 1）：单 term 的 IDF——与 Python
+/// `md_cg/mdcg.py::idf_of` **同一算术**（`log1p((N-df+0.5)/(df+0.5))`，
+/// 亦与 `bm25.py` 的 IDF 同式）。修前 Rust 的 legacy 口径只有
+/// `|qb∩db|/|qb|`：分数只有 k/|qb| 几个离散档，文档一多就大面积同分、
+/// 名次退化为写入序（#363 在 Python 侧修过，Rust 侧一直没跟上）。
+pub fn idf_of(df: usize, n_docs: usize) -> f64 {
+    if n_docs == 0 {
+        return 0.0;
+    }
+    let df = df.min(n_docs) as f64;
+    let n = n_docs as f64;
+    ((n - df + 0.5) / (df + 0.5)).ln_1p()
+}
+
+/// 查询 bigram 在**本批候选池**里的文档频次（df）——统计面与 Python `_score`
+/// 的 `_df` 同口径（「scoped to the current eligible pool」：只统计本次候选批，
+/// 不扫全库、不读盘）。返回与 `qb` 等长的计数向量（顺序即 qb 顺序）。
+pub fn query_df(docs: &[Option<Doc>], cand: &[usize], qb: &[String]) -> Vec<usize> {
+    let mut df = vec![0usize; qb.len()];
+    for &i in cand {
+        if let Some(d) = docs[i].as_ref() {
+            for (k, g) in qb.iter().enumerate() {
+                if d.stripped.contains(g.as_str()) {
+                    df[k] += 1;
+                }
+            }
+        }
+    }
+    df
+}
+
 pub fn lexical(
     docs: &[Option<Doc>],
     cand: &[usize],
@@ -61,6 +92,14 @@ pub fn lexical(
     let qnorm = crate::text::normalize_en(query);
     let qb = bigrams(&qnorm);
     let qbl = qb.len() as f64;
+
+    // R-572/573：**没有可用查询 ⇒ 零候选**（不落兜底池）。
+    // Python 侧空 query / 全标点 / 全停用词在归一化后就没有词项，检索面直接给空；
+    // 修前 Rust 会走「无命中兜底池」把整库前 cap 条当结果返回 —— 与 Python 相反，
+    // 而且正是审计 P2 描述的「全标点查询返回全库」形态。
+    if terms.is_empty() && qb.is_empty() {
+        return Vec::new();
+    }
 
     // 预筛：命中数（hits）；同时记住候选全集下标以便回退
     let mut hits: Vec<usize> = Vec::new();
@@ -78,11 +117,38 @@ pub fn lexical(
     let fallback: Vec<usize>;
     let picked: &[usize] = if hits.is_empty() {
         let c = cand.len().min(cap as usize);
-        fallback = cand[..c].to_vec();
+        // R-572/573（2026-11-10）：**无命中时的兜底池顺序要与 Python 同口径**。
+        // Python `mdcos._lexical` 的兜底是 `cut_order="importance_fallback"`：
+        // 按 (importance desc, created_at desc, id asc) 定序——确定可复算；
+        // 修前 Rust 直接用候选枚举序，于是空 / 全标点 / 全停用词查询两侧的
+        // 兜底池顺序不同（对拍 3 条 DIFF 全在这里）。
+        let mut fb: Vec<usize> = cand[..c].to_vec();
+        fb.sort_by(|&a, &b| {
+            let da = docs[a].as_ref();
+            let db = docs[b].as_ref();
+            let (ia, ca, ida) = da
+                .map(|d| (d.importance, d.created_at, d.id.as_str()))
+                .unwrap_or((0.0, 0.0, ""));
+            let (ib, cb, idb) = db
+                .map(|d| (d.importance, d.created_at, d.id.as_str()))
+                .unwrap_or((0.0, 0.0, ""));
+            ib.partial_cmp(&ia)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then(cb.partial_cmp(&ca).unwrap_or(std::cmp::Ordering::Equal))
+                .then(ida.cmp(idb))
+        });
+        fallback = fb;
         &fallback
     } else {
         &hits
     };
+
+    // R-571：legacy 口径需要 df 与文档数。**统计面 = LIKE 预筛后的池**（`picked`）——
+    // 与 Python `_lexical` 的 `_score(hits, …)` 同口径：那边传进来的就是 hits，
+    // 不是全索引。用全候选池会让 df/N 系统性偏大，IDF 权重整体偏移（本轮实测：
+    // 30 vs 24 的池子下 10 条查询有 1 条名次不同）。
+    let n_docs = picked.len();
+    let df: Vec<usize> = if jaccard { Vec::new() } else { query_df(docs, picked, &qb) };
 
     let mut out = Vec::with_capacity(picked.len());
     for &i in picked {
@@ -101,7 +167,23 @@ pub fn lexical(
                 0.0
             }
         } else if qbl > 0.0 {
-            cap_hit as f64 / qbl
+            // R-571：legacy = **IDF 加权覆盖度** Σidf(q∩d)/Σidf(q)（对齐 Python #363）。
+            // 分母含**全部**查询 bigram：池里不存在的 gram（df=0）拿最大 idf——
+            // 「池里没有」本身是判别信息，剔除会让「命中全部池内 gram」的文档恒得 1.0。
+            let mut total = 0.0f64;
+            let mut hit = 0.0f64;
+            for (k, g) in qb.iter().enumerate() {
+                let w = idf_of(df.get(k).copied().unwrap_or(0), n_docs);
+                total += w;
+                if d.stripped.contains(g.as_str()) {
+                    hit += w;
+                }
+            }
+            if total > 0.0 {
+                hit / total
+            } else {
+                0.0
+            }
         } else {
             0.0
         };
@@ -110,7 +192,7 @@ pub fn lexical(
         let tag_bonus = if d
             .tags
             .iter()
-            .any(|t| query.contains(t.as_str()) || t.contains(query))
+            .any(|t| !query.is_empty() && (query.contains(t.as_str()) || t.contains(query)))
         {
             0.05
         } else {
@@ -133,7 +215,9 @@ pub fn entity(docs: &[Option<Doc>], cand: &[usize], query: &str) -> Vec<Hit> {
             None => continue,
         };
         let hit = d.tags.iter().any(|t| {
-            t.chars().count() >= 2 && (query.contains(t.as_str()) || t.contains(query))
+            t.chars().count() >= 2
+                && !query.is_empty()
+                && (query.contains(t.as_str()) || t.contains(query))
         });
         if hit {
             out.push(Hit { idx: i, score: 1.0 });

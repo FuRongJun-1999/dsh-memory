@@ -136,7 +136,7 @@ DEFAULT_MAX_ITEM_TOKENS = 250
 # （该模块 docstring 逐字点名 `exp(-t/τ)` 为 bug）；本模块**不写任何指数核**。
 #: γ（衰减率）可配 env —— 与 `MDCG_SPREAD_DECAY` 同款：缺失/非法即回落缺省。
 TEMPORAL_GAMMA_ENV = "MDCG_TEMPORAL_GAMMA"
-#: 半衰期真源 = `links.DECAY_DAYS`（30 天，`md_cg/links.py:53`）——不复制字面量，
+#: 半衰期真源 = `links.DECAY_DAYS`（30 天，`md_cg/links.py:18`）——不复制字面量，
 #: 由 `temporal_gamma()` 现取；此处只写明「γ 缺省 = ln2 / 半衰期」这一换算。
 #: 单位口径（**最易错处**）：γ 是「每天」的速率，故 Δt 必须**以天为单位**喂入。
 TEMPORAL_DT_UNIT = "day"
@@ -1254,7 +1254,7 @@ class MdCGOS(MdCG):
             pass
         return self._index_gen
 
-    # 生效条件：node_id 与 entry 给定；转调父类 _set_index_entry 后调用 _on_index_mutation——所有 `_stage` 调用点经 `self._set_index_entry` 汇流（mdcg.py:3223-3225），故本覆盖即覆盖**全部索引突变入口**，无需在 mdcg.py 另写第二份口径；
+    # 生效条件：node_id 与 entry 给定；转调父类 _set_index_entry 后调用 _on_index_mutation——所有 `_stage` 调用点经 `self._set_index_entry` 汇流（mdcg.py:4663-3225），故本覆盖即覆盖**全部索引突变入口**，无需在 mdcg.py 另写第二份口径；
     def _set_index_entry(self, node_id, entry):
         super()._set_index_entry(node_id, entry)
         self._on_index_mutation(node_id)
@@ -1263,7 +1263,7 @@ class MdCGOS(MdCG):
     def _move_layer(self, node_id, to_layer, reason="", override=False):
         """issue #322（复核补）：搬迁也是同 id 的读改写，必须与 add 共用一把锁。
 
-        父类实现（`md_cg/mdcg.py:5436`）直接调 `self._write_node`，**不经 add**
+        父类实现（`md_cg/mdcg.py:4747`）直接调 `self._write_node`，**不经 add**
         ⇒ 只锁 add 覆盖不到它：M 进程读到旧位置后慢写新层、A 进程同时 add 同 id，
         盘面最终只剩搬迁写下的旧正文，A 已应答的新值消失（探针
         `.tmp/u06/probe_move_add.py` 实测 3/3 轮新值不在盘）。本覆盖在库层收口，
@@ -7297,7 +7297,7 @@ class MdCGSecure(MdCGOS):
             return declared
         # issue #322（复核补）：**继承读必须看到他进程已落盘的密级**。
         # 病象：`subgraph.node_sensitivity` 优先取**本进程内存索引**的
-        # `sensitivity` 键（subgraph.py:352-356），而跨进程代际感知
+        # `sensitivity` 键（subgraph.py:383-356），而跨进程代际感知
         # （`_maybe_reload_index`）此前只在读面/部分写面接线——同 id 两进程
         # 「A 声明 internal 覆写、B 未声明继承」时，B 按**陈旧索引**（seed 的
         # public）落盘，把 A 刚写的 internal 静默降级（探针

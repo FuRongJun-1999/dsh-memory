@@ -120,7 +120,7 @@ def node_state(cg, it: dict, *, kind: str = KIND) -> dict:
     """单条条目的落库判据：**读节点自己的 doc_ref**，不读水位台账。
 
     判据 = `hash` 与 `lineno/end` **全等**才算已索引。为什么不看 id：
-    `docindex.node_id` 是 `path#heading_path` 寻址（docindex.py:294-299），
+    `docindex.node_id` 是 `path#heading_path` 寻址（docindex.py:295-299），
     同标题换正文时 **id 不变而 hash 变**——「id 撞即跳」会把漂移判成已索引、
     静默放过（N203 的静默正是这么来的）。
     为什么不看 `Ledger` 水位：水位在活库根、且记的 rel 与改写后的

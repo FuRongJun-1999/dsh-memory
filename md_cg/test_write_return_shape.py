@@ -6,7 +6,7 @@
 读成**未提交**；而按 `ok` 判的调用方会把**待审**读成**已提交**（#109 报的那一面）。
 两面同源：**工具面的 committed 不是恒在的判据键**。
 
-权威依据：`md_cg/protocol.py:57-59` 的 `WRITE_TRIO` 铁律（write 任一形态必含
+权威依据：`md_cg/protocol.py:61-59` 的 `WRITE_TRIO` 铁律（write 任一形态必含
 ok/id/committed——「客户端据此判定『是否落盘』而非猜测」）与
 `docs/mdcg/灵枢记忆动词协议_v1.0-draft.md:28/:31-32/:43`。
 

@@ -53,8 +53,11 @@ ITEMS = [
     # R-304（2026-11-10）：此前 6 个 workflow **无一**调用 run_tests.py，147 目标的
     # Python 套件完全在 CI 之外；本项把它接进发布门禁。串行（--jobs 1）——并发
     # 下多条测试共享库根会互相踩（见 known-red.md 的 flaky 标注）。
+    # R-304 补正（2026-11-10）：本项实测 **1500s 量级**（4 条已知超时各 300s），
+    # 而门禁统一超时是 900s ⇒ 这一项**永远超时**、永远红。给单项超时（第三元），
+    # 不给全门禁放水：其余 13 项仍按 900s 判。
     ("Python 全量套件", [PY, "scripts/run_tests.py", "md_cg", "--jobs", "1",
-                    "--timeout", "300"]),
+                    "--timeout", "300"], 2400),
 ]
 
 TIMEOUT = 900
@@ -67,24 +70,28 @@ def main():
     a = ap.parse_args()
 
     if a.list:
-        for i, (name, argv) in enumerate(ITEMS, 1):
-            print("%2d  %-18s %s" % (i, name, " ".join(argv)))
+        for i, item in enumerate(ITEMS, 1):
+            print("%2d  %-18s %s" % (i, item[0], " ".join(item[1])))
         print("\n共 %d 项" % len(ITEMS))
         return 0
 
     rows = []
     t_all = time.time()
-    for i, (name, argv) in enumerate(ITEMS, 1):
+    for i, item in enumerate(ITEMS, 1):
+        name, argv = item[0], item[1]
+        # 单项超时（第三元可选）：缺省仍用全局 --timeout，避免「一项超时」变成
+        # 「全门禁放水」；只有确实需要更久的项（全量套件）才单独声明。
+        item_timeout = item[2] if len(item) > 2 else a.timeout
         t0 = time.time()
         try:
             r = subprocess.run(argv, cwd=ROOT, capture_output=True,
                                encoding="utf-8", errors="replace",
-                               timeout=a.timeout)
+                               timeout=item_timeout)
             rc = r.returncode
             tail = ((r.stdout or "") + (r.stderr or "")).strip().splitlines()
         except subprocess.TimeoutExpired:
             rc = -1
-            tail = ["超时 > %ds" % a.timeout]
+            tail = ["超时 > %ds" % item_timeout]
         dt = time.time() - t0
         rows.append((i, name, rc, dt, tail))
         print("%s %2d %-18s rc=%-3d %6.1fs  %s"

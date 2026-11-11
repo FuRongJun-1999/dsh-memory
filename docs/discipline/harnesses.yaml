@@ -55,8 +55,10 @@ injection:
     plugin-skill: [SKILL.md]
     # DSH 是配置键注入（personaPrefix），无文件级竞争面 —— 显式声明为空，不参与祖先链发现
     system-prompt-key: []
-  # 仓根**允许**存在的槽位件：root AGENTS.md 是本地私有件（by design，见 codebuddy-local target）。
-  # 其余槽位件一旦出现在仓根，按 slots 声明顺序会遮蔽本地私有件 → 判硬失败。
+  # 仓根**允许**存在的槽位件。2026-11-10 现状变更：仓根 AGENTS.md 自 a790a794 起是**追踪件**
+  # （本仓地基分册文档，承载「服务器 mdcg 不许就地改」硬规则），不再是纪律投影件；本机
+  # CodeBuddy 的会话注入件已随仓库边界上移到仓外父级（D:\wook\AGENTS.md），本仓不裁决它。
+  # root_allow 保留：宿主仍会读到仓根这份 AGENTS.md，它出现在仓根是 by design，不判遮蔽。
   root_allow: [AGENTS.md]
   # 祖先链上溯终点：filesystem = 一路查到盘根（仓外命中只报告）；repo = 只查仓内。
   chain_scope: filesystem
@@ -258,8 +260,16 @@ targets:
   # —— 本地私有注入件（.gitignore，不入公开仓）：只校验，不渲染 ——
   # 它是「纪律本体 + 本地增强」的手工件（§1 设计者视角含本机路径、§0.6 工具规范、§5 运维注记），
   # full 模板渲染会覆盖这些本地增强段，故 render: false（禁写盘）。
+  #
+  # R-575（2026-11-10）**停用**：本 target 的前提已不成立 —— 它声明「仓根 AGENTS.md = 本机
+  # CodeBuddy 会话注入件（.gitignore 的本地私有件）」，但 a790a794（2026-11-09）起仓根
+  # AGENTS.md 已是**追踪件**（地基分册文档，55 行，承载「服务器不许就地改」硬规则）；
+  # 真正的本机 CodeBuddy 注入件随仓库边界上移到**仓外父级** `D:\wook\AGENTS.md`，
+  # 不在本仓裁决面（CI / 裸 clone 里根本不存在）。实测：盘上 2,508 B ≠ 渲染 12,248 B，
+  # 逐字节比较必红 —— 这不是漂移，是**声明指向错了文件**。故 enabled: false，条目保留
+  # 以备边界回退（若将来又出现仓内的本机私有注入件，改回 true 并核对 path 即可）。
   codebuddy-local:
-    enabled: true
+    enabled: false
     render: false
     transport: file
     slot: codebuddy-session

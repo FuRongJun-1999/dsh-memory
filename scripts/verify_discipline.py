@@ -384,18 +384,56 @@ def check(target, src, repo, allow_missing):
 
     # 字段级判据：默认 strict；target 的 verify_fields 可把某字段降为 advisory
     # （降级只对「清单/摘要形态的手工件」成立，且差异仍全量打印——不静默）。
+    #
+    # R-575（2026-11-10）：判据从「字段**子串**在场」改为 **rendered↔disk 逐字节比较**。
+    # 修前是 `norm(val) in body` —— 只要该串在文件任意位置出现过就算通过，于是实测两种
+    # 形态一律 [OK]：① 整块复制（同一段出现两次）；② 手改一行 / 行内插字。
+    # 修后分两类（判据边界写在判据里）：
+    #   ① 机器渲染目标（矩阵未声明 render:false）：本件**由渲染链路写出**，故全文必须与
+    #      重渲染结果**逐字一致**（与指针分支第四检同一判据；两侧仅归一末尾空白/换行）。
+    #      任何手改、多一份、少一行、顺序变动 ⇒ 判漂移。字段级比对保留为**定位面**：
+    #      逐字节不一致时仍逐条列出缺哪个字段，便于人直接看出改了哪一条。
+    #   ② 真·手工投影（render:false）：没有渲染基准可比，逐字节比较物理上不适用 ⇒
+    #      字段须以**整行**形态在场（norm 后整行相等），不再接受「子串藏在某行中间」。
     vf = target.get("verify_fields") or {}
     advisory_keys = {k for k, v in vf.items() if str(v).lower() == "advisory"}
 
+    manual = is_manual_target(target)
     body = norm(text)
+    disk_lines = {norm(x) for x in text.splitlines()}
     for i, n in enumerate(nodes, 1):
         for key in FIELD_ORDER:
             val = field_value(n, key)
-            if not val or norm(val) in body:
+            if not val:
+                continue
+            if (norm(val) in disk_lines) if manual else (norm(val) in body):
                 continue
             rec = {"no": i, "field": FIELD_LABEL[key], "key": key,
                    "id": n["id"], "text": norm(val)[:80]}
             (res["advisory"] if key in advisory_keys else res["missing"]).append(rec)
+
+    # ① 渲染目标的全文逐字节比较（R-575 的主判据）
+    if not manual:
+        try:
+            rendered = R.render(target, src, repo)
+        except Exception as e:                              # noqa: BLE001
+            # 重渲染不可用（合成矩阵 / 缺模板 / 缺真源）⇒ 判据体在本目标上**未执行**。
+            # 按本文件既有降级口径（同 count_scan_files 的 [降级]）：显式走 stderr 说明，
+            # 不静默退绿、也不把「判不了」冒充「判过了」。真实仓的 7 个在役渲染目标
+            # 全部可渲染（实测逐字节一致），此分支只在合成/缺件场景触发。
+            print("[降级] %s：重渲染不可用（%s: %s）——逐字节比较未执行，本目标退回字段级在场判定"
+                  % (target.get("_name"), type(e).__name__, e), file=sys.stderr)
+            res["render_match"] = None
+        else:
+            render_match = rendered.rstrip() == text.rstrip()
+            res["render_match"] = render_match
+            if not render_match:
+                res["missing"].append({
+                    "no": 0, "field": "全文", "key": "render_match", "id": "-",
+                    "text": "本件为渲染产物（variant=%s）：全文与重渲染结果逐字节不一致——手改"
+                            "任意正文 / 整块复制 / 少一行 / 顺序变动均判漂移；请重跑 "
+                            "`python scripts/render_discipline.py --target %s --write`"
+                            % (target.get("variant"), target.get("_name") or "?")})
 
     known = set()
     for n in nodes:
@@ -407,13 +445,9 @@ def check(target, src, repo, allow_missing):
     unknown = sorted(found - known)
     if unknown:
         res["orphans"] = unknown
-        for no in unknown:
-            snippet = ""
-            for line in text.splitlines():
-                if DECL_RE.search(line) and ("第 %d 条" % no) in line or ("第%d条" % no) in line:
-                    snippet = line.strip()[:100]
-                    break
-            res["orphans"] = res.get("orphans")
+        # 2026-11-10：原此处有一圈「为每条孤儿声明找一行原文」的循环，算出的 `snippet`
+        # 从未被使用（ruff F841），且循环体最后一句是 `res["orphans"] = res.get("orphans")`
+        # —— 自赋值，纯空转。孤儿声明只需要编号（下面是它唯一的消费面），故整段删除。
         res["orphan_detail"] = [{"no": no} for no in unknown]
 
     # 陈化检查：产物内嵌的真源指纹 vs 当前真源指纹（改真源未重渲染）

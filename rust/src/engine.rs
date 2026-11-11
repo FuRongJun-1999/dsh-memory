@@ -260,6 +260,15 @@ pub fn search_ranked(
     // 词表不可得/开关关 → 原样）。R-1：**两条路共用本行**，评测 CLI 不再
     // 漏过归一层。
     let query = prepare_query(atoms, query);
+
+    // R-572/573（2026-11-10）：**空查询零结果**（入口级，与 Python 同口径）。
+    // 归一化后为空的 query（空串 / 全标点 / 全停用词）在 Python 侧 `search_rrf`
+    // 入口就返回空；修前 Rust 会掉进「无命中兜底池」，把整库前 cap 条当结果——
+    // 那正是审计 P2 描述的「全标点查询返回全库」形态（也是两侧对拍 3 条 DIFF 的
+    // 唯一来源）。
+    if query.trim().is_empty() {
+        return Vec::new();
+    }
     let query = query.as_str();
 
     let mut ranked: Vec<(&str, Vec<Hit>)> = Vec::new();

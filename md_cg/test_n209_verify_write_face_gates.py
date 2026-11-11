@@ -11,7 +11,7 @@
      forbidden 明列「knowledge/self/anchor 层（不得改被验证内容）」）对任意
      clearance 可读的 knowledge 节点发 `verdict=weakened/confirmed` → 重写其
      frontmatter（confidence/evidence_count/positive|negative_evidence/evidence_log）；
-  ② `trust.mark_dependents` → `trust.set_state`（`md_cg/trust.py:697-698` 直写
+  ② `trust.mark_dependents` → `trust.set_state`（`md_cg/trust.py:747-698` 直写
      `cg._write_node(...)`）→ 把**任意层**依赖者（实证含 self 层）置 doubted：
      `MdCGSecure` 对 `set_state`/`set_verification`/`mark_dependents` 无任何覆盖，
      state/verification 写路径全程无层闸；

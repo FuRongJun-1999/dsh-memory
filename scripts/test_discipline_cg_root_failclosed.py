@@ -98,6 +98,18 @@ def _face_legs(name, path):
     legs = []
     if path.endswith(".json"):
         gate = json.loads(open(path, encoding="utf-8").read())["scripts"]["gate"]
+        # R-302 / R-304 之后 gate 链只剩一次 `scripts/run_gate.py` 调用，真正的腿清单
+        # 搬进了 run_gate.ITEMS（单一真源，14 项全部执行不短路）。判据面必须跟着**真源**
+        # 走，否则「门禁有没有跑纪律腿」这条断言会因为门禁重构而静默失效（本轮实测：
+        # 抽到 0 条腿 → 断言假红，而腿其实还在跑）。故此处解析间接层。
+        if "run_gate.py" in gate:
+            sys.path.insert(0, HERE)
+            import run_gate                                 # noqa: E402
+            for _label, argv in run_gate.ITEMS:
+                joined = " ".join(str(x) for x in argv)
+                if any(t in joined for t in _TOOLS):
+                    legs.append((name, _pin([str(x) for x in argv])))
+            return legs
         for leg in gate.split("&&"):
             leg = leg.strip()
             if any(t in leg for t in _TOOLS):

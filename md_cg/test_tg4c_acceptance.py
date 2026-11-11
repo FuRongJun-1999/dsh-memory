@@ -16,10 +16,12 @@ r"""g4c-20261011/t3 收口验收：写入侧六要素补齐（t1）· backfill �
   本文件是本次任务的唯一产物：绝不改任何实现文件。
 
 【本次实测结论（2026-10-11，t3 收口轮实测，与本文件当次运行输出一致）】
-  · t1（写入侧补齐）**已完整合入**：`MdCG._ensure_ccg_six`（mdcg.py:2273）在
-    写盘前被调用（mdcg.py:2748），其推导源函数 `MdCG._ccg_six_candidates`
-    （mdcg.py:2208）**六要素全有来源**，含「执行 ← comment.执行/执行方式」
-    （mdcg.py:2250-2254，与 backfill.derive_fields 同款口径）。
+  · t1（写入侧补齐）**已完整合入**：`MdCG._ensure_ccg_six` 在写盘前被调用，
+    其推导源函数 `MdCG._ccg_six_candidates` 六要素全有来源，含「执行 ←
+    comment.执行/执行方式」（与 backfill.derive_fields 同款口径）。
+    **行号已撤**（2026-11-11）：这两个符号在后续批次被并入 `nodefile` 的
+    CCG 六要素单点，当前树 grep 已无同名定义 —— 留死行号等于给读者指一条
+    不存在的路；历史结论本身不变，仍由本文件当次运行的读数复现。
   · 故 A01 实测 **6/6 行齐全、ratio=1.00、complete == True**——写入路径达标。
   · A02 回填链路独立成立（直写文件绕过写入侧补齐，故不被 A01 状态污染）：
     plan 判 backfillable → apply 后 complete=True → rollback 逐字节还原。

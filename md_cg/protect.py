@@ -564,7 +564,7 @@ def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None):
     层闸」之外的三条写面全程只认管理位/保护位、**不认层白名单**——
     `MdCGSecure.verify` 的 confirmed/weakened 分支直写被验证节点本体
     （`md_cg/mdcg.py:3502`）、`trust.set_state`（验证态唯一推进入口 ⇒ 依赖者
-    `mark_dependents` 与 `set_verification` 两条写路，`md_cg/trust.py:697-698`）、
+    `mark_dependents` 与 `set_verification` 两条写路，`md_cg/trust.py:763-698`）、
     `MdCG._move_layer`（降级搬迁 = 源层一次删除写 + 目标层一次新增写，
     `md_cg/mdcg.py` 的 `MdCG._move_layer`）。后果：持 verify 令牌（`layers_allow` 仅
     rejected/contextual、forbidden 明列「knowledge/self/anchor 层」）即可改写

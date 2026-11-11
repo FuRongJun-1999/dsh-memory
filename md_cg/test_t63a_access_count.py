@@ -37,7 +37,7 @@ frontmatter `access_count` 恒 0、`_index.json` 重建取 fm 仍 0。
      「可只写命中节点」钉成判据，防止退化成「每命中一次全盘重写整个库」。
 
 沙箱注记：全程在 tempfile 临时目录里造库（退出前 shutil.rmtree），**绝不碰
-真实 ~/.mdcg**；`_access.log` 路径取 `cg.access_log`（mdcg.py:1520 单点），
+真实 ~/.mdcg**；`_access.log` 路径取 `cg.access_log`（mdcg.py:2097 单点），
 不自己拼路径。
 """
 from __future__ import annotations

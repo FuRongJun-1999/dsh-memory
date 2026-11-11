@@ -59,10 +59,18 @@ pub fn is_zh(c: char) -> bool {
 pub fn expand_query_terms(query: &str) -> Vec<String> {
     let query = normalize_en(query);
     let mut terms: Vec<String> = Vec::with_capacity(12);
-    terms.push(query.clone());
+    // R-572（2026-11-10 审计 P2 外围 2）：**空词项不许进 terms**。
+    // 修前无条件 push —— 全标点 / 全停用词的 query 归一化后是空串，而下游
+    // `body.contains("")` **恒真** ⇒ 整库进候选池（召回等于不筛）。
+    if !query.is_empty() {
+        terms.push(query.clone());
+    }
 
     for w in query.split(is_split_char) {
         let w = w.trim();
+        if w.is_empty() {
+            continue;                     // R-572：空词项一律不进 terms
+        }
         if w.chars().count() >= 2 && !terms.iter().any(|t| t == w) {
             terms.push(w.to_string());
         }
