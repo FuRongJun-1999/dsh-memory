@@ -2888,6 +2888,20 @@ class MdCGOS(MdCG):
                 if _v is not None:        # 时间算子透传（None = 未启用，不入参）
                     kw[_k] = _v
             results, meta = self.search_rrf(query, **kw)
+            # 【外测诊断 2026-11-12】实测「同一 query：search 把资料卡排第 1（0.564），
+            # recall 的候选集里却 0 条（paths.lexical=1）」——断点在**候选生成**，不在过滤。
+            # 故按**实体标签直取**资料卡并入候选：确定性、与词法切词无关，卡不再依赖 lexical 命中。
+            try:
+                _extra = self._profile_candidates(query)
+                if _extra:
+                    _seen = {r[0].get("id") for r in results if r and r[0]}
+                    for _n, _sc, _q, _p in _extra:
+                        if _n.get("id") not in _seen:
+                            results.append((_n, _sc, _q, _p))
+                    if isinstance(meta, dict):
+                        meta["profile_injected"] = len(results) - len(_seen)
+            except Exception:            # noqa: BLE001 —— 注入面不拖崩召回
+                pass
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
@@ -3171,6 +3185,38 @@ class MdCGOS(MdCG):
         out.sort(key=lambda g: (-len(g["items"]), g["topic"]))
         return out
 
+
+    # 生效条件：query 非空；返回按实体标签命中的资料卡候选 [(node, score, qual, prov)]
+    def _profile_candidates(self, query, limit=6):
+        """按**实体标签**直取资料卡（外测实证：search 能排第 1，recall 候选集却没有）。
+
+        判据：卡的 tags 含 `person:` / `role:` / `place:` 前缀，且该实体名出现在 query 里。
+        不走词法切词——长句在 lexical 里可能只剩 1 个词，卡就进不来。
+        """
+        q = str(query or "")
+        if not q:
+            return []
+        out = []
+        for nid, rec in ((self.index or {}).get("nodes") or {}).items():
+            if not str(nid).startswith("profile-"):
+                continue
+            tags = (rec or {}).get("tags") or []
+            hit = False
+            for t in tags:
+                for pre in ("person:", "role:", "place:"):
+                    if str(t).startswith(pre) and str(t)[len(pre):] in q:
+                        hit = True
+                        break
+                if hit:
+                    break
+            if not hit:
+                continue
+            node = self.get(nid)
+            if node:
+                out.append((node, 1.0, {"path": "profile_entity"}, "profile_entity"))
+            if len(out) >= limit:
+                break
+        return out
 
     # 生效条件：pack 为 recall 装好的条目列表；返回按 created_at **升序**的时间线 [{"date","id","head"}]
     def _pack_timeline(self, pack):

@@ -163,8 +163,29 @@ def build(cg, dry_run=True, limit=None):
         tags += ["emo:" + w for w in aux["emotions"][:5]]
         # created_at 只在**已有卡**时透传（保持出生时刻）；新卡交给 add 取 now。
         # 传 None 会落到 add 的观测窗锚点计算上（`None + float` 直接炸）。
+        # 【外测请求 #2/#3】卡的 created_at 不能是**建卡时刻**：库历史到 2026-05、卡却落在 2026-11-11，
+        # 桶/日路径因此 bucket=0，卡只能靠词法进——而词法长句只给 1 条。
+        # 现取**最早事实日**（有 diary.date 就用它），并把它换算成时刻；推不出则不传（交给 add 取 now）。
+        _dates = sorted(f[0] for f in uniq if f[0])
+        _first_day = _dates[0] if _dates else ""
         _kw = {"layer": LAYER, "tags": tags, "importance": 0.6,
                "consistency": False}
+        # session 继承：取来源节点里出现最多的 session（多人物隔离时卡才不会被 session 过滤掉）。
+        import time as _t
+        _sess = {}
+        for _f in uniq:
+            _n = cg.get(_f[1]) or {}
+            _s = ((_n.get("frontmatter") or {}).get("session"))
+            if _s:
+                _sess[_s] = _sess.get(_s, 0) + 1
+        if _sess:
+            _kw["session"] = sorted(_sess.items(), key=lambda x: -x[1])[0][0]
+        _prev_has_ts = (((prev or {}).get("frontmatter") or {}).get("created_at") is not None)
+        if _first_day and not _prev_has_ts:
+            try:
+                _kw["created_at"] = _t.mktime(_t.strptime(_first_day, "%Y-%m-%d"))
+            except ValueError:
+                pass
         _prev_ts = ((prev or {}).get("frontmatter") or {}).get("created_at")
         if _prev_ts is not None:
             _kw["created_at"] = _prev_ts

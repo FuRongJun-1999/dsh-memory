@@ -138,13 +138,23 @@ def _run_diary_checks():
     n_prof = sum(1 for i in ids if str(i).startswith("profile-"))
     ok(n_prof <= 3, "D10 资料卡配额生效（≤3）", (n_prof, ids[:6]))
     ok(rid in ids, "D11 正确的角色卡仍在 pack 里（没被配额误杀）", ids[:6])
+    return cg, rid
 
 
 def main2():
     print("=" * 70)
     print("情景层 v0.1：diary 声明 / 角色卡 / 人名闸 / 配额")
     print("=" * 70)
-    _run_diary_checks()
+    cg, rid = _run_diary_checks()
+    # ---- D12/D13（外测请求 #2 + 候选注入）----
+    _fm2 = (cg.get(rid) or {}).get("frontmatter") or {}
+    _d = _fm2.get("created_at")
+    _day = time.strftime("%Y-%m-%d", time.localtime(float(_d))) if _d else None
+    ok(_day == "2026-04-26", "D12 卡 created_at 取最早事实日（非建卡时刻）", _day)
+    _cand = cg._profile_candidates("沈知夏 姓名 年龄")
+    _cids = [n.get("id") for n, _a, _b, _c in _cand]
+    ok(rid in _cids, "D13 实体标签直取资料卡（候选注入可用）", _cids[:4])
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
