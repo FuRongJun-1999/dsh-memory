@@ -180,8 +180,19 @@ def build(cg, dry_run=True, limit=None):
             for _d, _nid, _snip in uniq:
                 _n = cg.get(_nid) or {}
                 _fm = _n.get("frontmatter") or {}
-                _dos_all = _dos.merge(_dos_all, _dos.extract(
-                    _n.get("content") or "", _fm.get("created_at"), _nid))
+                # ① 先并入**声明/LLM 填表**的档案（fm.dossier，带 ev_span、经原文复核）
+                # 档案可能落在 fm.dossier，也可能被未知 kwarg 收进 fm.extra.dossier，
+                # 两处都读（口径单点：先顶层，后 extra）。
+                _dec = _fm.get("dossier")
+                if not isinstance(_dec, dict):
+                    _dec = (_fm.get("extra") or {}).get("dossier")
+                if isinstance(_dec, dict) and _dec:
+                    _dos_all = _dos.merge(_dos_all, _dec)
+                # ② 再补**规则抽取**的档案（LLM 没填的字段由规则兜底；不覆盖已有值）
+                _rule = _dos.extract(_n.get("content") or "", _fm.get("created_at"), _nid)
+                for _fk, _fv in _rule.items():
+                    if not _dos_all.get(_fk):
+                        _dos_all[_fk] = _fv
         st["cards"] += 1
         st["facts"] += len(uniq)
         text = render(kind, name, uniq, dossier=_dos_all)
