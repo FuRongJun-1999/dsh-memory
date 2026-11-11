@@ -181,6 +181,13 @@ class _H(BaseHTTPRequestHandler):
 
     def _do_search(self):
         """`POST /search {"query": …, "k": …}` —— 按 `MDCG_BACKEND` 选后端（R-405c）。"""
+        # 鉴权与 `/mcp` **同一口径**：`/search` 也是对外面，不能因为「只读」就免鉴权
+        # （2026-11-11 部署后复核发现：初版漏了这一行，会把检索面开成匿名可读）。
+        _tok = (os.environ.get('MDCG_TOKEN') or '').strip()
+        if _tok:
+            _got = (self.headers.get('Authorization') or '').strip()
+            if _got != 'Bearer ' + _tok:
+                return self._send(401, {'error': 'unauthorized'})
         try:
             n = int(self.headers.get('Content-Length') or 0)
         except ValueError:
