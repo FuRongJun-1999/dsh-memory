@@ -87,25 +87,45 @@ def render(kind, name, facts, dossier=None):
         body.append(dept_line := "【档案】")
         for k in _ORDER:
             v = dossier.get(k)
-            if not v:
+            if v in (None, "", [], {}):
                 continue
-            # 值 + 陈述时刻（用括号注出，便于模型直接引用，不必自己换算）
-            body.append("- %s：%s%s" % (
-                k, v.get("value"),
-                "（%s）" % time.strftime("%Y-%m", time.localtime(float(v["t"])))
-                if v.get("t") else ""))
+            # 形态容错：标量可能是 {value,t} 也可能是裸值（写入方不止一个）。
+            _vv = v.get("value") if isinstance(v, dict) else v
+            _tt = v.get("t") if isinstance(v, dict) else None
+            _stamp = ""
+            if _tt:
+                try:
+                    _stamp = "（%s）" % time.strftime("%Y-%m", time.localtime(float(_tt)))
+                except (TypeError, ValueError, OSError):
+                    _stamp = ""
+            body.append("- %s：%s%s" % (k, _vv, _stamp))
         for k in _LIST_ORDER:
             v = dossier.get(k)
-            items = (v or {}).get("value") or []
+            # 形态容错：{"value": [...]} / 裸 list / 裸字符串 三种都认。
+            if isinstance(v, list):
+                items = v
+            elif isinstance(v, dict):
+                items = v.get("value") or []
+                if isinstance(items, str):
+                    items = [items]
+            elif isinstance(v, str):
+                items = [v]
+            else:
+                items = []
             if not items:
                 continue
             body.append("【%s】" % k)
             for it in items:
-                if not isinstance(it, dict):
-                    continue
-                parts = [str(x) for x in it.values() if x not in (None, "")]
-                if parts:
-                    body.append("- " + " | ".join(parts))
+                if isinstance(it, dict):
+                    # 跳过 `_raw` 这类内部证据键（键名以 _ 开头），不要把证据片段渲染成值
+                    parts = [str(x) for _kk, x in it.items()
+                             if not str(_kk).startswith("_")
+                             and x not in (None, "")]
+                    txt = " | ".join(parts)
+                else:
+                    txt = str(it)
+                if txt.strip():
+                    body.append("- " + txt)
         body.append("")
     for date, nid, snip in facts:
         body.append("- %s | %s（来源 %s）" % (date or "日期不明", snip, nid))

@@ -192,6 +192,27 @@ def main2():
        "N1 早期自我介绍不被事实窗口截断（dossier 扫全量 facts）", _b3[:160])
     ok("外出包里" not in _b3, "N2 合并期同样过地名闸（旧节点绕过写入复核也拦）")
 
+    # ---- S：dossier 形态容错（外部脚手架的裸 list / 裸值也要渲染）----
+    _root4 = tempfile.mkdtemp(prefix="shape_")
+    _cg4 = MdCGOS(_root4, actor="test")
+    _T4 = "我叫祁野，25，在渝中区半坡酒馆做晚班调酒师。曾在江北那家咖啡店做过一年学徒"
+    import os as _os4
+    _os4.environ["MDCG_ROLE_USER"] = "祁野"
+    _cg4.add("n1", _T4, role="user", consistency=False)
+    _cg4.add("n1", _T4, role="user", extra={"dossier": {
+        "姓名": "祁野",
+        "年龄": {"value": 25},
+        "经历": [{"单位": "江北咖啡店", "职位": "学徒", "_raw": "江北那家咖啡店做过一年学徒"}],
+        "家庭": {"value": [{"关系": "父", "职业": "钳工"}]},
+    }}, consistency=False)
+    profiles.build(_cg4, dry_run=False)
+    _b4 = (_cg4.get("profile-role-祁野") or {}).get("content") or ""
+    ok("【经历】" in _b4 and "【家庭】" in _b4,
+       "S1 裸 list / {value:list} 两种形态都渲染成区块", _b4[:200])
+    ok("姓名：祁野" in _b4 and "年龄：25" in _b4, "S2 标量为裸值时也能渲染")
+    ok("江北那家咖啡店做过一年学徒" not in _b4.split("【经历】")[1].split("【")[0],
+       "S3 _raw 证据键不进渲染值")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
