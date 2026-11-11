@@ -3197,7 +3197,8 @@ class MdCGOS(MdCG):
         if not q:
             return []
         out = []
-        for nid, rec in ((self.index or {}).get("nodes") or {}).items():
+        # G1a：从 cg.index 取回的 nodes 必须**先取快照**（并发写会 dictionary changed size）。
+        for nid, rec in list(((self.index or {}).get("nodes") or {}).items()):
             if not str(nid).startswith("profile-"):
                 continue
             tags = (rec or {}).get("tags") or []
