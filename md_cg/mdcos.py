@@ -3128,7 +3128,16 @@ class MdCGOS(MdCG):
                 _nid = str(it[1].get("id") or "")
                 _is_ev = 1 if _nid.startswith("profile-event-") else 0
                 return (_is_ev, -(float(it[1].get("score") or 0.0)))
-            _keep = {i for i, _ in sorted(_profs, key=_rank)[:_prof_cap]}
+            _keep = set()
+            # 【外测 ③ 回退 4→2】配额不能把「score 最高的那张」也按类型筛掉：
+            # 给 1 个豁免位，其余再按类型优先补足。
+            _by_score = sorted(_profs, key=lambda x: -(float(x[1].get("score") or 0.0)))
+            if _by_score:
+                _keep.add(_by_score[0][0])
+            for _i, _e in sorted(_profs, key=_rank):
+                if len(_keep) >= _prof_cap:
+                    break
+                _keep.add(_i)
             pack = [e for i, e in enumerate(pack)
                     if i in _keep or not str(e.get("id") or "").startswith("profile-")]
         timeline = self._pack_timeline(pack)
@@ -3206,6 +3215,15 @@ class MdCGOS(MdCG):
         if not q:
             return []
         out = []
+        # 【外测 2026-11-12】16/19 题是**第一人称提问**（「我全名咋写 / 多大来着 / 我住哪个城市」），
+        # query 里没有实体名 ⇒ 按字面匹配永远命中不了。语言上「我」就指向 speaker，
+        # 故：query 含自指且配置了 MDCG_ROLE_USER 时，优先注入该角色卡（确定性，不猜）。
+        import os as _os
+        _me = (_os.environ.get("MDCG_ROLE_USER") or "").strip()
+        if _me and any(w in q for w in ("我", "咱", "本人")):
+            _self_node = self.get("profile-role-" + _me)
+            if _self_node:
+                out.append((_self_node, 1.0, {"path": "profile_self"}, "profile_self"))
         _quota = dict(self._PROFILE_INJECT_QUOTA)
         _taken = {k: 0 for k in _quota}
         # G1a：从 cg.index 取回的 nodes 必须**先取快照**（并发写会 dictionary changed size）。
