@@ -186,13 +186,22 @@ def build(cg, dry_run=True, limit=None):
                 _dec = _fm.get("dossier")
                 if not isinstance(_dec, dict):
                     _dec = (_fm.get("extra") or {}).get("dossier")
-                if isinstance(_dec, dict) and _dec:
-                    _dos_all = _dos.merge(_dos_all, _dec)
                 # ② 再补**规则抽取**的档案（LLM 没填的字段由规则兜底；不覆盖已有值）
                 _rule = _dos.extract(_n.get("content") or "", _fm.get("created_at"), _nid)
+                # 【证据权重】自我介绍/声明的条目权重大于泛提；合并时弱者不得覆盖强者。
+                _w = _dos.weight_of(_n.get("content") or "")
                 for _fk, _fv in _rule.items():
-                    if not _dos_all.get(_fk):
-                        _dos_all[_fk] = _fv
+                    _fv = dict(_fv)
+                    _fv["w"] = _w
+                    _dos_all = _dos.merge(_dos_all, {_fk: _fv})
+                # 声明/LLM 填表的档案同样按该节点权重入账
+                if isinstance(_dec, dict) and _dec:
+                    for _fk, _fv in _dec.items():
+                        if _fk.startswith("_"):
+                            continue
+                        _fv = dict(_fv) if isinstance(_fv, dict) else {"value": _fv}
+                        _fv.setdefault("w", _w)
+                        _dos_all = _dos.merge(_dos_all, {_fk: _fv})
         st["cards"] += 1
         st["facts"] += len(uniq)
         text = render(kind, name, uniq, dossier=_dos_all)

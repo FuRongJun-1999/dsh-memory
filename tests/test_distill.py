@@ -68,6 +68,25 @@ def main():
     ok("姓名：沈知夏" in body, "E1 LLM 填表结果进了卡（档案区）", body[:120])
     ok("城市" not in body, "E2 被拒字段没进卡", body[:160])
 
+    # ---- C：城市值校验（原文有 ≠ 是地名）----
+    ok(not distill.is_place("外出包里"), "C1 方位短语不是地名")
+    ok(distill.is_place("渝中区") and distill.is_place("南宁"), "C2 地名通过（后缀/词典）")
+    _acc, _rej = distill.verify({"城市": "外出包里"}, "外出包里放着伞")
+    ok(not _acc and _rej and _rej[0]["reason"] == "not_a_place",
+       "C3 原文里有但非地名 ⇒ 拒收 not_a_place", _rej)
+
+    # ---- W：证据权重合并（强证据不得被弱证据覆盖）----
+    from md_cg import dossier as _d2
+    ok(_d2.weight_of("我叫沈知夏，24") == 3, "W1 自我介绍权重=3")
+    ok(_d2.weight_of("我把伞落在包里了") == 1, "W2 泛提权重=1")
+    _m = _d2.merge({}, {"城市": {"value": "南宁", "w": 3}})
+    _m = _d2.merge(_m, {"城市": {"value": "包里", "w": 1}})
+    ok(_m["城市"]["value"] == "南宁", "W3 弱证据不覆盖强证据", _m["城市"])
+    _m = _d2.merge(_m, {"城市": {"value": "渝中区", "w": 3}})
+    ok(_m["城市"]["value"] == "南宁", "W4 同权重非时间字段保留旧值（不覆盖）", _m["城市"])
+    _m = _d2.merge({"年龄": {"value": 24, "w": 3}}, {"年龄": {"value": 25, "w": 3}})
+    ok(_m["年龄"]["value"] == 25, "W5 时间可变字段（年龄）同权重取较新", _m["年龄"])
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

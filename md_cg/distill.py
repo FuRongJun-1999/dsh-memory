@@ -80,6 +80,23 @@ def span_of(value, text):
     return None
 
 
+#: 地名后缀（值必须带其一，或在已知地名词典里）。
+PLACE_SUFFIX = ("市", "区", "县", "路", "街", "镇", "州", "村", "岛", "港")
+#: 已知地名（可扩展；用于「南宁」「江北」这类无后缀写法）。
+PLACE_KNOWN = ("南宁", "江北", "渝中", "半坡", "江北市", "渝中区")
+
+
+# 生效条件：v 为城市候选值；形如地名（后缀命中或词典命中）返回 True
+def is_place(v):
+    """城市值校验：挡「外出包里 / 包里 / 家里」这类方位短语。"""
+    s = str(v or "").strip()
+    if not s:
+        return False
+    if any(s.endswith(x) for x in PLACE_SUFFIX):
+        return True
+    return any(x in s for x in PLACE_KNOWN)
+
+
 # 生效条件：filled 为 LLM 填的表（dict）、text 为原文；返回 (accepted, rejected)
 def verify(filled, text):
     """逐字段复核：命中保留并给 ev_span；未命中拒收并给原因。"""
@@ -93,6 +110,10 @@ def verify(filled, text):
         span = span_of(v, text)
         if span is None:
             rejected.append({"field": k, "value": v, "reason": "not_in_source"})
+            continue
+        # 字段级形态校验（目前只对城市）：原文有 ≠ 是地名
+        if k == "城市" and not is_place(v):
+            rejected.append({"field": k, "value": v, "reason": "not_a_place"})
             continue
         accepted[k] = {"value": v, "ev_span": span}
     return accepted, rejected
