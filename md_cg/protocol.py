@@ -199,7 +199,10 @@ VERB_SPECS = {
                 # created_at_date（2026-11-12）：pack 条目的**格式化日期**（YYYY-MM-DD）。
                 # 存在理由：`frontmatter.created_at` 是 epoch 浮点，下游 `str(v)[:10]` 会截出
                 # `1784043360` 这种假日期（外测脚手架真实踩过）。此字段是唯一正确格式化的出口。
-                "entry_optional": ("truncated", "created_at_date"),
+                # content_dated（2026-11-12）：正文里相对日期**内联补绝对日期**的版本
+                # （「上周五」→「上周五（2026-11-06）」）。存在理由：平行章节会被模型忽略，
+                # 只有正文内联标注才会被读到；换算必须由算法做，不能交给模型。
+                "entry_optional": ("truncated", "created_at_date", "content_dated"),
                 "entry_metadata_required": ("state", "reason", "verification_state"),
                 "entry_metadata_optional": ("verification_basis", "check_strength",
                                             "derived_from", "derived_relation",
