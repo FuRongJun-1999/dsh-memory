@@ -135,7 +135,10 @@ _check("K05 坏入参不抛：None / 非映射 / tags 含 None 与非字符串 �
        and _f({"tags": [None, 3, ""]}) is False)
 
 print("== E 组：单点面 ==")
-_CS = open(os.path.join(_REPO, "md_cg", "consistency.py"), encoding="utf-8").read()
+#: 源码面读**真源**：2026-11-11 结构归位后 `md_cg/consistency.py` 只是 PEP 562
+#: 转发 shim（零逻辑），对着它 `split("def _is_discipline(...)")` 直接 IndexError。
+_CS = open(os.path.join(_REPO, "md_cg", "govern", "consistency.py"),
+           encoding="utf-8").read()
 _PD = open(os.path.join(_SCRIPTS, "discipline_nodes.py"), encoding="utf-8").read()
 _MW = open(os.path.join(_REPO, "md_cg", "whitebox_kb", "wisdom", "migrate_wisdom.py"),
            encoding="utf-8").read()
@@ -210,13 +213,13 @@ _ALIAS_OLD = _j("    tags = {str(t).lower() for t in (fm.get(\"tags\") or [])}",
                "    if tags & set(DISCIPLINE_TAGS):",
                "        return True",
                "    return str(node_id).startswith((\"discipline_\", \"work_discipline\"))")
-_M1 = ("M1 回缺陷：词形去归一化（连字符不再折下划线）", "md_cg/consistency.py",
+_M1 = ("M1 回缺陷：词形去归一化（连字符不再折下划线）", "md_cg/govern/consistency.py",
        # 实测：真实性还带「discipline:N」命名空间 tag ⇒ 去归一化后**真实生产者仍被认出**；
        # 故本变异只该打红「连字符单独成立」那条腿（A01）——这正是三处不匹配**各自单列**的用处。
        [(_NORM_LINE, _NORM_DEAD)], ("A01",))
 _M2 = ("M2 过度收紧：命名空间判断放宽为任意以 discipline 起（学科面也会命中）",
-       "md_cg/consistency.py", [(_NS_LINE, _NS_LOOSE)], ("K01",))
-_M3 = ("M3 只加壳不接线：别名不走单点（改回自写判定）", "md_cg/consistency.py",
+       "md_cg/govern/consistency.py", [(_NS_LINE, _NS_LOOSE)], ("K01",))
+_M3 = ("M3 只加壳不接线：别名不走单点（改回自写判定）", "md_cg/govern/consistency.py",
        # 实测：A05 也红 —— 端到端走的是**生产代码里的判据路径**（check_consistency 到 _is_discipline）
        # ⇒ 别名不走单点会真的让真实生产者再次不可见（本腿证明 A05 不是「只调我的谓词」）。
        [(_ALIAS_LINE, _ALIAS_OLD)], ("A05", "E01"))
@@ -286,8 +289,8 @@ def _mutate():
                 for r in reds2[:6]:
                     print("        FAIL " + r)
         ok_r, det_r = GK.assert_revert_reddens(
-            _mirror_build, [("md_cg/consistency.py", _NORM_LINE, _NORM_DEAD)],
-            _run_in, ("A01",), "md_cg/consistency.py")
+            _mirror_build, [("md_cg/govern/consistency.py", _NORM_LINE, _NORM_DEAD)],
+            _run_in, ("A01",), "md_cg/govern/consistency.py")
         print("  骨架②回退即红：%s %s" % ("OK" if ok_r else "MISMATCH",
                                           json.dumps(det_r, ensure_ascii=False)[:200]))
         if not ok_r:

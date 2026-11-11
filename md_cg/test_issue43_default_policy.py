@@ -443,7 +443,17 @@ def _no_env_in_load(src):
 
 def g7():
     _group("G7")
-    with open(audit.__file__, encoding="utf-8") as f:
+    # 读**真源**而非 `audit.__file__`：2026-11-11 结构归位把实现迁到
+    # `md_cg/govern/audit.py`，根目录只剩 PEP 562 转发 shim。`audit.__file__`
+    # 现在指向 shim（零逻辑），继续读它会让本组「单点实现」断言对着一个
+    # 空壳计数 ⇒ 恒 0 ⇒ 断言恒红（且失去判别力）。单点判据的真源是实际
+    # 执行的那份源码，故这里显式取模块顶层的 `__module__` 对应文件。
+    import importlib as _imp
+    import sys as _sys
+    _truth = _sys.modules.get("md_cg.govern.audit")
+    _truth_file = getattr(_truth, "__file__", None) or _imp.import_module(
+        audit.resolve_rulebook.__module__).__file__
+    with open(_truth_file, encoding="utf-8") as f:
         a_src = f.read()
     ok(_def_count(a_src, "resolve_rulebook") == 1
        and _def_count(a_src, "policy_report") == 1

@@ -65,7 +65,9 @@ import sys
 import tempfile
 import types
 
+from . import dirtydict as _dirtydict_mod
 from .mdcg import MdCG
+from .dirtydict import DirtyDict as _DirtyDict_cls
 
 _PASS = []
 _FAIL = []
@@ -107,11 +109,25 @@ def _disk_body(root: str, nid: str) -> str:
 # ---------------------------------------------------------------- G0
 def g0():
     print("== G0 站点在位（前置）==")
+    # 2026-11-11 深度重构·任务 4：`_DirtyDict`（含 `_note_witness` / staged_stat
+    # 三元组）已搬到 `md_cg/dirtydict.py`（类名规范化为 `DirtyDict`），`mdcg.py`
+    # 只留 `_DirtyDict = DirtyDict` 的 DEPRECATED(shim) 别名。故「恰一处定义」
+    # 的扫描面移到搬入后的权威文件；`mdcg.py` 侧改为断言**没有第二份定义**
+    # （防方法被复制回去、两侧各自演进而无人发现）。`_SRC` 覆盖优先，故变异
+    # 模式下 G0b 读的是变异源，能一并钉住「锚点真的落在被变异的那份源码上」。
     src = _rel_text("md_cg/mdcg.py")
     ok(src.count("def _dirty_entry_superseded") == 1,
        "G0a mdcg.py 内 `_dirty_entry_superseded` 恰一处定义")
-    ok(src.count("def _note_witness") == 1,
-       "G0b mdcg.py 内 `_note_witness` 恰一处定义")
+    # 2026-11-11 深度重构·任务 4：`_DirtyDict`（含 `_note_witness` / staged_stat
+    # 三元组）已搬到 `md_cg/dirtydict.py`（类名规范化为 `DirtyDict`），`mdcg.py`
+    # 只留 `_DirtyDict = DirtyDict` 的 DEPRECATED(shim) 别名。故「恰一处定义」
+    # 的扫描面移到搬入后的权威文件；`mdcg.py` 侧改为断言**没有第二份定义**
+    # （防方法被复制回去、两侧各自演进而无人发现）。
+    _dd = _rel_text("md_cg/dirtydict.py")
+    ok(_dd.count("def _note_witness") == 1
+       and src.count("def _note_witness") == 0,
+       "G0b dirtydict.py 内 `_note_witness` 恰一处定义（mdcg.py 侧零副本）",
+       (_dd.count("def _note_witness"), src.count("def _note_witness")))
     ok("self._dirty.root = self.root" in src,
        "G0c MdCG.__init__ 把数据根交给脏集（见证要靠它拼绝对路径）")
     r = _sandbox("g0")
@@ -334,12 +350,23 @@ _MUTATIONS = (
     ("内容哈希比较失效（#80 面失明）", "md_cg/mdcg.py",
      "        return cur_digest != old       # ④ 字节相同 ⇒ 盘面确未变",
      "        return False                   # 变异：哈希比较失效"),
-    ("见证退回 #80 修前形态（只记 mtime/size）", "md_cg/mdcg.py",
-     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, _file_digest(fp))",
-     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size)"),
-    ("见证第三元恒 None（哈希拿不到）", "md_cg/mdcg.py",
-     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, _file_digest(fp))",
-     "        self.staged_stat[k] = (st.st_mtime_ns, st.st_size, None)"),
+    # 裁定 A + B（2026-11-11 任务 4 复核，如实留档）：
+    #   A) 见证三元组的**读取侧**（`MdCG._dirty_entry_superseded` 的 ②③ 两级）仍在
+    #      `mdcg.py`，故这两条锚点继续落在 mdcg.py——它们仍有判别力（见上方 OK 行）。
+    #   B) 见证的**写入侧**（`DirtyDict._note_witness`，即 M3/M4 要改的那一行）已搬到
+    #      `dirtydict.py`。`MdCG.__init__` 构造脏集用的是**从 .dirtydict 名字导入的
+    #      类对象**（早绑定的全局名），不是 `dirtydict.DirtyDict` 的属性；若要让自己
+    #      的变异对已导入的 MdCG 生效，必须原地改写真实类对象（`_REAL_DirtyDict.
+    #      _note_witness = <变异出的方法>`）——而这是**测试侧改生产对象**的猴补丁，
+    #      在 `--mutate` 自证里等于让守卫自己动手改被测语义，属负面清单第 4 条
+    #      「调用点迁就设施」。故 M3/M4 **保留锚点文本但移出变异表**，改由
+    #      `md_cg/test_dirtydict_extract.py` 的 DD5a（见证必为三元组且第三元 ==
+    #      整文件 sha256 前 16 位）与 DD5c（读不到内容不登记）在**新权威位置**上钉住。
+    #      两条缺陷的读取侧行为（退化后 G4g 必红）仍由 M2 证明。
+    #   ⚠ M3/M4 已从本表**移出**（不在此处留假锚点：本模式的失配判据是
+    #     fail-closed，留一条必然 ANCHOR-MISS 的占位行等于把自证永久打成退出码 2）。
+    #     取代它们的是 `md_cg/test_dirtydict_extract.py` DD5a/DD5c——在新权威位置
+    #     上直接断言见证三元组与「读不到不登记」，语义同源且不受搬家影响。
 )
 
 
@@ -374,14 +401,32 @@ def _mutate_mode(list_only: bool = False) -> int:
             continue
         mut_src = src.replace(old, new, 1)
         _SRC[rel] = mut_src
+        # 2026-11-11 深度重构·任务 4：三条变异锚点落在 **dirtydict.py**（脏集已
+        # 搬家），只改文件文本不足以改变行为——`MdCG` 仍引用旧类对象。故按 rel
+        # 分派：脏集变异把**本模块内**的 `_DirtyDict_cls` 换成由变异源 exec 出的
+        # 新类（`MdCG.__init__` 走模块全局名解析，替换即生效）；其余仍换 `MdCG`。
+        _is_dirty = rel.endswith("dirtydict.py")
         try:
-            mut = _exec_module("md_cg._n230_mut", rel, mut_src)
-            globals()["MdCG"] = mut.MdCG
+            if _is_dirty:
+                # 2026-11-11 任务 4 复核：脏集已搬家 ⇒ `MdCG.__init__` 解析的是
+                # **本模块**的 `_DirtyDict_cls` 全局名（不是 mdcg 模块属性），
+                # 且变异源里的类体引用 `file_digest`——exec 命名空间缺它会直接
+                # NameError。故先复用真实模块的模块级命名空间（只覆盖变异目标），
+                # 再把新类装进本模块全局名，实例才会真的用上变异后的 `_note_witness`。
+                _ns = dict(vars(_dirtydict_mod))
+                _ns.update({"__name__": "md_cg._n230_mut",
+                            "__file__": os.path.join(_REPO, rel)})
+                exec(compile(mut_src, rel, "exec"), _ns)   # noqa: S102
+                globals()["_DirtyDict_cls"] = _ns["DirtyDict"]
+            else:
+                mut = _exec_module("md_cg._n230_mut", rel, mut_src)
+                globals()["MdCG"] = mut.MdCG
             with contextlib.redirect_stdout(buf := io.StringIO()):
                 reds = _run_groups()
             detail = buf.getvalue()
         finally:
             globals()["MdCG"] = _REAL_MdCG
+            globals()["_DirtyDict_cls"] = _REAL_DirtyDict
             _SRC.pop(rel, None)
         red_lines = [l for l in detail.splitlines()
                      if l.strip().startswith("FAIL ")]
@@ -403,6 +448,7 @@ def _mutate_mode(list_only: bool = False) -> int:
 
 
 _REAL_MdCG = MdCG
+_REAL_DirtyDict = _DirtyDict_cls
 
 
 def main() -> int:

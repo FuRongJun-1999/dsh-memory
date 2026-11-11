@@ -97,6 +97,10 @@ import time
 import types
 
 from . import consistency as _cons
+#: **源码面**真源（2026-11-11 结构归位）：`md_cg/consistency.py` 已是 PEP 562
+#: 转发 shim，`inspect.getsource(_cons)` 只能拿到零逻辑空壳 ⇒ 变异锚点全丢、
+#: 检出集恒空。行为面继续用 shim（等价），源码面/exec 变异体一律用本模块。
+from .govern import consistency as _cons_truth
 from . import mdcg as _mdcg_mod          # 进程退出兜底登记（_LIVE_CGS）摘除用
 from .mdcos import MdCGOS
 
@@ -661,13 +665,17 @@ def _build_mutant(replacements):
 
     返回 (attr_ns, raw_ns, src)；锚点缺失返回 (None, None, None)。
     """
-    src = _CUR_SRC if _CUR_SRC is not None else inspect.getsource(_cons)
+    src = _CUR_SRC if _CUR_SRC is not None else inspect.getsource(_cons_truth)
     for old, new in replacements:
         if old not in src:
             return None, None, None
         src = src.replace(old, new)
-    ns = {"__name__": "md_cg.consistency_mutant", "__package__": "md_cg",
-          "__file__": getattr(_cons, "__file__", "<consistency>")}
+    # `__package__` 必须与真源**同包**（`md_cg.govern`）：真源源码里的相对导入
+    # 已因搬家深了一层（`from ..mdcg import ...`），用 `md_cg` 作包会让它们越过
+    # 顶层包（实测：g2/g6 组 `attempted relative import beyond top-level package`）。
+    ns = {"__name__": "md_cg.govern.consistency_mutant",
+          "__package__": "md_cg.govern",
+          "__file__": getattr(_cons_truth, "__file__", "<consistency>")}
     exec(compile(src, "<consistency-mutant>", "exec"), ns)   # noqa: S102  测试内变异自证
     return types.SimpleNamespace(**ns), ns, src
 

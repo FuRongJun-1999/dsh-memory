@@ -117,7 +117,7 @@ def j0_judgement_unchanged():
     ok(consistency.CONCLUSION_SAME == 0.95, 'J0b CONCLUSION_SAME 仍为 0.95',
        consistency.CONCLUSION_SAME)
     ok(consistency.SLOT_HIGH == 0.6, 'J0c SLOT_HIGH 仍为 0.6', consistency.SLOT_HIGH)
-    src = io.open(os.path.join(_HERE, "consistency.py"), encoding="utf-8").read()
+    src = io.open(os.path.join(_HERE, "govern", "consistency.py"), encoding="utf-8").read()
     ok("same_cond = max(c3, c4)" in src, 'J0d same_cond 仍取 max(c3, c4)')
     ok("c3 = _cov(tw_pos" in src, 'J0e c3 判据原文未变')
 

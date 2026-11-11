@@ -110,7 +110,7 @@ def j0_judgement_unchanged():
        consistency.CONCLUSION_SAME)
     ok(consistency.SAME_COND_HIGH == 0.75, 'J0c SAME_COND_HIGH 仍为 0.75',
        consistency.SAME_COND_HIGH)
-    src = io.open(os.path.join(_HERE, "consistency.py"), encoding="utf-8").read()
+    src = io.open(os.path.join(_HERE, "govern", "consistency.py"), encoding="utf-8").read()
     ok("slot = max(slot_fn, slot_sb)" in src,
        'J0d slot 仍取 max(两路)——本件**未**改成 min/合取（那是行为变更，待裁定）')
     ok("slot = max(slot_fn, slot_sb)" not in src.replace(

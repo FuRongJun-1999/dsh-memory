@@ -539,7 +539,10 @@ def g_t():
     print("== T 组：单点结构 · 边界 fail-closed · 时点判别 ==")
     # 单点：前像拍摄入口全仓唯一（protect 定义 + rollback 调用）
     hits = _scan_prod_py("snapshot_preimage(")
-    ok(hits == ["md_cg/protect.py", "md_cg/rollback.py"],
+    # 期望值是**排序后**的路径列表（`_scan_prod_py` 返回 sorted），故必须按字典序
+    # 书写；2026-11-11 结构归位把 rollback 迁到 `md_cg/govern/` 后，`govern/` 排在
+    # `protect.py` 之前。
+    ok(hits == ["md_cg/govern/rollback.py", "md_cg/protect.py"],
        "T 前像拍摄入口单点（snapshot_preimage 只出现在 protect 定义 + rollback 调用）",
        hits)
     hits2 = _scan_prod_py("mutation_executed(")

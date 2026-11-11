@@ -415,13 +415,17 @@ def main():
     print("[5] 源断言 + 守卫自检")
     src_t = _src_of("trust.py")
     src_m = _src_of("mdcg.py")
-    src_o = _src_of("mdcos.py")
     src_p = _src_of("protect.py")
+    # 2026-11-11 深度重构·任务 3：`MdCGSecure.verify`（含它的层写闸）已整类搬到
+    # `md_cg/mdcos_secure.py`，`mdcos.py` 只留 DEPRECATED(shim) 转发。5c 的扫描面
+    # 随之移到搬入后的权威文件；窗口起止串与判据串一字不改——若改成合并扫两个
+    # 文件，方法被复制回 mdcos.py 也会静默通过（判据空转）。
+    src_sec = _src_of("mdcos_secure.py")
     win_set = _src_window(src_t, "def set_state(cg, node_id: str, dst: str",
                           "# ---------------------------------------------------------")
     win_mv = _src_window(src_m, "    def _move_layer(self, node_id: str",
                          "# 生效条件：verdict 不在")
-    win_v = _src_window(src_o, "    def verify(self, node_id: str, evidence: str",
+    win_v = _src_window(src_sec, "    def verify(self, node_id: str, evidence: str",
                         "# 生效条件：sens 取 sensitivity or DEFAULT_SENSITIVITY")
     check("5a trust.set_state 写点前紧邻 protect.require_layer（负路由，写盘前）",
           "protect.require_layer(cg, node_id" in win_set

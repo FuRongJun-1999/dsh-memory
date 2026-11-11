@@ -225,6 +225,12 @@ def _calls(fn, name):
     return out
 
 
+# 迁移（结构重构）：MdCGSecure 整类已从 md_cg/mdcos.py 搬到
+# md_cg/mdcos_secure.py（纯搬家，同名转发保留在 mdcos.py）。
+# 本守卫断的是「类内接线」，故扫描面随类走，判据一字未改。
+_SECURE_REL = "md_cg/mdcos_secure.py"
+
+
 def _src(rel):
     with open(os.path.join(_REPO, rel), encoding="utf-8") as f:
         return f.read()
@@ -234,7 +240,7 @@ def group_e(tmp):
     print("== E 组：源码面——三入口接线 / id 单点 / 登记与转发两半 / 幂等收窄 ==")
     e1 = {"add_goal": "E1a", "add_rejected": "E1b", "add_unresolved": "E1c"}
     for name, tag in e1.items():
-        fn = _fn("md_cg/mdcos.py", "MdCGSecure", name)
+        fn = _fn(_SECURE_REL, "MdCGSecure", name)
         got = len(_calls(fn, "_write_sensitivity"))
         _check("%s MdCGSecure.%s 经 _write_sensitivity 解析密级（恰一处）" % (tag, name),
                got == 1, "calls=%d" % got)
@@ -246,7 +252,7 @@ def group_e(tmp):
            all(v == 1 for v in helpers.values()), "defs=%s" % helpers)
     dup = []
     for name in ("add_goal", "add_rejected", "add_unresolved"):
-        fn = _fn("md_cg/mdcos.py", "MdCGSecure", name)
+        fn = _fn(_SECURE_REL, "MdCGSecure", name)
         n_hash = len(_calls(fn, "sha1")) + len(_calls(fn, "hexdigest"))
         lits = []
         for node in ast.walk(fn) if fn is not None else []:
@@ -273,7 +279,7 @@ def group_e(tmp):
     _check("E4b 转发面：#426-H 的分派层 goal/add 分支转发 sensitivity",
            "sensitivity=a.get(\"sensitivity\")" in _src("md_cg/mcp_server.py"))
     for name, tag in (("add_rejected", "E5a"), ("add_unresolved", "E5b")):
-        fn = _fn("md_cg/mdcos.py", "MdCGSecure", name)
+        fn = _fn(_SECURE_REL, "MdCGSecure", name)
         guarded = False
         for node in ast.walk(fn) if fn is not None else []:
             if isinstance(node, ast.If):

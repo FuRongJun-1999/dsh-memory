@@ -453,25 +453,25 @@ else:
 _MUTATIONS = (
     # (描述, ((文件, 旧锚点行组, 新锚点行组), ...), 预期红项集合)
     ("M1 摘掉漂移闸（回到「执行时点前像整体覆写」的修前形态）",
-     (("md_cg/rollback.py",
+     (("md_cg/govern/rollback.py",
        ["    if cur_fp != pre_fp and not force:     # 相等＝幂等重放，放行（见 docstring）"],
        ["    if False:"]),),
      # A4a 不在预期集里：执行之后加的 immutable 会**同时**被漂移闸与 _land 的
      # 保护闸命中，摘掉漂移闸后仍被第二道拦下（M2 单独证明第二道的判别力）。
      ("A1", "A2", "A3", "A7")),
     ("M2 摘掉 _land 的保护闸（executed 之后加的 immutable 被一并清掉）",
-     (("md_cg/rollback.py",
+     (("md_cg/govern/rollback.py",
        ["    if prot and not force:"],
        ["    if False:"]),),
      ("A4b",)),
     ("M3 摘掉回滚留痕（_audit.jsonl 不再有 op=rollback）",
-     (("md_cg/rollback.py",
+     (("md_cg/govern/rollback.py",
        ['    out["audited"] = _audit_rollback(cg, tgt, act, rel, out, actor=actor,',
         '                                     pid=pid, reason=reason)'],
        ['    out["audited"] = False']),),
      ("A5",)),
     ("M4 摘掉落盘前的被覆盖版本留档（protect.snapshot）",
-     (("md_cg/rollback.py",
+     (("md_cg/govern/rollback.py",
        ["        protect.snapshot(cg, node_id)"],
        ["        pass"]),),
      ("A6", "E2")),
@@ -488,7 +488,7 @@ _MUTATIONS = (
      # decisions 次序判据拿不到证据）。
      ("A1", "A3", "A7", "E5")),
     ("M7 **过度收紧方向**：保护闸改成「现盘面受保护即拒」（不看前像是否本就带保护位）",
-     (("md_cg/rollback.py",
+     (("md_cg/govern/rollback.py",
        ["        if not _pre_prot:"],
        ["        if True:"]),),
      ("K3", "K7")),

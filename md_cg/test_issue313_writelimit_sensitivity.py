@@ -211,12 +211,15 @@ def k_group():
                          role="user", node_id="p3") is None)
         # K9 是**源码面**判据（判「真源唯一」而非行为）——硬编码一份 ("private",
         # "secret") 也能让 K10 全绿，却是在立第二份真源（纪律 #12）。
-        _wl_src = io.open(os.path.join(_REPO, "md_cg/writelimit.py"),
+        # 读**真源**：2026-11-11 结构归位后 `md_cg/writelimit.py` 只是 PEP 562
+        # 转发 shim，源码面判据必须对着实际实现（`md_cg/govern/writelimit.py`），
+        # 否则「真源唯一」这条断言会对着空壳恒红。
+        _wl_src = io.open(os.path.join(_REPO, "md_cg/govern/writelimit.py"),
                           encoding="utf-8").read()
         # 安全重构 P1：真源由「常量 ENCRYPTED_LEVELS」收口为「唯一谓词
         # crypto.is_encrypted_level」——判据仍是「不另立第二份真源」，只是锚到谓词。
         _check("K9 加密级判据同源于 crypto.is_encrypted_level（不另立第二份真源）",
-               "from .crypto import is_encrypted_level" in _wl_src
+               "from ..crypto import is_encrypted_level" in _wl_src
                and '("private", "secret")' not in _wl_src,
                [x for x in _wl_src.splitlines() if "ENCRYPTED_LEVELS" in x])
         _check("K10 判据行为面：private/secret 为真，internal/None/非串为假",
@@ -255,17 +258,17 @@ def e_group():
 #: (说明, 相对仓根的路径, 原文, 替换, 预期转红的前缀元组)
 _MUTATIONS = (
     ("V1 check 不再跳过加密级签名（回到 #313 修前形态）",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "    if sig and not _is_encrypted_level(sensitivity):",
      "    if sig:",
      ("A2", "A3")),
     ("V2 record_accepted 不再跳过（ACCEPT 回填又把骨架写回台账）",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "    if not sig or _is_encrypted_level(sensitivity):",
      "    if not sig:",
      ("A2",)),
     ("V3 加密级判据恒假（形同虚设）",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "    return _iel(sensitivity)",
      "    return False",
      ("A2", "A3")),
@@ -287,12 +290,12 @@ _MUTATIONS = (
      "                write=False, tags=None, conditions=None):",
      ("E3",)),
     ("V7 加密级判据另立第二份真源（硬编码字面量）",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "        from .crypto import is_encrypted_level as _iel",
      '        _iel = lambda s: isinstance(s, str) and s in ("private", "secret")',
      ("K9",)),
     ("V8 加密级判据写反：非加密级反而跳过签名",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "    if sig and not _is_encrypted_level(sensitivity):",
      "    if sig and _is_encrypted_level(sensitivity):",
      ("A2", "A3", "E4")),

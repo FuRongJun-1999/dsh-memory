@@ -75,7 +75,7 @@ _REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 #: T5 的审计面：这些文件里的 `subprocess.run` 调用必须带 timeout 与
 #: stdin=DEVNULL（issue #63 同批加固）；whitebox 的 Popen 单列（不在加固面）。
-_AUDIT_RUN_FILES = ("md_cg/sleep.py", "md_cg/interop.py", "md_cg/audit.py",
+_AUDIT_RUN_FILES = ("md_cg/sleep.py", "md_cg/interop.py", "md_cg/govern/audit.py",
                     "md_cg/units.py", "md_cg/bench_locomo_zh.py",
                     "md_cg/bench_zh_mad.py", "md_cg/bench_governance.py")
 #: 不在加固面的既有正确形态（免误伤）：whitebox 的 Popen 是**长驻对话协议面**

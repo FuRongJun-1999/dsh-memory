@@ -79,7 +79,10 @@ def main():
                 ok(False, "B1 accept 返回 ok", "%s: %s" % (type(e).__name__, e))
 
         print("== C skip_gate 不得外溢（只有 propose 用）")
-        src = open(os.path.join(ROOT, "md_cg", "mdcos.py"), encoding="utf-8").read()
+        # 迁移（结构重构）：`MdCGSecure` 已整类搬到 `md_cg/mdcos_secure.py`。
+        # C1 断的是「全仓只有一处 skip_gate=True」，故取两文件合并视图，判据不变。
+        src = (open(os.path.join(ROOT, "md_cg", "mdcos.py"), encoding="utf-8").read()
+               + "\n" + open(os.path.join(ROOT, "md_cg", "mdcos_secure.py"), encoding="utf-8").read())
         n_skip = src.count("skip_gate=True")
         ok(n_skip == 1, "C1 全仓只有一处 skip_gate=True（propose）", n_skip)
         sec = open(os.path.join(ROOT, "md_cg", "security.py"), encoding="utf-8").read()

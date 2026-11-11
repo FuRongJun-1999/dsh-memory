@@ -185,7 +185,7 @@ def _record_ok(W, root):
 def group_source():
     print("== D 组：临界区判据在场（源码级）==")
     p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "md_cg", "writelimit.py")
+                     "md_cg", "govern", "writelimit.py")
     src = io.open(p, encoding="utf-8").read()
     _check("D1 _transaction 用 strict=True 的跨进程锁", "FileLock(_state_path(cg), strict=True)" in src)
     _check("D2 check 的 _load 在 _transaction 内", "with _transaction(cg):\n        now = float" in src
@@ -197,7 +197,9 @@ def group_source():
 
 # ---------------------------------------------------------------- 定点变异自证
 
-_TARGET = "md_cg/writelimit.py"
+#: D 组与定点变异都读**真源**（2026-11-11 结构归位：`md_cg/writelimit.py` 已是
+#: PEP 562 转发 shim，实现在 `md_cg/govern/writelimit.py`）。镜像树同样沿用该相对路径。
+_TARGET = os.path.join("md_cg", "govern", "writelimit.py")
 
 #: (说明, 改前锚, 改后锚, 期望转红的断言名前缀)
 _MUTATIONS = (

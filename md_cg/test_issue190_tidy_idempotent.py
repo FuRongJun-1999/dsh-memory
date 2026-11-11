@@ -96,7 +96,10 @@ os.environ[autonomy_modes.AUTONOMY_ENV_KEYS["mode"]] = "full"
 from md_cg import lifecycle, writelimit             # noqa: E402
 from md_cg.mdcos import MdCGOS                       # noqa: E402
 
-WL = os.path.join(_REPO, "md_cg", "writelimit.py")
+#: 读源码面判据（S1 组）必须对着**真源**：2026-11-11 结构归位后
+#: `md_cg/writelimit.py` 只是 PEP 562 转发 shim（零逻辑），对着它数
+#: `"tidy:converged"` 字面量恒得 0。
+WL = os.path.join(_REPO, "md_cg", "govern", "writelimit.py")
 PREFIX_MOD = "md_cg._writelimit_prefix190"
 
 # 改前（修复前）tidy_contextual 返回 dict 的键集——从 repro_before.txt 逐字抄来，
@@ -288,27 +291,36 @@ def _git(*args):
 
 
 def _prefix_source():
-    """取修复前的 md_cg/writelimit.py 源码，返回 (text, rev) 或 (None, None)。"""
-    f = "md_cg/writelimit.py"
+    """取修复前的 md_cg/writelimit.py 源码，返回 (text, rev) 或 (None, None)。
+
+    **历史路径与现行路径必须分开**（2026-11-11 结构归位）：`git log -S` 必须扫
+    **历史路径** `md_cg/writelimit.py`（该文件在历史里就是实现本体），而
+    `git show <rev>:<path>` 要按**该 rev 下真实存在的路径**取——对当前之后仍
+    存在的 `md_cg/writelimit.py` 取到的是迁移后的 shim（零逻辑、不含
+    `_already_tidied`），会被误判成「修复前源」。
+    """
+    hist = "md_cg/writelimit.py"          # 历史路径（旧提交里=实现本体）
+    now = ("md_cg/govern/writelimit.py",  # 迁移后真源
+           "md_cg/writelimit.py")         # 迁移前的真源
     revs = []
-    rc, out = _git("log", "-S", "_already_tidied", "--format=%H", "--", f)
+    rc, out = _git("log", "-S", "_already_tidied", "--format=%H", "--", hist)
     if rc == 0:
         hits = [x for x in out.decode("utf-8", "replace").split() if x]
         if hits:
             rc2, out2 = _git("rev-parse", hits[0] + "^")
             if rc2 == 0:
                 revs.append(out2.decode("utf-8", "replace").strip())
-    rc, out = _git("log", "--format=%H", "--", f)
+    rc, out = _git("log", "--format=%H", "--", hist)
     if rc == 0:
         revs += [x for x in out.decode("utf-8", "replace").split() if x]
     revs.append("HEAD")
     for rev in revs:
         if not rev:
             continue
-        rc, blob = _git("show", "%s:%s" % (rev, f))
-        # 逐版本回落：只要该版本里没有 _already_tidied，它就是「修复前」。
-        if rc == 0 and blob and b"_already_tidied" not in blob:
-            return blob.decode("utf-8"), rev
+        for path in now:
+            rc, blob = _git("show", "%s:%s" % (rev, path))
+            if rc == 0 and blob and b"_already_tidied" not in blob:
+                return blob.decode("utf-8"), rev
     return None, None
 
 

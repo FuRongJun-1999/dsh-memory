@@ -109,7 +109,9 @@ print("== E 组：单点、判据形状与端到端 ==")
 
 _FSRC = io.open(os.path.join(_REPO, "md_cg", "forgetting.py"),
                 encoding="utf-8", newline="").read()
-_WSRC = io.open(os.path.join(_REPO, "md_cg", "writelimit.py"),
+#: 源码面读**真源**（2026-11-11 结构归位：`md_cg/writelimit.py` 已是 PEP 562
+#: 转发 shim，零逻辑 ⇒ 对着它找 "forgetting.aggregate_line" 恒空、E1 恒红）。
+_WSRC = io.open(os.path.join(_REPO, "md_cg", "govern", "writelimit.py"),
                 encoding="utf-8", newline="").read()
 _check("E1 聚合行仍是单点：writelimit 委托 forgetting.aggregate_line",
        "forgetting.aggregate_line" in _WSRC, "")

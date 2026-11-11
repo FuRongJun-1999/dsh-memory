@@ -285,7 +285,7 @@ def _opens(src):
 
 def s6():
     print("== S6 单点：留痕读只走 _records ==")
-    src = _src("md_cg/consistency.py")
+    src = _src("md_cg/govern/consistency.py")
     reads, strict = _opens(src)
     _check("S6a 无严格读（不带 errors= 的读 0 处）", strict == [],
            "行号=%s" % strict)

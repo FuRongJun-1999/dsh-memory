@@ -33,7 +33,10 @@ ok('C1 三档 reason 值互不相同（不同原因不得产出同一信号）',
    len({M.AUDIT_CHAIN_BROKEN, M.AUDIT_KNOWN_DEGRADED, M.AUDIT_UNKNOWN_FOREIGN}) == 3,
    [M.AUDIT_CHAIN_BROKEN, M.AUDIT_KNOWN_DEGRADED, M.AUDIT_UNKNOWN_FOREIGN])
 
-_src = io.open(os.path.join(_REPO, 'md_cg', 'rollback.py'), encoding='utf-8').read()
+#: 源码面读**真源**：2026-11-11 结构归位后 `md_cg/rollback.py` 只是 PEP 562
+#: 转发 shim（零逻辑），AST 扫描会得到 0 处 `_KD` 字面量 ⇒ C2 恒红。
+_src = io.open(os.path.join(_REPO, 'md_cg', 'govern', 'rollback.py'),
+               encoding='utf-8').read()
 _lits = []
 for _n in ast.walk(ast.parse(_src)):
     if isinstance(_n, ast.Assign) and any(getattr(t, 'id', '') == '_KD' for t in _n.targets):

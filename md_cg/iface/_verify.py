@@ -409,15 +409,267 @@ def _scan_layers():
     return _INTERNAL_LAYERS
 
 
+def _layer_members():
+    """层 → 该层所有 ``.py`` 文件路径（**成员表驱动**，2026-11-11 扩面）。
+
+    为什么不再「按目录名推导」：本仓治理层的真实实现直到 2026-11-11 才搬进
+    ``md_cg/govern/``，此前全平铺在 ``md_cg/`` 根目录；按目录名扫 ⇒ 根目录
+    154 个模块（含 `mdcg` / `subgraph` / `sustain` 这些实际承载层语义的实现）
+    **一条都不在判据视野里**，覆盖率只有 0.34%。现改为：
+
+    ① 子包成员：`md_cg/<pkg>/**` 按 ``_layers.PACKAGE_LAYER`` 归层
+       （含 ``mreview → govern``——此前它不在任何层里，反向依赖完全不可见）；
+    ② 根目录成员：``md_cg/*.py`` 按 ``_layers.ROOT_LAYER`` 归层，未登记者
+       归 ``None``（= 无归属，单独由 `_root_edges()` 判「根目录 → 子包」越权）。
+
+    **测试文件不是层成员**：`test_*.py` 一律跳过——它们反过来 import 生产码是
+    正常的（测试就是调用方），把它们算进层会让「kernel 引 govern」这类判据
+    对测试面误报，也会让「覆盖率」这个读数失真（631 个测试文件会淹没 199 个
+    生产模块）。这是本函数**唯一**的排除面，且它对根目录与子包一视同仁。
+
+    返回 ``{layer: [(abs_path, layer_or_None), ...]}``；函数**不做 IO 判断**
+    （缺目录就是空表），覆盖性由 `_test_guard_covers_every_internal_layer` 盯。
+    """
+    from . import _layers as L
+
+    def _prod(paths):
+        for p in paths:
+            if not os.path.basename(p).startswith("test_"):
+                yield p
+
+    out = {name: [] for name in _LAYERS}
+    root = os.path.join(_REPO, "md_cg")
+    for pkg, layer in L.PACKAGE_LAYER.items():
+        pkgdir = os.path.join(root, pkg)
+        for path in _prod(_iter_py(pkgdir)):
+            out.setdefault(layer, []).append((path, layer))
+    for path in _prod(_iter_py(root)):
+        if os.path.dirname(path) != root:      # 根目录直属的 .py 才走成员表
+            continue
+        stem = os.path.splitext(os.path.basename(path))[0]
+        layer = L.ROOT_LAYER.get(stem)         # 显式 None = 「未归类」（见 _layers）
+        out.setdefault(layer, []).append((path, layer))
+    return out
+
+
+def _is_excluded_root(stem):
+    """根目录模块是否在「本阶段明确不动」的名单里（数据面/基准/宿主接口）。"""
+    from . import _layers as L
+
+    for pat in L.EXCLUDED_ROOTS:
+        if pat.endswith("*"):
+            if stem.startswith(pat[:-1]):
+                return True
+        elif stem == pat:
+            return True
+    return False
+
+
+def _violations_of_layer(layer, relpath, names, file_path=None, root=None):
+    """在 ``_violations`` 之上叠加**已知违规基线**（登记过的存量违规放行）。
+
+    基线的键是 ``(层名, 仓根相对路径, import 全名)``——**精确到 import 名**，
+    不是「这个文件里什么都放过」。于是同一文件里**新增**一条违规照样红。
+
+    返回 ``(problems, matched)``：``matched`` 是本次真正命中了基线的键集合，
+    由调用方拿去对账「登记过期」（登记了但实测已不存在 ⇒ 同样红）。
+    """
+    from . import _layers as L
+
+    rel = relpath.replace(os.sep, "/")
+    raw = _violations(layer, relpath, names, file_path, root)
+    if not L.KNOWN_LAYER_VIOLATIONS or not raw:
+        return raw, set()
+    matched = set()
+    keep = []
+    for prob in raw:
+        hit = None
+        for key in L.KNOWN_LAYER_VIOLATIONS:
+            klayer, krel, kname = key
+            if klayer != layer or krel != rel:
+                continue
+            if ("%r" % kname) in prob or kname in prob:
+                hit = key
+                break
+        if hit is None:
+            keep.append(prob)
+        else:
+            matched.add(hit)
+    return keep, matched
+
+
+def _root_edges():
+    """实测「根目录平铺模块 → 子包」的越权边。
+
+    返回 ``(edges, skipped)``：
+      ``edges``   = ``{(根模块名, 子包名): [命中的 import 名, ...]}``
+      ``skipped`` = 被 ``EXCLUDED_ROOTS`` 明确排除、因而**没有**纳入视野的根模块名
+
+    ``skipped`` 必须被返回而不是静默丢弃：排除面本身就是判据的一部分
+    （「扫了什么」与「跳了什么」都要可见），否则「覆盖率提升」这句读数
+    无从复核。
+    """
+    from . import _layers as L
+
+    root = os.path.join(_REPO, "md_cg")
+    subs = tuple(L.PACKAGE_LAYER)
+    edges, skipped = {}, []
+    for path in _iter_py(root):
+        if os.path.dirname(path) != root:
+            continue
+        stem = os.path.splitext(os.path.basename(path))[0]
+        if stem == "__init__":
+            continue
+        if _is_excluded_root(stem):
+            skipped.append(stem)
+            continue
+        for name in _imported_names(path):
+            segs, _raw = _resolve_fqn(path, name)
+            if segs and segs[0] in subs:
+                edges.setdefault((stem, segs[0]), []).append(name)
+    for k in edges:
+        edges[k] = sorted(set(edges[k]))
+    return edges, sorted(skipped)
+
+
 def _test_import_direction():
-    """kernel / govern / iface 不得 import 上层，也不得碰宿主类型。"""
+    """kernel / govern / iface 不得 import 上层，也不得碰宿主类型。
+
+    扫描面由 `_layer_members()`（成员表）决定，**不再是目录名推导**。
+    已知违规走 `_violations_of_layer` 的基线放行，并在这里对账「登记过期」。
+    """
+    from . import _layers as L
+
     problems = []
+    matched = set()
     for layer in _scan_layers():
-        pkg = os.path.join(_REPO, "md_cg", layer)
-        for path in _iter_py(pkg):
+        for path, _layer in _layer_members().get(layer, ()):
             rel = os.path.relpath(path, _REPO)
-            problems.extend(_violations(layer, rel, _imported_names(path), path))
+            got, hit = _violations_of_layer(
+                layer, rel, _imported_names(path), path)
+            problems.extend(got)
+            matched |= hit
+    stale = sorted(set(L.KNOWN_LAYER_VIOLATIONS) - matched)
     assert not problems, "导入图违规：\n        " + "\n        ".join(problems)
+    assert not stale, (
+        "已知违规基线过期（登记了但实测已不存在）——修好了就该删登记，"
+        "否则基线在撒谎：\n        "
+        + "\n        ".join("%r: %s" % (k, L.KNOWN_LAYER_VIOLATIONS[k])
+                            for k in stale))
+
+
+def _test_root_edges_baseline():
+    """「根目录 → 子包」越权边必须与基线**逐条相符**（新增必红 / 过期必红）。
+
+    为什么单列一条而不是并进上一条：这条判的是**未被归类**的根目录模块
+    （``ROOT_LAYER.get(stem) is None``）对子包的引用。它们不是「违规」——它们
+    是**第二阶段的待办清单**。把它做成「实测 == 基线」的等式，就能同时拿到：
+      · 新增一条越权边 ⇒ 红（谁新加了对子包的依赖，必须显式登记）；
+      · 归位一条（边消失）⇒ 红（提醒把基线同步清掉，不留假账）；
+      · 基线被整体改成「什么都放过」⇒ 由下一条自证用例抓。
+    """
+    from . import _layers as L
+
+    measured, _skipped = _root_edges()
+    want = set(L.KNOWN_ROOT_EDGES)
+    got = set(measured)
+    added = sorted(got - want)
+    gone = sorted(want - got)
+    detail = []
+    for k in added:
+        detail.append("新增越权边 %s → %s：%s"
+                      % (k[0], k[1], measured[k]))
+    for k in gone:
+        detail.append("基线过期 %s → %s（边已不存在：%s）"
+                      % (k[0], k[1], L.KNOWN_ROOT_EDGES[k][:60]))
+    assert not added and not gone, (
+        "根目录 → 子包越权边与基线不符（新增违规必红、过期登记也必红）：\n        "
+        + "\n        ".join(detail))
+
+
+def _test_baseline_is_not_a_blanket_pass():
+    """基线自证：它**不会**把新增边 / 新 import 一并吞掉（防门禁被绕过）。
+
+    三条断言，各自可红：
+      ① 在基线里删掉一条真实边 ⇒ 该边立刻判为「新增」，说明基线是**逐条**的；
+      ② 基线键带 import 名 ⇒ 同文件换一个 import，`_violations_of_layer`
+         的精确匹配不会命中旧登记；
+      ③ 基线条目若被写成非法形状（如空键）⇒ 覆盖性用例仍能报出来——这里用
+         「键必须能对上一条实测边」的形式断言。
+    """
+    from . import _layers as L
+
+    measured, _skipped = _root_edges()
+    # ① 逐条性：任一真实边都不可能在「没有登记」时被放过
+    sample = sorted(measured)[0] if measured else None
+    if sample is not None:
+        keep = dict(L.KNOWN_ROOT_EDGES)
+        try:
+            L.KNOWN_ROOT_EDGES.clear()
+            added = set(measured) - set(L.KNOWN_ROOT_EDGES)
+            assert added == set(measured), (
+                "清空基线后实测边必须**全部**成为新增违规（否则基线不是逐条的）")
+        finally:
+            L.KNOWN_ROOT_EDGES.clear()
+            L.KNOWN_ROOT_EDGES.update(keep)
+    # ② 精确到 import 名：换一个 import 名，登记不应放行
+    problems, matched = _violations_like(
+        "govern", "md_cg/govern/_probe.py",
+        {"md_cg.mcp_server._cg_dispatch"}, None)
+    assert not matched, "基线不得按「文件级」放行（必须精确到 import 名）"
+    assert problems, "未登记的同文件新 import 必须被判定为违规"
+    # ③ 键形状：每条登记都必须是 3 元组且可解析
+    for key in L.KNOWN_LAYER_VIOLATIONS:
+        assert isinstance(key, tuple) and len(key) == 3, (
+            f"已知违规基线键必须是 (层名, 相对路径, import 全名)，实为 {key!r}")
+    for key in L.KNOWN_ROOT_EDGES:
+        assert isinstance(key, tuple) and len(key) == 2, (
+            f"越权边基线键必须是 (根模块名, 子包名)，实为 {key!r}")
+
+
+def _violations_like(layer, relpath, names, file_path=None, root=None):
+    """`_violations_of_layer` 的可断言包装（供基线自证直接调用）。"""
+    return _violations_of_layer(layer, relpath, names, file_path, root)
+
+
+def _test_root_coverage_grew():
+    """覆盖率读数本身必须可断：判据视野必须**真的**把根目录纳进来了。
+
+    这条治的是「判据在、扫描不覆盖」的老病（本仓栽过两次：先只看首段、后
+    扫描层名手写）。判据：
+      · 扫描文件数 ≥ 原 W1 骨架（kernel/govern/iface 三目录）文件数；
+      · 扫描面**必须**包含根目录直属的、已归层模块（如 `mdcg` / `sustain`）；
+      · `mreview` 目录里的文件**必须**出现在 govern 层成员里；
+      · 被 `EXCLUDED_ROOTS` 跳过的名单必须显式可枚举（不静默）。
+    """
+    from . import _layers as L
+
+    members = _layer_members()
+    scanned = {os.path.normpath(p) for lst in members.values() for p, _ in lst}
+    skeleton = set()
+    for pkg in L.PACKAGE_LAYER:
+        skeleton |= {os.path.normpath(p)
+                     for p in _iter_py(os.path.join(_REPO, "md_cg", pkg))}
+    assert len(scanned) >= len(skeleton), (
+        f"判据视野 {len(scanned)} 必须 ≥ 子包骨架 {len(skeleton)}")
+
+    root = os.path.join(_REPO, "md_cg")
+    for stem in ("mdcg", "sustain", "consistency", "audit"):
+        p = os.path.normpath(os.path.join(root, stem + ".py"))
+        assert p in scanned, f"根目录模块 {stem}.py 未进入判据视野（覆盖率作弊）"
+
+    mreview = os.path.join(root, "mreview")
+    mrev_py = {os.path.normpath(p) for p in _iter_py(mreview)}
+    assert mrev_py, "mreview 目录缺失或为空——它是治理流水线，必须纳入 govern 层"
+    gov_set = {os.path.normpath(p) for p, _ in members.get("govern", ())}
+    missing = mrev_py - gov_set
+    assert not missing, (
+        "mreview 未登记为 govern 层成员（反向依赖因此不可见）：%s"
+        % sorted(os.path.relpath(p, _REPO) for p in missing)[:6])
+
+    _edges, skipped = _root_edges()
+    assert isinstance(skipped, list) and skipped, (
+        "排除面必须显式可枚举（EXCLUDED_ROOTS 命中项），不得静默跳过")
 
 
 @contextlib.contextmanager
@@ -513,15 +765,25 @@ def _test_import_guard_catches_violation():
 
 
 def _test_import_guard_clean_on_real_tree():
-    """真树上当前骨架必须是干净的（与上一条夹具自证互为对照）。"""
+    """真树上当前骨架必须是干净的（与上一条夹具自证互为对照）。
+
+    2026-11-11 结构归位修正：本项原先走**裸** ``_violations``，即完全不看
+    已知违规基线——于是 ``KNOWN_LAYER_VIOLATIONS`` 对真树零作用，任何一条
+    已登记的存量向上耦合都会让本项恒红。基线存在的意义正是「存量可见而不
+    阻塞」，故此处必须与真实门禁同一条路径（``_violations_of_layer``），
+    并把命中/未对账的登记交给下面一条「登记过期即红」去管。
+
+    纪律：放行**只对精确登记过的 import 名**生效；同文件新增一条违规照样红
+    （`_violations_of_layer` 的精确匹配语义），登记过期同样红。
+    """
     for layer in _scan_layers():
         pkg = os.path.join(_REPO, "md_cg", layer)
         assert os.path.isdir(pkg), f"W1 骨架缺失：md_cg/{layer}"
         for path in _iter_py(pkg):
             rel = os.path.relpath(path, _REPO)
-            assert not _violations(layer, rel, _imported_names(path), path), (
-                f"{rel} 不该有导入图违规"
-            )
+            problems, _matched = _violations_of_layer(
+                layer, rel, _imported_names(path), path)
+            assert not problems, f"{rel} 不该有导入图违规：{problems}"
 
 
 def _test_pkg_init_resolves_like_sibling_module():
@@ -595,6 +857,10 @@ def main():
     _check("守卫覆盖每个内层（防判据空转）", _test_guard_covers_every_internal_layer)
     _check("__init__ 相对定位与同级模块一致", _test_pkg_init_resolves_like_sibling_module)
     _check("真树骨架干净", _test_import_guard_clean_on_real_tree)
+    # ---- 2026-11-11 结构归位：把判据视野扩到根目录 + mreview（任务 3/4）----
+    _check("mreview 纳入 govern 层且判据视野覆盖根目录", _test_root_coverage_grew)
+    _check("根目录 → 子包越权边与基线逐条相符", _test_root_edges_baseline)
+    _check("已知违规基线不吞新增违规（自证）", _test_baseline_is_not_a_blanket_pass)
 
     failed = [r for r in _results if not r[1]]
     print()
