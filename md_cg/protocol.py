@@ -338,7 +338,26 @@ def _is_op_expr(node) -> bool:
 
 # 生效条件：src 为字符串源码（缩进任意，内部先 dedent）；ast.parse 成功返回按出现序去重的 op 字面量列表（识别 `op == "x"` 与 `op in ("x","y")` 两种形态，op 侧兼容 `op.strip().lower()`），解析失败（SyntaxError/TypeError/任意异常）返回空列表，不抛异常；
 def _ops_from_source(src: str) -> list:
-    """从源码文本提取 op 分支名（dispatch_ops 与测试共用；测试可直接喂合成源码）。"""
+    """从源码文本提取 op 分支名（dispatch_ops 与测试共用；测试可直接喂合成源码）。
+
+    **两种分派形态都识别**（2026-11-11 结构重构后新增第二种）：
+
+    ① `if op == "x":` / `op in ("x", "y")` —— 散落的显式分支；
+    ② 分派表字典 `_XXX_OPS = {"x": _x_call, ...}` —— 纯透传分支收敛成表后，
+       op 名只存在于**字典键**里，不再出现在任何 `Compare` 节点上。
+
+    为什么必须补 ②：本函数是 `check_op_table_parity` 的 dispatch 侧权威来源。
+    表驱动重构把 23 个 op 从形态 ① 搬到形态 ② 后，只认 ① 的提取器会**静默
+    漏掉全部 23 个**，对账随即报「仅 enum 有、dispatch 无」——那不是重构引入
+    的缺陷，而是提取器没跟上分流形态。漏提在本协议里等于假绿（见下发函数
+    注释），所以这里补齐而不是给那几个 op 开白名单。
+
+    识别 ② 的判据刻意收窄，避免把任意字符串字典都当成分派表：
+      · 变量名以 `_OPS` 结尾（本仓约定 `_PASSTHROUGH_OPS`）；
+      · 字典键全是字符串常量；
+      · 值全是 `Name`（指向 `_*_call` 之类函数对象）——排除 `{op: 真值}` 这类
+        配置表，否则会给 op 面凭空注入不存在的分支。
+    """
     try:
         tree = ast.parse(textwrap.dedent(src or ""))
     except Exception:                                       # noqa: BLE001
@@ -358,6 +377,25 @@ def _ops_from_source(src: str) -> list:
                 if isinstance(it, ast.Constant) and isinstance(it.value, str):
                     if it.value not in out:
                         out.append(it.value)
+    # ② 分派表字典：`_XXX_OPS = {"op": _op_call, ...}`
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign) or len(node.targets) != 1:
+            continue
+        tgt = node.targets[0]
+        if not (isinstance(tgt, ast.Name) and tgt.id.endswith("_OPS")):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        keys = node.value.keys
+        vals = node.value.values
+        if not keys or any(not isinstance(k, ast.Constant)
+                           or not isinstance(k.value, str) for k in keys):
+            continue
+        if any(not isinstance(v, ast.Name) for v in vals):
+            continue
+        for k in keys:
+            if k.value not in out:
+                out.append(k.value)
     return out
 
 

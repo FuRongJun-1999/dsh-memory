@@ -2548,8 +2548,6 @@ def _cg_dispatch(cg, a):
     # 防御性再剥一次（`_dispatch` 已剥；内部调用方若直接调本函数，同样不许传内部标志）。
     a = {k: v for k, v in (a or {}).items() if not str(k).startswith("_")}
     op = (a.get("op") or "read").strip().lower()
-    if op == "help":
-        return _help_call(cg, a)
     _p = getattr(cg, "principal", None)
     if _p is not None and hasattr(_p, "require_op"):
         # P3 写口（state_event）映射到既有 "write" op 词——不给令牌 face 引入新
@@ -2559,17 +2557,52 @@ def _cg_dispatch(cg, a):
         #   state_event（写账本）→ "write"；state_view（只读回放+租约）→ "read"。
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
+    # ── 纯透传 op 分派表（结构重构：23 个 if 分支 → 一张表）──
+    #
+    # 这些 op 的语义**只有一行**：把 (cg, a) 交给对应的 `_*_call`。
+    # 曾经它们各占 3 行 `if op == "...": return _x_call(cg, a)`，
+    # 23 份重复让 `_cg_dispatch` 的「分支总表」不可一眼读完——而这张表
+    # 才是分派层的真实接口面。
+    #
+    # 纪律：表只放**无附加逻辑**的直通项。任何需要前置校验、参数规整
+    # 或多 action 分支的 op（read / link / info / write / goal / …）必须
+    # 留成显式 `if` 分支——塞进表里会把逻辑藏进 lambda，反而更难读。
+    _PASSTHROUGH_OPS = {
+        "help": _help_call,
+        "status": _status_call,
+        "edges": _edges_call,
+        "task": _task_call,
+        "protect": _protect_call,
+        "identity": _identity_call,
+        "consistency": _consistency_call,
+        "metacognition": _metacognition_call,
+        "self_state": _self_state_call,
+        "evolution": _evolution_call,
+        "sustain": _sustain_call,
+        "scrub": _scrub_call,
+        "predict": _predict_call,
+        "causal": _causal_call,
+        "whitebox": _whitebox_call,
+        "ref": _ref_call,
+        "session": _session_call,
+        "ingest": _ingest_call,
+        "export": _export_call,
+        "maintain": _maintain_call,
+        "consolidate": _consolidate_call,
+        "insight": _insight_call,
+        "ccg": _ccg_call,
+    }
+    _direct = _PASSTHROUGH_OPS.get(op)
+    if _direct is not None:
+        return _direct(cg, a)
+
     if op == "write":
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
         _require_verify_for_vstate(_p, a)
 
-    if op == "status":
-        return _status_call(cg, a)
 
-    if op == "edges":
-        return _edges_call(cg, a)
 
     if op == "theory":
         from . import theory as _th
@@ -3190,8 +3223,6 @@ def _cg_dispatch(cg, a):
                                        limit=int(a.get("limit") or 20)),
                 "active": cg.active_goals(limit=int(a.get("limit") or 5))}
 
-    if op == "task":
-        return _task_call(cg, a)
 
     if op == "recent":
         act = (a.get("action") or "list").strip().lower()
@@ -3314,38 +3345,16 @@ def _cg_dispatch(cg, a):
         return cg.forget_gated(a.get("node_id", ""), a.get("reason", ""),
                                override=bool(a.get("override")))
 
-    if op == "protect":
-        return _protect_call(cg, a)
 
-    if op == "identity":
-        return _identity_call(cg, a)
 
-    if op == "consistency":
-        return _consistency_call(cg, a)
 
-    if op == "metacognition":
-        return _metacognition_call(cg, a)
 
-    if op == "self_state":
-        return _self_state_call(cg, a)
 
-    if op == "evolution":
-        return _evolution_call(cg, a)
 
-    if op == "sustain":
-        return _sustain_call(cg, a)
 
-    if op == "scrub":
-        return _scrub_call(cg, a)
 
-    if op == "predict":
-        return _predict_call(cg, a)
 
-    if op == "causal":
-        return _causal_call(cg, a)
 
-    if op == "whitebox":
-        return _whitebox_call(cg, a)
 
     if op == "index_code":
         from . import refindex
@@ -3488,29 +3497,13 @@ def _cg_dispatch(cg, a):
                                            items=items, stats=stats)
         return out
 
-    if op == "ref":
-        return _ref_call(cg, a)
 
-    if op == "session":
-        return _session_call(cg, a)
 
-    if op == "ingest":
-        return _ingest_call(cg, a)
 
-    if op == "export":
-        return _export_call(cg, a)
 
-    if op == "maintain":
-        return _maintain_call(cg, a)
 
-    if op == "consolidate":
-        return _consolidate_call(cg, a)
 
-    if op == "insight":
-        return _insight_call(cg, a)
 
-    if op == "ccg":
-        return _ccg_call(cg, a)
 
     raise ValueError(f"cg 未知 op：{op}")
 

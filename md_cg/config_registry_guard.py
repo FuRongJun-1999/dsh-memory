@@ -72,6 +72,15 @@ def ok(cond, msg, extra=""):
 def _read(rel: str) -> str:
     if rel in _SRC:
         return _SRC[rel]
+    # 2026-11-11 结构归位：治理模块真源在 `md_cg/govern/`，根目录只剩 PEP 562
+    # 转发 shim（零逻辑 ⇒ 常量表在 AST 里找不到，G2 会全量报 NOTFOUND）。
+    # 登记表里的 `md_cg/x.py` 仍是**对外口径**（配置参数表文档/守卫生成面同源），
+    # 故这里只改**取值路径**：真源优先，回落根目录（第二阶段 shim 移除后自然收敛）。
+    root, base = os.path.split(rel)
+    for cand in (os.path.join(REPO, root, "govern", base), os.path.join(REPO, rel)):
+        if os.path.isfile(cand):
+            with open(cand, encoding="utf-8") as f:
+                return f.read()
     with open(os.path.join(REPO, rel), encoding="utf-8") as f:
         return f.read()
 
