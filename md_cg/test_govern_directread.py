@@ -213,9 +213,10 @@ SCI_NAME = "数学·函数单调性判定"
 def _verdict_rows(nid, value):
     return [
         {"id": nid, "unit": "reflect", "field": "验证方式", "value": value,
-         "basis": "measurement", "source": SRC_MEASURE, "verdict": "accept"},
+         "basis": "measurement", "source": SRC_MEASURE, "verdict": "accept",
+         "actor": "reflect-unit"},
         {"id": nid, "unit": "verify", "field": "验证方式", "value": value,
-         "verdict": "accept"},
+         "verdict": "accept", "actor": "verify-unit"},
     ]
 
 

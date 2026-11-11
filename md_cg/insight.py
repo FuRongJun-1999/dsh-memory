@@ -316,6 +316,17 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     # 层与敏感度取**本节点已读到的 frontmatter 真值**（不靠索引缺字段时的回落）。
     _disk = os.path.join(cg.root, node["path"])
     _content = node.get("content") or ""
+    # R-554（2026-11-10 审计 P1-E4）：洞见裁决（verify/falsify）是**改既有节点**
+    # 的 C 类动作——此前只过保护闸、不过档位矩阵，confirm 档下直接覆写落盘。
+    from . import autonomy_modes as _am
+    _dec, _stop = _am.gate_write(
+        _am.C_REWRITE, cg, node_id, after=_content,
+        reason="洞见裁决：%s → %s" % (node_id, final), primitive="write_node",
+        layer=fm.get("layer"), sensitivity=fm.get("sensitivity"))
+    if _stop is not None:
+        _stop["insight_state"] = final
+        return _stop
+
     protect.guard_overwrite(cg, node_id, layer=fm.get("layer"),
                             sensitivity=fm.get("sensitivity"), actor=actor)
     cg._write_node(node_id, _disk, fm, _content)

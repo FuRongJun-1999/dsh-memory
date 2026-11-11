@@ -2800,7 +2800,7 @@ def _cg_dispatch(cg, a):
         # 非 str（int/float/bool）cg.get() 取不到 → `_node_view(None)` → **裸 null**；
         # 不可哈希的（list/dict）更会 TypeError 逃出 MCP 面。调用方无从区分
         # 「id 不存在」与「类型错」。故本层只对**类型错**补结构化 error
-        # `node_id_not_str`（附 got_type；对齐 trust.py:692 的 `node_not_found`
+        # `node_id_not_str`（附 got_type；对齐 trust.py:746 的 `node_not_found`
         # 负路由一族；写面的同族闸见 mdcg.py:1776 的「非法 node_id 类型」ValueError
         # ——写面 fail-closed 抛异常，读面取负路由）。
         #
@@ -5830,6 +5830,36 @@ def main():
     except Exception as _exc:         # 对账故障不得影响服务可用性
         sys.stderr.write("[mdcg-mcp] 两段式对账失败（不阻塞启动）: %r\n"
                          % (_exc,))
+    # ③-自治 档位结算（R-553，2026-11-10 审计 P1-E3）：把 `autonomy_modes.settle()`
+    # 接进启动链。修前它**全仓零调用** ⇒ `MDCG_AUTONOMY=full` 时 `mode()` 因「未结算」
+    # 直接返回 full，准入读数 R1–R4 一条都没校验 —— 设计 §六「读数不满足 ⇒ 该档不可
+    # 选中、不静默降级」在常驻进程里从未生效，full 档等于无条件开放。
+    # 口径：读数不满足 ⇒ effective 回落 confirm + 启动面逐条告警（不静默）；
+    # 非法 env ⇒ fail-closed 拒绝启动（与 principal/root 守卫同风格）。
+    from . import autonomy_modes as _am       # 导入失败即真故障，不吞（在 try 外）
+    try:
+        _settle = _am.settle(root=root)
+        _eff = _settle.get("effective")
+        if _settle.get("alerts"):
+            sys.stderr.write(
+                "[mdcg-mcp] 自治档位结算：configured=%s 但准入读数不满足 ⇒ 实际生效 %s\n"
+                % (_settle.get("configured"), _eff))
+            for _al in _settle["alerts"]:
+                sys.stderr.write("    缺读数 %s：%s\n"
+                                 % (_al.get("reading"), _al.get("detail")))
+        elif _settle.get("error"):
+            sys.stderr.write(
+                "[mdcg-mcp] 自治档位结算失败（读数不可得）：%s ⇒ 实际生效 %s\n"
+                % (_settle.get("error"), _eff))
+        else:
+            sys.stderr.write("[mdcg-mcp] 自治档位：configured=%s effective=%s\n"
+                             % (_settle.get("configured"), _eff))
+    except _am.AutonomyModeError as _exc:
+        sys.stderr.write("[mdcg-mcp] 自治档位配置非法（fail-closed 拒绝启动）：%s\n"
+                         % (_exc,))
+        return 3
+    except Exception as _exc:         # 结算故障不阻塞启动（但必须可见）
+        sys.stderr.write("[mdcg-mcp] 自治档位结算异常（不阻塞启动）: %r\n" % (_exc,))
     # ③' 启动对账 reconcile v0（v0.3 T9 自稳定定理落地，落地清单 P0-3）：两段式
     # 清账只覆盖「有意图无结果的写入」，这里补全量 diff——索引（派生态）vs 盘面
     # 真源：多/缺索引条目与内容哈希漂移三类，以盘面为真源**增量**修复索引面；

@@ -98,8 +98,11 @@ def _rows():
         r = {"id": nid, "unit": unit, "field": "验证方式", "value": value,
              "basis": basis, "source": source, "verdict": verdict,
              "reason": reason}
-        if actor:
-            r["actor"] = actor
+        # R-535（2026-11-10）之后「两侧 actor 都留空」按**自证**处理（空串不再被
+        # discard —— 那正是判据被判方关掉的绕过面）。夹具必须显式给两个不同执行者，
+        # 否则整批 deferred、回滚读数恒 0（本轮实测即此）。
+        r["actor"] = actor or ("reflect-unit" if unit == "reflect"
+                               else "verify-unit")
         return r
 
     return [

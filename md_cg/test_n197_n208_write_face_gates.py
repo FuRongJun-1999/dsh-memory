@@ -55,7 +55,8 @@
 
 运行：python -X utf8 -m md_cg.test_n197_n208_write_face_gates
 """
-from __future__ import annotations
+from __future__ import annotations
+import os
 
 import atexit
 import json
@@ -197,6 +198,14 @@ def _not_raises_but_no_forged_line():
 
 
 def main():
+    # R-554（2026-11-10）：本文件测的是**写机制本身**（写面闸/落盘/标脏），
+
+    # 不是档位矩阵 —— 缺省 confirm 档会把 B/C 面写路径变成「出变更单不落盘」。
+
+    # 故显式拉满档位，判据才回到它本来要测的东西。
+
+    os.environ.setdefault("MDCG_AUTONOMY", "full")
+
     global LIVE
     # ---------- ⓿ 隔离自证 ----------
     print("[0] 隔离自证")

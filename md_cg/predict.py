@@ -40,6 +40,9 @@ MAX_BRANCHES_HARD = 32
 MIN_SAMPLES = 50            # D-006 最低样本量
 BASE_HIT_RATE = 0.40        # 基线阈值（工程初值，非协议承诺）
 HIT_HISTORY_MAX = 200       # 命中历史滚动窗口
+#: R-552：动态阈值的**比较对象**取最近多少条（σ 项只有在「最近 vs 阈值」的
+#: 比法下才真正参与；修前拿全窗均值跟自己比，σ 项代数上恒消）。
+RECENT_WINDOW = 20
 EDGE_BOOST = 0.05           # 命中 → 因果/时序边置信度增量
 
 # Beta-Bernoulli 先验强度（等效先验样本数 κ，P-T-73/74 通道贝叶斯）：
@@ -135,8 +138,10 @@ def _read_log(cg, limit=0):
 # 生效条件：传入 cg 的留痕中存在 type=='feedback' 的记录时返回其 hit 布尔序列末尾 limit 条（limit 默认常量 HIT_HISTORY_MAX），无此类记录则返回空列表；
 def _hit_history(cg, limit=HIT_HISTORY_MAX):
     """D-006 命中历史（持久化 · 差异 2）：只取 feedback 记录。"""
+    # R-551：`hit=None` 是「没观测到」，**不是**「未命中」——不计入分母。
     return [bool(r.get("hit")) for r in _read_log(cg)
-            if r.get("type") == "feedback"][-int(limit):]
+            if r.get("type") == "feedback"
+            and r.get("hit") is not None][-int(limit):]
 
 
 # 生效条件：传入 cg 与 nid 时返回邻接表中 nid 的出边列表 [(目标 id, 边字典)]，该键无出边则为 []；
@@ -720,6 +725,16 @@ def _boost_incoming(cg, node_id, delta=EDGE_BOOST, actor="predict"):
         # 尤其 sensitivity 缺省为 DEFAULT_SENSITIVITY("internal")——直接回写等于
         # 把 private/secret 节点**降级**；modality/created_at/证据计数同理。
         # 故除被覆盖的字段外，整表透传（actor 已单独传，避免重复关键字）。
+        # R-554（2026-11-10 审计 P1-E4）：命中加成改的是**既有节点的边置信度**
+        # （E 类权重面）——此前不过档位矩阵。闸放写盘前：confirm/full 两档 ALLOW
+        # （原链原样），plan 档无计划 ⇒ fail-closed 跳过该条（不落盘、不静默）。
+        from . import autonomy_modes as _am
+        _dec, _stop = _am.gate_write(
+            _am.E_WEIGHT, cg, src, after=node.get("content") or "",
+            reason="预测命中加成：边置信度 +%s（目标 %s）" % (EDGE_BOOST, node_id),
+            primitive="add")
+        if _stop is not None:
+            continue
         skip = {"id", "layer", "tags", "condition_space", "importance",
                 "confidence", "edges", "verification_basis",
                 "non_applicable_conditions", "actor", "path"}
@@ -742,7 +757,7 @@ def _boost_incoming(cg, node_id, delta=EDGE_BOOST, actor="predict"):
     return changed
 
 
-# 生效条件：传入 cg 时若 _hit_history(cg, limit) 样本数少于常量 MIN_SAMPLES，返回 threshold 为常量 BASE_HIT_RATE 且 reflect=False；样本足够则以 max(BASE_HIT_RATE, mean-2σ) 为 threshold，命中均值低于该值时 reflect=True；
+# 生效条件：传入 cg 时若 _hit_history(cg, limit) 样本数少于常量 MIN_SAMPLES，返回 threshold 为常量 BASE_HIT_RATE 且 reflect=False；样本足够则以 max(BASE_HIT_RATE, mean-2σ) 为 threshold，并取**最近 RECENT_WINDOW 条**（不足则全取）的命中率 recent_rate，recent_rate < threshold 时 reflect=True（R-552：σ 项由此真正参与判定；修前拿全窗均值与自身阈值比，σ 代数上恒消）；
 def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
     """D-006 命中率动态校准（2.7.2 动态死区）。
 
@@ -758,15 +773,25 @@ def dynamic_hit_threshold(cg, limit=HIT_HISTORY_MAX):
     var = sum(((1.0 if x else 0.0) - mean) ** 2 for x in h) / n
     std = var ** 0.5
     th = max(BASE_HIT_RATE, mean - 2 * std)
-    low = mean < th
+    # R-552（2026-11-10 审计 P1-E2）：修前判据是 `low = mean < th`，而
+    # th = max(BASE, mean - 2σ) —— 代数上恒等于 `mean < BASE`：σ 项**根本不参与**
+    # （mean ≥ mean-2σ 恒成立），「动态死区」实际是静态死区。
+    # 修后：拿**最近窗口**的命中率与动态阈值比 —— σ 才真正决定阈值的松紧
+    # （波动大 ⇒ 阈值下移 ⇒ 更不容易判「异常」；波动小 ⇒ 阈值贴近均值 ⇒ 更敏感）。
+    recent = h[-int(min(n, RECENT_WINDOW)):]
+    recent_rate = (sum(1 for x in recent if x) / float(len(recent))) if recent else 0.0
+    low = recent_rate < th
     return {"threshold": round(th, 4), "samples": n, "mean": round(mean, 4),
             "std": round(std, 4), "min_samples": MIN_SAMPLES,
+            "recent_window": len(recent), "recent_rate": round(recent_rate, 4),
             "reflect": low,
-            "note": "命中率低于动态阈值 → 建议反思（D-006）" if low
-                    else "命中率正常"}
+            "note": ("最近 %d 条命中率 %.4f 低于动态阈值 %.4f → 建议反思（D-006）"
+                     % (len(recent), recent_rate, th)) if low
+                    else ("最近 %d 条命中率 %.4f 不低于动态阈值 %.4f（命中率正常）"
+                          % (len(recent), recent_rate, th))}
 
 
-# 生效条件：cg 与 predicted_node_id 给出即执行——predicted_node_id 为假值（None/0/""）时 pred 取空串，actual_node_id 为假值时 act 回落为 pred，hit 为 None 时按 pred==act 判定；hit 为真时 out["boosted"] 取 _boost_incoming(cg, act, EDGE_BOOST, actor=actor)，hit 为假时 out["rejected_id"] 取 cg.add_rejected(...)（该调用抛异常时改记 out["rejected_error"]），随后 out 合并 dynamic_hit_threshold(cg)，sync_self 为真时导入 self_state.refresh(cg, actor=actor) 写 out["self_state"]（抛异常时写 out["self_state_error"]），返回 out。
+# 生效条件：cg 与 predicted_node_id 给出即执行——predicted_node_id 为假值（None/0/""）时 pred 取空串；actual_node_id 为假值时 act 回落为 pred，但 hit 若未显式给出则保持 None（recorded=False：不 boost、不 rejected、不计入命中率——R-551 修前此处恒记 hit=True）；actual_node_id 非空且 hit 为 None 时按 pred==act 判定；hit 为真时 out["boosted"] 取 _boost_incoming(cg, act, EDGE_BOOST, actor=actor)，hit 为假时 out["rejected_id"] 取 cg.add_rejected(...)（该调用抛异常时改记 out["rejected_error"]），随后 out 合并 dynamic_hit_threshold(cg)，sync_self 为真时导入 self_state.refresh(cg, actor=actor) 写 out["self_state"]（抛异常时写 out["self_state_error"]），返回 out。
 def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
              actor="predict", sync_self=True, channel=None):
     """预测反馈（D-006）：hit → 边置信度 +0.05；miss → 登记 rejected。
@@ -795,17 +820,26 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
             _DS = "internal"
         _p.require_write(_DS)
     pred = str(predicted_node_id or "").strip()
-    act = str(actual_node_id or "").strip() or pred
+    act_obs = str(actual_node_id or "").strip()          # 真实观测到的走向（可能没给）
+    act = act_obs or pred
     if hit is None:
-        hit = (pred == act)
-    hit = bool(hit)
+        # R-551（2026-11-10 审计 P1-E1）：修前 `act = ... or pred` 之后再判
+        # `hit = (pred == act)` —— 不传 actual 时 act 就是 pred，**恒等 ⇒ hit 恒真**，
+        # 于是「什么都没观测到」被记成一次命中，命中率与阈值校准全被灌水。
+        # 修后：没有 actual 就没有命中可言 —— hit 保持 None（不记命中、不记未命中）。
+        hit = None if not act_obs else (pred == act)
+    recorded = hit is not None
+    if recorded:
+        hit = bool(hit)
     _append(cg, {"type": "feedback", "t": time.time(), "predicted": pred,
-                 "actual": act, "hit": hit, "note": str(note or "")[:200],
+                 "actual": act_obs or None, "hit": hit,
+                 "note": str(note or "")[:200],
                  "channel": (str(channel) if channel else None)})
-    out = {"ok": True, "hit": hit, "predicted": pred, "actual": act}
-    if hit:
+    out = {"ok": True, "hit": hit, "predicted": pred,
+           "actual": act_obs or None, "recorded": recorded}
+    if hit is True:
         out["boosted"] = _boost_incoming(cg, act, EDGE_BOOST, actor=actor)
-    else:
+    elif hit is False:
         try:
             out["rejected_id"] = cg.add_rejected(
                 hypothesis=f"预测未命中：{pred} → {act}",
@@ -813,6 +847,9 @@ def feedback(cg, predicted_node_id, actual_node_id=None, hit=None, note="",
                 verification_basis="data", tags=["prediction", "miss"])
         except Exception as exc:                              # pragma: no cover
             out["rejected_error"] = str(exc)
+    else:
+        out["skipped"] = ("未给 actual_node_id：本次不判命中（不 boost、不 rejected、"
+                          "不计入命中率）——修前此处恒记 hit=True")
     out.update(dynamic_hit_threshold(cg))
     # 闭环：预测误差 → 自我模型更新。延迟导入避免与 self_state 的循环依赖，
     # 且自我模型刷新属于二阶观测，失败不阻塞一阶反馈结果。

@@ -594,17 +594,25 @@ def compile_dialog(dialog: str, node_id: str, actor: str, *,
 
     # ---- 第 6 环：验证单元终裁（编译器自证部分；签章由 attest 独立完成） ----
     solid = not res.errors
+    absent = [m for m in nodefile.CCG_REQUIRED if m not in lines]
+    # R-555（2026-11-10 审计 P1-E5）：修前只要没有 E0xx 错误，reason 就一律写
+    # 「六要素齐备且全部 grounded」——而 `absent` 只进 warnings。于是「缺验证方式」
+    # 这种半成品也拿到一句「齐备」的终裁理由：理由与事实相反，下游按 reason 判断的
+    # 人都被骗。修后理由**如实写缺哪条**（passed 语义不变：编译可提交 ≠ 可写入，
+    # 是否放行由 attest 独立裁决）。
     res.verdict = {
         "passed": solid,
-        "reason": ("候选可提交外部验证：六要素齐备且全部 grounded" if solid
-                   else (res.errors[0] if res.errors else "未知")),
+        "reason": ((("候选可提交外部验证：四槽齐备、已过名实门 grounded；"
+                     "六要素尚缺 " + ",".join(absent) + "（link 前须补）")
+                    if absent else
+                    "候选可提交外部验证：六要素齐备且全部 grounded")
+                   if solid else (res.errors[0] if res.errors else "未知")),
         "authority": "VERIFICATION_UNIT",
         "requires_attestation": True,   # 裁定 A：编译通过 ≠ 可写入，须外部签章
+        "missing_elements": absent,
     }
-    if solid:
-        absent = [m for m in nodefile.CCG_REQUIRED if m not in lines]
-        if absent:
-            res.warnings.append("六要素尚缺：" + ",".join(absent) + "（link 前须补）")
+    if solid and absent:
+        res.warnings.append("六要素尚缺：" + ",".join(absent) + "（link 前须补）")
     res.success = solid
     return res
 

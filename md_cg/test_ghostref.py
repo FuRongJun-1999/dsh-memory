@@ -4,7 +4,8 @@
 多主体世界模型对齐 v0.1 §2 L1「转引不得升级」的行为守卫。
 运行：python -m md_cg.test_ghostref
 """
-from __future__ import annotations
+from __future__ import annotations
+import os
 
 import os
 import tempfile
@@ -34,6 +35,14 @@ URF = nodefile.UNCERTAIN_REFS_FIELD
 
 
 def main():
+    # R-554（2026-11-10）：本文件测的是**写机制本身**（写面闸/落盘/标脏），
+
+    # 不是档位矩阵 —— 缺省 confirm 档会把 B/C 面写路径变成「出变更单不落盘」。
+
+    # 故显式拉满档位，判据才回到它本来要测的东西。
+
+    os.environ.setdefault("MDCG_AUTONOMY", "full")
+
     tmp = tempfile.mkdtemp(prefix="mdcg_ghost_test_")
     cg = MdCGOS(os.path.join(tmp, "root"))
     pipe = default_pipeline()

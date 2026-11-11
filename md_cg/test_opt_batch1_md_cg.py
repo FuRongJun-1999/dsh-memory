@@ -40,7 +40,8 @@ opt-batch1 批次。本文件只覆盖 md_cg 侧两条；rust 侧（R-1/R-2/R-3/
 变异表每条都记 `expect_red`（预期转红条数），实际红数不等即判失败——这条
 同时钉住「有判别力」（红数 > 0）与「无过度杀伤」（红数恰好命中预期）。
 """
-from __future__ import annotations
+from __future__ import annotations
+import os
 
 import os
 import shutil
@@ -434,6 +435,14 @@ def _mutate_mode(list_only: bool = False) -> int:
 
 
 def main() -> int:
+    # R-554（2026-11-10）：本文件测的是**写机制本身**（写面闸/落盘/标脏），
+
+    # 不是档位矩阵 —— 缺省 confirm 档会把 B/C 面写路径变成「出变更单不落盘」。
+
+    # 故显式拉满档位，判据才回到它本来要测的东西。
+
+    os.environ.setdefault("MDCG_AUTONOMY", "full")
+
     if "--mutate" in sys.argv:
         try:
             return _mutate_mode("--list" in sys.argv)

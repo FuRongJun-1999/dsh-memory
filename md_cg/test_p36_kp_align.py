@@ -133,9 +133,11 @@ def main():
             verdicts += [
                 {"id": nid, "unit": "reflect", "field": "验证方式",
                  "value": "据教材单元小结核对", "basis": "textbook",
-                 "source": SRC_BOOK, "verdict": "accept"},
+                 "source": SRC_BOOK, "verdict": "accept",
+                 "actor": "reflect-unit"},
                 {"id": nid, "unit": "verify", "field": "验证方式",
-                 "value": "据教材单元小结核对", "verdict": "accept"},
+                 "value": "据教材单元小结核对", "verdict": "accept",
+                 "actor": "verify-unit"},
             ]
         rep = cc.crosscheck(cg, ids=TARGETS, verdicts=verdicts, apply=True,
                             batch="p36ev", actor="tester")

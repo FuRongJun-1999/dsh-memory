@@ -72,16 +72,27 @@ def main():
         for i in range(10):
             append_jsonl(autonomy._explore_log_path(cg), {"i": i, "bids": []})
         p_ev = d_meta.compute(cg)["events_pressure"]
-        ok(abs(p_ev - round((20 + 10) / (2 * 200), 4)) < 1e-9,
-           f"A2events_pressure 公式复算（(20+10)/(2×200)={p_ev}）")
+        ok(abs(p_ev - round((20 + 10) / float(d_meta.EVENTS_FULL), 4)) < 1e-9,
+           f"A2events_pressure 公式复算（(20+10)/{d_meta.EVENTS_FULL}={p_ev}）")
 
         cg_full = MdCGOS(_root(tmp, "a_full"))
         for i in range(300):
             append_jsonl(cg_full.recent_log, {"i": i})
             append_jsonl(autonomy._explore_log_path(cg_full), {"i": i})
-        ok(d_meta.compute(cg_full)["events_pressure"] == 1.0,
-           "A2b两日志各满窗 → 上界 1.0（尾窗只取 window 条、不漏出 [0,1]）")
-
+        ok(d_meta.compute(cg_full)["events_pressure"] == round(
+            600 / float(d_meta.EVENTS_FULL), 4),
+           "A2b 读数 = 条数/饱和基数（R-556：不再被 window 截断成定值）")
+        # R-556：事件量单调递增（修前 200/400/1000 全被截断在同一刻度）
+        _seq = []
+        for _n in (200, 400, 1000, 2000, 4000):
+            _c = MdCGOS(_root(tmp, "mono_%d" % _n))
+            for i in range(_n):
+                append_jsonl(_c.recent_log, {"i": i})
+            _seq.append(d_meta.compute(_c)["events_pressure"])
+        ok(all(_seq[i] < _seq[i + 1] for i in range(3)),
+           "A2c 200/400/1000/2000 条事件读数严格递增（%s）" % (_seq,))
+        ok(_seq[-1] == 1.0 and max(_seq) <= 1.0,
+           "A2d 到饱和基数封顶 1.0 且不漏出 [0,1]（%s）" % (_seq,))
         stock = d_meta._layer_stock(type("C", (), {"index": {"nodes": {
             "n1": {"layer": "rejected"}, "n2": {"layer": "unresolved"},
             "n3": {"layer": "knowledge"}}}})())

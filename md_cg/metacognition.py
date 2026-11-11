@@ -53,6 +53,9 @@ LOG_FILE = "_metacognition.jsonl"
 GAP_OVERCONFIDENT = 0.15     # 过度自信：期望 - 实际 > 此值
 GAP_UNDERCONFIDENT = -0.15   # 过度保守：期望 - 实际 < 此值
 BLINDSPOT_DENSE = 0.30       # 盲区密集：BLINDSPOT 占比 >= 此值
+#: R-557d：信任后验低于此值即出「先修验证稳定性」建议（P_trust = 近期
+#: 验证事件中 confirmed 的占比；0.5 = 过半未通过就认为信任不稳）。
+TRUST_LOW = 0.5
 D_LOW = 0.10                 # P_gap：D_norm < 此值视为「信息差已收敛」
 MIN_SAMPLES = 5              # 样本不足 → insufficient_data
 D2_EMOTION = 0.05            # 二阶变化显著阈值
@@ -553,6 +556,21 @@ def _advise(tr, cal, bs, tt) -> list:
         out.append({"code": "open_questions",
                     "why": f"unresolved 层有 {bs['unresolved_count']} 个未解问题",
                     "action": "按 blindspots.items 的顺序优先补条件"})
+    # R-557d（2026-11-10 审计 P1-E9）：`tt`（trust()）此前只是**形参**——传进来
+    # 一次都没用，报告里 p_trust 有读数却从不进建议面。修后：信任后验过低 ⇒ 出
+    # 「先恢复验证稳定性」的建议；p_trust 为 None（无验证留痕）⇒ 明确说「没有轨迹」，
+    # 不冒充「信任正常」。
+    p_trust = tt.get("p_trust")
+    if p_trust is None:
+        if tt.get("ok"):
+            out.append({"code": "no_trust_trace",
+                        "why": "无验证留痕（p_trust=None），信任面没有可判的样本",
+                        "action": "对关键节点做一次 verify()，让信任轨迹有起点"})
+    elif float(p_trust) < TRUST_LOW:
+        out.append({"code": "low_trust",
+                    "why": (f"验证稳定置信 p_trust={p_trust} < {TRUST_LOW}"
+                            f"（{tt.get('n_events')} 次验证事件）"),
+                    "action": "先修验证通过率（复核被证伪/降级节点），再扩张新知识"})
     if not out:
         out.append({"code": "stable",
                     "why": "轨迹 / 校准 / 盲区 / 信任均在阈值内",

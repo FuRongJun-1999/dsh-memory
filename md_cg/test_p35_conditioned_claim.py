@@ -82,10 +82,13 @@ def _seed(root):
 
 def _R(nid, value, basis, source):
     return [
+        # R-535 之后「两侧 actor 都留空」按自证处理（空串不再被 discard——那正是
+        # 判据被判方关掉的绕过面）。故夹具必须**显式**声明两个不同的执行者。
         {"id": nid, "unit": "reflect", "field": "验证方式", "value": value,
-         "basis": basis, "source": source, "verdict": "accept"},
+         "basis": basis, "source": source, "verdict": "accept",
+         "actor": "reflect-unit"},
         {"id": nid, "unit": "verify", "field": "验证方式", "value": value,
-         "verdict": "accept"},
+         "verdict": "accept", "actor": "verify-unit"},
     ]
 
 

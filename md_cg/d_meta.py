@@ -54,6 +54,10 @@ DEFAULT_WINDOW = 200
 
 #: `rejected`/`unresolved` 存量的归一化饱和基准（达到即视为压力 1.0）。
 STOCK_FULL = 100
+#: R-556：未消化事件的**饱和基数**——两个日志尾部合计到这么多条即压力 1.0。
+#: 为什么不是 `2*window`：分母若等于读取上限，读数必然被截断在刻度上，
+#: 事件量再涨也读不出来（审计 P1-E6 的「恒值」形态）。
+EVENTS_FULL = 2000
 
 EXPLORE_LOG = "_explore.jsonl"
 RECENT_LOG = "_recent.jsonl"
@@ -156,16 +160,22 @@ def _state_dist(cg, window: int) -> dict:
     return {"total": sum(states.values()), "states": states}
 
 
-# 生效条件：给定 cg 与 window，返回窗口内新增未消化事件的密度代理（[0,1]），= min(1.0, (recent 尾部条数 + explore 尾部条数) / (2*window))；
+# 生效条件：给定 cg 与 window，返回未消化事件的密度代理（[0,1]），= min(1.0, (recent 尾部条数 + explore 尾部条数) / EVENTS_FULL)，尾部读取上限取 max(window, EVENTS_FULL)（R-556：分母固定为饱和基数，读数随事件量单调上升）；
 def events_pressure(cg, window: int = DEFAULT_WINDOW) -> float:
     """代理一：未被建模的现实总量 → 窗口内新增未消化事件密度。"""
     window = max(1, int(window or DEFAULT_WINDOW))
     recent_path = (getattr(cg, "recent_log", "") or
                    os.path.join(str(getattr(cg, "root", "") or ""), RECENT_LOG))
     explore_path = os.path.join(str(getattr(cg, "root", "") or ""), EXPLORE_LOG)
-    n = len(tail_jsonl(recent_path, window)) + len(tail_jsonl(explore_path,
-                                                              window))
-    return round(min(1.0, n / float(2 * window)), 4)
+    # R-556（2026-11-10 审计 P1-E6）：修前分母是 `2*window`、分子是**被 window
+    # 截断的**尾窗条数 ⇒ n ≤ 2*window 恒成立，读数只能落在 [0,1] 的「截断刻度」上，
+    # 事件从 200 涨到 1000 读数不动（审计描述为「恒 0.5」的形态即此）。
+    # 修后：分子读**足够深**的尾部（不少于 EVENTS_FULL 条），分母用固定的饱和基数
+    # EVENTS_FULL —— 读数随未消化事件量单调上升，且仍在 [0,1]（到饱和基数封顶）。
+    cap = max(int(window), EVENTS_FULL)
+    n = (len(tail_jsonl(recent_path, cap))
+         + len(tail_jsonl(explore_path, cap)))
+    return round(min(1.0, n / float(EVENTS_FULL)), 4)
 
 
 # 生效条件：给定存量 stock 与资格态分布 dist，返回未建模信号增长的归一化代理（[0,1]），= min(1.0, 0.5*min(1.0, stock/STOCK_FULL) + 0.5*((BLINDSPOT+DEFER)/max(1,total)))；

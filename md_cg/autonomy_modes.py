@@ -107,7 +107,7 @@ __all__ = [
     "KIND_PROPOSAL", "KIND_MUTATION", "KIND_FIELD",
     "autonomy_env", "mode", "decide",
     # 补强批次 v1.2：E 面写盘前闸（判定唯一入口 + 统一 fail-closed 返回体）
-    "e_gate", "forbidden_result",
+    "e_gate", "forbidden_result", "gate_write",
     "order_kind", "mutation_view",
     "mutation_payload", "mutation_executed", "mutation_dedup_key",
     "propose_mutation",
@@ -582,6 +582,48 @@ def e_gate(plan=None, environ=None) -> dict:
 # 放在定义之后而不是写死在字面量里：改表即改文档，不需手改 docstring（也就不会漂）。
 e_gate.__doc__ = e_gate.__doc__.replace('@@E_FACE_BOUNDARY@@',
                                         _render_e_face_boundary())
+
+
+# 生效条件：action_class 属 A/B/C/D/E、target 为节点 id 时，按 decide(action_class) 判定并返回
+# (dec, stop)：ALLOW ⇒ (dec, None)（调用方原链原样、零行为差异）；CONFIRM ⇒ (dec, ticket)
+# 且**已把变更单入队**（调用方不得写盘，直接把 ticket 返回）；FORBID ⇒ (dec, forbidden_result)。
+def gate_write(action_class, cg, target, *, after="", reason="", payload=None,
+               layer=None, sensitivity=None, primitive=None, meta=None,
+               plan=None, environ=None):
+    """B/C/D 面「改既有节点」写盘前闸（R-554，2026-11-10 审计 P1-E4）。
+
+    为什么需要它：设计 §三 的三档矩阵对 B（合并）/C（改写）/D（删除）在 confirm
+    档规定「先出变更单、经裁决 accept 后才落」。但**五条改既有节点的写路径**
+    （分支合并 / 洞见裁决 / 演化回滚 / 预测反馈 / 自我卡刷新）此前**不经过任何
+    判定**：缺省 confirm 档下它们照样直接落盘 —— 矩阵在这五处形同虚设。
+
+    口径（与 `mdcg_remember` 直写面同款，逐键同形）：
+      · ALLOW  ⇒ 返回 `(dec, None)`，调用方**原链原样**（confirm/full 两档对
+        A/E 类零行为差异，这是硬约束）；
+      · CONFIRM⇒ 已入审核队列，返回 `(dec, ticket)`，调用方**不得写盘**；
+      · FORBID ⇒ 返回 `(dec, forbidden_result(dec))`，fail-closed、不落盘、不出单。
+    """
+    dec = decide(action_class, plan=plan, environ=environ)
+    if dec["decision"] == ALLOW:
+        return dec, None
+    if dec["decision"] == CONFIRM:
+        if payload is None:
+            payload = mutation_payload(
+                str(action_class).strip().upper(), target, after=after,
+                reason=reason or "改既有节点（%s）" % ACTION_NAMES.get(
+                    str(action_class).strip().upper(), action_class),
+                primitive=primitive, meta=meta)
+        pr = propose_mutation(cg, str(action_class).strip().upper(), target,
+                              payload=payload, layer=layer,
+                              sensitivity=sensitivity, info=True)
+        ticket = apply_dedup(
+            {"ok": True, "id": target, "committed": False,
+             "moved_to": "review_queue", "verdict": None, "pid": pr.get("pid"),
+             "mutation": payload, "autonomy": dec,
+             "hint": "%s 本次未落盘：变更单已入审核队列（pid=%s，目标 %s）。"
+                     % (dec.get("hint", ""), pr.get("pid"), target)}, pr)
+        return dec, ticket
+    return dec, forbidden_result(dec, id=target)
 
 
 # 生效条件：dec 支持 .get 时返回新 dict {"ok":False,"error":"autonomy_forbidden","autonomy":{mode,action,action_name,decision}（四键取自 dec，缺键回落 None）,"hint":dec["hint"] 或 ""}，并把 **extra 的键值原样并入（各写盘面补自己的上下文键）；不落盘、不出单、不改任何状态；

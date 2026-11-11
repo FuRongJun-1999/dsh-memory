@@ -165,9 +165,15 @@ def _stats(verdicts) -> dict:
            "accept", "ACCEPT"}
     passed = 0
     for v in vs:
-        if v in okv:
-            passed += 1
-        elif isinstance(v, dict) and v.get("verdict") in okv:
+        # R-557c（2026-11-10 审计 P1-E8）：修前先做 `v in okv` —— okv 是 set，
+        # **dict 不可哈希**，`v in set` 直接抛 TypeError：一旦裁决以结构化形态
+        # （{"verdict": "faithful", "reason": …}）进来，整条抽检链就崩。
+        # 修后先分流类型，dict 取 verdict 字段（兼容 {"pass": True} 形态）。
+        if isinstance(v, dict):
+            got = v.get("verdict", v.get("pass"))
+            if got in okv or got is True:
+                passed += 1
+        elif v in okv:
             passed += 1
     reviewed = len(vs)
     rate = (passed / float(reviewed)) if reviewed else 0.0

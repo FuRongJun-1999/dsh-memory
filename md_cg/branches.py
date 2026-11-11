@@ -303,6 +303,17 @@ def merge(cg, branch_id, reason=None) -> dict:
         _mcontent = (src or {}).get("content") or ""
         _mur = _ghostref.find_ghost_phrases(
             _mcontent, known=set((cg.index.get("nodes") or {}).keys()))
+        # R-554（2026-11-10 审计 P1-E4）：分支合并是**改既有节点**（B 类）——
+        # 缺省 confirm 档下它此前直接 `cg.add(override=True)` 落盘，矩阵形同虚设。
+        # 闸放「资格面之后、写盘之前」：ALLOW ⇒ 原链原样；CONFIRM ⇒ 出变更单不入库。
+        from . import autonomy_modes as _am
+        _dec, _stop = _am.gate_write(
+            _am.B_MERGE, cg, orig, after=_mcontent,
+            reason="分支合并：%s → 主支 %s" % (nid, orig), primitive="add",
+            layer=old_fm.get("layer") or e.get("layer") or "knowledge")
+        if _stop is not None:
+            _stop["branch_id"] = bid
+            return _stop
         cg.add(orig, _mcontent,
                layer=old_fm.get("layer") or e.get("layer") or "knowledge",
                tags=list(old_fm.get("tags") or e.get("tags") or []),

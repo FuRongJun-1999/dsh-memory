@@ -7,6 +7,7 @@
 """
 
 import os
+import os
 import shutil
 import sys
 import tempfile
@@ -55,6 +56,9 @@ def _hits(cg, q, **kw):
 
 
 def main():
+    # R-554（2026-11-10）：本文件测的是**写路径本身**（合并/裁决/回滚的机制与幂等），
+    # 不是档位矩阵 —— 缺省 confirm 档会把它们变成「出变更单不落盘」。显式拉满档位。
+    os.environ.setdefault("MDCG_AUTONOMY", "full")
     tmp = tempfile.mkdtemp(prefix="branches_")
     try:
         _run(tmp)

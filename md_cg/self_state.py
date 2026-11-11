@@ -719,6 +719,17 @@ def refresh(cg, subject=DEFAULT_SUBJECT, window=RECENT_WINDOW, importance=None,
     # 状态卡由系统自身周期刷新产生，故观测位置/工具/存在约束都可如实声明。
     # 此前缺这三维，导致 self 层状态卡（importance 可达 1.0）判 legacy_blindspot：
     # 一张"自我状态卡"却是依据不明，与它 importance 1.0 的定位自相矛盾。
+    # R-554（2026-11-10 审计 P1-E4）：状态卡刷新是**改既有节点**（覆写 self 层卡片）。
+    # 闸放写盘前：confirm/full 两档 ALLOW（原链原样）；plan 档无计划 ⇒ fail-closed
+    # 不写（如实返回 skip 原因，不静默）。
+    from . import autonomy_modes as _am
+    _dec, _stop = _am.gate_write(
+        _am.E_WEIGHT, cg, nid, after=_render(state),
+        reason="自我状态卡刷新（%s）" % subject, primitive="add", layer="self")
+    if _stop is not None:
+        return {"ok": False, "skipped": "autonomy", "autonomy": _dec,
+                "ticket": _stop, "node_id": nid,
+                "hint": "本次未写状态卡：档位判定为 %s" % _dec.get("decision")}
     cg.add(nid, _render(state), layer="self", tags=tags, edges=edges,
            condition_space={
                "observation_position": "self:" + str(subject),

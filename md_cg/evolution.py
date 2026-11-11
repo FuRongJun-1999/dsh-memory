@@ -173,6 +173,32 @@ def _fmt(entry: dict) -> str:
 
 
 # 生效条件：text 中 _ENTRY_RE 匹配到 0 个条目时返回 []，匹配到则按各匹配区间解析为字典列表（node 为空或 "—" 时 node_id 置 None，state 段 json.loads 抛 ValueError 时 state 置 None，kind 缺省回落模块常量 KIND_CONDITION_GAP）。
+# 生效条件：block 为一条条目的正文块（不含条目标题行）时，按 `- **标签**：值` 起头、
+# 后续非空且不以 `-`/`##`/``` 起头的行续接为同一字段的后续行，返回 {字段名: 文本}
+# （多行以换行保留原文；未知标签忽略）；
+def _parse_bullets(block: str) -> dict:
+    """把条目正文块里的 bullet 解析成 {字段: 值}——**支持多行值**（R-557b）。"""
+    out = {}
+    cur = None
+    for line in block.splitlines():
+        m = _BULLET_RE.match(line)
+        if m:
+            key = _LABELS.get(m.group(1).strip())
+            cur = key
+            if key:
+                out[key] = [m.group(2).rstrip()]
+            continue
+        if cur is None:
+            continue
+        if not line.strip():
+            continue
+        if line.lstrip().startswith(("- ", "## ", "```")):
+            cur = None                    # 下一个 bullet / 条目 / 代码围栏：收口
+            continue
+        out[cur].append(line.rstrip())
+    return {k: "\n".join(v).strip() for k, v in out.items()}
+
+
 def _parse(text: str):
     out = []
     marks = list(_ENTRY_RE.finditer(text))
@@ -181,10 +207,11 @@ def _parse(text: str):
         block = text[m.end():end]
         node = (m.group(2) or "").strip()
         e = {"entry_id": m.group(1), "node_id": node if node and node != "—" else None}
-        for bm in _BULLET_RE.finditer(block):
-            key = _LABELS.get(bm.group(1).strip())
-            if key:
-                e[key] = bm.group(2).strip()
+        # R-557b（2026-11-10 审计 P1-E7）：`_BULLET_RE` 只吃**首行** —— 多行 pattern
+        # （规律常写成两行以上）回读时被截成第一行，账本与读面因此不一致。
+        # 修后逐行扫：命中标签行后把后续**非空且非新 bullet / 非代码围栏**的行
+        # 续接到同一个字段（原文换行保留），直到下一个标签行或条目边界。
+        e.update(_parse_bullets(block))
         sm = _STATE_RE.search(block)
         if sm:
             try:
@@ -279,7 +306,14 @@ def entries(cg, limit=None, node_id=None, kind=None, newest_first=True):
     判定「提的是哪个节点」，属本轮残留（见报告）。
     """
     recs = _parse(read_ledger(cg))
-    recs = [r for r in recs if _security.node_visible(cg, r.get("node_id"))]
+    # R-557a（2026-11-10 审计 P1-E7）：`node_visible(cg, None)` 在索引里查不到条目
+    # ⇒ fail-closed 返回 False（只有 can_admin 放行），于是**库级条目**（node_id 为空/
+    # 「—」的那些：模块级演化、批量清洗的账）对非管理员整类消失——「不可证可见」
+    # 被错用成「一定不可见」。无 node_id 的行不带任何节点身份，也就没有可泄漏的
+    # 节点面；判据只对**有 node_id** 的行生效。
+    recs = [r for r in recs
+            if not r.get("node_id")
+            or _security.node_visible(cg, r.get("node_id"))]
     if node_id:
         recs = [r for r in recs if r.get("node_id") == node_id]
     if kind:
@@ -404,6 +438,15 @@ def _apply_state(cg, node_id, target, remove=()):
         changed = True
         applied.append(k)
     if changed:
+        # R-554（2026-11-10 审计 P1-E4）：演化回滚也是**改既有节点**（C 类）。
+        from . import autonomy_modes as _am
+        _dec, _stop = _am.gate_write(
+            _am.C_REWRITE, cg, node_id, after=node["content"],
+            reason="演化回滚：%s ← %s" % (node_id, ",".join(applied)),
+            primitive="write_node")
+        if _stop is not None:
+            return applied, [{"field": "*", "reason": _stop.get("hint") or
+                              "autonomy_confirm", "ticket": _stop}]
         cg._write_node(node_id, os.path.join(cg.root, node["path"]),
                        fm, node["content"])
     return applied, skipped
