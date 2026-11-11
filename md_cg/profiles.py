@@ -63,7 +63,7 @@ def _snippet(text):
 
 # 生效条件：facts 为 [(日期, 节点id, 片段)]；返回渲染后的资料卡正文（CCG 六要素 + 事实序列）
 def render(kind, name, facts):
-    title = {"person": "人物资料", "place": "地点资料", "event": "事件资料"}[kind]
+    title = {"role": "角色资料", "person": "人物资料", "place": "地点资料", "event": "事件资料"}[kind]
     head = [
         "# 功能名：%s：%s" % (title, name),
         "# 生效条件：查询提到「%s」或其属性（姓名/年龄/职业/地点/日期）时" % name,
@@ -86,7 +86,7 @@ def build(cg, dry_run=True, limit=None):
     nodes = (cg.index.get("nodes") or {})
     buckets = {}          # (kind, name) -> [(date, nid, snippet)]
     st = {"scanned": 0, "cards": 0, "written": 0, "skipped": 0, "facts": 0,
-          "dry_run": bool(dry_run)}
+          "dry_run": bool(dry_run), "declared": 0, "extracted": 0}
     for nid, e in list(nodes.items()):
         if str(nid).startswith(PREFIX):
             continue
@@ -107,6 +107,26 @@ def build(cg, dry_run=True, limit=None):
                 day = ""
         tags = fm.get("tags") or []
         snip = _snippet(content)
+        # 【情景层 v0.1】diary 声明优先：角色名是闭集，由写入声明（零抽取）。
+        # 外测实证：靠正则猜名字会抽出 profile-person-号你 这类错卡，正确卡反被淹没。
+        diary = fm.get("diary") if isinstance(fm.get("diary"), dict) else None
+        if diary:
+            day = str(diary.get("date") or day or "")
+            for key in ("speaker", "listener"):
+                v = str(diary.get(key) or "").strip()
+                if v:
+                    buckets.setdefault(("role", v), []).append((day, nid, snip))
+            for pp in (diary.get("participants") or []):
+                v = str(pp or "").strip()
+                if v and _en.gate_name(v):
+                    buckets.setdefault(("person", v), []).append((day, nid, snip))
+            pl = str(diary.get("place") or "").strip()
+            if pl:
+                buckets.setdefault(("place", pl), []).append((day, nid, snip))
+            if day:
+                buckets.setdefault(("event", day), []).append((day, nid, snip))
+            continue
+        # 回落：无 diary 的存量节点按确定性抽取（卡标 extracted，与 declared 不混报）
         for name in _en.persons(content, tags):
             buckets.setdefault(("person", name), []).append((day, nid, snip))
         for name in _en.places(content, tags):
@@ -136,6 +156,9 @@ def build(cg, dry_run=True, limit=None):
         aux = _en.auxiliary(" ".join(f[2] for f in uniq))
         tags = ["%s%s" % (kind, ":" + name if kind != "event" else ""),
                 "profile", "%s:%s" % (kind, name)]
+        _src = "declared" if kind == "role" else "extracted"
+        st[_src] = st.get(_src, 0) + 1
+        tags.append("card_source:" + _src)
         tags += ["obj:" + o for o in aux["objects"][:8]]
         tags += ["emo:" + w for w in aux["emotions"][:5]]
         # created_at 只在**已有卡**时透传（保持出生时刻）；新卡交给 add 取 now。

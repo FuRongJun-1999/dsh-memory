@@ -94,5 +94,59 @@ def main():
     return 1 if FAILS else 0
 
 
+
+
+def _run_diary_checks():
+    """情景层 v0.1：diary 声明优先 / 角色卡 / 人名闸 / 资料卡配额。"""
+    import datetime as _dt
+    root = tempfile.mkdtemp(prefix="diary_")
+    cg = MdCGOS(root, actor="test")
+    # 1) diary 声明：角色名不抽取
+    cg.add("d1", "我叫沈知夏，24岁，在江北咖啡店做结构设计",
+           created_at=ts("2026-04-26 10:00:00"), tags=["domain:diary"],
+           diary={"date": "2026-04-26", "scene": "初见", "speaker": "沈知夏",
+                  "listener": "满师傅", "participants": ["老贺"],
+                  "place": "江北咖啡店"}, consistency=False)
+    st = profiles.build(cg, dry_run=False)
+    ok(st.get("declared", 0) >= 1, "D1 声明类卡计数", st)
+    rid = profiles.card_id("role", "沈知夏")
+    ok(bool(cg.get(rid)), "D2 角色卡按声明建立（零抽取）", rid)
+    ok(bool(cg.get(profiles.card_id("role", "满师傅"))), "D3 对手角色卡也建立")
+    ok(bool(cg.get(profiles.card_id("person", "老贺"))), "D4 第三方人物卡建立")
+    ok(bool(cg.get(profiles.card_id("place", "江北咖啡店"))), "D5 地点卡按声明建立")
+    ok(bool(cg.get(profiles.card_id("event", "2026-04-26"))), "D6 事件卡按 diary.date 建立")
+    body = (cg.get(rid) or {}).get("content") or ""
+    ok("角色资料" in body, "D7 角色卡标题正确", body[:40])
+    tags = ((cg.get(rid) or {}).get("frontmatter") or {}).get("tags") or []
+    ok("card_source:declared" in tags, "D8 卡标 declared（与 extracted 不混报）", tags[:8])
+
+    # 2) 人名闸：错名不得成卡
+    cg.add("d2", "号你 们说 这不是人名", created_at=ts("2026-04-27 10:00:00"),
+           tags=["domain:diary"], consistency=False)
+    profiles.build(cg, dry_run=False)
+    bad = [nid for nid in (cg.index.get("nodes") or {})
+           if str(nid).startswith("profile-person-")]
+    ok(all("号你" not in str(n) for n in bad), "D9 人名闸挡住错名（无 号你 卡）", bad[:4])
+
+    # 3) 资料卡配额
+    for i in range(8):
+        cg.add("p%d" % i, "沈知夏 提到第%d次" % i, created_at=ts("2026-05-01 10:00:00"),
+               tags=["domain:diary"], consistency=False)
+    bi.build(cg, write=True, with_content=True)
+    res = cg.recall("沈知夏", budget_tokens=4000, k=30)
+    ids = [e.get("id") for e in (res.get("pack") or [])]
+    n_prof = sum(1 for i in ids if str(i).startswith("profile-"))
+    ok(n_prof <= 3, "D10 资料卡配额生效（≤3）", (n_prof, ids[:6]))
+    ok(rid in ids, "D11 正确的角色卡仍在 pack 里（没被配额误杀）", ids[:6])
+
+
+def main2():
+    print("=" * 70)
+    print("情景层 v0.1：diary 声明 / 角色卡 / 人名闸 / 配额")
+    print("=" * 70)
+    _run_diary_checks()
+    print()
+    print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
+    return 1 if FAILS else 0
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main2())
