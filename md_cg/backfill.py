@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import random
 import time
 from collections import OrderedDict
 
@@ -80,6 +81,26 @@ BASIS_TEXT = OrderedDict((
 BASIS_ENUM_DEFAULT = "other"
 
 BATCH_DEFAULT = "backfill"
+
+#: 每次 apply 生成一个**真批次号**（R-542，2026-11-10）。
+#:
+#: 修前：`batch = batch or BATCH_DEFAULT` 回落的是**常量** "backfill" ⇒ 历次运行的
+#: 留痕 batch 完全相同，`rollback(batch=…)` 实际只能「把历史上所有回填一起撤」，
+#: 无法只撤一批（判据「`rollback(entry_ids=…)` 能只撤一批」因此永远拿不到真实批次）。
+#: 修后：批次号由**运行时刻 + 随机尾**决定，四个写入口（apply / cap_apply /
+#: exempt_apply / fix_conditions_apply）各自拿一个；显式传 batch 的调用方行为不变。
+BATCH_SEQ = 0
+
+
+def new_batch(prefix: str = BATCH_DEFAULT) -> str:
+    """生成一个本次运行专属的批次号：`<前缀>-<UTC 时间戳>-<两位序号><4 位随机>`。
+
+    序号在同一进程内自增（同一秒内两次 apply 也不会撞），随机尾防跨进程同秒撞车。
+    """
+    global BATCH_SEQ
+    BATCH_SEQ += 1
+    return "%s-%s-%02d%04x" % (prefix, time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()),
+                               BATCH_SEQ % 100, random.getrandbits(16))
 
 #: 生效条件的**唯一结构化来源**：condition_space 四槽合成（见 nodefile）
 BASIS_CONDITION_SYNTH = "frontmatter.condition_space(四槽合成)"
@@ -417,11 +438,11 @@ def plan(x, layer=None, limit=None, ids=None, include_partial=False,
 
 # 生效条件：x 可被 _as_cg 解释为 CG 句柄时，按 layer/ids/prefix/entry_ids 选定条目做回填并返回含 written 等计数的 rep，其中 limit 非 None 时把写入数截断到该值。
 def apply(x, ids=None, entry_ids=None, layer=None, limit=None,
-          batch=BATCH_DEFAULT, include_partial=False, basis_text=None,
+          batch=None, include_partial=False, basis_text=None,
           actor=None, prefix=None) -> dict:
     """执行回填：逐节点改写 md，写 `_backfill.jsonl` 留痕。"""
     cg = _as_cg(x)
-    batch = batch or BATCH_DEFAULT
+    batch = batch or new_batch(BATCH_DEFAULT)
     p = plan(cg, layer=layer, limit=None, ids=ids, prefix=prefix,
              include_partial=include_partial, basis_text=basis_text)
     items = p["items"]
@@ -669,10 +690,10 @@ def cap_plan(x, layer=None, limit=None, ids=None, min_conf=0.5) -> dict:
 
 # 生效条件：x 经 _as_cg，batch 假值回落 BATCH_DEFAULT；先 cap_plan 得 items，按 entry_ids 过滤；逐个检查节点存在、读取可读、无新增标签分别计 drift/locked/drift，成功写 tags 并记日志，limit 非 None 且 written >= limit 时 break；返回 rep。
 def cap_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
-              batch=BATCH_DEFAULT, min_conf=0.5, actor=None) -> dict:
+              batch=None, min_conf=0.5, actor=None) -> dict:
     """注入 `cap:<op>` 标签：只改 frontmatter.tags，不动正文。"""
     cg = _as_cg(x)
-    batch = batch or BATCH_DEFAULT
+    batch = batch or new_batch(BATCH_DEFAULT)
     p = cap_plan(cg, layer=layer, limit=None, ids=ids, min_conf=min_conf)
     items = p["items"]
     if entry_ids:
@@ -851,7 +872,7 @@ def exempt_plan(x, layer=None, limit=None, ids=None, require_ready=True,
 
 # 生效条件：x 经 _as_cg，batch 假值回落 BATCH_DEFAULT；先 exempt_plan 得 items，按 entry_ids 过滤；逐个检查节点存在、可读、EXEMPT_FLAG 仍真、require_ready 为真时 _exempt_ready 再次通过；不通过计 skipped_unready 并记 exempt_skip；通过则置 EXEMPT_FLAG=False 写盘记日志；limit 限制 written；返回 rep。
 def exempt_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
-                 batch=BATCH_DEFAULT, require_ready=True, actor=None,
+                 batch=None, require_ready=True, actor=None,
                  prefix=None) -> dict:
     """分批摘除 `ccg_exempt`（置 False 而非删键，便于反向还原）。
 
@@ -859,7 +880,7 @@ def exempt_apply(x, ids=None, entry_ids=None, layer=None, limit=None,
     不满足则计 `skipped_unready` 并留 `exempt_skip` 记录，绝不硬摘。
     """
     cg = _as_cg(x)
-    batch = batch or BATCH_DEFAULT
+    batch = batch or new_batch(BATCH_DEFAULT)
     p = exempt_plan(cg, layer=layer, ids=ids, require_ready=require_ready,
                     prefix=prefix)
     items = p["items"]
@@ -1106,14 +1127,14 @@ def fix_conditions_plan(x, prefix=None, limit=None) -> dict:
 
 # 生效条件：x 经 _as_cg，batch 假值回落 FIX_BATCH_DEFAULT；先 fix_conditions_plan 得 items，按 ids/entry_ids 过滤；逐个再验当前值仍等于 before 且 comment_before 一致，否则 skipped_drift；rewrite 时 upsert 生效条件行并写 comment，drop 时删行并还原 comment；写盘记 condition_fix，drop 另记 condition_pending；limit 限制 rewritten+dropped；返回 rep。
 def fix_conditions_apply(x, ids=None, entry_ids=None, prefix=None, limit=None,
-                         batch=FIX_BATCH_DEFAULT, actor=None) -> dict:
+                         batch=None, actor=None) -> dict:
     """执行清洗：`rewrite` 改写为四槽合成声明；`drop` 删行并登记待补。
 
     写盘与留痕同 `apply`：`_backfill.jsonl` 记 `condition_fix`；`drop` 另记
     `condition_pending`（待补台账的可追溯副本）。幂等：清洗后不再有候选行。
     """
     cg = _as_cg(x)
-    batch = batch or FIX_BATCH_DEFAULT
+    batch = batch or new_batch(FIX_BATCH_DEFAULT)
     p = fix_conditions_plan(cg, prefix=prefix, limit=None)
     items = p["items"]
     if ids:

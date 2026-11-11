@@ -905,7 +905,8 @@ def evolution_candidates(cg, *, layer: str = None, top: int = 8,
 def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
              check_heartbeat: bool = True, check_evolution: bool = True,
              evolve_top: int = 5, check_provenance: bool = True,
-             provenance_top: int = 5) -> dict:
+             provenance_top: int = 5, check_legacy_pose: bool = True,
+             legacy_sample: int = 200) -> dict:
     """只读体检：返回 issues（带 fix 名）与 stats，不改动任何文件。"""
     root = cg.root
     issues = []
@@ -1061,9 +1062,73 @@ def diagnose(cg, *, name: str = "md_cg", stale_temp_age: float = STALE_TEMP_AGE,
                                       for r in prov["dangling"]],
                            "fix": None})   # 关系事实：只检出，不自动删边
 
+    # ---- 资格姿态抽样（R-565）：`condgate.qualify()` 的**在役消费方**。
+    #      P0-5「存量无条件空间」姿态判据此前只有测试调用 —— 判据写好没人用等于没有。
+    #      抽样读 frontmatter（成本上限 legacy_sample 条），给出 legacy_blindspot 占比；
+    #      占比过高只报 info（这是**存量趋势**，不是「库坏了」，故不触发自愈）。
+    pose = None
+    if check_legacy_pose:
+        try:
+            from . import condgate as _cgate
+            pose = _cgate.legacy_pose_sample(cg, n=legacy_sample)
+            if pose.get("sampled") and (pose.get("share") or 0.0) >= 0.5:
+                issues.append({"code": "legacy_blindspot", "severity": "info",
+                               "detail": ("抽样 %d 个节点中 %d 个无条件空间声明"
+                                          "（占比 %.1f%%）——P0-5 姿态：可读但不得 ACCEPT"
+                                          % (pose["sampled"], pose["legacy_blindspot"],
+                                             (pose.get("share") or 0) * 100)),
+                               "sample": pose.get("sample") or [], "fix": None})
+        except Exception as e:              # noqa: BLE001 —— 观测面不得炸体检
+            pose = {"error": "%s: %s" % (type(e).__name__, e)}
+
+    # ---- 六档「最近成功时刻」（R-545）：从心跳戳读（与 status() 同一取值面）。
+    #      真超期（有台账但超过 max(2×interval, 1800s) 没成功过）= warning：
+    #      「心跳还在跳、某档早就没在干活」是必须被人看见的形态。
+    #      「从没成功过」= info：刚起的进程六个档都还没轮到，报警会把新库打红。
+    ticks = None
+    try:
+        _st = read_stamp(name)
+        if _st:
+            ticks = tick_ledger(_st.get("last_ok_ts"), _st.get("tick_intervals"))
+            _od = [k for k, v in ticks.items()
+                   if v["overdue"] and v["last_ok_ts"] is not None]
+            _nv = [k for k, v in ticks.items() if v["last_ok_ts"] is None]
+            if _od:
+                issues.append({"code": "tick_overdue", "severity": "warning",
+                               "detail": ("%d 档超过自身阈值没成功过：%s"
+                                          % (len(_od), ", ".join(
+                                              "%s(%.0fs)" % (k, ticks[k]["age_s"])
+                                              for k in _od))),
+                               "sample": _od, "fix": None})
+            if _nv:
+                issues.append({"code": "tick_never_ok", "severity": "info",
+                               "detail": "%d 档自本戳以来还没成功过：%s"
+                                         % (len(_nv), ", ".join(_nv)),
+                               "sample": _nv, "fix": None})
+    except Exception as e:                  # noqa: BLE001 —— 观测面不得炸体检
+        ticks = {"error": "%s: %s" % (type(e).__name__, e)}
+
+    # ---- 对账三态（R-544）：never_run / disabled / clean / dirty 四读数可区分。
+    #      此前三种情况在盘面上完全一样（干净库不写留痕、被关也不写、没跑过也没有），
+    #      「对账到底在不在工作」只能靠读代码猜。读数来自 reconcile 的 aux 戳。
+    try:
+        from . import reconcile as _rec
+        rec_status = _rec.status(cg)
+    except Exception as e:                  # noqa: BLE001 —— 观测面不得炸体检
+        rec_status = {"state": "unknown",
+                      "detail": "%s: %s" % (type(e).__name__, e)}
+    if rec_status.get("state") == "disabled":
+        issues.append({"code": "reconcile_disabled", "severity": "info",
+                       "detail": "启动对账被 MDCG_RECONCILE=0 关闭（不是干净，是没跑）",
+                       "fix": None})
+    elif rec_status.get("state") == "never_run":
+        issues.append({"code": "reconcile_never_run", "severity": "info",
+                       "detail": "从未对账过（aux 无 reconcile 戳）", "fix": None})
+
     return {"ok": not any(i["severity"] == "warning" for i in issues),
             "root": root, "issues": issues, "t": time.time(),
-            "evolve": evolve, "provenance": prov,
+            "evolve": evolve, "provenance": prov, "reconcile": rec_status,
+            "ticks": ticks, "legacy_pose": pose,
             "stats": {"nodes_indexed": len(nodes), "nodes_on_disk": disk,
                       "index_log_shards": len(shards), "stale_temps": len(temps),
                       "half_line_logs": len(half), "locked_nodes": locked,
@@ -1417,6 +1482,39 @@ def watermarks(cg) -> dict:
 # --------------------------------------------------------------------------
 
 # 生效条件：传入 cg 即构造实例并把 self.cg 指向它，name/beat_interval/heal_interval/auto_heal/scrub_interval/auto_scrub/evolve_interval/auto_evolve/tidy_interval/auto_tidy 用各默认值（DEFAULT_* 与 AUTO_DEFAULTS 真源表）经 float()/bool() 落为 self 属性，ledger 为假值（默认 None）时回落 SessionLedger(cg.root)，d 经 net_dir(d) 赋值，其余运行态字段初始化为 False/None/空列表/空 Event/Lock
+# 生效条件：ok_map 为 {档名: 最近成功 ts}（可为 None/空/含非法值）、intervals 为 {档名: 秒}；返回 {档名: {"last_ok_ts","age_s","interval_s","limit_s","overdue"}}——台账里没有的档 last_ok_ts=None、age_s=None、overdue=True（"从没成功过"也算超期，不许静默当成健康）；非法 ts 按同口径处理。
+def tick_ledger(ok_map, intervals) -> dict:
+    """六档「最近成功时刻」台账 + 超期判定（R-545）。
+
+    修前只有 `last_tick_done`（最后一档的单值）——「心跳还在跳、但某档三个月没成功」
+    这种形态在读数面完全不可见。本函数把「每档多久没成功过」变成可读、可判的账：
+    `overdue` 的口径与 `_stale_tick` 同源（年龄 > max(2×该档 interval, TICK_STALE_MIN_S)），
+    于是「卡住」与「从来没跑成」用同一个阈值衡量，不另立第二套口径。
+    """
+    now = time.time()
+    ok_map = ok_map if isinstance(ok_map, dict) else {}
+    out = {}
+    for name, interval in (intervals or {}).items():
+        try:
+            iv = float(interval)
+        except (TypeError, ValueError):
+            iv = 0.0
+        lim = max(2.0 * iv, TICK_STALE_MIN_S)
+        raw = ok_map.get(name)
+        try:
+            ts = None if raw is None else float(raw)
+        except (TypeError, ValueError):
+            ts = None
+        age = None if ts is None else max(0.0, now - ts)
+        out[name] = {"last_ok_ts": ts,
+                     "age_s": None if age is None else round(age, 1),
+                     "interval_s": iv,
+                     "limit_s": round(lim, 1),
+                     # 「从没成功过」也算超期：不许把空台账读成健康。
+                     "overdue": (age is None) or (age > lim)}
+    return out
+
+
 class SustainLoop:
     """常驻自维持循环：后台线程周期心跳 + 周期巡检 + 必要时自愈。
 
@@ -1500,6 +1598,11 @@ class SustainLoop:
         self.current_tick = None
         self.last_tick_done = None
         self.last_tick_error = None
+        # R-545（2026-11-10）：六档各自的「最近一次成功时刻」台账。
+        # 修前只有 `last_tick_done`（**最后一档**完成，单值），谁跑成功了、多久没
+        # 成功过，全都没地方看——「心跳还在跳但某档三个月没成功」这种形态不可见。
+        # 键 = 档名（TICK_INTERVAL_ATTRS 的 name），值 = 该档最近一次 ok 的 ts。
+        self.last_ok_ts = {}
         self._ticks_wrapped = False          # 六档进度面包装的幂等标记
         self._started_at = None
         self._th = None
@@ -1549,7 +1652,10 @@ class SustainLoop:
         """进度三字段（写点与读取的**单一取值面**）。"""
         return {"current_tick": self.current_tick,
                 "last_tick_done": self.last_tick_done,
-                "last_tick_error": self.last_tick_error}
+                "last_tick_error": self.last_tick_error,
+                "last_ok_ts": dict(self.last_ok_ts),
+                "tick_intervals": {n: getattr(self, a)
+                                   for n, a in TICK_INTERVAL_ATTRS}}
 
 # 生效条件：以 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段) 刷新既有心跳戳（原子替换）；写失败静默（与心跳同纪律）——进度面缺失是已知边界（写失败时 status 的当前档读数退化为 null）。
     def _flush_progress(self):
@@ -1616,6 +1722,8 @@ class SustainLoop:
                                                              str(e)[:200])}
             self.current_tick = None
             self.last_tick_done = {"name": name, "t": time.time(), "ok": ok_}
+            if ok_:                              # R-545：按档记「最近成功时刻」
+                self.last_ok_ts[name] = self.last_tick_done["t"]
             self._flush_progress()
             return ok_
         wrapped.__name__ = "wrapped_%s_tick" % name
@@ -1752,22 +1860,45 @@ class SustainLoop:
             except Exception:                    # noqa: BLE001
                 pass                             # 心跳失败不中断常驻
 
-# 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
+# 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，随后以 dry_run=not self.auto_tidy 调 trashbin.sweep(self.cg.root)（保留期清扫；auto_tidy 为假时只盘点），把 t/scanned/groups/members/applied_count/auto_tidy 与 trash_scanned/trash_purged/trash_purged_bytes/trash_kept_recent/trash_dry_run/trash_skipped/trash_ok 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时两处都只盘点不落盘；sweep 抛异常只降级为该条读数（trash_ok=False）不中断本档；
     def _tick_tidy(self):
-        """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
+        """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权 + trash 保留期清扫。
 
         确定性动作、永不删节点；`auto_tidy` 为假时只盘点不落盘。缺省值取自
         模块级真源 `AUTO_DEFAULTS`（P0-2；缺省为 True，opt-out 见该表注释）。
         治理对象：单日批次流水（「批次247收官记忆」×163 那类同模板写入）
         —— 写入侧限流（writelimit.check）拦增量，本巡检收敛存量。
+
+        trash 段（R-541，2026-11-10）：`forget` 把节点正文搬进 `trash/`，保留期
+        （`MDCG_TRASH_KEEP_DAYS`，缺省 7 天、负数=永不清理）到点后由
+        `trashbin.sweep` **真删副本**并写无载荷 `_purge.jsonl`；本档此前从未调用它
+        ⇒ 策略静默失效、正文永久留存。删的是副本不是节点，墓碑与删除清单不动。
         """
-        from . import writelimit
+        from . import writelimit, trashbin
         r = writelimit.tidy_contextual(self.cg, apply=self.auto_tidy,
                                        actor="sustain_tidy")
+        # R-541（2026-11-10）**trash 保留期清扫接线**：此前 `trashbin.sweep` 全树零调用
+        # ⇒ 「保留 7 天后自动清」（用户 2026-10-31 定；`MDCG_TRASH_KEEP_DAYS` 可调、
+        # 负数 = 永不清理）从未生效：`trash/` 无界增长，已遗忘节点的**正文本永久留在盘上**，
+        # `_purge.jsonl` 一次也没产生过——与「软删后按保留期真清」的口径不符。
+        # 口径：`auto_tidy` 为假 ⇒ 只盘点（dry_run=True，读数照记）；为真 ⇒ 真删。
+        # 删的是**已遗忘节点的正文副本**（墓碑 / 删除清单 / 索引一律不动），不是节点本身，
+        # 故与本档「永不删节点」不冲突；异常只降级为本条读数，不拖垮 tidy。
+        try:
+            trash = trashbin.sweep(self.cg.root, dry_run=not self.auto_tidy)
+        except Exception as e:                              # noqa: BLE001
+            trash = {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
         rec = {"t": r["t"], "scanned": r["scanned"], "groups": r["groups"],
                "members": r["members"],
                "applied_count": r.get("applied_count", 0),
-               "auto_tidy": self.auto_tidy}
+               "auto_tidy": self.auto_tidy,
+               "trash_scanned": trash.get("scanned"),
+               "trash_purged": len(trash.get("purged") or []),
+               "trash_purged_bytes": trash.get("purged_bytes"),
+               "trash_kept_recent": trash.get("kept_recent"),
+               "trash_dry_run": trash.get("dry_run"),
+               "trash_skipped": trash.get("skipped"),
+               "trash_ok": trash.get("ok")}
         self.last_tidy = rec
         with self._lock:
             self.tidys.append(rec)
@@ -1927,6 +2058,8 @@ class SustainLoop:
                 cur["running_s"] = None
         last_done = self.last_tick_done or (st or {}).get("last_tick_done")
         last_err = self.last_tick_error or (st or {}).get("last_tick_error")
+        ticks = tick_ledger(self.last_ok_ts or (st or {}).get("last_ok_ts"),
+                            {n: getattr(self, a) for n, a in TICK_INTERVAL_ATTRS})
         return {"name": self.name, "running": bool(self._th
                                                    and self._th.is_alive()),
                 "pid": os.getpid(),
@@ -1962,6 +2095,12 @@ class SustainLoop:
                 "last_tick_done": last_done,
                 "last_tick_error": last_err,
                 "stale_tick": self._stale_tick(cur),
+                # R-545：六档「最近成功时刻」台账 + 超期变色（overdue 列表）。
+                "ticks": ticks,
+                "ticks_overdue": [k for k, v in ticks.items()
+                                  if v["overdue"] and v["last_ok_ts"] is not None],
+                "ticks_never_ok": [k for k, v in ticks.items()
+                                   if v["last_ok_ts"] is None],
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}
 

@@ -1,5 +1,12 @@
 """DEFER 的正交状态轴（M5，2026-10-31）。
 
+**接线状态（R-541 裁定，2026-11-10：显式豁免，不删不接）**：本模块当前**零 import**，
+即 `is_hidden` / `is_pending` 没有调用方。保留而非删除的理由只有一条、可机械复核：
+`mreview/terminal.py:13-16` 以「`defer.py` 的口径」作为该处判据的**对照真源**
+（它明确写着「不 import defer、不写、不读节点正文」，只按本模块的口径断言
+`defer_state` 必须保持 None）——删掉本文件，那份对照就失去出处。属「未接线的能力」，
+不是死码；两条零引用定义已在 `scripts/check_dead_code.py::BASELINE` 登记理由。
+
 设计定案（与 `audit/M5-PLAN.md` §3 一致，三条都是实测出来的）：
 
   · **不用** `state="deferred"`：`mdcg.add` 里 `state` 已被裁决四态

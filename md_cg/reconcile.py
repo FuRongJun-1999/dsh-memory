@@ -52,6 +52,65 @@ TRACE_FILE = "_reconcile.jsonl"
 #: 留痕/告警里每类异常的采样上限（防大库首轮修复把日志/告警撑成洪水）。
 SAMPLE_CAP = 20
 
+#: 三态戳名（R-544）：落在 `sustain.net_dir()`（aux 目录，**不在库根**）。
+#: 为什么不在库根写：`test_reconcile_v0` 1e 钉着「干净库零写盘（无留痕文件）」这条
+#: 设计性质，库根不许因为「我跑过」而多出文件；而 aux 目录本就是运行时状态位，
+#: 戳是单文件原子覆写、不增长。
+STAMP_NAME = "reconcile"
+
+#: `status()` 的读数集合（判据是「三种情况读数不同」）：
+#:   never_run  从来没有对账跑过（无戳）
+#:   disabled   跑了但被 `MDCG_RECONCILE=0` 关掉（戳里 state=disabled）
+#:   clean      跑了、开着、diff 全零
+#:   dirty      跑了、开着、有 diff（附三类计数与是否已修）
+STATES = ("never_run", "disabled", "clean", "dirty")
+
+
+# 生效条件：写三态戳（best-effort：任何异常吞掉返回 None，观测面不得反过来炸启动序列）；state 取 STATES 之一，extra 的 None 值丢弃。
+def _stamp(state: str, **extra):
+    """把「这次对账是什么态」写成 aux 目录下的单文件戳（原子覆写，不增长）。"""
+    try:
+        from . import sustain as _s        # 延迟导入：避免 mdcg↔reconcile↔sustain 环
+        return _s.write_stamp(STAMP_NAME, state=state, **extra)
+    except Exception:                      # noqa: BLE001 —— 观测面增益，不得炸调用方
+        return None
+
+
+# 生效条件：无入参必需项；读 aux 目录的三态戳并返回 {"state","age","ts","applied","ghost","missing","drift","raw","detail"}——无戳或戳损坏时 state="never_run"，戳内 state 不在 STATES 时按 never_run 记并保留 raw。
+def status(cg=None) -> dict:
+    """对账三态读数（R-544）：`never_run` / `disabled` / `clean` / `dirty`。
+
+    修前三种情况在盘面**完全不可区分**：干净库不写留痕、被 `MDCG_RECONCILE=0`
+    关掉也什么都不写、从来没跑过同样什么都没有——于是「对账到底有没有在工作」
+    只能靠读代码猜。修后每次进入 `reconcile_state` 都落一枚 aux 戳。
+    """
+    try:
+        from . import sustain as _s
+        rec = _s.read_stamp(STAMP_NAME)
+    except Exception as e:                 # noqa: BLE001
+        return {"state": "never_run", "age": None, "ts": None, "raw": None,
+                "detail": "读戳失败：%s: %s" % (type(e).__name__, e)}
+    if not rec:
+        return {"state": "never_run", "age": None, "ts": None, "raw": None,
+                "detail": "从未对账（aux 目录无 reconcile 戳）"}
+    st = rec.get("state")
+    if st not in STATES:
+        return {"state": "never_run", "age": rec.get("age"), "ts": rec.get("ts"),
+                "raw": rec, "detail": "戳内 state 非法（%r）" % (st,)}
+    out = {"state": st, "age": rec.get("age"), "ts": rec.get("ts"),
+           "applied": rec.get("applied"), "ghost": rec.get("ghost"),
+           "missing": rec.get("missing"), "drift": rec.get("drift"),
+           "raw": rec, "detail": None}
+    if st == "disabled":
+        out["detail"] = "被 MDCG_RECONCILE=0 关闭（对账没执行）"
+    elif st == "clean":
+        out["detail"] = "已执行，diff 全零（干净）"
+    elif st == "dirty":
+        out["detail"] = ("已执行且有 diff：幽灵 %s / 缺失 %s / 漂移 %s（%s）"
+                         % (rec.get("ghost"), rec.get("missing"), rec.get("drift"),
+                            "已按盘面修复" if rec.get("applied") else "dry-run 未修"))
+    return out
+
 
 # 生效条件：读 MDCG_RECONCILE 环境变量（未设按空串），strip 后等于 "0" 返回 False，其余（含未设）返回 True。
 def enabled() -> bool:
@@ -157,6 +216,8 @@ def reconcile_state(cg, apply: bool = True) -> dict:
     幂等：修复后的索引面与盘面一致，二次扫描 diff 为空、零输出零写盘。
     """
     if not enabled():
+        # R-544：被关掉也要落戳——否则「从没跑过」与「被关」在盘面上一模一样。
+        _stamp("disabled", applied=False)
         return {"skipped": True, "applied": False}
     index_nodes = cg.index.get("nodes") or {}
     by_nid, path_owner, problems = _scan_disk(cg)
@@ -188,6 +249,16 @@ def reconcile_state(cg, apply: bool = True) -> dict:
     from . import protect as _prot          # #463：同 refindex，闸放「静默摘除点」
     repaired = {"unstaged": 0, "staged": 0, "skipped_protected": []}
     if apply:
+        # R-543（2026-11-10）：**修复动作必须在锁内、且锁内复核**。
+        # 修前：diff 在锁外算完就逐个 `_unstage` / `_stage`，不持任何锁 —— 启动对账
+        # 跑在后台线程里（`mcp_server._reconcile_bg`），同一进程的 stdin 请求线程
+        # 同时在写节点；两个写者共用 `cg.index` / `cg._dirty` 却没有任何互斥，
+        # 「并发 reconcile + write 索引错乱」因此可复现：对账拿锁外快照把**刚写进来
+        # 的节点**当幽灵摘掉，或把已被并发写者以新内容装上的条目用旧哈希覆盖回去。
+        # 修后：逐节点取 `node_write_lock`（与写路径同一把 OS 级锁、同 id 同锁），
+        # 并在锁内**重新确认**一次盘面/索引现状，只对仍然成立的那部分动手。
+        # 为什么不是一把根级大锁：那会把对账（实测 2.92 秒 / 31,688 节点）压到
+        # 写路径前面，等于给启动期加一次全库停顿；按节点锁既精确又不阻塞别的 id。
         for nid in ghost:
             # #463（SEC·P0）：受保护节点不得被启动对账静默摘索引（跳过并记账，不新增形状）。
             try:
@@ -195,13 +266,30 @@ def reconcile_state(cg, apply: bool = True) -> dict:
             except _prot.ProtectionError:
                 repaired["skipped_protected"].append(nid)
                 continue
-            cg._unstage(nid)                # tombstone + 立即持久化
-            repaired["unstaged"] += 1
+            with fsutil.node_write_lock(cg, nid):
+                # 锁内复核：条目可能已被并发写者摘掉；文件也可能刚被写回盘面
+                # （旧路径见 by_nid 时它不在，锁内再 stat 一次才算数）。
+                entry = (cg.index.get("nodes") or {}).get(nid)
+                if not entry:
+                    continue
+                ep = entry.get("path") or ""
+                if ep and os.path.isfile(os.path.join(cg.root, ep)):
+                    continue
+                cg._unstage(nid)            # tombstone + 立即持久化
+                repaired["unstaged"] += 1
         for nid in missing + drift:
             d = by_nid[nid]
-            cg._stage(nid, cg._node_entry(d["abs"], d["layer"],
-                                          d["fm"], d["content"]))
-            repaired["staged"] += 1
+            h_disk = _disk_hash(d["content"])
+            with fsutil.node_write_lock(cg, nid):
+                # 锁内复核：并发写者若已把该 id 以**同一份盘面内容**装好，就不再重复装；
+                # 若已装成别的版本（哈希不同），仍以盘面为真源（对账的既定口径）。
+                cur = (cg.index.get("nodes") or {}).get(nid)
+                if cur is not None and cur.get("content_hash") == h_disk \
+                        and cur.get("path") == d["path"]:
+                    continue
+                cg._stage(nid, cg._node_entry(d["abs"], d["layer"],
+                                              d["fm"], d["content"]))
+                repaired["staged"] += 1
         if repaired["unstaged"] or repaired["staged"]:
             cg.flush()                      # 启动期一次收尾落账（不赖 autoflush）
 
@@ -218,6 +306,14 @@ def reconcile_state(cg, apply: bool = True) -> dict:
     }
     if kept_unreadable:
         rep["kept_unreadable"] = kept_unreadable
+
+    # R-544：三态戳（disabled / clean / dirty）。**不进库根**，故「干净库零写盘」
+    # 那条性质不受影响；戳是单文件原子覆写，不随运行次数增长。
+    _stamp("dirty" if (ghost or missing or drift or problems) else "clean",
+           applied=bool(apply), ghost=len(ghost), missing=len(missing),
+           drift=len(drift), problems=len(problems),
+           repaired_unstaged=repaired["unstaged"],
+           repaired_staged=repaired["staged"])
 
     # 告警 + 留痕（diff 非空才发声；干净库零输出零写盘）
     if ghost or missing or drift or problems or kept_unreadable:

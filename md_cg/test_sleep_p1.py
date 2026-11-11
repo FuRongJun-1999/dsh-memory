@@ -409,6 +409,12 @@ def g3():
        "G3b SustainLoop 五个 sleep 属性取自 §4.7 真源读取器",
        (lp.sleep_interval, lp.auto_sleep, lp.sleep_merge, lp.sleep_window,
         lp.sleep_scrub_apply))
+    # 判据不得依赖「跑测试的时刻」（2026-11-11 实测：01:5x 跑时落在 23:00-07:00
+    # 缺省窗**内** ⇒ ②真迭代 ⇒ steps_skipped 空 ⇒ G3d 假红）。把窗口设成
+    # 「此刻确定不在窗内」的区间，判据才与时钟无关。
+    import datetime as _dt
+    _h = (_dt.datetime.now().hour + 2) % 24
+    lp.sleep_window = "%02d:00-%02d:30" % (_h, _h)
     lp._tick_sleep()
     rec = lp.last_sleep
     ok(rec is not None and rec["steps"] == list(SL.STEPS),

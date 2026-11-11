@@ -8,6 +8,14 @@
 仓里原有 `check_unreachable.py` 只覆盖 **TS 侧**导出的可达性，Python 主体没有对应判据
 —— 于是「实现了但没人调」只能靠人眼发现。
 
+【R-541 的三模块处置（2026-11-10）】
+- `autocut.py`：**已删**（304 行纯函数、全树零引用、零测试；其「阈值裁切」规则集与
+  在役检索截断路径重复，留着只会与主路径漂移）。git 历史保留原件。
+- `trashbin.py`：**已接线**（接进 `sustain._tick_tidy`，守卫见
+  `md_cg/test_trash_retention.py`）—— 保留期策略此前静默失效、正文永久留存。
+- `defer.py`：**显式豁免**（零 import，但 `mreview/terminal.py` 以它的口径作对照；
+  两条零引用定义在下面的 BASELINE 里带理由）。
+
 【判什么】
 `md_cg/*.py`（非 test_）的**顶层** `def` / `class`（不含 `__dunder__`），在全仓
 `.py` / `.ts` / `.mjs` / `.rs` 的词频里出现次数 ≤ 1（= 只有定义本身），即判「零引用」。

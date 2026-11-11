@@ -1489,12 +1489,21 @@ def merge_cycle(cg_main, root: str = None, *, git_dir_path: str = None,
 # ---------------- ② 迭代（在影子上跑 §3.1 的 ②–④）----------------
 
 # 生效条件：sh_root 为影子目录时，在其上开一个 MdCGOS 并依次跑第②步归纳（consolidate.induce_memories）、第③步升层（consolidate.promote_memories）、第④步巩固与去污染（scrub.sweep，dry_run=not scrub_apply）；返回 {step: 读数} 的字典。
-def iterate(sh_root: str, *, scrub_apply: bool = False) -> dict:
+def iterate(sh_root: str, *, scrub_apply: bool = None) -> dict:
     """②–④ 在**影子**上跑（§4.4 ②）——这三步都是确定性 / 可预演 / 可回滚的。
 
-    ④ 的**实改**由 `MDCG_SLEEP_SCRUB_APPLY` 缺省关住（§3.3 的 ⚠ 档）：
-    缺省只在副本上盘点（dry_run），不落盘。
+    ④ 的**实改**闸是 `MDCG_SLEEP_SCRUB_APPLY`（§4.7 真源表缺省 `"1"` ⇒ **缺省开**、
+    真实落盘；置 0 退回只在副本上盘点）。
+
+    R-546（2026-11-10）口径统一：本函数此前的文本与本模块其余三处（`sleep_scrub_apply()`
+    的 docstring、`SLEEP_ENV_DEFAULTS` 的那一行、`sustain._tick_sleep` 的 docstring）
+    互相打脸——这里把它说成「缺省只在副本上盘点」，其余三处说「缺省开」，而
+    `SLEEP_ENV_DEFAULTS["scrub_apply"]="1"` 与实测值（env 未设 ⇒ True）都站在后者这边。
+    同时把形参缺省由布尔假改成 `None`：**声明的缺省必须等于实测的缺省**，
+    不许出现「不传参就静默变成只盘点」。
     """
+    if scrub_apply is None:
+        scrub_apply = sleep_scrub_apply()
     from . import consolidate as _cd
     from . import scrub as _sc
     cg = _open_cg(sh_root)
