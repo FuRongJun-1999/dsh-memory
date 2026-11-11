@@ -709,7 +709,7 @@ for _t, _s in _R8_ANY_NEG:
 
 # R8h：**负条件面**的 `any` 语义（2026-11-05 复核第 9 轮，G2）。
 # 上面 R8f/R8g 钉的是**正条件面回填支**（`_fold_hit_unnagated`）的 `any`。
-# 负条件面 `neg_condition_hits` 里（`_negated_at`，`md_cg/mdcg.py:981`）有另一个同形的 `any`，
+# 负条件面 `neg_condition_hits` 里（`_negated_at`，`md_cg/mdcg.py:996`）有另一个同形的 `any`，
 # 全仓四个测试文件（gate / fold / neg_condition_hits / issue362）**都没钉**
 # 「只看末次」这一退化 —— 复核者实测把它退化后四文件全绿。
 # 当前库不可达（267 节点 609 条 non_applicable_conditions 里纯 ASCII 字母条目 = 0），

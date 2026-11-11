@@ -319,7 +319,14 @@ def _prefix_source():
             continue
         for path in now:
             rc, blob = _git("show", "%s:%s" % (rev, path))
-            if rc == 0 and blob and b"_already_tidied" not in blob:
+            # 判据必须同时满足两条，缺一都会取错源：
+            #   ① `_already_tidied` **不在**（= 修复前，幂等判据尚未加入）；
+            #   ② `def tidy_contextual` **在**（= 真的是实现本体，不是 shim）。
+            # 只判 ① 曾取到迁移后的零逻辑 shim（shim 天然不含该符号，于是被
+            # 误当「修复前源」，S2 组三轮行为锚全部错位）。
+            if (rc == 0 and blob
+                    and b"_already_tidied" not in blob
+                    and b"def tidy_contextual" in blob):
                 return blob.decode("utf-8"), rev
     return None, None
 

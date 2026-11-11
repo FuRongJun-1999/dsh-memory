@@ -451,7 +451,7 @@ class MdCGSecure(MdCGOS):
             return declared
         # issue #322（复核补）：**继承读必须看到他进程已落盘的密级**。
         # 病象：`subgraph.node_sensitivity` 优先取**本进程内存索引**的
-        # `sensitivity` 键（subgraph.py:352-356），而跨进程代际感知
+        # `sensitivity` 键（subgraph.py:383），而跨进程代际感知
         # （`_maybe_reload_index`）此前只在读面/部分写面接线——同 id 两进程
         # 「A 声明 internal 覆写、B 未声明继承」时，B 按**陈旧索引**（seed 的
         # public）落盘，把 A 刚写的 internal 静默降级（探针
