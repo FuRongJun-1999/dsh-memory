@@ -452,6 +452,7 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_STATE_EXTRACT', 'env', 'dsh-memory-main', '开关', 'L2 状态台账抽取开关：缺省开，置 0 关闭（md_cg/state_extract.py:76；recent·add 接线）'),
     ('MDCG_STATE_SUBJECT', 'env', 'dsh-memory-main', '字符串', 'L2 台账抽取主体覆盖，缺省「我」（md_cg/state_extract.py:108）'),
     ('MDCG_STATE_TTL_DAYS', 'env', 'dsh-memory-main', '正数（天）', 'state_view 的槽位租约 TTL 全局覆盖；缺省按槽位名启发式（时间30/地点365/状态7/其余180，md_cg/state_view.py:48）'),
+    ('MDCG_PROFILE_CARDS', 'env', 'dsh-memory-main', '整数（张）', '资料卡在 pack 里的配额上限，缺省 3；置 0 表示不限制（md_cg/mdcos.py recall）'),
     ('MDCG_SUSTAIN_DIR', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_SUSTAIN_NAME', 'env', 'dsh-memory-main', '字符串', ''),
     ('MDCG_SWARM_DIR', 'env', 'dsh-memory-main', '目录路径', ''),

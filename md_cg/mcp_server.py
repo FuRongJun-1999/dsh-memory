@@ -4757,6 +4757,8 @@ def _dispatch(cg, name, args):
                          override=bool(a.get("override")),
                          consistency=bool(a.get("consistency", True)),
                          on_conflict=a.get("on_conflict") or "reject",
+                         # 【情景层 v0.1】diary 声明透传：角色名/地点/事件日由调用方声明，不靠抽取。
+                         **({"diary": a["diary"]} if isinstance(a.get("diary"), dict) else {}),
                          derived_from=_split_ids(a.get("derived_from")),
                          relation=a.get("relation"))
         if written is None:

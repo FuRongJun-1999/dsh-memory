@@ -3097,6 +3097,21 @@ class MdCGOS(MdCG):
                 _e["content_dated"] = reldate.annotate(_e.get("content") or "", _ts)
             except Exception:            # noqa: BLE001 —— 标注失败不拖崩装包，退化为原文
                 _e["content_dated"] = _e.get("content")
+        # 【情景层 v0.1 / 档1 验收主因】资料卡配额：外测实测每题 pack 里挤进 16–30 张 profile 卡，
+        # 把 30 条名额吃光，**正确的那张反而被挤掉**（这是档 1 未涨分的第一机制，比错名更普遍）。
+        # 故对 profile-* 单独设上限（缺省 3，`MDCG_PROFILE_CARDS` 可调），按已有 score 取前 N。
+        _prof_cap = 3
+        try:
+            _prof_cap = int(os.environ.get("MDCG_PROFILE_CARDS", "3"))
+        except ValueError:
+            _prof_cap = 3
+        _profs = [(i, e) for i, e in enumerate(pack or [])
+                  if str(e.get("id") or "").startswith("profile-")]
+        if _prof_cap >= 0 and len(_profs) > _prof_cap:
+            _keep = {i for i, _ in sorted(
+                _profs, key=lambda x: -(float(x[1].get("score") or 0.0)))[:_prof_cap]}
+            pack = [e for i, e in enumerate(pack)
+                    if i in _keep or not str(e.get("id") or "").startswith("profile-")]
         timeline = self._pack_timeline(pack)
         # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
         # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，

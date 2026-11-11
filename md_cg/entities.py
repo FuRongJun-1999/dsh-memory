@@ -49,6 +49,36 @@ _NOT_NAME = {"他说", "我说", "你说", "她说", "他说", "告诉", "觉得
              "我们", "你们", "他们", "自己", "大家", "有人", "别人"}
 
 
+# 代词/泛称：绝不能当人名（外测实证：曾抽出 profile-person-号你）。
+_PRONOUN = {
+    "你", "我", "他", "她", "它", "您", "咱", "谁", "这", "那", "其",
+    "你们", "我们", "他们", "她们", "它们", "咱们", "大家", "各位",
+    "有人", "别人", "自己", "人家", "某人",
+}
+
+# 语气/助词：出现在姓名首或尾即判非人名（如「号你」「了吗」）。
+_PARTICLE_CHARS = set(
+    "了吗呢吧啊呀嘛哦哈欸诶啦咯喔噢得了着过地"
+    "你您我他她它这那"
+    "说问讲让把给和跟与在是有要就都也还什怎"
+)
+
+
+# 生效条件：name 为候选串；通过（非代词、长度 2-4、纯汉字、非语气助词首尾）返回 True
+def gate_name(name):
+    """人名闸：代词 / 长度 / 字符类 / 语气助词首尾 四道。宁缺不错。"""
+    n = (name or "").strip()
+    if not n or n in _PRONOUN or n in _NOT_NAME:
+        return False
+    if not (2 <= len(n) <= 4):
+        return False
+    if not all("\u4e00" <= ch <= "\u9fff" for ch in n):
+        return False
+    if n[0] in _PARTICLE_CHARS or n[-1] in _PARTICLE_CHARS:
+        return False
+    return True
+
+
 # 生效条件：items 为候选串集合；返回去重后的有序列表（排除 _NOT_NAME 与空）
 def _dedupe(items):
     seen, out = set(), []
@@ -74,7 +104,7 @@ def persons(text, tags=()):
         for pre in ("person:", "人物:"):
             if t.startswith(pre):
                 got.append(t[len(pre):])
-    return _dedupe(got)
+    return [n for n in _dedupe(got) if gate_name(n)]
 
 
 # 生效条件：text 为正文、tags 为节点标签；返回地点候选（动词 + 处所词尾；place: 标签）
