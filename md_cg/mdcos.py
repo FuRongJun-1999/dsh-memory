@@ -3122,8 +3122,13 @@ class MdCGOS(MdCG):
         _profs = [(i, e) for i, e in enumerate(pack or [])
                   if str(e.get("id") or "").startswith("profile-")]
         if _prof_cap >= 0 and len(_profs) > _prof_cap:
-            _keep = {i for i, _ in sorted(
-                _profs, key=lambda x: -(float(x[1].get("score") or 0.0)))[:_prof_cap]}
+            # 配额内**优先保留非 event 卡**：event 卡一天一张、数量最多，按纯 score 排会把
+            # role/person 卡挤掉（外测实证 ②=0 的直接成因）。
+            def _rank(it):
+                _nid = str(it[1].get("id") or "")
+                _is_ev = 1 if _nid.startswith("profile-event-") else 0
+                return (_is_ev, -(float(it[1].get("score") or 0.0)))
+            _keep = {i for i, _ in sorted(_profs, key=_rank)[:_prof_cap]}
             pack = [e for i, e in enumerate(pack)
                     if i in _keep or not str(e.get("id") or "").startswith("profile-")]
         timeline = self._pack_timeline(pack)
@@ -3186,6 +3191,10 @@ class MdCGOS(MdCG):
         return out
 
 
+    #: 注入分类型配额（外测实证：event 卡一天一张、天数多、分高，会把 role/person 卡挤光，
+    #: 而 event 卡对「姓名/年龄/职业」这类属性题没有帮助）。
+    _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
+
     # 生效条件：query 非空；返回按实体标签命中的资料卡候选 [(node, score, qual, prov)]
     def _profile_candidates(self, query, limit=6):
         """按**实体标签**直取资料卡（外测实证：search 能排第 1，recall 候选集却没有）。
@@ -3197,9 +3206,17 @@ class MdCGOS(MdCG):
         if not q:
             return []
         out = []
+        _quota = dict(self._PROFILE_INJECT_QUOTA)
+        _taken = {k: 0 for k in _quota}
         # G1a：从 cg.index 取回的 nodes 必须**先取快照**（并发写会 dictionary changed size）。
         for nid, rec in list(((self.index or {}).get("nodes") or {}).items()):
             if not str(nid).startswith("profile-"):
+                continue
+            _parts = str(nid).split("-", 2)
+            _kind = _parts[1] if len(_parts) >= 3 else ""
+            if _kind not in _taken:
+                continue          # 非 role/person/place（含 event）**不参与注入**
+            if _taken[_kind] >= _quota[_kind]:
                 continue
             tags = (rec or {}).get("tags") or []
             hit = False
@@ -3215,6 +3232,7 @@ class MdCGOS(MdCG):
             node = self.get(nid)
             if node:
                 out.append((node, 1.0, {"path": "profile_entity"}, "profile_entity"))
+                _taken[_kind] += 1
             if len(out) >= limit:
                 break
         return out
