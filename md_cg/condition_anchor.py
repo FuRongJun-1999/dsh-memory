@@ -7,6 +7,12 @@
 # 执行：from md_cg import condition_anchor；condition_anchor.judge(cond, src) -> dict
 # 验证方式：md_cg/test_condition_anchor.py（逐分支断言）
 # 不适用条件：①只判「锚点是否存在」，**不判语义正确性**（不得据此声称条件正确）②非 Python 源码或无法解析时返回 BLINDSPOT ③无参数且体内无外部引用的符号返回 BLINDSPOT（不可判，不猜测）
+
+**接线状态（R-566 裁定，2026-11-10：显式豁免）**：本模块只被条件链内部与其自测引用，
+主链（写入 / 检索 / 验收）**不调用**。保留而非删除的理由：它把「条件四槽合成 / 锚点定位」
+这套口径写成了可执行代码并有守卫（`test_cond_compose_anchors.py` / `test_condition_anchor.py`），
+删掉等于把口径退化成注释；而它当前**不影响任何在役判据**（零主链调用）。
+登记处：`scripts/check_dead_code.py` 的词频判据覆盖不到跨模块链，故豁免在此写明。
 """
 from __future__ import annotations
 

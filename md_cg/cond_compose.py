@@ -7,6 +7,12 @@
 # 执行：python -X utf8 -m md_cg.cond_compose <file>... [--terse] [--json]；库内调用 compose_file(path)
 # 验证方式：md_cg/test_cond_compose.py；生成文本须过 condition_anchor.judge（ANCHORED 或 BLINDSPOT，不得 WEAK/REJECT_META）  （R-401b：该守卫未落盘）
 # 不适用条件：①本器只按事实填模板，**不新增语义**；证据不足即 BLINDSPOT ②--terse 会省略空槽位（与模板逐字填充不同，属受控偏离，见 README）③模板变更须同步本器槽位
+
+**接线状态（R-566 裁定，2026-11-10：显式豁免）**：本模块只被条件链内部与其自测引用，
+主链（写入 / 检索 / 验收）**不调用**。保留而非删除的理由：它把「条件四槽合成 / 锚点定位」
+这套口径写成了可执行代码并有守卫（`test_cond_compose_anchors.py` / `test_condition_anchor.py`），
+删掉等于把口径退化成注释；而它当前**不影响任何在役判据**（零主链调用）。
+登记处：`scripts/check_dead_code.py` 的词频判据覆盖不到跨模块链，故豁免在此写明。
 """
 from __future__ import annotations
 

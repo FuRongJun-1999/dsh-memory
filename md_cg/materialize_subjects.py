@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """把 _archive 里的 subject 证据聚合成主体档案节点（幂等，可重跑）。
 
-跑法：PYTHONPATH=/home/ubuntu/mdcg python3 -X utf8 -m md_cg.materialize_subjects [--limit N] [--dry]
+跑法：PYTHONPATH=<仓根> python3 -X utf8 -m md_cg.materialize_subjects [--limit N] [--dry]
+根目录取自 `datapath.mdcg_root()`（env MDCG_ROOT > paths.json > 用户级状态根）。
 """
 import hashlib
 import json
@@ -13,7 +14,13 @@ from . import writepipe
 from .mdcos import MdCGSecure
 from .security import Principal
 
-ROOT = os.environ.get("MDCG_ROOT", "/home/ubuntu/mdcg-data")
+# R-564（2026-11-10 审计 P1-F4）：根**不许硬编码本机路径**。
+# 修前缺省回落一个**服务器上的具体目录**（形如 /home/<user>/mdcg-data）：换机即失效，
+# 且把「某台机器的布局」写进了代码。改走 `datapath.mdcg_root()` 的既有解析链
+# （env MDCG_ROOT > paths.json > 用户级状态根），与其余模块同一真源。
+from .datapath import mdcg_root as _mdcg_root
+
+ROOT = _mdcg_root()
 ARCH = os.path.join(ROOT, "_archive")
 SIDECAR = os.path.join(ROOT, "identity", "archive_subjects.json")
 SUBJ = re.compile(r"subject:([A-Za-z0-9_.@-]+)")
@@ -54,7 +61,7 @@ def content_for(sid, d):
         "# 主题：%s 在 L2 整族归档前的 %d 条记录（层分布：%s）\n"
         "# 生效条件：需要回答「这个主体做过什么」时先读这条；原始流水仍在 _archive 下，可按 subject 标签回捞\n"
         "# 子功能：给出该主体的记录规模、层分布与时间范围；要细节时按标签回捞原始文件\n"
-        "# 执行：grep -rl 'subject:%s' /home/ubuntu/mdcg-data/_archive | head -20\n"
+        "# 执行：grep -rl 'subject:%s' <MDCG_ROOT>/_archive | head -20\n"
         "# 验证方式：2026-11-06 扫 _archive 的 subject 标签聚合；样本 %s\n"
         "# 不适用条件：不要把这条当成主体的活证据——它只是索引卡，不参与位置效应投票\n"
         % (sid, sid, d["n"], layers, sid, "、".join(d["samples"]))

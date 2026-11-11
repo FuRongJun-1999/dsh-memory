@@ -510,7 +510,11 @@ def expand_query_terms(query: str) -> list:
     _en_zh = en_zh_terms(query)
     # 英文归一化（中文不动；小写化+去停用词+去时态复数）
     query = normalize_en(query)
-    terms = [query]
+    # R-572（2026-11-10 审计 P2 外围 2）：**空词项不许进 terms**（Rust 侧同批对齐）。
+    # 修前无条件 `terms = [query]` —— 全标点 / 全停用词归一化后是空串，而下游
+    # `t in body` **恒真** ⇒ 整库进候选池（召回等于不筛）。两侧必须同口径，
+    # 否则 rank_parity 会一侧绿一侧红（这正是 R-573 要覆盖的形态）。
+    terms = [query] if query else []
     for w in re.split(r"[\s、，。；：,;.:/\\|]+", query):
         w = w.strip()
         if len(w) >= 2 and w not in terms:
@@ -2566,7 +2570,14 @@ class MdCG:
         paths = {str(e.get("path") or "").replace("\\", "/")
                  for e in nodes.values() if isinstance(e, dict)}
         paths.discard("")
-        return len(nodes) == len(disk) and paths == disk
+        # R-562：因「同 id 多文件」而**故意**没进索引的那几份，不算缺口——
+        # 否则快照永远过不了闸、每次打开都全量重扫（把冲突的代价转嫁给读面）。
+        for _lst in (getattr(self, "_duplicate_ids", None) or {}).values():
+            for _p in (_lst or [])[1:]:
+                paths.add(str(_p).replace("\\", "/"))
+        # R-562：判据按**覆盖路径集合**比（`paths` 已并入重复 id 的「故意未索引」份），
+        # 不再拿 len(nodes) 比 len(disk) —— 后者在重复 id 下恒差 1，快照永远写不出去。
+        return paths == disk
 
 
 # 生效条件：遍历 LAYERS 各层目录树（os.walk，不读文件内容），统计文件名以 ".md" 结尾的文件总数并返回（= len(self._md_rel_paths())：计数与路径集合同源，不写第二份走查）。
@@ -3009,6 +3020,13 @@ class MdCG:
         # 隔离清单经 self._quarantined 透出到 health / op=info（仅确有隔离时
         # 出键，健康库键集逐位不变）。
         quarantined = {}
+        # R-562（2026-11-10 审计 P1-F2）：**同 id 两文件不许静默覆盖**。
+        # 修前 `nodes[nid] = ...` 后写者覆盖先写者 —— 两个文件里只有一个能被检索，
+        # 另一个既不报错也不可见（且下次重建可能换成另一份，读面不稳定）。
+        # 修后：先到者留索引，后到者记进 self._duplicate_ids（形如
+        # {nid: [先到路径, 后到路径…]}），并像隔离面一样告警——**看得见**的冲突
+        # 才算处理；两者都不删、不改盘（盘面是唯一真相源）。
+        duplicates = {}
         for layer in LAYERS:
             base = os.path.join(self.root, layer)
             for dirpath, _dirs, files in os.walk(base):
@@ -3052,6 +3070,12 @@ class MdCG:
                         continue
                     # ② 判据之外仍可能抛（下游消费面比类型判据更宽）——兜底
                     #    收口在此，异常**不得**逃出装载路径（#146①的根因）。
+                    if nid in nodes:
+                        _prev = str((nodes[nid] or {}).get("path") or "")
+                        _lst = duplicates.setdefault(nid, [_prev])
+                        if _rel not in _lst:
+                            _lst.append(_rel)
+                        continue
                     try:
                         nodes[nid] = self._node_entry(p, layer, fm, content)
                     except Exception as exc:                   # noqa: BLE001
@@ -3063,6 +3087,18 @@ class MdCG:
         # 隔离清单**每次全量扫描都重建**（不累加）——扫描即盘面真相，上一次
         self._quarantined = quarantined
         _warn_quarantined(quarantined)
+        # R-562：重复 id 清单同样每次重建；有冲突就发声（不静默覆盖）。
+        self._duplicate_ids = duplicates
+        if duplicates:
+            try:
+                sys.stderr.write(
+                    "[mdcg] 同 id 多文件（%d 个 id）：%s —— 索引只留先扫到的一份，"
+                    "其余仍在盘上（未删未改）；请人工合并或改名\n"
+                    % (len(duplicates),
+                       ", ".join("%s←%s" % (k, v) for k, v in
+                                 list(duplicates.items())[:5])))
+            except Exception:                          # noqa: BLE001
+                pass
         # 被隔离的文件修好后本次自动回归索引（自愈腿，与 legacy P3 同向）。
         self._quarantined = quarantined
         # 索引序确定性：按 nid 排序返回。os.walk 的遍历序是**文件系统事实**

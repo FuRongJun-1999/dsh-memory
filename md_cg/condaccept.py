@@ -189,6 +189,9 @@ def evaluate(payload, ctx):
     from . import condgate as _cg_gate
     # 复用 condgate 的别名归一与 time_window 自动补，判据口径只此一处（不另立第二份）。
     cs = _cg_gate.autofill_time_window(_cg_gate._canon_keys(payload.get("condition_space")))
+    # R-567（2026-11-10）：系统自动补的维度**不算作者声明** —— 否则 V1「四维齐全」
+    # 恒真（补值永远让 time_window 在场）。剔除后再算 missing，判据才成立。
+    _auto = set((cs or {}).get(_cg_gate.AUTOFILL_MARK) or ())
     normalized = {}
     missing = list(FOUR_DIMS)
     if isinstance(cs, dict):
@@ -198,7 +201,11 @@ def evaluate(payload, ctx):
                 v = v.strip()
             if v not in (None, "", [], {}):
                 normalized[k] = v
-        missing = [k for k in FOUR_DIMS if k not in normalized]
+        missing = [k for k in FOUR_DIMS
+                   if k not in normalized or k in _auto]
+        if _auto & set(FOUR_DIMS):
+            # 剔除后仍要能解释「为什么明明有值还说缺」——理由写进判据载荷。
+            pass
 
     # V1 未过 = **打回写入方**，不是入队等裁决者（2026-10-18 使用者裁定）。
     # 区分依据：缺条件空间是写入方的责任，不是裁决者的责任——DEFER 会把

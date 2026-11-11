@@ -27,6 +27,9 @@
     未按 CCG 写注释的内容没有槽位（返回 None）——不猜、不强行归类。
 """
 
+#: R-565：`legacy_pose_sample` 的缺省抽样条数（成本上限）。
+LEGACY_SAMPLE = 200
+
 import hashlib
 import os
 import re
@@ -72,6 +75,49 @@ _CS_PAIR = re.compile(r"([^=＝：:；;]+?)\s*[=＝：:]\s*([^；;]+)")
 
 QUALIFIED = "qualified"
 LEGACY_BLINDSPOT = "legacy_blindspot"
+
+
+# 生效条件：cg 具 index["nodes"] 与 get 时，按 nid 序**抽样**最多 n 个节点读 frontmatter 并逐条
+# 调 qualify(fm)，返回 {"sampled","qualified","legacy_blindspot","share","unreadable","sample"}；
+# index 为空或无 get 时返回 sampled=0（判据体未执行，调用方须如实标注）；单节点读失败计入 unreadable 不中断。
+def legacy_pose_sample(cg, n: int = LEGACY_SAMPLE) -> dict:
+    """抽样统计「资格姿态」分布（P0-5 落地面，R-565）。
+
+    `qualify()` 是 P0-5「存量无条件空间」姿态判据的**唯一实现**，但修前只有测试
+    调用它 —— 判据写好了却没人用，等于没有。本函数给它一个**成本有界**的在役消费方：
+    按 nid 序抽样 n 个节点（默认 200），逐条读 frontmatter 求姿态。
+
+    为什么是抽样而不是全量：索引条目**不含 condition_space**（生产库实测 0/31139），
+    全量必须逐条读文件，3 万节点不可接受；抽样把成本压在几百毫秒量级，
+    足以回答「库里还有多少 legacy_blindspot」这个趋势问题。
+    """
+    nodes = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+    out = {"sampled": 0, "qualified": 0, "legacy_blindspot": 0,
+           "unreadable": 0, "share": None, "sample": []}
+    getter = getattr(cg, "get", None)
+    if not nodes or not callable(getter):
+        return out
+    for nid in sorted(nodes)[:max(0, int(n))]:
+        out["sampled"] += 1
+        try:
+            node = getter(nid) or {}
+        except Exception:                              # noqa: BLE001
+            out["unreadable"] += 1
+            continue
+        fm = node.get("frontmatter")
+        if not isinstance(fm, dict):
+            out["unreadable"] += 1
+            continue
+        if qualify(fm) == LEGACY_BLINDSPOT:
+            out["legacy_blindspot"] += 1
+            if len(out["sample"]) < 5:
+                out["sample"].append(nid)
+        else:
+            out["qualified"] += 1
+    readable = out["sampled"] - out["unreadable"]
+    out["share"] = (round(out["legacy_blindspot"] / float(readable), 4)
+                    if readable else None)
+    return out
 
 
 def qualify(fm):
@@ -129,11 +175,36 @@ def parse_condition_space_from_content(content):
     return out
 
 
+#: 自动补写的标记键：值是被系统补过的维度名列表（R-567）。
+#: 为什么必须留标记：修前 `autofill_time_window` 无条件补 [now, now]，而 V1 的
+#: 「四维齐全」判据**直接读补齐后的 dict** ⇒ time_window 永远在场、四维恒齐全，
+#: V1 判据形同虚设（审计 P2 索引）。留标记后，判据可把「系统补的」与
+#: 「作者声明的」分开算，诚实边界才落得到判据上。
+AUTOFILL_MARK = "__autofilled__"
+
+
+# 生效条件：cs 为 dict 时返回**去掉 AUTOFILL_MARK 的新 dict**（其余键逐键复制，空 dict 原样），
+# 非 dict 返回 {}；用于「标记只给判据看、不许落进节点数据」的出口。
+def strip_autofill(cs):
+    """把自动补写标记从**要落盘的** dict 里摘掉（R-567 收口）。
+
+    为什么必须摘：`AUTOFILL_MARK` 是判据用的内部标记，写进 `condition_space` 就变成
+    节点数据（实测：写链把 `__autofilled__: ['time_window']` 落进了 frontmatter，
+    与 HEAD 基线对拍当场抓到）。标记只该活在一次判定的生命周期内。
+    """
+    if not isinstance(cs, dict):
+        return {}
+    return {k: v for k, v in cs.items() if k != AUTOFILL_MARK}
+
+
 def autofill_time_window(cs, now=None):
-    """time_window 缺失时用**系统时间**补 [now, now]（2026-10-18 使用者裁定）。
+    """time_window 缺失时用**系统时间**补 [now, now]，并在 `AUTOFILL_MARK` 留标记。
 
     诚实边界：这填的是「观测发生的时刻」，不是「有效期」。需要更宽有效期的
     作者应显式声明区间；本函数不替作者推测有效期（那是猜）。
+
+    R-567（2026-11-10）：补值**不再冒充作者声明** —— 补过的维度名写进
+    `cs[AUTOFILL_MARK]`，由判据侧（`condaccept.evaluate`）剔除后再算齐全度。
     """
     import time as _t
     cs = dict(cs or {})
@@ -141,6 +212,7 @@ def autofill_time_window(cs, now=None):
     if tw in (None, "", [], {}):
         n = _t.time() if now is None else float(now)
         cs["time_window"] = [n, n]
+        cs[AUTOFILL_MARK] = sorted(set(cs.get(AUTOFILL_MARK) or ()) | {"time_window"})
     return cs
 
 ENV_MODE = "MDCG_CONDGATE"
@@ -263,7 +335,7 @@ def before_hook():
             "field_keys": sorted(from_field.keys()),
             "content_keys": sorted(from_content.keys()),
         }
-        a["condition_space"] = cs
+        a["condition_space"] = strip_autofill(cs)   # R-567：标记不落盘
         normalized, missing, unknown = normalize_condition_space(cs)
         _STATS["seen"] += 1
         if not normalized:

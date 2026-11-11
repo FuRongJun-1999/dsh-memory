@@ -1,7 +1,14 @@
 # -*- coding: utf-8 -*-
 """md_cg · 全库导出（P0 · export op）
 
-把整库认知图导出为「可搬运、可灾备」的结构化数据。
+把整库认知图导出为「可搬运」的结构化数据。
+
+**R-563（2026-11-10 审计 P1-F3）诚实边界：本模块只有导出，没有导入** —— 此前
+docstring 与默认路径注释都声称「可灾备」，而仓内**没有任何 import 逆操作**：
+「导出即可灾备」这句话当时是空的（灾备的定义是能回到原状，单向导出做不到）。
+本版把口径改成事实：导出件是**可搬运的分析/审计快照**，不是可恢复的备份；
+需要灾备请用库根整目录（`md` 单一真源 + `_keys.json`）的冷拷贝。真要做导入，
+得先把「节点 id 冲突 / 层目录归属 / 加密档密钥归属」三件事定死，属独立批次。
 
 设计约束（D-005 零第三方依赖，只用标准库）：
 - **流式**写 JSONL：逐节点处理，不把整库读进内存（真实库 4500+ 节点）。
@@ -32,7 +39,7 @@ _ROW_KEYS = ("id", "layer", "path", "tags", "importance", "confidence",
 
 # 生效条件：给定 cg 与 kind 即返回 os.path.join(cg.root, f"export_{kind}_{当前 %Y%m%d_%H%M%S 时间戳}.jsonl")，无任何前置校验或分支。
 def _default_out(cg, kind: str) -> str:
-    """默认导出路径：`<root>/export_<kind>_<ts>.jsonl`（可搬运、可灾备）。
+    """默认导出路径：`<root>/export_<kind>_<ts>.jsonl`（可搬运；**非灾备**，见模块头 R-563）。
 
     issue #78：秒级时间戳下同秒两次导出会同名，第二次 publish 覆盖第一份快照，
     而两个调用都返回 ok —— 静默丢数据。此处做碰撞自增：首份保持原格式不变
@@ -126,7 +133,7 @@ def _iter_entries(cg, layer=None, since=None, until=None, tag=None,
                   ids=None, limit=None):
     """按条件遍历索引条目（不读文件，保证筛选阶段零 IO）。
 
-    排序键 = (created_at, id)：稳定、可重现，便于灾备 diff。
+    排序键 = (created_at, id)：稳定、可重现，便于两次导出做 diff。
     """
     nodes = (cg.index.get("nodes") or {})
     if ids:

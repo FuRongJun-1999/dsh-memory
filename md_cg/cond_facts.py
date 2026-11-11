@@ -7,6 +7,12 @@
 # 执行：from md_cg import cond_facts；cond_facts.file_facts(path) -> list[dict]
 # 验证方式：md_cg/test_cond_facts.py（对样例源逐字段断言）  （R-401b：该守卫未落盘）
 # 不适用条件：①只取静态可判定事实，**不解释语义**②动态分派/装饰器改写签名时不保证签名即真实契约（须标 ambiguous）③非 Python 文件不支持
+
+**接线状态（R-566 裁定，2026-11-10：显式豁免）**：本模块只被条件链内部与其自测引用，
+主链（写入 / 检索 / 验收）**不调用**。保留而非删除的理由：它把「条件四槽合成 / 锚点定位」
+这套口径写成了可执行代码并有守卫（`test_cond_compose_anchors.py` / `test_condition_anchor.py`），
+删掉等于把口径退化成注释；而它当前**不影响任何在役判据**（零主链调用）。
+登记处：`scripts/check_dead_code.py` 的词频判据覆盖不到跨模块链，故豁免在此写明。
 """
 from __future__ import annotations
 

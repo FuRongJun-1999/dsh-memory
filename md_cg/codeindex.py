@@ -21,6 +21,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import os
+import stat
 import re
 
 from . import nodefile
@@ -432,6 +433,26 @@ def skip_matcher(skip_dirs):
     return hit, rules
 
 
+# 生效条件：p 指向目录且（os.path.islink 为真 或 Windows 上其 st_file_attributes 含
+# FILE_ATTRIBUTE_REPARSE_POINT）时返回 True，其余（普通目录 / 不存在 / 取属性失败）返回 False；
+def _is_link_dir(p: str) -> bool:
+    """该目录是否是指向别处的链接（symlink / junction / mount point）——R-561。
+
+    为什么要两条判据：`os.path.islink` 覆盖 POSIX symlink 与 Windows symlink；
+    **junction** 在部分 Python/文件系统组合下 `islink` 为假，但它仍是 reparse
+    point（`stat.st_file_attributes & FILE_ATTRIBUTE_REPARSE_POINT`）。
+    索引面一旦穿过它，就会把库外内容当本库内容索引进来。
+    """
+    try:
+        if os.path.islink(p):
+            return True
+        st = os.stat(p, follow_symlinks=False)
+        attrs = getattr(st, "st_file_attributes", 0) or 0
+        return bool(attrs & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0))
+    except OSError:
+        return False
+
+
 # 生效条件：当 root 为可 os.walk 的目录时返回 (items, errors, stats)；patterns 为 None 时按模块常量 SUFFIX 取后缀，命中 max_files 或 max_items 上限则在 stats['truncated'] 上报截断，fresh 为 None 时逐文件读盘。
 def index_dir(root, patterns=None, max_files=500, max_items=2000,
               fresh=None, on_file=None, skip_dirs=None):
@@ -474,7 +495,17 @@ def index_dir(root, patterns=None, max_files=500, max_items=2000,
         stats["skipped_suffixes"] = sorted(
             s for s in seen_suffix if s and s not in pats)[:12]
 
-    for dirpath, dirnames, filenames in os.walk(root):
+    # R-561（2026-11-10 审计 P1-F1）：**不跟随** junction / 符号链接。
+    # `os.walk` 的 `followlinks` 缺省已是 False，但 Windows **junction** 在
+    # 目录枚举里仍按普通目录出现（它是 reparse point，不是符号链接），于是
+    # 「层目录挂一个指向库外的 junction」会把库外的 .md 也扫进索引 ——
+    # 索引面因此含不属于本库的内容（可检索、可被 verify 命中）。
+    # 修法：枚举后先剪掉 reparse point / symlink 目录（两条判据都查：
+    # `islink` 覆盖符号链接与部分 reparse，`st_file_attributes` 的
+    # FILE_ATTRIBUTE_REPARSE_POINT 覆盖 junction 与 mount point）。
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+        dirnames[:] = [d for d in dirnames
+                       if not _is_link_dir(os.path.join(dirpath, d))]
         rel_dir = os.path.relpath(dirpath, root).replace("\\", "/")
         if rel_dir == ".":
             rel_dir = ""
