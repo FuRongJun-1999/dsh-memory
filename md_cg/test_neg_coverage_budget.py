@@ -27,6 +27,7 @@
 # 不适用条件：情感交互｜闲聊｜纯查询无改动；负覆盖条目在 MCP 结果面的**渲染**
 #           （`_node_view` 只透 id/path/frontmatter/content）不属本文件面内；
 #           search_rrf 路径不产负覆盖尾条目（无 negative_coverage 面），不在本文件面内。
+import ast
 import hashlib
 import os
 import re
@@ -326,6 +327,26 @@ def group_d():
     def _mcp_ops():
         p = os.path.join(_HERE, "mcp_server.py")
         s = open(p, encoding="utf-8").read()
+        # 2026-11-11 结构重构：`read` 分支体已抽成 `_read_op(cg, a, _p)`，
+        # 分派处只剩 `return _read_op(...)`，`cg.search(` 随之搬进该函数。
+        # 判的是「read 的 result 面经 cg.search」——那是**函数体**的事实，
+        # 不是「它必须写在 if 分支里」这一形态。故分支体委托时改在目标函数体
+        # 里找；判据语义不变（仍要求 read 面确实走 cg.search）。
+        #
+        # 函数体用**行首锚**定位而非文本 index/AST：本文件是 CRLF，`\n` 锚会
+        # 错位；而测试模块上下文里的顶层 AST 解析结果与直接解析不一致。
+        def _func_body(name):
+            lines = s.splitlines()
+            hd = 'def %s(' % name
+            for idx, ln in enumerate(lines):
+                if ln.startswith(hd):
+                    for k in range(idx + 1, len(lines)):
+                        t = lines[k]
+                        if t and not t[0].isspace() and not t.startswith('#'):
+                            return '\n'.join(lines[idx:k])
+                    return '\n'.join(lines[idx:])
+            return ''
+
         out = {}
         for op in ("route", "read"):
             i = s.find('if op == "%s":' % op)
@@ -334,6 +355,9 @@ def group_d():
                 continue
             j = s.find('\n    if op == "', i + 1)
             seg = s[i:j if j > 0 else len(s)]
+            m = re.search(r'return (_\w+_op)\(cg, a, _p\)', seg)
+            if m and "cg.search(" not in seg:
+                seg += "\n" + _func_body(m.group(1))
             out[op] = ("cg.search(" in seg)
         return (out.get("route") is True and out.get("read") is True, str(out))
 

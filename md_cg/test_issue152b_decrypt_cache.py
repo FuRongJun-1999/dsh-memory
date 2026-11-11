@@ -188,7 +188,15 @@ def main(argv=None) -> int:
             cg.get("n1")
         ok(c7.n == 0, "C2 覆写后再读（同新键）解密 0 次", c7.n)
 
-        _src = open(os.path.join(_here(), "mdcos.py"), encoding="utf-8").read()
+        # 2026-11-11 深度重构·任务 3：`MdCGSecure` 已整类搬到
+        # `md_cg/mdcos_secure.py`（`mdcos.py` 只留 DEPRECATED(shim) 转发）。
+        # 本 pin 针对的 `_plain_key` / `lock` / `_invalidate_caches_on_key_change`
+        # 三个方法随类一起搬走，故文本扫描面必须跟着**移到新权威位置**：
+        # 仍只看 `mdcos.py` 会因 shim 里没有方法体而**恒红**；改成「两文件合并
+        # 扫描」则方法被复制回 mdcos.py 也会静默通过。故只读搬入后的权威文件，
+        # 判据本身（两个特征串 + clear 调用）一字不改。
+        _src = open(os.path.join(_here(), "mdcos_secure.py"),
+                    encoding="utf-8").read()
         _pin_key = ("sha256(content.encode" in _src
                     and "hashlib.sha256(_dek).hexdigest()[:16]" in _src)
         _pin_lock = "_pc.clear()" in _src

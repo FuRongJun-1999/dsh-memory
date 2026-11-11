@@ -103,7 +103,7 @@ def _clashes(r):
 def j0_judgement_unchanged():
     ok(consistency.CLASH_LOW == 0.35, 'J0a CLASH_LOW 仍为 0.35', consistency.CLASH_LOW)
     ok(consistency.CLASH_HIGH == 0.6, 'J0b CLASH_HIGH 仍为 0.6', consistency.CLASH_HIGH)
-    src = io.open(os.path.join(_HERE, "consistency.py"), encoding="utf-8").read()
+    src = io.open(os.path.join(_HERE, "govern", "consistency.py"), encoding="utf-8").read()
     ok("c = max(c1, c2)" in src, 'J0c c 仍取 max(c1, c2)——本件未改成合取/对称度量')
     ok("c = max(c1, c2)" not in src.replace("c = max(c1, c2)", "", 1),
        'J0d c 赋值点唯一')

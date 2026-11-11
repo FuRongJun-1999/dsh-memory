@@ -201,7 +201,7 @@ def _rejecting_write(cgx, sens, marker=SECRET):
 
 def g1():
     print("== G1 结构：五处接线 + 换 id 分支 ==")
-    c = _src("md_cg/consistency.py")
+    c = _src("md_cg/govern/consistency.py")
     m = _src("md_cg/mdcg.py")
     w = _src("md_cg/writepipe.py")
     s = _src("md_cg/mcp_server.py")
@@ -398,7 +398,7 @@ def g8():
 
 def g9():
     print("== G9 反陈化：理由在源码里 ==")
-    c = _src("md_cg/consistency.py")
+    c = _src("md_cg/govern/consistency.py")
     m = _src("md_cg/mdcg.py")
     _check("G9a 标注 issue #294", "issue #294" in c and "issue #294" in m)
     _check("G9b 写明「正文前 200 字」是泄露源", "200 字" in c)
@@ -407,11 +407,19 @@ def g9():
     _check("G9e 写明同题同单不变", "同题同单" in m)
 
 
-def _prepatch_src(rel, marker):
+def _prepatch_src(rel, marker, head_rel=None):
+    """取「引入 marker 的那次提交之前」的源码；取不到则回落 `git show HEAD:<head_rel>`。
+
+    **历史路径与当前路径必须分开**（2026-11-11 结构归位）：`git log -S` 必须扫
+    **历史路径** `rel`（旧提交里 `md_cg/consistency.py` 就是实现本体），而
+    `git show HEAD:` 必须按**当前**路径取（迁移后实现住 `md_cg/govern/`，根目录
+    只剩转发 shim）——两者混用会让 `git show HEAD` 返回 rc=128 或拿到空壳。
+    """
     def _g(*a):
         return subprocess.run(list(a), cwd=_REPO, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=60)
+    head_rel = head_rel or rel
     lg = _g("git", "log", "-S" + marker, "--format=%H", "--", rel)
     if lg.returncode == 0:
         shas = [x.strip() for x in (lg.stdout or "").splitlines() if x.strip()]
@@ -419,15 +427,17 @@ def _prepatch_src(rel, marker):
             s = _g("git", "show", shas[-1] + "^:" + rel)
             if s.returncode == 0:
                 return s.stdout, "引入提交 %s 的父版本" % shas[-1][:8]
-    s = _g("git", "show", "HEAD:" + rel)
-    if s.returncode != 0:
-        return None, "git show HEAD rc=%s" % s.returncode
-    return s.stdout, "HEAD（本改动尚未提交）"
+    for cand in (head_rel, rel):
+        s = _g("git", "show", "HEAD:" + cand)
+        if s.returncode == 0:
+            return s.stdout, "HEAD（本改动尚未提交）"
+    return None, "git show HEAD rc=%s" % lg.returncode
 
 
 def g10():
     print("== G10 修复前原形（提交前/后都稳定）==")
-    t, how = _prepatch_src("md_cg/consistency.py", "issue #294")
+    t, how = _prepatch_src("md_cg/consistency.py", "issue #294",
+                           head_rel="md_cg/govern/consistency.py")
     if t is None:
         _check("G10 取修复前源失败：%s" % how, False)
         return
@@ -480,7 +490,7 @@ def main():
 
 _MUTATIONS = (
     ("V1 _fire_flywheel 不把密级放进 payload（本件病象）",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      "        if sensitivity:\n            payload[\"sensitivity\"] = sensitivity\n",
      "", "G2"),
     ("V2 只透传密级、不换 id（明文留在文件名与索引）",

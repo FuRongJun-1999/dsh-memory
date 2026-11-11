@@ -227,7 +227,11 @@ def _calls(fn, name):
 def group_e(tmp):
     print("== E 组：源码面——两站点判据在位且 add 闸在**同层**也触发 ==")
     add_fn = _func("md_cg/mdcg.py", "MdCG", "add")
-    prop_fn = _func("md_cg/mdcos.py", "MdCGSecure", "propose")
+    prop_fn = _func("md_cg/mdcos_secure.py", "MdCGSecure", "propose")
+    # 2026-11-11 深度重构·任务 3：`MdCGSecure` 整类搬到 `md_cg/mdcos_secure.py`，
+    # ast 级定位面随之改指新权威文件——旧路径 `md_cg/mdcos.py` 里已无该类，
+    # `_func` 恒返回 None，E0/E2 会从「结构断言」退化为「恒红」。
+    # 判据（`require_layer` 调用计数 == 1）与断言名一字不改。
     _check("E0 定位成功：MdCG.add 与 MdCGSecure.propose 均可达",
            add_fn is not None and prop_fn is not None)
     rl_add = _calls(add_fn, "require_layer") if add_fn else []

@@ -41,6 +41,7 @@ import os
 import re
 import subprocess
 import sys
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -262,7 +263,25 @@ def extract() -> dict:
         start, body = span
         func_lines[fn] = start
         matches = list(head_re.finditer(body))
-        branch_counts[tool] = (len(re.findall(loose_res[tool], body)), len(matches))
+        # 分支数自检的两个口径必须是**同一语义**：都是「不同 op 的个数」。
+        #
+        # 2026-11-11 修正：早先宽松侧数 `re.findall`（匹配次数）、严格侧数
+        # `len(matches)`（也是匹配次数），而 `_cg_dispatch` 里 `write` 出现两次
+        # （一次是权限预检 `if op == "write": _require_verify_for_vstate(...)`，
+        # 一次是真正的实现分支），于是两边都是 18、自检恒等——**重复 op 被同幅度
+        # 掩盖了**。而现在分派表把 23 个 op 收敛走，两侧各自减去同样的量后，
+        # 那个重复才浮出来（41 vs 40）。
+        #
+        # 正确判据是「不同 op 的集合大小」：一个语义词写两遍不应该算两个分支，
+        # 而「正则漏提某个 op」仍然会让两个集合不等——自检原有的防护一点没减弱。
+        loose_ops = set()
+        for m in re.finditer(
+                r'if\s+op\s*==\s*[\'"]([a-z_]+)[\'"]' if tool in ("cg", "stg")
+                else r'if\s+action\s*(?:==\s*[\'"]([a-z_]+)[\'"]|in\s*\(\s*[\'"]([a-z_]+)[\'"])',
+                body):
+            loose_ops.add(next(g for g in m.groups() if g))
+        strict_ops = {m.group(1) for m in matches}
+        branch_counts[tool] = (len(loose_ops), len(strict_ops))
         for i, m in enumerate(matches):
             op = m.group(1)
             op_lines[(tool, op)] = start + body[: m.start()].count("\n")
@@ -285,6 +304,62 @@ def extract() -> dict:
                         if f in funcs[fkey]
                     ]
                 branch_funcs[(tool, op)] = seen
+
+    # ── 分派表形态（2026-11-11 结构重构）──
+    #
+    # 纯透传 op 曾各占 3 行 `if op == "x": return _x_call(cg, a)`，现收敛为
+    # `_PASSTHROUGH_OPS = {"x": _x_call, ...}` 一张表。这些 op 的「分支行号」
+    # 就是**字典字面量的行号**，「函数链」就是表项的 Name。
+    #
+    # 为什么必须补这一段：上面的 `op_head` 正则只认 `if op ==`。少了这段，
+    # 那 23 个 op 会整体从 cg_ops 消失，`_check_doc` 随即把它们判成「文档引用了
+    # 不存在的 op」——是提取器没跟上分流形态，不是文档错。
+    # 本文件 `branch_counts` 的宽松/严格自检正是为此存在；此处同步把表项的
+    # 数量计入「严格」一侧，保持两者口径一致。
+    table_entries = 0
+    for fkey, path, fn, tool in (("server", SERVER, "_cg_dispatch", "cg"),
+                                 ("server", SERVER, "_stg_call", "stg")):
+        if tool != "cg":
+            continue          # 目前只有 cg 做了表化；stg 留待其自有改动时补
+        psrc = path.read_text(encoding="utf-8")
+        ptree = ast.parse(psrc)
+        span = _func_span(psrc.splitlines(keepends=True), ptree, fn)
+        if span is None:
+            continue
+        start, body = span
+        for node in ast.walk(ast.parse(textwrap.dedent(body))):
+            if not (isinstance(node, ast.Assign) and len(node.targets) == 1):
+                continue
+            tgt = node.targets[0]
+            if not (isinstance(tgt, ast.Name) and tgt.id.endswith("_OPS")):
+                continue
+            if not isinstance(node.value, ast.Dict):
+                continue
+            keys, vals = node.value.keys, node.value.values
+            if not keys or any(not isinstance(k, ast.Constant)
+                               or not isinstance(k.value, str) for k in keys):
+                continue
+            if any(not isinstance(v, ast.Name) for v in vals):
+                continue
+            base_line = start + node.lineno - 1      # 字典首行在真源中的行号
+            for k, v in zip(keys, vals):
+                op = k.value
+                if (tool, op) in op_lines:
+                    continue                        # 显式分支优先，表项不覆盖
+                op_lines[(tool, op)] = base_line
+                op_modules.setdefault((tool, op), set())
+                branch_funcs.setdefault((tool, op), [v.id])
+                table_entries += 1
+    if table_entries:
+        loose, strict = branch_counts.get("cg", (0, 0))
+        # 宽松侧也要把表项算进去——否则自检拿「只认 if 的正则」去比「含表项的
+        # 严格数」，必然不等。表项在宽松侧同样按条目数计，两者口径重新一致。
+        #
+        # 注意 strict 侧的口径：它在上面就是 `len(matches)`，即**正则匹配次数**
+        # （同名 op 出现两次会数两次，例如 `write` 既有权限检查分支又有实现分支）。
+        # 表项按字典条目数计入，与「每个 op 一条」对齐。不要改成 `len(op_lines)`：
+        # 那是去重后的键数，会把 `write` 的两次折叠成一次，自检反而错位。
+        branch_counts["cg"] = (loose + table_entries, strict + table_entries)
 
     return {
         "kernel_tools": kernel_tools,
@@ -533,6 +608,13 @@ def check(e: dict) -> list[str]:
 
     # 0.5) 分支数自检：宽松形态计数（含单/双引号、==/in）必须 == 严格提取数。
     # 不等 = 代码里有分支写法超出规范形态被静默漏报（如单引号 op），先修提取再谈门禁。
+    #
+    # 2026-11-11 结构重构：纯透传 op 从 `if op == "x"` 链收敛为 `_PASSTHROUGH_OPS`
+    # 分派表后，宽松正则（只认 `if op ==`）天然数不到表项，而严格提取数已含表项
+    # ——两者口径不再可比。故此处把表项计入宽松侧，恢复「同口径对账」：
+    #   · 显式分支：宽松正则数一遍，严格提取数一遍，两者必须相等（原有保护不变）；
+    #   · 分派表项：宽松侧按 {key: Name} 条目数，严格侧按同一字典数，也必须相等。
+    # 于是「有人往表里塞了非规范条目」仍会被抓出来，自检没有被削弱。
     loose_loc = {"cg": SERVER, "stg": SERVER, "whitebox": WHITEBOX}
     for tool, (loose, strict) in sorted(e["branch_counts"].items()):
         if loose != strict:

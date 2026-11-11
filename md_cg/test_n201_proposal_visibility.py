@@ -344,15 +344,26 @@ def main():
 
     # ---------- ④ 源断言 + floor ----------
     print("\n【④】源断言（三处接线在位）")
+    # 2026-11-11 深度重构·任务 3：`MdCGSecure`（含 `review_list` 覆写与
+    # `health_os`）已整类搬到 `md_cg/mdcos_secure.py`，`mdcos.py` 只留
+    # DEPRECATED(shim) 转发。故 4b/4e 的文本窗口改从**搬入后的权威文件**取；
+    # 4a 的 `propose` 仍在 `mdcos.py`。判据（特征串 + 窗口边界）一字不改——
+    # 若改回两文件合并扫描，方法被复制回 `mdcos.py` 也会静默通过。
     _s_mdcos = _read_src("mdcos.py")
+    _s_secure = _read_src("mdcos_secure.py")
     _prop = _src_window(_s_mdcos, "def propose(self, node_id", "def _pid_status")
     check("4a propose 的 rec 顶层落 sensitivity（读侧判据免挖 extra）",
           '"sensitivity": kw.get("sensitivity")' in _prop, _prop[-200:])
-    _rl = _src_window(_s_mdcos, "def review_list",
+    _rl = _src_window(_s_secure, "def review_list",
                       "# 生效条件：先 principal.require_op(\"review\")（语义修正 2026-09-22")
     check("4b MdCGSecure.review_list 覆写 = op 闸 + _readable 过滤（密级 × 会话）",
           "require_op(\"review\")" in _rl and "_readable" in _rl
           and "sensitivity" in _rl, _rl[-260:])
+    # 2026-11-11 深度重构·任务 3 复核：`_review_list_visible` 的**接线点**在
+    # `MdCGOS.health_os`（基类，仍在 `mdcos.py`）；`MdCGSecure.health_os` 覆写
+    # 只加 sustain/security 两键，不含本判据。故 4e 的扫描面**仍是 mdcos.py**
+    # （搬到 mdcos_secure.py 会恒红）；窗口终界 `def _log_scale` 不落在它所在
+    # 区间内时窗口取到文件尾（`_src_window` 既有语义），判据不变。
     _hsrc = _src_window(_s_mdcos, "def health_os(self):",
                         "def _log_scale")
     check("4e 体检面的待审计数走可见性计数面（不被取正文面的 op 闸误伤）",

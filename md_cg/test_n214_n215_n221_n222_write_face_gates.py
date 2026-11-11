@@ -500,9 +500,15 @@ def main():
     _dir = os.path.dirname(os.path.abspath(__file__))
 
     def _src(name):
-        with open(os.path.join(_dir, name), encoding="utf-8",
-                  errors="replace") as fh:
-            return fh.read().replace("\r\n", "\n")
+        # 源断言读**真源**：2026-11-11 结构归位把治理模块迁到 `md_cg/govern/`，
+        # 根目录只剩 PEP 562 转发 shim（零逻辑）。**必须 govern/ 优先**——先看
+        # 根目录会读到空壳，判据于是恒红。第二阶段 shim 移除后本回落自然收敛。
+        for cand in (os.path.join(_dir, "govern", name),
+                     os.path.join(_dir, name)):
+            if os.path.isfile(cand):
+                with open(cand, encoding="utf-8", errors="replace") as fh:
+                    return fh.read().replace("\r\n", "\n")
+        raise FileNotFoundError(name)
 
     src_f, src_w, src_s, src_m = (_src("forgetting.py"), _src("writelimit.py"),
                                   _src("scrub.py"), _src("mdcg.py"))

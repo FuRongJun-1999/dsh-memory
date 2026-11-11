@@ -408,7 +408,7 @@ _MUTATIONS = (
      "阴性判据不得误伤（G1 红、G2/G3 绿）；G4c 的写入面读数随扩面回退消失"
      "（BLINDSPOT）、G4b2 对照面的 kept 随扩面回退 1→0 ⇒ 变异跑跳过 G4b2/G4c"
      "（G4a/G4b 主断言读数与 EXTRA_SCOPE 无关，仍执行且须绿）",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      'EXTRA_SCOPE = {"contextual": ("knowledge",)}',
      "EXTRA_SCOPE = {}",
      ("G1a", "G1b"),
@@ -418,7 +418,7 @@ _MUTATIONS = (
      "G4b 场景下层外候选进同池（scanned/kept 非 0）、G4b2 转可观测（truncated）"
      "、G4c 只读面被拉动（REJECT）⇒ 变异跑跳过 G4b/G4b2/G4c（G4a 在该变异下"
      "层过滤对 knowledge 写入等价，仍执行且须绿）",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      '        if layer and e.get("layer") != layer:',
      '        if layer and e.get("layer") != layer and e.get("layer") != "knowledge":',
      ("G1a", "G1b", "G2b", "G3c"),

@@ -103,7 +103,11 @@ def main():
         cg2.close()
 
         print("== D 全链透传锚点（静态）")
-        src = open(os.path.join(ROOT, "md_cg", "mdcos.py"), encoding="utf-8").read()
+        # 迁移（结构重构）：`MdCGSecure` 已整类搬到 `md_cg/mdcos_secure.py`，
+        # 其方法体内的 D3 写点随类走；基类 `MdCGOS` 仍在 `mdcos.py`。
+        # 合并视图，判据不变。
+        src = (open(os.path.join(ROOT, "md_cg", "mdcos.py"), encoding="utf-8").read()
+               + "\n" + open(os.path.join(ROOT, "md_cg", "mdcos_secure.py"), encoding="utf-8").read())
         ok("def _write_review_record(self, rec, reviewers=None)" in src,
            "D1 _write_review_record 接 reviewers")
         ok("reviewed_by=reviewers" in src, "D2 add(...) 透传 reviewed_by")

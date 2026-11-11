@@ -49,7 +49,9 @@ import time
 from .. import crypto
 from ..backfill import _as_cg, _entry_id, _readable_guard, _sha
 from ..fsutil import append_jsonl, read_jsonl
-from ..mdcos import ALL_ROLES, WORK_ROLES
+# 角色域真源在内核层（2026-11-11 结构归位）：此前 `from ..mdcos import
+# ALL_ROLES, WORK_ROLES` 让治理流水线反向依赖根目录单体——「被治理方定义标准」。
+from ..kernel.roles import ALL_ROLES, WORK_ROLES
 from .ruleset import _as_rules, _blank
 from ..readcache import direct_read
 

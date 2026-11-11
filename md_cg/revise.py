@@ -1,140 +1,68 @@
 # -*- coding: utf-8 -*-
-"""修订与回滚（revise / rollback）——四动作里此前完全缺失的那一条。
+# DEPRECATED(shim): 迁移过渡层，下个次版本移除
+"""`md_cg/revise` · 迁移过渡 shim（薄壳，**零业务逻辑**）。
 
-背景（外部 issue #5 第 8/11 条，2026-10-18）：
-    revise 在文档里早有签名，但**代码全仓 0 命中**；superseded 档已随方案 A 落地，
-    本模块把「产生新版本、旧版转 superseded、可回滚」这三件事接起来。
+真源已迁至 `md_cg/govern/revise.py`（2026-11-11「结构归位」第一阶段：治理模块从
+根目录搬进治理层，`git mv` 保留历史）。**新代码请直接 import 新位置**：
 
-三条设计纪律：
+    from md_cg.govern.revise import ...    # 推荐
+    from md_cg.revise import ...          # 过渡期仍可用（本 shim）
 
-1. **先写新、再改旧**。新版本必须真正落盘成功，才允许把旧版本标为 superseded；
-   否则会出现「旧版被取代、新版不存在」的悬空状态。任何一步失败都不动旧节点。
-2. **CAS 防并发覆盖**。调用方可传 expect_state；与当前状态不符即 DEFER 让调用方
-   重读，而不是覆盖别人的修改（issue #5 第 11 条：state_from 天然可作 CAS 前置）。
-3. **回滚不删任何东西**。rollback 只做状态互换：旧版 superseded→active，
-   新版 active→superseded。不归档、不删除——因为 active→archived 是跳级（被
-   TRANSITIONS 拒绝），而「互换取代关系」既可逆又符合状态机。
+为什么留 shim：`from . import revise` 的调用点散布在根目录（mcp_server /
+writepipe / mdcg / mdcos / sustain / subgraph …），一次性改调用点与第二阶段
+「拆巨型单体」正面相撞。shim 让「搬家」与「改调用点」解耦，下个次版本随
+第二阶段一并移除。
+
+**为什么不是一行 `from .govern.revise import *`**：星号导入**复制名字、不绑定
+模块**。既有调用点里存在 `audit.default_policy_path = ...`（测试注入真源定位）
+与 `audit.VERIFIERS[k] = fn`（注册表写入）这类**重新绑定/改写**——星号导入会把
+它们钉在 shim 局部，真源看不到 ⇒ 注入静默失效（实测：`test_issue43` 的
+`_dfl_policy` 注入失默后写入面被判 `policy_unavailable`，7 红）。本 shim 改用
+PEP 562 模块级 `__getattr__` **现场取真源属性**，并对「往 shim 上重新绑定真源
+已有名」**fail-loud**，不静默。
+
+不变量（由 `md_cg/iface/_verify.py` 的 shim 台账断言钉住）：
+- 本文件**不得**含业务逻辑（只有导入、转发与 `__all__`）；
+- `md_cg.revise.X is md_cg.govern.revise.X`（同一对象，不复制）。
 """
 
-import time
+from __future__ import annotations
 
-from . import lifecycle
+import md_cg.govern.revise as _src
 
-__all__ = ["revise", "rollback"]
+#: **元属性必须显式绑定成真源的**：模块的 `__doc__` / `__all__` 是模块自身
+#: 字典里的项（PEP 562 的 `__getattr__` 对「已存在的键」根本不触发），若不覆盖，
+#: `from md_cg.x import` 后读 `x.__doc__` 拿到的是本 shim 的说明。面向真源的
+#: docstring 判据（如 `test_issue190` 的「模块 docstring 写明幂等口径」）因此
+#: 会**恒红**。这两行把语义恢复成「模块对象就是真源的门面」。
+__doc__ = _src.__doc__
+__all__ = list(_src.__all__)
 
-#: 回滚令牌的最小形状（写进返回体，可持久化）
-TOKEN_KEYS = ("old_id", "old_state", "new_id", "new_state", "ts")
-
-
-def _state_of_node(cg, node_id):
-    """取节点当前生命周期状态。
-
-    实测（2026-10-18）：cg.get() 返回 {id, content, frontmatter, path}，
-    lifecycle_state 在 frontmatter 里，**不在顶层**。首版把整个 dict 当 fm，
-    state_of 读不到键就 fail-open 成 active——于是 set_state 明明成功、
-    读回却是 active，conformance 直接红。
-
-    这是同一类错误的第二次（前一次是 cg.search 返回 (res, meta) 而非 res）：
-    **不要假设接口返回结构，先实测。**
-    """
-    node = cg.get(node_id)
-    if node is None:
-        return None
-    if isinstance(node, dict):
-        fm = node.get("frontmatter") or node
-    elif isinstance(node, (list, tuple)) and node:
-        fm = node[0]
-    else:
-        fm = node
-    return lifecycle.state_of(fm)
+_REBIND_GUARD = (
+    "md_cg.revise 是迁移过渡 shim（DEPRECATED），真源在 md_cg.govern.revise。"
+    "对 shim 属性赋值/删除**不会**影响真源（旧写法 `md_cg.revise.x = ...` 会静默"
+    "失效）。请改为 `md_cg.govern.revise.x = ...`。")
 
 
-def _write_new(cg, content, layer, tags, condition_space):
-    """走正常写入链（含形式完备闸），返回 disp 结构。"""
-    from .mcp_server import _cg_dispatch
-    a = {"op": "write", "content": content, "content_kind": "work_done",
-         "layer": layer or "knowledge", "tags": tags or ["revise"]}
-    if condition_space:
-        a["condition_space"] = condition_space
-    r = _cg_dispatch(cg, a)
-    return r if isinstance(r, dict) else {}
+def __getattr__(name):          # PEP 562：属性转发，真实读取落在真源上
+    try:
+        return getattr(_src, name)
+    except AttributeError:
+        raise AttributeError(
+            "module 'md_cg.revise' has no attribute %r（真源 md_cg.govern.revise"
+            " 也没有）" % (name,)) from None
 
 
-def revise(cg, old_id, new_content, expect_state=None, reason="修订",
-           layer=None, tags=None, condition_space=None):
-    """产生新版本并把旧版本标为 superseded。
-
-    返回：
-        {"verdict": "ACCEPT"|"REJECT"|"DEFER", "state_from", "state_to",
-         "new_id", "rollback_token", "reason"}
-    """
-    old_state = _state_of_node(cg, old_id)
-    if old_state is None:
-        return {"verdict": "REJECT", "reason": "旧节点不存在：%s" % old_id,
-                "state_from": None, "state_to": None, "new_id": None,
-                "rollback_token": None}
-
-    # CAS：并发前置条件
-    if expect_state is not None and str(expect_state) != old_state:
-        return {"verdict": "DEFER", "state_from": old_state, "state_to": old_state,
-                "new_id": None, "rollback_token": None,
-                "reason": "CAS 不符：期望 %s，实际 %s（请重读后再修订）"
-                          % (expect_state, old_state)}
-
-    if old_state in ("archived", "superseded"):
-        return {"verdict": "REJECT", "state_from": old_state, "state_to": old_state,
-                "new_id": None, "rollback_token": None,
-                "reason": "已退役版本不可再被修订（%s）" % old_state}
-
-    # ① 先写新版——失败则完全不动旧节点
-    disp = _write_new(cg, new_content, layer, tags, condition_space)
-    verdict = (disp.get("verdict") or {}).get("state")
-    if not disp.get("committed") or verdict != "ACCEPT":
-        return {"verdict": verdict or "REJECT", "state_from": old_state,
-                "state_to": old_state, "new_id": None, "rollback_token": None,
-                "reason": "新版未落盘，旧版保持不动",
-                "new_verdict": disp.get("verdict")}
-
-    new_id = disp.get("id")
-
-    # ② 再改旧版——此时新版已确认存在
-    lifecycle.set_state(cg, old_id, "superseded",
-                        reason="%s（被 %s 取代）" % (reason, new_id))
-    new_state = _state_of_node(cg, old_id)
-
-    token = {"old_id": old_id, "old_state": old_state, "new_id": new_id,
-             "new_state": "active", "ts": time.time()}
-    return {"verdict": "ACCEPT", "state_from": old_state, "state_to": new_state,
-            "new_id": new_id, "rollback_token": token, "reason": reason}
+def __dir__():
+    return sorted(set(globals()) | set(dir(_src)))
 
 
-def rollback(cg, token, reason="回滚"):
-    """撤销一次修订：旧版复活、新版转为被取代。**不删除任何节点。**
+def __setattr__(name, value):   # 已存在的真源名：必须显式写 md_cg.govern.revise
+    if hasattr(_src, name):
+        raise RuntimeError(_REBIND_GUARD)
+    _src.__dict__[name] = value          # 新增名同时落真源与 shim（与旧 `from . import` 同语义）
+    globals()[name] = value
 
-    不用「新版→archived」的理由：active→archived 是跳级（TRANSITIONS 拒绝）；
-    互换取代关系既可逆，又正确表达了「回滚后谁是当前版本」。
-    """
-    if not isinstance(token, dict) or not token.get("old_id") or not token.get("new_id"):
-        return {"verdict": "REJECT", "reason": "回滚令牌不完整"}
 
-    old_id, new_id = token["old_id"], token["new_id"]
-    st_old = _state_of_node(cg, old_id)
-    st_new = _state_of_node(cg, new_id)
-    if st_old is None or st_new is None:
-        return {"verdict": "REJECT", "reason": "令牌指向的节点不存在",
-                "state_old": st_old, "state_new": st_new}
-
-    if st_old != "superseded":
-        return {"verdict": "DEFER", "reason": "旧版当前不在 superseded（%s），拒绝回滚" % st_old,
-                "state_old": st_old, "state_new": st_new}
-
-    # 互换：旧版复活、新版被取代
-    lifecycle.set_state(cg, old_id, "active", reason="%s：恢复旧版" % reason)
-    if st_new == "active":
-        lifecycle.set_state(cg, new_id, "superseded",
-                            reason="%s：新版转为被取代" % reason)
-
-    return {"verdict": "ACCEPT",
-            "state_old_after": _state_of_node(cg, old_id),
-            "state_new_after": _state_of_node(cg, new_id),
-            "reason": reason}
+def __delattr__(name):
+    raise RuntimeError(_REBIND_GUARD)

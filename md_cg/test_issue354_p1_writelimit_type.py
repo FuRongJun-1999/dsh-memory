@@ -399,7 +399,7 @@ else:
 
 # ---------------------------------------------------------------- 定点变异自证
 
-_TARGET = "md_cg/writelimit.py"
+_TARGET = "md_cg/govern/writelimit.py"
 
 #: (说明, 改前锚, 改后锚, 期望转红的断言名前缀)
 _MUTATIONS = (

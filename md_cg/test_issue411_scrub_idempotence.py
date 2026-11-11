@@ -365,7 +365,9 @@ _check("E3 枚举完备：源码里 done.append 的失败形态**恰为**守卫�
        and sorted(scrub.ACTION_FAIL_MARKS) == sorted(_KNOWN_FAIL_MARKS),
        (_forms, list(scrub.ACTION_FAIL_MARKS)))
 
-_wl = io.open(os.path.join(_REPO, "md_cg", "writelimit.py"),
+# 读**真源**（2026-11-11 结构归位：`md_cg/writelimit.py` 已是 PEP 562 转发 shim，
+# 零逻辑 ⇒ 对着它找 `_already_tidied` / `TIDY_TAG` 恒空、E4 恒红）。
+_wl = io.open(os.path.join(_REPO, "md_cg", "govern", "writelimit.py"),
               encoding="utf-8").read()
 _wl_tidy = "def _already_tidied(" in _wl and "TIDY_TAG" in _wl
 _wl_cov = 'already_covered' in _wl

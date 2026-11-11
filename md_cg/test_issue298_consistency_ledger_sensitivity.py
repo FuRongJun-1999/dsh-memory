@@ -338,19 +338,19 @@ def g11():
 GROUPS = (g1, g2, g3, g4, g5, g6, g7, g8, g9, g10, g11)
 
 MUTS = [
-    ("M1 落盘不去原文（退回 log(cg, rec)）", "md_cg/consistency.py",
+    ("M1 落盘不去原文（退回 log(cg, rec)）", "md_cg/govern/consistency.py",
      "        _rec = scrub_record(rec) if _redact else dict(rec)",
      "        _rec = dict(rec)"),
-    ("M2 密级恒 internal（永不判红）", "md_cg/consistency.py",
+    ("M2 密级恒 internal（永不判红）", "md_cg/govern/consistency.py",
      '        _redact = bool(_lr is not None and _lr > _LEDGER_LEVELS.index("internal"))',
      "        _redact = False"),
     ("M3 读面不过滤（覆写退化）", "md_cg/mdcos.py",
      "        if self.principal.can_admin:\r\n            return recs",
      "        if True:\r\n            return recs"),
-    ("M4 既有节点侧密级不进面", "md_cg/consistency.py",
+    ("M4 既有节点侧密级不进面", "md_cg/govern/consistency.py",
      '               {c.get("with") for c in allc if isinstance(c, dict)}]',
      "               []]"),
-    ("M5 声明值缺失时不继承既有节点密级", "md_cg/consistency.py",
+    ("M5 声明值缺失时不继承既有节点密级", "md_cg/govern/consistency.py",
      "    if not sensitivity and exclude:",
      "    if False and exclude:"),
 ]

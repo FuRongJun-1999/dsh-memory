@@ -230,8 +230,9 @@ def main():
     check("B30-2 resp.read(RESP_MAX_BYTES) 全覆盖",
           "RESP_MAX_BYTES" in hx_src
           and "resp.read().decode" not in hx_src)
-    # P2-18：payload test_cmd 注入点移除
-    au = open(os.path.join(REPO, "md_cg", "audit.py"),
+    # P2-18：payload test_cmd 注入点移除（读**真源**：2026-11-11 结构归位后
+    # `md_cg/audit.py` 只是 PEP 562 转发 shim，零逻辑 ⇒ 两条否定断言会假绿）
+    au = open(os.path.join(REPO, "md_cg", "govern", "audit.py"),
               encoding="utf-8").read()
     check("B30-3 audit test_cmd 只走 env",
           'payload.get("test_cmd")' not in au

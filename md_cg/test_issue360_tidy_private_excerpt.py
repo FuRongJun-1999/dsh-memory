@@ -104,7 +104,7 @@ else:
 # 锚点按换行符构造，_mutate 里按目标文件实际行尾折算。
 _MUTATIONS = (
     ("V1 摘掉密级跳过判据（回到 #360 修前：private 摘录照写）",
-     "md_cg/writelimit.py",
+     "md_cg/govern/writelimit.py",
      "            if _md360(_ksens, mfm.get(\"sensitivity\")):" + chr(10)
      + "                continue" + chr(10),
      "",

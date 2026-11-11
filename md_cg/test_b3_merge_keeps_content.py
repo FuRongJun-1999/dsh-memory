@@ -457,9 +457,15 @@ def group_f():
 
 
 def _src_of(name):
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), name)
-    with open(p, encoding="utf-8", errors="replace") as f:
-        return f.read().replace("\r\n", "\n")
+    # 读**真源**：2026-11-11 结构归位后 `md_cg/writelimit.py` 只是 PEP 562 转发
+    # shim（零逻辑），对着它找 "forgetting.aggregate_line" 恒空 ⇒ 判据恒红。
+    # `govern/` 优先，回落根目录（第二阶段 shim 移除后回落自然收敛）。
+    _root = os.path.dirname(os.path.abspath(__file__))
+    for cand in (os.path.join(_root, "govern", name), os.path.join(_root, name)):
+        if os.path.isfile(cand):
+            with open(cand, encoding="utf-8", errors="replace") as f:
+                return f.read().replace("\r\n", "\n")
+    raise FileNotFoundError(name)
 
 
 # ---------------------------------------------------------------- 变异（自证）

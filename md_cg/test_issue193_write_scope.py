@@ -238,17 +238,17 @@ def main():
 
 _MUTATIONS = (
     ("V1 EXTRA_SCOPE 退回空表：层外候选不再并入（回到「只比同层」）",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      'EXTRA_SCOPE = {"contextual": ("knowledge",)}',
      "EXTRA_SCOPE = {}",
      ("A1", "A2")),
     ("V2 write_scope 形同虚设：extra_layers 恒空",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      "                    if (write_scope and layer and not no_terms) else ())",
      "                    if False else ())",
      ("A1", "A2")),
     ("V3 no_terms 闸失效：未声明条件的自由正文也扩面",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      "                    if (write_scope and layer and not no_terms) else ())",
      "                    if (write_scope and layer) else ())",
      ("K2",)),
@@ -258,7 +258,7 @@ _MUTATIONS = (
     # 这个坑（改的是保底面，不是 #193 的并入行）。跨行锚点在本仓还会踩
     # CRLF（表里的 \n 拼不出 \r\n）⇒ 改用**单行且唯一**的 sorted 行。
     ("V4 层外候选不并入精比面：收集了却不用",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      "                  sorted(extra_cand, key=lambda t: (-t[0], -t[1], str(t[3])))[:lim]]",
      "                  [][:0]]",
      ("A1", "A2", "E1")),
@@ -278,7 +278,7 @@ _MUTATIONS = (
      "            write_scope=False,",
      ("E3",)),
     ("V8 目标层扩到 structural（层权限语义混比）",
-     "md_cg/consistency.py",
+     "md_cg/govern/consistency.py",
      'EXTRA_SCOPE = {"contextual": ("knowledge",)}',
      'EXTRA_SCOPE = {"contextual": ("knowledge", "structural")}',
      ("K5",)),

@@ -158,7 +158,11 @@ def _assertions():
         except OSError:
             return ""
 
-    src = _read("md_cg/mdcos.py")
+    # 迁移（结构重构）：`MdCGSecure` 已搬到 `md_cg/mdcos_secure.py`；
+    # `_recent_effective_sens` 仍在基类 `mdcos.py`，`recent_events` 在 secure 类。
+    # 本守卫断的是「单点定义 + 不用 DEFAULT_SENSITIVITY 兜底缺键」，
+    # 故取两文件合并视图，判据一字未改。
+    src = _read("md_cg/mdcos.py") + "\n" + _read("md_cg/mdcos_secure.py")
     _check("E01 ★钉子：单点 _recent_effective_sens 缺键兜底 secret",
            "def _recent_effective_sens(" in src
            and 'get("sensitivity") or "secret"' in src)

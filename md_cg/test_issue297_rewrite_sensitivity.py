@@ -119,7 +119,11 @@ def _src(rel):
 def _body(name):
     # 取**最后一个**同名方法：mdcos.py 里 MdCGOS 与 MdCGSecure 都有 add/propose，
     # index() 会取到父类那个（本件改的是子类 MdCGSecure）。
-    src = _src(os.path.join("md_cg", "mdcos.py"))
+    # 2026-11-11 深度重构·任务 3：`MdCGSecure` 的覆写已整类搬到
+    # `md_cg/mdcos_secure.py`，`mdcos.py` 里 `rindex` 现在只会取到**父类
+    # MdCGOS** 那个 —— 断言会对着父类方法体判，静默判错。故扫描面移到搬入后
+    # 的权威文件（覆写只有一个所在处，不合并扫两文件，避免「复制一份回去」也过）。
+    src = _src(os.path.join("md_cg", "mdcos_secure.py"))
     i0 = src.rindex("    def %s(" % name)
     nxt = src.find("\n    def ", i0 + 10)
     return src[i0:nxt if nxt > 0 else len(src)]
@@ -282,7 +286,11 @@ def s6():
 
 def s7():
     print("== S7 反陈化：理由在源码里 ==")
-    src = _src(os.path.join("md_cg", "mdcos.py"))
+    # 2026-11-11 任务 3：理由注释随 `MdCGSecure` 一起搬到 mdcos_secure.py。
+    # 两文件**按位或**取并集是对的（本组钉的是「理由还写在代码旁边」，理由在
+    # 哪个文件不构成判据面）；但必须保留两处都扫，否则搬回去就会被判红。
+    src = (_src(os.path.join("md_cg", "mdcos.py"))
+           + "\n" + _src(os.path.join("md_cg", "mdcos_secure.py")))
     _check("S7a 标注 issue #297", "issue #297" in src)
     _check("S7b 写明「全量重建 fm」是根因面", "全量重建 fm" in src)
     _check("S7c 写明密级是唯一没接继承的那一列",

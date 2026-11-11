@@ -482,7 +482,10 @@ def main():
     check("6c 重载路径失效 chain/subgraph/trust 三派生缓存",
           "chain.invalidate_cache" in _ml and "subgraph.invalidate_cache" in _ml
           and "trust.invalidate_cache" in _ml, _ml[-200:])
-    _s_mdcos = _read_src("mdcos.py")
+    # 迁移（结构重构）：`MdCGSecure` 已整类搬到 `mdcos_secure.py`。
+    # 6d (`MdCGSecure.get`) 与 6h (`_open_content`) 的方法体随类走，
+    # 基类 `MdCGOS` 仍在 `mdcos.py`；合并视图，判据不变。
+    _s_mdcos = _read_src("mdcos.py") + "\n" + _read_src("mdcos_secure.py")
     _get = _src_window(_s_mdcos, "def get(self, node_id", "def search_rrf")
     check("6d MdCGSecure.get 以盘上 frontmatter 复核可见性（陈旧条目不作准）",
           'fm.get("sensitivity")' in _get and "_readable" in _get, _get[-200:])

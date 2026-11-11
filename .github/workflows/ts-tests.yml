@@ -1,0 +1,62 @@
+name: ts-tests
+
+# TypeScript 套件接入 CI（2026-11-11「结构归位」第一阶段补门）。
+#
+# 为什么必须有：本仓 63 个 `test/*.test.ts` **此前完全不在任何流水线里**——
+# `python-tests.yml` 只跑 Python 套件，其余 6 个 workflow 只跑各自的单项检查
+# （cogmap/discipline/conformance/hive/install-verify/publish-artifact）。
+# 于是 `src/` 与 `lib/` 的任何回归都只能靠人工发现：`package.json` 的 `test`
+# 脚本一直存在，却没有任何 CI 调它。
+#
+# 刻意**不加 paths 过滤**：本仓已在 cogmap-check 上栽过一次——paths 白名单一旦
+# 漏项，改动就不进门禁（该 workflow 顶部有详细记录）。ts-tests 的覆盖面横跨
+# `src/`、`lib/`、`test/`、`dsh/`、`scripts/build_ui.py`（build 步骤会调它），
+# 白名单不可能写全；全量跑换「红基线必然可见」。
+#
+# 依赖面与 `scripts/check_lib_fresh.py` 的分工：
+#   · 本 job 负责「**在当前源码上**构建 + 跑测试」；
+#   · `check_lib_fresh.py`（已接入 `npm run gate`）负责「**仓库里提交的 lib/
+#     是否落后于 src/**」——它不重新构建，只做 mtime 单调性检查，故能在
+#     不装 devDependencies 的环境里跑。
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ts-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # `test/*.test.ts` 里有若干守卫按 git 历史取「改动前」的源码
+          # （`git show <rev>:<path>` / `git log -S`）；浅克隆会让它们
+          # 取不到旧版本而红——本地（完整克隆）全绿、CI 红，是**假红**。
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      # `--include=dev`：`typescript` / `tsx` 都在 devDependencies，漏了它
+      # `npm run build` 直接失败（issue #161 的同族情形：包入口指向 lib/，
+      # 但 lib/ 被 .gitignore 忽略、构建又没装工具链）。
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+      # build 步骤会调 `python scripts/build_ui.py`（web/ 静态资源），
+      # 故 runner 上必须有 python。distro python 足够（脚本只用标准库）。
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # 守卫自证：提交进来的 `lib/` 不得落后于 `src/`。放在测试之前——它是
+      # 入库契约（发布包 main 指向 lib/index.js），比单测更靠前。
+      - name: lib/ 新鲜度（src↔lib mtime 单调）
+        run: python scripts/check_lib_fresh.py
+      # `npm test` = `npm run build && node --import tsx --test "test/*.test.ts"`。
+      # 用 `npm test` 而不是直接跑 node：保证「CI 跑的就是开发者本地那条命令」，
+      # 两条入口不可能漂移。
+      - name: TypeScript 套件（test/*.test.ts）
+        run: npm test

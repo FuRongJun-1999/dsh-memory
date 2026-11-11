@@ -294,13 +294,17 @@ _REGISTERED = {
     ("md_cg/mdcg.py", "subgraph"),
     ("md_cg/mdcg.py", "tags"),
     ("md_cg/mdcg.py", "total_nodes"),
-    ("md_cg/mdcos.py", "duty"),
-    ("md_cg/mdcos.py", "forbidden"),
+    # 迁移（结构重构）：`MdCGSecure` 整类从 `md_cg/mdcos.py` 搬到
+    # `md_cg/mdcos_secure.py`，其方法体内的 4 处条目写点随之落在新文件。
+    # 登记键名不变，只换文件归属——双向核对（C02 两条）因此仍能抓住
+    # 「新增未登记写点」与「删点不撤登记」。
     ("md_cg/mdcos.py", "role"),
-    ("md_cg/mdcos.py", "role_label"),
-    ("md_cg/mdcos.py", "sensitivity"),
     ("md_cg/mdcos.py", "session"),
-    ("md_cg/writelimit.py", "merge_sources"),
+    ("md_cg/mdcos_secure.py", "duty"),
+    ("md_cg/mdcos_secure.py", "forbidden"),
+    ("md_cg/mdcos_secure.py", "role_label"),
+    ("md_cg/mdcos_secure.py", "sensitivity"),
+    ("md_cg/govern/writelimit.py", "merge_sources"),
 }
 _observed = set()
 for rel, src in _md_cg_sources().items():
@@ -400,8 +404,8 @@ _MUTATIONS = (
      '       _GATE_KEYS <= set(_ENT), sorted(_GATE_KEYS - set(_ENT)))',
      '       bool(set(_ENT)), "")'),
     ("V3 登记方向：撤掉一条已登记的写点（双向核对失守）",
-     '    ("md_cg/writelimit.py", "merge_sources"),',
-     '    ("md_cg/writelimit.py", "merge_sources_UNREGISTERED"),'),
+     '    ("md_cg/govern/writelimit.py", "merge_sources"),',
+     '    ("md_cg/govern/writelimit.py", "merge_sources_UNREGISTERED"),'),
 )
 
 

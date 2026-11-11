@@ -80,7 +80,7 @@ FORBIDDEN_HIT = "FORBIDDEN_TOKEN_XYZ"
 EXPECTED_RED = ("G2b", "G2c", "G2d", "G3b", "G3c", "G4a", "G4b", "G4c",
                 "G5a", "G8b", "G8c")
 
-_BASELINE_FILES = {"audit": "md_cg/audit.py", "writepipe": "md_cg/writepipe.py"}
+_BASELINE_FILES = {"audit": "md_cg/govern/audit.py", "writepipe": "md_cg/writepipe.py"}
 
 # 定点变异表（基线源＝工作区源码 + 本表；**不取 git HEAD**，见 docstring 末段的缺陷实证）：
 # 每条 (标签, 现实现锚点, 改回后的旧行为)。锚点缺失 → ANCHOR-MISS → fail-closed 退出。
@@ -129,6 +129,11 @@ _SHIMS = _SHIMS + ("protect", "condaccept", "condgate")
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
+#: 假包的**顶层**转发层：真源装在 `mdcg_head/govern/<name>.py`（与仓内同深度），
+#: 顶层 `mdcg_head/<name>.py` 只把子包那份转出（PEP 562 现场取，语义同仓内 shim）。
+_SHIM_TPL_DEEP = ("import mdcg_head.govern.%s as _m\n"
+                  "globals().update({k: v for k, v in vars(_m).items()\n"
+                  "                 if not k.startswith('__')})\n")
 
 
 def _relative_import_names(src):
@@ -222,17 +227,34 @@ def _try(fn):
 
 
 def _fake_pkg(tmp, blobs):
-    """在临时目录搭假包 mdcg_head：HEAD 源 + 指向真仓模块的转发层。"""
+    """在临时目录搭假包 mdcg_head：HEAD 源 + 指向真仓模块的转发层。
+
+    **相对导入深度必须与真源一致**（2026-11-11 结构归位）：基线源取自
+    `md_cg/govern/audit.py`（深一层），其中写的是 `from ..condaccept import …`。
+    假包只有一层（`mdcg_head/`），`..` 会越过顶层包 ⇒ 装配期就抛
+    `attempted relative import beyond top-level package`。故为假包按同一深度补
+    一层 `govern/`，把 HEAD 源装进 `mdcg_head/govern/`，子包 `__init__` 只做
+    「搬到顶层」的重导出，`_SHIMS` 仍放在顶层供 `..x` 解析。
+    """
     root = os.path.join(tmp, "head_pkg")
     pkg = os.path.join(root, "mdcg_head")
-    os.makedirs(pkg, exist_ok=True)
+    deep = os.path.join(pkg, "govern")          # 与真源同深度（md_cg/govern/）
+    os.makedirs(deep, exist_ok=True)
     with open(os.path.join(pkg, "__init__.py"), "w", encoding="utf-8") as f:
         f.write("# 临时假包（守卫自用）：只装 HEAD 源与真仓模块的转发层\n")
+    with open(os.path.join(deep, "__init__.py"), "w", encoding="utf-8") as f:
+        f.write("# 临时子包（守卫自用）：承载与真源同深度的 HEAD 源\n")
     for name, data in blobs.items():
-        with open(os.path.join(pkg, name + ".py"), "wb") as f:
+        with open(os.path.join(deep, name + ".py"), "wb") as f:
             f.write(data)
+        with open(os.path.join(pkg, name + ".py"), "w", encoding="utf-8") as f:
+            f.write(_SHIM_TPL_DEEP % name)
     for name in _SHIMS:
         with open(os.path.join(pkg, name + ".py"), "w", encoding="utf-8") as f:
+            f.write(_SHIM_TPL % name)
+        # 与 HEAD 源同深度的那一层也要有同名转发（`..protect` 从 govern/ 往上取，
+        # 上不去就到同级的 govern/protect 找——两者语义等价，取后者即可）。
+        with open(os.path.join(deep, name + ".py"), "w", encoding="utf-8") as f:
             f.write(_SHIM_TPL % name)
     sys.path.insert(0, root)
     importlib.invalidate_caches()

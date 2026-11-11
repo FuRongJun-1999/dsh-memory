@@ -118,7 +118,23 @@ def _link_body():
     src = _src(os.path.join("md_cg", "mcp_server.py"))
     i0 = src.index('    if op == "link":')
     i1 = src.index("    if op ==", i0 + 10)
-    return src, src[i0:i1]
+    body = src[i0:i1]
+    # 2026-11-11 结构重构：`link` 分支体已抽成 `_link_op(cg, a, _p)`，
+    # 分派处只剩 `return _link_op(...)`。S1b/S2a 断的是**分支语义**的落点
+    # （闸有没有在这条链上、action 有哪些），不是「它必须写在 if 内」这一形态。
+    # 故检测到委托时，把目标函数体接进扫描面，判据语义不变。
+    m = re.search(r'return (_\w+_op)\(cg, a, _p\)', body)
+    if m:
+        hd = 'def %s(' % m.group(1)
+        lines = src.splitlines(keepends=True)
+        for idx, ln in enumerate(lines):
+            if ln.startswith(hd):
+                for k in range(idx + 1, len(lines)):
+                    t = lines[k]
+                    if t and not t[0].isspace() and not t.startswith('#'):
+                        return src, body + "".join(lines[idx:k])
+                return src, body + "".join(lines[idx:])
+    return src, body
 
 
 def _link_actions(body):
