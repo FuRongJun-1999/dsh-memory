@@ -30,6 +30,9 @@ from . import entities as _en
 # 落盘 id 只允许 ^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$（**冒号非法**，会拼进路径），
 # 故用 `profile-<kind>-<slug>` 形态；实体名里的非法字符按 _ 归一。
 PREFIX = "profile-"
+#: 角色名（闭集）：未配置则为空串 ⇒ 不建角色卡（不猜名字）。
+_ROLE_USER = (os.environ.get("MDCG_ROLE_USER") or "").strip()
+_ROLE_AI = (os.environ.get("MDCG_ROLE_AI") or "").strip()
 LAYER = "knowledge"
 
 #: 渲染时单条事实的最大字数（资料卡要稠密，不能变成原文堆）。
@@ -85,6 +88,7 @@ def build(cg, dry_run=True, limit=None):
     from . import reldate
     nodes = (cg.index.get("nodes") or {})
     buckets = {}          # (kind, name) -> [(date, nid, snippet)]
+    _declared_nids = set()  # 带 diary 声明的来源节点（用于卡来源标记）
     st = {"scanned": 0, "cards": 0, "written": 0, "skipped": 0, "facts": 0,
           "dry_run": bool(dry_run), "declared": 0, "extracted": 0}
     for nid, e in list(nodes.items()):
@@ -111,6 +115,7 @@ def build(cg, dry_run=True, limit=None):
         # 外测实证：靠正则猜名字会抽出 profile-person-号你 这类错卡，正确卡反被淹没。
         diary = fm.get("diary") if isinstance(fm.get("diary"), dict) else None
         if diary:
+            _declared_nids.add(nid)
             day = str(diary.get("date") or day or "")
             for key in ("speaker", "listener"):
                 v = str(diary.get(key) or "").strip()
@@ -126,6 +131,15 @@ def build(cg, dry_run=True, limit=None):
             if day:
                 buckets.setdefault(("event", day), []).append((day, nid, snip))
             continue
+        # 【外测实证 2026-11-12】只传 diary 的节点极少时，role/person 卡会**完全不产出**，
+        # 注入就只能塞事件卡（对属性题无用）。故补一条**角色兜底**：
+        # 节点带 role=user/assistant 且配置了角色名（MDCG_ROLE_USER / MDCG_ROLE_AI）⇒ 归到角色卡。
+        # 未配置则不做——**不猜角色名**。
+        _role = str(fm.get("role") or "").strip().lower()
+        if _role in ("user", "assistant"):
+            _rname = (_ROLE_USER if _role == "user" else _ROLE_AI)
+            if _rname:
+                buckets.setdefault(("role", _rname), []).append((day, nid, snip))
         # 回落：无 diary 的存量节点按确定性抽取（卡标 extracted，与 declared 不混报）
         for name in _en.persons(content, tags):
             buckets.setdefault(("person", name), []).append((day, nid, snip))
@@ -156,7 +170,7 @@ def build(cg, dry_run=True, limit=None):
         aux = _en.auxiliary(" ".join(f[2] for f in uniq))
         tags = ["%s%s" % (kind, ":" + name if kind != "event" else ""),
                 "profile", "%s:%s" % (kind, name)]
-        _src = "declared" if kind == "role" else "extracted"
+        _src = "declared" if any(nid in _declared_nids for _d, nid, _s in uniq) else "extracted"
         st[_src] = st.get(_src, 0) + 1
         tags.append("card_source:" + _src)
         tags += ["obj:" + o for o in aux["objects"][:8]]
