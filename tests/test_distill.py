@@ -1,0 +1,77 @@
+# -*- coding: utf-8 -*-
+"""distill 守卫：LLM 填表 + **原文复核**（写入时整理）。
+
+判据（使用者 2026-11-12）：规则对自然对话天生失效 ⇒ 用**表**让 LLM 填，
+并做**原文复核**避免 LLM 失误。
+
+复核是**可机械判定**的：值必须在原文里找得到（归一化子串 / 数值等值），否则拒收。
+"""
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
+from md_cg import distill, profiles  # noqa: E402
+from md_cg.mdcos import MdCGOS  # noqa: E402
+
+FAILS = []
+TEXT = "我叫沈知夏，知了的知，夏天的夏，24"
+
+
+def ok(cond, name, detail=""):
+    if cond:
+        print("  PASS " + name)
+    else:
+        print("  FAIL " + name + "  " + str(detail)[:170])
+        FAILS.append(name)
+
+
+def main():
+    print("=" * 70)
+    print("distill：表 + 原文复核")
+    print("=" * 70)
+
+    t = distill.table_text()
+    ok("姓名" in t and "城市" in t, "S1 表含全部字段")
+    ok("只填原文" in t, "S2 表内明写「只填原文明确出现的值」")
+
+    good, rej_g = distill.verify({"姓名": "沈知夏", "年龄": 24}, TEXT)
+    ok(set(good) == {"姓名", "年龄"} and not rej_g, "V1 原文有的值通过", (good, rej_g))
+    ok(good["姓名"]["ev_span"] == "沈知夏", "V2 给出 ev_span（可回溯原文）", good["姓名"])
+
+    bad, rej_b = distill.verify({"姓名": "沈知远", "城市": "外出包里", "年龄": 30}, TEXT)
+    ok(not bad, "V3 编造的值全部拒收", bad)
+    ok(all(r["reason"] == "not_in_source" for r in rej_b), "V4 拒收原因=not_in_source", rej_b)
+
+    ghost, rej_x = distill.verify({"爱好": "钓鱼", "姓名": "沈知夏"}, TEXT)
+    ok(any(r["reason"] == "field_not_in_schema" for r in rej_x), "V5 表外字段被丢（不让 LLM 发明字段）", rej_x)
+
+    root = tempfile.mkdtemp(prefix="dis_")
+    cg = MdCGOS(root, actor="test")
+    cg.add("n1", TEXT, role="user", consistency=False)
+    r = distill.apply(cg, "n1", {"姓名": "沈知夏", "年龄": 24, "城市": "外出包里"})
+    ok(r["ok"] and set(r["applied"]) == {"姓名", "年龄"}, "A1 apply 只落通过复核的字段", r["applied"])
+    ok(any(x["field"] == "城市" for x in r["rejected"]), "A2 误抽的城市被拒", r["rejected"])
+    ok(cg.get("n1")["frontmatter"].get("dossier") is None,
+       "A3 apply 不写盘（无副作用，单写链）")
+
+    # 端到端：把 apply 的 dossier 写回节点，再由 profiles 建卡 → 卡内有档案
+    cg.add("n1", TEXT, role="user", extra={"dossier": r["dossier"]}, consistency=False)
+    os.environ["MDCG_ROLE_USER"] = "沈知夏"
+    profiles.build(cg, dry_run=False)
+    body = (cg.get("profile-role-沈知夏") or {}).get("content") or ""
+    ok("姓名：沈知夏" in body, "E1 LLM 填表结果进了卡（档案区）", body[:120])
+    ok("城市" not in body, "E2 被拒字段没进卡", body[:160])
+
+    print()
+    print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
+    return 1 if FAILS else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
