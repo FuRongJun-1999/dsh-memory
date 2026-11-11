@@ -126,6 +126,21 @@ def is_place(v):
     return any(x in s for x in PLACE_KNOWN)
 
 
+# 生效条件：item 为表项（dict，可能含 _raw）；text 为原文；返回证据片段或 None
+def _evidence_of(item, text):
+    """取证据片段：优先用调用方给的 _raw（原文摘录），否则返回 None。
+
+    为什么必须支持 _raw（外测 502 次填表：947 次 no_item_in_source）：
+      LLM 会把「做过一年学徒」归一成 职位=学徒、「江北那家咖啡店」写成 单位=江北咖啡店——
+      值对、字面不同。按值做子串匹配必然失败，按**证据片段**匹配应当通过。
+      复核对象 = 证据（必须真的出现在原文），而不是归一化后的值：既保住防幻觉
+      （_raw 不在原文 ⇒ 拒收），又不逼 LLM 逐字复制。
+    """
+    raw = (item or {}).get("_raw") if isinstance(item, dict) else None
+    if raw:
+        return str(raw) if span_of(raw, text) is not None else None
+    return None
+
 # 生效条件：filled 为 LLM 填的表（dict）、text 为原文；返回 (accepted, rejected)
 def verify(filled, text):
     from . import dossier as _dos
@@ -143,23 +158,36 @@ def verify(filled, text):
             for _it in v:
                 if not isinstance(_it, dict):
                     continue
-                if all(_part_in_source(_k2, x, text)
-                       for _k2, x in _it.items() if x not in (None, "")):
+                # 【B 方案】项自带 _raw 原文片段且能在原文找到 ⇒ 接受该项（结构化改写允许）
+                _raw = _it.get("_raw")
+                if isinstance(_raw, str) and _raw.strip() and span_of(_raw, text) is not None:
+                    _kept.append(_it)
+                    continue
+                _item_raw = _it.get("_raw")
+                if _item_raw:
+                    _ok_item = span_of(_item_raw, text) is not None
+                else:
+                    _ok_item = all(_part_in_source(_k2, x, text)
+                                   for _k2, x in _it.items()
+                                   if x not in (None, "") and _k2 != "_raw")
+                if _ok_item:
                     _kept.append(_it)
             if not _kept:
                 rejected.append({"field": k, "value": v, "reason": "no_item_in_source"})
                 continue
             accepted[k] = {"value": _kept, "ev_span": ""}
             continue
-        span = span_of(v, text)
+        _val = v.get("value") if isinstance(v, dict) else v
+        _raw_span = _evidence_of(v, text)
+        span = _raw_span or span_of(_val, text)
         if span is None:
-            rejected.append({"field": k, "value": v, "reason": "not_in_source"})
+            rejected.append({"field": k, "value": _val, "reason": "not_in_source"})
             continue
         # 字段级形态校验（目前只对城市）：原文有 ≠ 是地名
-        if k == "城市" and not is_place(v):
-            rejected.append({"field": k, "value": v, "reason": "not_a_place"})
+        if k == "城市" and not is_place(_val):
+            rejected.append({"field": k, "value": _val, "reason": "not_a_place"})
             continue
-        accepted[k] = {"value": v, "ev_span": span}
+        accepted[k] = {"value": _val, "ev_span": span}
     return accepted, rejected
 
 

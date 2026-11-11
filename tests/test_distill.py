@@ -103,6 +103,21 @@ def main():
                      {"经历": {"value": [{"单位": "江北咖啡店"}, {"单位": "半坡"}]}})
     ok(len(_m3["经历"]["value"]) == 2, "L5 序列按项去重追加（不互相覆盖）", _m3["经历"]["value"])
 
+    # ---- R：_raw 证据锚（复核证据片段，不复核归一化值）----
+    _T4 = "我叫罗杏子，今年38，在南宁，全职带娃。曾在江北那家咖啡店做过一年学徒"
+    _a4, _r4 = distill.verify({"单位": {"value": "江北咖啡店"}}, _T4)
+    ok(not _a4 and _r4 and _r4[0]["reason"] == "not_in_source",
+       "R1 无 _raw 的归一化值仍被拒（原文写『江北那家咖啡店』）", _r4)
+    _a5, _r5 = distill.verify({"单位": {"value": "江北咖啡店", "_raw": "江北那家咖啡店"}}, _T4)
+    ok("单位" in _a5 and _a5["单位"]["ev_span"] == "江北那家咖啡店",
+       "R2 带 _raw 的归一化值通过（复核证据而非值）", _a5)
+    _a6, _r6 = distill.verify({"职业": {"value": "调酒师", "_raw": "在酒吧调了三年"}}, _T4)
+    ok(not _a6 and _r6[0]["reason"] == "not_in_source",
+       "R3 假 _raw（原文没有）仍拒收——防幻觉不放松", _r6)
+    _a7, _r7 = distill.verify({"经历": [{"单位": "江北咖啡店", "职位": "学徒",
+                                      "_raw": "江北那家咖啡店做过一年学徒"}]}, _T4)
+    ok(len((_a7.get("经历") or {}).get("value") or []) == 1, "R4 序列项 _raw 锚定通过", _a7)
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
