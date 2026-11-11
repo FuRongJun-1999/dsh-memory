@@ -155,6 +155,23 @@ def main2():
     _cids = [n.get("id") for n, _a, _b, _c in _cand]
     ok(rid in _cids, "D13 实体标签直取资料卡（候选注入可用）", _cids[:4])
 
+    # ---- D14/D15：人物档案（属性区必须在卡正文里）----
+    import os as _os2
+    _os2.environ["MDCG_ROLE_USER"] = "沈知夏"
+    _root2 = tempfile.mkdtemp(prefix="dos_")
+    _cg2 = MdCGOS(_root2, actor="test")
+    _cg2.add("x1", "我叫沈知夏，知了的知，夏天的夏，24", created_at=ts("2026-04-26 10:00:00"),
+             role="user", tags=["domain:d"], consistency=False)
+    _cg2.add("x2", "我在江北咖啡店做结构设计，我住在江北市，本科", created_at=ts("2026-05-03 10:00:00"),
+             role="user", tags=["domain:d"], consistency=False)
+    profiles.build(_cg2, dry_run=False)
+    _body = (_cg2.get("profile-role-沈知夏") or {}).get("content") or ""
+    ok("【档案】" in _body, "D14 角色卡含【档案】区（属性题落点）", _body[:60])
+    ok(("姓名：沈知夏" in _body) and ("年龄：24" in _body),
+       "D15 档案含姓名与年龄（自我介绍抽取）", _body[:200])
+    ok(("职业：结构设计" in _body) and ("单位：江北咖啡店" in _body), "D16 档案含职业与单位")
+    ok("身份证" not in _body, "D17 敏感字段不入档（隐私边界）")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

@@ -25,6 +25,7 @@ import hashlib
 import os
 import time
 
+from . import dossier as _dos
 from . import entities as _en
 
 # 落盘 id 只允许 ^[A-Za-z0-9_.@\u4e00-\u9fff,-]{1,128}$（**冒号非法**，会拼进路径），
@@ -65,7 +66,7 @@ def _snippet(text):
 
 
 # 生效条件：facts 为 [(日期, 节点id, 片段)]；返回渲染后的资料卡正文（CCG 六要素 + 事实序列）
-def render(kind, name, facts):
+def render(kind, name, facts, dossier=None):
     title = {"role": "角色资料", "person": "人物资料", "place": "地点资料", "event": "事件资料"}[kind]
     head = [
         "# 功能名：%s：%s" % (title, name),
@@ -76,7 +77,22 @@ def render(kind, name, facts):
         "# 不适用条件：正文未出现的属性不在本卡；同名不合并",
         "",
     ]
+    #: 档案字段的展示顺序（基本信息 → 身份职业 → 家庭）
+    _ORDER = ("姓名", "年龄", "城市", "职业", "单位", "学历", "专业",
+              "父", "母", "配偶", "子女")
     body = []
+    if dossier:
+        body.append(dept_line := "【档案】")
+        for k in _ORDER:
+            v = dossier.get(k)
+            if not v:
+                continue
+            # 值 + 陈述时刻（用括号注出，便于模型直接引用，不必自己换算）
+            body.append("- %s：%s%s" % (
+                k, v.get("value"),
+                "（%s）" % time.strftime("%Y-%m", time.localtime(float(v["t"])))
+                if v.get("t") else ""))
+        body.append("")
     for date, nid, snip in facts:
         body.append("- %s | %s（来源 %s）" % (date or "日期不明", snip, nid))
     return "\n".join(head + body) + "\n"
@@ -137,7 +153,9 @@ def build(cg, dry_run=True, limit=None):
         # 未配置则不做——**不猜角色名**。
         _role = str(fm.get("role") or "").strip().lower()
         if _role in ("user", "assistant"):
-            _rname = (_ROLE_USER if _role == "user" else _ROLE_AI)
+            _rname = ((os.environ.get("MDCG_ROLE_USER") or _ROLE_USER).strip()
+                      if _role == "user" else
+                      (os.environ.get("MDCG_ROLE_AI") or _ROLE_AI).strip())
             if _rname:
                 buckets.setdefault(("role", _rname), []).append((day, nid, snip))
         # 回落：无 diary 的存量节点按确定性抽取（卡标 extracted，与 declared 不混报）
@@ -156,9 +174,17 @@ def build(cg, dry_run=True, limit=None):
             seen.add(f[1])
             uniq.append(f)
         uniq = uniq[-MAX_FACTS:]
+        # 档案：从本卡来源节点里抽字段并增量合并（只对 role/person 卡建）
+        _dos_all = {}
+        if kind in ("role", "person"):
+            for _d, _nid, _snip in uniq:
+                _n = cg.get(_nid) or {}
+                _fm = _n.get("frontmatter") or {}
+                _dos_all = _dos.merge(_dos_all, _dos.extract(
+                    _n.get("content") or "", _fm.get("created_at"), _nid))
         st["cards"] += 1
         st["facts"] += len(uniq)
-        text = render(kind, name, uniq)
+        text = render(kind, name, uniq, dossier=_dos_all)
         nid = card_id(kind, name)
         prev = cg.get(nid)
         if prev and (prev.get("content") or "") == text:
