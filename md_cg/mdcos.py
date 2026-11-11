@@ -5281,6 +5281,17 @@ class MdCGOS(MdCG):
                 node_id or "", tags_add=tags_add, tags_remove=tags_remove,
                 condition_space_patch=condition_space_patch,
                 depends_on=depends_on, dry_run=_dry)
+        if act == "profiles":
+            # 【资料树档 1，2026-11-12 使用者裁定】人物/地点/事件 = 核心状态；物品/情绪 = 辅助（只进 facet）。
+            # 把散落节点聚合成**可召回的一等节点**（profile-<kind>-<slug>）：外测归因证明弱项 19 题
+            # 「要素不在 pack」（2/19），单点事实需要稠密容器才召得回。
+            # 幂等：渲染结果逐字比对，变了才写；增量：事实按 (日期, 节点 id) 稳定排序，新节点只追加。
+            # 缺省 dry_run：沿用 maintain 的「预演优先」口径，apply=True 才落盘。
+            from . import profiles as _prof
+            _dry_p = (not apply) if dry_run is None else (bool(dry_run) or not apply)
+            _st = _prof.build(self, dry_run=_dry_p, limit=limit)
+            _st.update({"ok": True, "op": "maintain", "action": "profiles"})
+            return _st
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
