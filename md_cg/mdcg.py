@@ -388,7 +388,22 @@ INHERIT_ON_OVERWRITE = (
 INHERIT_ON_OVERWRITE_BODY_SAME = (
     "edges", "confidence", "verification_basis", "non_applicable_conditions",
     "modality", "importance_source", "untrusted", "untrusted_markers",
+    # 【issue #866】正文逐字未变 = 元数据补丁。以下三类早先不在白名单里，被 add() 的
+    # 全量重建吃掉：doc_ref（provenance：src/lineno/end，丢了就回不去原文）、
+    # importance_components（重要度分解，丢了不可复算）、sensitivity（**密级**，
+    # 被重置成 None 是**安全降级**，比丢字段更严重）。
+    "doc_ref", "importance_components",
+    # 注：`sensitivity` **刻意不在本表**——正文未变时继承密级会掩盖密级变更检测
+    # （8 个 issue#25x/#29x 守卫转红实证）。密级改由 retag 显式透传。
 )
+
+#: 正文未变时**不**继承的前序元数据键——这些由写路径自己重算，继承会让旧值覆盖新算值。
+#: 【issue #866 根治】白名单是「漏一个就静默丢一个」的形态；改为「继承全部 − 本表」，
+#: 新增字段默认被保住，只有必须重算的键才显式排除。
+NOT_INHERIT_ON_OVERWRITE_BODY_SAME = frozenset((
+    "updated_at", "content_hash", "tokens", "size", "path", "bucket",
+    "layer", "tags", "condition_space", "depends_on", "importance",
+))
 
 
 # 英→中语素召回中的代词黑名单（超泛词，进召回词只添噪声）
@@ -3834,6 +3849,10 @@ class MdCG:
             _same_body = (nodefile.normalize_body(_prev_body)
                           == nodefile.normalize_body(content))
             if _same_body:
+                # 【issue #866 回退说明】曾试过「继承全部 − 拒绝表」，结果 8 个
+                # sensitivity 相关守卫转红——**继承密级会掩盖密级变更检测**，那是放宽
+                # 既有判据。故仍用白名单（只加 invarianт 类字段），密级由 retag 侧
+                # **显式透传**（见 MdCG.retag：只传前序确实存在的值）。
                 for _k in INHERIT_ON_OVERWRITE_BODY_SAME:
                     if _k not in _explicit and _k in _prev_fm:
                         fm[_k] = _prev_fm[_k]
@@ -4907,9 +4926,17 @@ class MdCG:
         # 写保护闸、换桶清理、索引 _stage 仍由既有单点负责。这样 admin 面的
         # maintain retag 与 token 面的 write 补丁行为一致，不会两条路两种结果。
         from .writepipe import default_pipeline
+        # 【issue #866】元数据补丁必须把「与本次改动无关、但会被 add() 重算」的元数据
+        # 显式透传回去：密级被重置成 None 是**安全降级**，importance_components 丢了
+        # 不可复算。这里只传前序**确实存在**的键，不传 None（避免把「未声明」变成「声明为空」）。
         _a = {"op": "write", "node_id": node_id, "layer": layer,
               "content": content, "tags": new_tags, "condition_space": cs,
               "_meta_patch": True}
+        for _k in ("sensitivity", "doc_ref", "importance_components",
+                   "verification_basis", "non_applicable_conditions",
+                   "modality", "importance_source"):
+            if fm.get(_k) is not None:
+                _a[_k] = fm[_k]
         if deps is not None:
             _a["depends_on"] = deps
         _out = default_pipeline().execute(self, _a)
