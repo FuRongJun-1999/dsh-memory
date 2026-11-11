@@ -42,6 +42,9 @@ _RULES = (
     ("母", re.compile(r"我(?:妈|母亲)([^，,。；;]{2,12})")),
 )
 
+#: 列表型字段（值为 list[dict]，逐项复核；合并时按项去重追加，互不覆盖）
+LIST_FIELDS = ("经历", "家庭")
+
 #: 明确 **不采** 的敏感字段（出现即整段拒收）。
 FORBIDDEN = ("身份证", "证件号", "银行卡", "手机号", "电话", "详细住址", "门牌")
 
@@ -112,6 +115,24 @@ def merge(old, new):
             # 同值：仅抬高权重、补 ev_span（不新增历史）
             if (v.get("w") or 0) > (prev.get("w") or 0):
                 prev["w"] = v["w"]
+            continue
+        # 【序列型】经历/家庭：按项去重追加（不同项都保留，不互相覆盖）
+        if k in LIST_FIELDS and isinstance(prev, dict) and isinstance(v, dict):
+            _old = list(prev.get("value") or [])
+            _new = list(v.get("value") or [])
+            def _key(it):
+                return tuple(sorted((str(a), str(b)) for a, b in (it or {}).items()
+                                    if b not in (None, "")))
+            _seen = {_key(x) for x in _old}
+            for _it in _new:
+                if _key(_it) not in _seen:
+                    _old.append(_it)
+                    _seen.add(_key(_it))
+            prev = dict(prev)
+            prev["value"] = _old
+            if (v.get("w") or 0) > (prev.get("w") or 0):
+                prev["w"] = v["w"]
+            out[k] = prev
             continue
         if prev:
             _pw, _nw = (prev.get("w") or 0), (v.get("w") or 0)

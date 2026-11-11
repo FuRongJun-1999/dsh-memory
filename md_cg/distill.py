@@ -36,6 +36,9 @@ SCHEMA = (
     ("专业", "str", False, "专业名"),
     ("父", "str", False, "父亲的名字或职业（原文出现的形式）"),
     ("母", "str", False, "母亲的名字或状况（原文出现的形式）"),
+    # 【外测 2026-11-12】档案不能只是当前身份快照——这 19 题要的是经历/家庭**序列**。
+    ("经历", "list", False, "职业经历序列，每项 {单位, 职位, 从, 到}；原文只给部分就只填部分"),
+    ("家庭", "list", False, "家庭成员序列，每项 {关系, 姓名, 职业}"),
 )
 
 #: 允许的字段集合（LLM 填了表外字段 ⇒ 直接丢弃，不让它发明字段）。
@@ -80,6 +83,32 @@ def span_of(value, text):
     return None
 
 
+#: 关系词别名（**只对「家庭」项的「关系」分量**生效）：LLM 惯写「母/父」，语料多写「妈/爸」。
+#: 这是**确定性白名单**，不是放松复核——白名单外的写法仍然拒收。
+RELATION_ALIASES = {
+    "母": ("妈妈", "妈", "母亲", "老娘"),
+    "父": ("爸爸", "爸", "父亲", "老爷子"),
+    "妻": ("妻子", "老婆", "媳妇"),
+    "夫": ("丈夫", "老公"),
+    "子": ("儿子",),
+    "女": ("女儿",),
+    "兄": ("哥哥", "哥"),
+    "姐": ("姐姐", "姐"),
+}
+
+
+# 生效条件：k 为分量名、v 为值、text 为原文；命中（含关系白名单）返回 True
+def _part_in_source(k, v, text):
+    """分量复核：普通分量走 span_of；「关系」分量额外接受别名白名单。"""
+    if span_of(v, text) is not None:
+        return True
+    if k == "关系":
+        for alias in RELATION_ALIASES.get(str(v), ()):
+            if span_of(alias, text) is not None:
+                return True
+    return False
+
+
 #: 地名后缀（值必须带其一，或在已知地名词典里）。
 PLACE_SUFFIX = ("市", "区", "县", "路", "街", "镇", "州", "村", "岛", "港")
 #: 已知地名（可扩展；用于「南宁」「江北」这类无后缀写法）。
@@ -99,6 +128,7 @@ def is_place(v):
 
 # 生效条件：filled 为 LLM 填的表（dict）、text 为原文；返回 (accepted, rejected)
 def verify(filled, text):
+    from . import dossier as _dos
     """逐字段复核：命中保留并给 ev_span；未命中拒收并给原因。"""
     accepted, rejected = {}, []
     for k, v in (filled or {}).items():
@@ -106,6 +136,20 @@ def verify(filled, text):
             rejected.append({"field": k, "value": v, "reason": "field_not_in_schema"})
             continue
         if v is None or v == "":
+            continue
+        # 【序列型】逐项复核：每项的字符串分量都要能在原文找到，否则丢该项
+        if k in _dos.LIST_FIELDS and isinstance(v, list):
+            _kept = []
+            for _it in v:
+                if not isinstance(_it, dict):
+                    continue
+                if all(_part_in_source(_k2, x, text)
+                       for _k2, x in _it.items() if x not in (None, "")):
+                    _kept.append(_it)
+            if not _kept:
+                rejected.append({"field": k, "value": v, "reason": "no_item_in_source"})
+                continue
+            accepted[k] = {"value": _kept, "ev_span": ""}
             continue
         span = span_of(v, text)
         if span is None:

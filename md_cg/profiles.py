@@ -81,6 +81,7 @@ def render(kind, name, facts, dossier=None):
     #: 档案字段的展示顺序（基本信息 → 身份职业 → 家庭）
     _ORDER = ("姓名", "年龄", "城市", "职业", "单位", "学历", "专业",
               "父", "母", "配偶", "子女")
+    _LIST_ORDER = ("经历", "家庭")
     body = []
     if dossier:
         body.append(dept_line := "【档案】")
@@ -93,6 +94,18 @@ def render(kind, name, facts, dossier=None):
                 k, v.get("value"),
                 "（%s）" % time.strftime("%Y-%m", time.localtime(float(v["t"])))
                 if v.get("t") else ""))
+        for k in _LIST_ORDER:
+            v = dossier.get(k)
+            items = (v or {}).get("value") or []
+            if not items:
+                continue
+            body.append("【%s】" % k)
+            for it in items:
+                if not isinstance(it, dict):
+                    continue
+                parts = [str(x) for x in it.values() if x not in (None, "")]
+                if parts:
+                    body.append("- " + " | ".join(parts))
         body.append("")
     for date, nid, snip in facts:
         body.append("- %s | %s（来源 %s）" % (date or "日期不明", snip, nid))
