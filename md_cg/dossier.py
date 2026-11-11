@@ -83,6 +83,22 @@ def extract(text, ts=None, nid=""):
     return out
 
 
+#: 字段的时间可变性：只有这些字段允许「同权重下较新值覆盖」；其余同权重**保留旧值**。
+#: 理由（外测实证）：多来源 dossier 合并时，弱证据曾把「姓名/城市」覆盖成错值。
+TIME_VARYING = ("年龄",)
+
+
+# 生效条件：text 为原文；返回该节点作为档案证据的**权重**（3=自我介绍/声明，2=行为句，1=泛提）
+def weight_of(text):
+    """证据权重：自我介绍最强；含「在/做/住」的行为句次之；其余最弱。"""
+    body = str(text or "")
+    if re.search(r"(我叫|我的名字是|我名字叫|叫我)[\u4e00-\u9fa5]{2,4}", body):
+        return 3
+    if re.search(r"(今年\d|\d{1,2}\s*岁|我(?:住在|住|在)|做[\u4e00-\u9fa5]{2,8})", body):
+        return 2
+    return 1
+
+
 # 生效条件：old/new 为两条档案 dict；返回合并结果（新值覆盖；旧值进 _history 不丢）
 def merge(old, new):
     """档案增量合并：同字段取**较新**的值，旧值保留在 _history。"""
@@ -93,8 +109,20 @@ def merge(old, new):
             continue
         prev = out.get(k)
         if prev and prev.get("value") == v.get("value"):
+            # 同值：仅抬高权重、补 ev_span（不新增历史）
+            if (v.get("w") or 0) > (prev.get("w") or 0):
+                prev["w"] = v["w"]
             continue
         if prev:
+            _pw, _nw = (prev.get("w") or 0), (v.get("w") or 0)
+            # 【证据权重】强证据胜；同权重时只有时间可变字段允许较新值覆盖，
+            # 其余**保留旧值**——避免「在包里」这类弱证据盖掉自我介绍的姓名/城市。
+            if _nw < _pw:
+                hist.setdefault(k, []).append(v)
+                continue
+            if _nw == _pw and k not in TIME_VARYING:
+                hist.setdefault(k, []).append(v)
+                continue
             hist.setdefault(k, []).append(prev)
         out[k] = v
     if hist:
