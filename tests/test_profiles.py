@@ -172,6 +172,26 @@ def main2():
     ok(("职业：结构设计" in _body) and ("单位：江北咖啡店" in _body), "D16 档案含职业与单位")
     ok("身份证" not in _body, "D17 敏感字段不入档（隐私边界）")
 
+    # ---- N：早期自我介绍不被事实窗口截断 + 合并期过地名闸 ----
+    _root3 = tempfile.mkdtemp(prefix="win_")
+    _cg3 = MdCGOS(_root3, actor="test")
+    _cg3.add("t0015", "我叫沈知夏，知了的知，夏天的夏，24", created_at=ts("2026-01-01 10:00:00"),
+             role="user", tags=["domain:d"],
+             extra={"dossier": {"姓名": {"value": "沈知夏", "w": 3},
+                             "年龄": {"value": 24, "w": 3}}}, consistency=False)
+    for _i in range(60):
+        _cg3.add("t%04d" % (100 + _i), "今天店里做了第%d批贝果" % _i,
+                  created_at=ts("2026-03-01 10:00:00"), role="user",
+                  tags=["domain:d"], consistency=False)
+    _cg3.add("t0163", "我把饭盒落在地铁站长椅了，在包里翻了半天",
+             created_at=ts("2026-05-12 10:00:00"), role="user", tags=["domain:d"],
+             extra={"dossier": {"城市": {"value": "外出包里", "w": 1}}}, consistency=False)
+    profiles.build(_cg3, dry_run=False)
+    _b3 = (_cg3.get("profile-role-沈知夏") or {}).get("content") or ""
+    ok("姓名：沈知夏" in _b3 and "年龄：24" in _b3,
+       "N1 早期自我介绍不被事实窗口截断（dossier 扫全量 facts）", _b3[:160])
+    ok("外出包里" not in _b3, "N2 合并期同样过地名闸（旧节点绕过写入复核也拦）")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

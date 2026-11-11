@@ -25,6 +25,7 @@ import hashlib
 import os
 import time
 
+from . import distill as _dis
 from . import dossier as _dos
 from . import entities as _en
 
@@ -175,9 +176,15 @@ def build(cg, dry_run=True, limit=None):
             uniq.append(f)
         uniq = uniq[-MAX_FACTS:]
         # 档案：从本卡来源节点里抽字段并增量合并（只对 role/person 卡建）
+        # 【外测 2026-11-12】必须扫**未截断的全量 facts**：早期自我介绍（w=3）曾因
+        # MAX_FACTS 窗口只保留最近 N 条而被丢弃 ⇒ 卡的档案里只剩弱证据的误填。
         _dos_all = {}
         if kind in ("role", "person"):
-            for _d, _nid, _snip in uniq:
+            _seen_dos = set()
+            for _d, _nid, _snip in facts:
+                if _nid in _seen_dos:
+                    continue
+                _seen_dos.add(_nid)
                 _n = cg.get(_nid) or {}
                 _fm = _n.get("frontmatter") or {}
                 # ① 先并入**声明/LLM 填表**的档案（fm.dossier，带 ev_span、经原文复核）
@@ -193,6 +200,8 @@ def build(cg, dry_run=True, limit=None):
                 for _fk, _fv in _rule.items():
                     _fv = dict(_fv)
                     _fv["w"] = _w
+                    if _fk == "城市" and not _dis.is_place(_fv.get("value")):
+                        continue          # 合并期同样过地名闸（旧节点可能绕过写入期复核）
                     _dos_all = _dos.merge(_dos_all, {_fk: _fv})
                 # 声明/LLM 填表的档案同样按该节点权重入账
                 if isinstance(_dec, dict) and _dec:
@@ -201,6 +210,8 @@ def build(cg, dry_run=True, limit=None):
                             continue
                         _fv = dict(_fv) if isinstance(_fv, dict) else {"value": _fv}
                         _fv.setdefault("w", _w)
+                        if _fk == "城市" and not _dis.is_place(_fv.get("value")):
+                            continue      # 声明/LLM 的旧档案也过闸
                         _dos_all = _dos.merge(_dos_all, {_fk: _fv})
         st["cards"] += 1
         st["facts"] += len(uniq)
