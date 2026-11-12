@@ -24,6 +24,14 @@
     2. 阈值 0.5 来自第二十一轮同一方法，未做充分验证；
     3. 本模块**不读模型上下文**，当前文本必须由调用方传入；
     4. 它只负责「报缺失」，不负责「回取」——回取是调用方的事。
+    6. **字面匹配只认「同样的说法」，不认「同样的意思」**（2026-10-24 自指审计实测）：
+       清单写「丢弃率等于 1 减 1 除以平均段长」，文档写「1 − 1/平均段长」，
+       二字组交集只有 3 个，覆盖率 0.455 → 判缺失，**但内容其实在**。
+       同理「0.00 到 0.28」对不上「0.00–0.28」（en dash）。
+       这是**假阴性**，比假阳性更危险：会让人以为内容丢了去重复补充。
+       识别同义表述需语义理解（数学符号／同义词典／向量），三者都非本模块能做的。
+       **故判「不在」时应先怀疑表述差异，再怀疑内容缺失。**
+
     5. **它测「表述在不在」，不测「行为守没守」**（2026-10-24 自指实验实测）：
        同一次会话里，本模块对 5 条约束报覆盖率 100%（因为归档文档讨论过这些
        约束词），但实际行为违反了其中 2 条（覆盖文件、静默降级）。
@@ -34,7 +42,8 @@
 import re
 
 __all__ = [
-    "parse_constraints", "coverage", "check", "COVER_THRESHOLD", "CONSTRAINT_RE",
+    "parse_constraints", "coverage", "check", "retrieve_for",
+    "COVER_THRESHOLD", "CONSTRAINT_RE",
 ]
 
 #: 实词覆盖阈值：低于此值判为「约束已不在场」。与第二十一轮同法。
@@ -118,6 +127,42 @@ def check(constraints, current_text, threshold=COVER_THRESHOLD):
             "threshold": threshold,
             "counts": {"total": len(items), "present": len(present),
                        "missing": len(missing)}}
+
+
+def retrieve_for(constraint_text, cg, k=3):
+    """为一条缺失的约束回取候选原文（框架 v4 第⑤步「三选一」中的「回取」）。
+
+    为什么需要：本模块此前只做到「报缺失」，没做到「回取」。
+    本函数补上这一环：拿约束文本去记忆库检索，返回候选出处。
+
+    **找不到不等于不存在**（智能论 I6）：ok=False 只表示「这次没检索到」，
+    不等于「库里没有」，调用方不得据此断言「无出处」。
+    """
+    text = str(constraint_text or "").strip()
+    if not text:
+        return {"ok": None, "candidates": [], "note": "约束文本为空"}
+    if cg is None:
+        return {"ok": None, "candidates": [],
+                "note": "未接入记忆库（cg=None），无法回取"}
+    try:
+        res = cg.search(text, k=k)
+    except Exception as exc:                       # noqa: BLE001
+        return {"ok": None, "candidates": [],
+                "note": "检索异常：%s" % str(exc)[:80]}
+    hits = res[0] if isinstance(res, tuple) else res
+    out = []
+    for el in (hits or []):
+        node = el[0] if isinstance(el, tuple) else el
+        if isinstance(node, dict):
+            nid = node.get("id")
+            content = (node.get("content") or "")[:120].replace(chr(10), " ")
+            if nid:
+                out.append({"id": nid, "snippet": content})
+    if out:
+        return {"ok": True, "candidates": out,
+                "note": "检索到 %d 条候选，需判断是否即为出处" % len(out)}
+    return {"ok": False, "candidates": [],
+            "note": "本次未检索到（不等于库里没有，见 I6）"}
 
 
 def main(argv=None):

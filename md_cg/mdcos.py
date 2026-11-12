@@ -1196,6 +1196,14 @@ class MdCGOS(MdCG):
             self._audit("add", nid, layer=layer, role=role,
                         payload_hash=_sig(content), sens=kw.get("sensitivity"),
                         session=kw.get("session"))
+            # 【自述轮次登记】写时判一次（与查询无关），供 recall 读时注入；
+            # 登记只是加速索引，失败不得影响写入成败（故整段吞异常）。
+            try:
+                from . import selfstmt as _ss
+                if _ss.matches(content):
+                    _ss.record(getattr(self, "root", ""), nid)
+            except Exception:
+                pass
             return nid
 
 # 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_retired(e) 为真（archived ∪ superseded，#562）的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
@@ -2896,6 +2904,9 @@ class MdCGOS(MdCG):
                 # 【外测 2026-11-12】34/39 个值「原轮次没进 pack」；而资料卡每条事实带「来源 <id>」
                 # ⇒ 把**被注入卡的源轮次**一并拉进候选：卡给属性、源轮次给原句。
                 _extra += self._profile_source_nodes(_extra, limit=4)
+                # 【外测 2026-11-12 实验】自述轮次通例召回：值覆盖 12.8%→35.9%、题级全命中 1/19→6/19。
+                # 零模型、与题目无关；读时只 load 小索引（写时登记），不扫全库。
+                _extra += self._selfstmt_nodes(limit=6)
                 if _extra:
                     _seen = {r[0].get("id") for r in results if r and r[0]}
                     for _n, _sc, _q, _p in _extra:
@@ -3206,6 +3217,30 @@ class MdCGOS(MdCG):
     #: 注入分类型配额（外测实证：event 卡一天一张、天数多、分高，会把 role/person 卡挤光，
     #: 而 event 卡对「姓名/年龄/职业」这类属性题没有帮助）。
     _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
+
+    # 生效条件：无参；返回自述轮次节点（写时登记的小索引，limit 控制注入量）
+    def _selfstmt_nodes(self, limit=6):
+        """自述轮次注入：零模型、与题目无关（外测实证 12.8%→35.9% 的那条规则）。
+
+        写时登记、读时 load 小索引 —— 不做每查询全库扫（2k 节点 ≈ 2s 不可接受）。
+        只注入**已存在**的节点；去重；受 limit 约束防淹没。
+        """
+        try:
+            from . import selfstmt as _ss
+            ids = _ss.load(getattr(self, "root", ""))
+        except Exception:
+            return []
+        out, seen = [], set()
+        for nid in reversed(ids):            # 新的优先
+            if len(out) >= limit:
+                break
+            if nid in seen:
+                continue
+            seen.add(nid)
+            node = self.get(nid)
+            if node:
+                out.append((node, 0.85, {"path": "self_stmt"}, "self_stmt"))
+        return out
 
     # 生效条件：cards 为已注入的资料卡候选；返回其事实行里「来源 <id>」指向的源节点
     def _profile_source_nodes(self, cards, limit=4):
@@ -7369,6 +7404,14 @@ class MdCGSecure(MdCGOS):
             nid = super().add(node_id, content, layer=layer, sensitivity=sens,
                               declared_sensitivity=sensitivity, **kw)
             self._index_sensitivity(nid, sens)
+            # 【自述轮次登记】写时判一次（与查询无关），供 recall 读时注入。
+            # 失败一律吞掉：登记只是加速索引，不能影响写入成败。
+            try:
+                from . import selfstmt as _ss
+                if _ss.matches(content):
+                    _ss.record(self.root, nid)
+            except Exception:
+                pass
             return nid
 
 # 生效条件：sens 经 _write_sensitivity（id 走基类单点 _rejected_nid）解析——#439：未声明且有既有节点 ⇒ 继承其密级、显式声明原样优先、既有密级判不了则 fail-closed 抛 AccessDenied；先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。

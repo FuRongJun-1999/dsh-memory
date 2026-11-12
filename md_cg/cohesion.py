@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""拼装接缝检测（cohesion）——判断一段上下文是「可闭合」还是「散段拼装」。
+"""上下文质量读数（cohesion）——接缝 + 信噪比两个读数。
+
+本模块提供上下文失效三种形态中的两种的读数：
+    * **断裂** → seam_ratio（接缝/块内）
+    * **稀释** → signal_ratio（目标词占全部实词的比例）
+第三种（丢弃）由 constraint_watch 覆盖。三者合起来对应框架 v5 第二节。
+
+——以下为原始说明（接缝部分）——
+
+判断一段上下文是「可闭合」还是「散段拼装」。
 
 为什么需要（2026-10-24 实测，见 docs/dsh设计/上下文管理研究_第十六轮）：
     检索结果的全局词汇重叠 ratio 会骗人（中位 2.61，比连续文本还高）——
@@ -42,6 +51,8 @@ import re
 __all__ = [
     "split_sentences", "inner_adjacency", "cross_boundary",
     "seam_ratio", "check", "DEFAULT_THRESHOLD",
+    "signal_ratio", "SIGNAL_LOW", "SIGNAL_OK",
+    "logic_flow", "LOGIC_LOW", "LOGIC_OK", "CONNECTORS",
 ]
 
 #: 接缝比阈值：低于此值判为「拼装断裂」。初设 0.5（4 样本，待更多验证）。
@@ -77,6 +88,15 @@ def _tokens(sentence):
     bigrams = {"".join(zh[i:i + 2]) for i in range(len(zh) - 1)}
     words = {w.lower() for w in re.findall(r"[A-Za-z_]{2,}", s)}
     return bigrams | words
+
+
+def _token_list(text):
+    """实词**列表**（不去重，保留词次）。用于稀释度量。"""
+    s = str(text or "")
+    zh = re.findall(r"[\u4e00-\u9fa5]", s)
+    bigrams = ["".join(zh[i:i + 2]) for i in range(len(zh) - 1)]
+    words = [w.lower() for w in re.findall(r"[A-Za-z_]{2,}", s)]
+    return bigrams + words
 
 
 def _overlap(a, b):
@@ -165,6 +185,128 @@ def check(segments, threshold=DEFAULT_THRESHOLD):
                            "不低于" if detail["ok"] else "**低于**",
                            threshold))
     return detail
+
+
+#: 信噪比参考线（2026-10-24 第三十四轮实测）：
+#: 233 字上下文目标占 16.5%，1 万字上下文仅 0.45%。
+#: 低于 1% 视为「严重稀释」——目标事实被淹没。
+SIGNAL_LOW = 0.01
+SIGNAL_OK = 0.05
+
+
+def signal_ratio(target_text, context_text):
+    """信噪比：目标文本的实词占上下文全部实词的比例。
+
+    这是「稀释」这一种损失的读数（框架 v5 第二节）。
+    回答的不是「目标在不在」，而是「**目标有多显眼**」——
+    在不在由 constraint_watch 判，显不显眼由本函数判。
+
+    返回 dict：
+        ok       True=占比不低于 SIGNAL_OK；
+                 False=低于 SIGNAL_LOW（严重稀释）；
+                 None=**介于两者之间**（说不清，不给默认通过）
+        ratio    目标词占全部实词的比例
+        verdict  'clear' / 'thin' / 'drowned' / 'unknown'
+    """
+    # 按**词次**而非词种：稀释的本质是「占用空间」，
+    # 若用 set 去重，重复内容不占空间，稀释就测不出来
+    # （2026-10-24 守卫抓到：'无关内容。'×400 用去重法得 70.8% clear，实为严重稀释）。
+    tgt_list = _token_list(target_text)
+    if not tgt_list:
+        return {"ok": None, "ratio": None, "verdict": "unknown",
+                "reason": "目标文本没有实词"}
+    ctx_list = _token_list(context_text)
+    if not ctx_list:
+        return {"ok": None, "ratio": None, "verdict": "unknown",
+                "reason": "上下文为空"}
+    tgt_set = set(tgt_list)
+    hit = sum(1 for w in ctx_list if w in tgt_set)
+    ratio = hit / float(len(ctx_list))
+    tgt = tgt_set
+    ctx = ctx_list
+    if ratio >= SIGNAL_OK:
+        ok, verdict = True, "clear"
+    elif ratio < SIGNAL_LOW:
+        ok, verdict = False, "drowned"
+    else:
+        ok, verdict = None, "thin"
+    return {"ok": ok, "ratio": round(ratio, 4), "verdict": verdict,
+            "target_words": len(tgt), "hit_words": hit,
+            "context_words": len(ctx),
+            "note": "占比 %.2f%%（%d/%d 实词）" % (ratio * 100, hit, len(ctx))}
+
+
+#: 逻辑连接词（2026-10-24 第四十三轮发现「词汇接缝测不出逻辑过渡」后补）：
+#: 好的过渡往往**刻意用不同词汇**，靠逻辑连接而非重复上节的词。
+#: 故词汇接缝低可能是好现象——需要一个独立的逻辑度量来区分
+#: 「逻辑连贯但用词不同」与「真的跳跃」。
+CONNECTORS = (
+    "因为", "所以", "因此", "因而", "于是", "故", "这就",
+    "但是", "然而", "不过", "可是", "但",
+    "而且", "并且", "此外", "同时", "更重要的是",
+    "总之", "综上", "可见", "这说明", "也就是说", "换言之",
+    "例如", "比如", "譬如", "具体说",
+    "换言之", "换句话说", "归根结底", "说到底",
+    "第一", "第二", "第三", "首先", "其次", "最后",
+)
+#: 参考线：句首连接词占比。低于 LOW 视为「缺显式逻辑标记」。
+LOGIC_LOW = 0.15
+LOGIC_OK = 0.30
+
+
+def logic_flow(segments):
+    """连接词密度——**注意：这测的是文风，不是连贯**（2026-10-24 实测证伪）。
+
+    初衷：第四十三轮发现「词汇接缝测不出逻辑过渡」，想加一个逻辑度量来区分
+    「逻辑连贯但用词不同」与「真的跳跃」。
+
+    **实测失败**：同一文本打乱句序后，连接词句数**不变**（纲要 5 → 5）。
+    因为本指标是与**顺序无关**的统计量——它数的是「文本里有多少句以连接词开头」，
+    而不是「连接词是否真的连接了上下文」。
+
+    所以：
+        * 它能告诉你「这份文本用不用显式连接词」（文风）；
+        * **不能**告诉你「逻辑是否连贯」——后者依赖语义，与词形无关，
+          和第十八轮「词频与嵌入看不见结构」同型。
+
+    **不要把它的 ok/verdict 当作连贯性判据。** 保留它只因为文风本身有参考价值。
+
+    ——以下关于 signal_ratio 的补充（2026-10-24 第五十八轮）——
+
+    **ratio 已归一化，不要再用它除以字符数做「每千字信噪比」**：
+    那等于除了两次规模，会放大短文本（实测：去冗余后 per1k +211%，
+    而 ratio 只 +4%——升幅几乎全是规模效应的假象）。
+    比较不同规模的方案时，**用 ratio 本身**；规模效应另议。
+
+    返回 dict：
+        ok        True=不低于 LOGIC_OK；False=低于 LOGIC_LOW；None=之间
+        rate      句首连接词占比
+        verdict   'marked' / 'sparse' / 'bare' / 'unknown'
+    """
+    all_sents = []
+    for seg in (segments or []):
+        all_sents.extend(split_sentences(seg))
+    if not all_sents:
+        return {"ok": None, "rate": None, "verdict": "unknown",
+                "reason": "没有可分析的句子"}
+    marked = 0
+    for s in all_sents:
+        # 先剥掉 Markdown 标记（**、#、>、-、*）与序号——
+        # 否则「**但这里…**」的 startswith("但") 永远失败
+        # （2026-10-24 实测：不剥标记时纲要报 0%，与打乱文本无法区分）。
+        head = s.lstrip("\u3000 \t*#>-·•0123456789.、)）]】")
+        if any(head.startswith(c) for c in CONNECTORS):
+            marked += 1
+    rate = marked / float(len(all_sents))
+    if rate >= LOGIC_OK:
+        ok, verdict = True, "marked"
+    elif rate < LOGIC_LOW:
+        ok, verdict = False, "bare"
+    else:
+        ok, verdict = None, "sparse"
+    return {"ok": ok, "rate": round(rate, 4), "verdict": verdict,
+            "sentences": len(all_sents), "marked": marked,
+            "note": "句首连接词 %d/%d = %.1f%%" % (marked, len(all_sents), rate * 100)}
 
 
 def main(argv=None):

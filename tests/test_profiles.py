@@ -232,6 +232,22 @@ def main2():
     ok((_out5.get("meta") or {}).get("profile_injected", 0) >= 1,
        "T2 meta 透出 profile_injected 计数（可审计）")
 
+    # ---- V：自述轮次召回（零模型、与题目无关）----
+    from md_cg import selfstmt as _ss2
+    _root6 = tempfile.mkdtemp(prefix="ss_")
+    _cg6 = MdCGOS(_root6, actor="test")
+    _cg6.add("a1", "我叫沈知夏，知了的知，夏天的夏，24", tags=["domain:d"], consistency=False)
+    _cg6.add("a2", "我大学读的是土木工程", tags=["domain:d"], consistency=False)
+    for _i in range(20):
+        _cg6.add("z%d" % _i, "今天天气不错第%d次" % _i, tags=["domain:d"], consistency=False)
+    ok(set(_ss2.load(_root6)) == {"a1", "a2"},
+       "V1 写时登记自述轮次（非自述不入表）", _ss2.load(_root6))
+    bi.build(_cg6, write=True, with_content=True)
+    _o6 = _cg6.recall("帮我看看这个", budget_tokens=600, k=10)
+    _i6 = [x.get("id") for x in (_o6.get("pack") or [])]
+    ok(any(x in _i6 for x in ("a1", "a2")),
+       "V2 词法打不中时自述轮次仍被注入", _i6)
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

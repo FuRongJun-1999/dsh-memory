@@ -77,6 +77,25 @@ def main():
     c_lo = cw.coverage("不得覆盖旧文件", EMPTY)
     check("在场覆盖高于缺失", c_hi > c_lo, (c_hi, c_lo))
 
+    # ⑦ 回取三态（2026-10-24 第三十三轮补）
+    r = cw.retrieve_for("不得覆盖旧文件", None)
+    check("回取未接入 ok=None", r["ok"] is None, r)
+    r = cw.retrieve_for("", None)
+    check("回取空文本 ok=None", r["ok"] is None, r)
+
+    class FakeCG:
+        def __init__(self, hits):
+            self._hits = hits
+        def search(self, q, k=3):
+            return (self._hits, {})
+    r = cw.retrieve_for("不得覆盖旧文件", FakeCG([]))
+    check("回取无候选 ok=False", r["ok"] is False, r)
+    check("无候选提示含 I6", "不等于" in r["note"], r["note"])
+    r = cw.retrieve_for("不得覆盖旧文件",
+                        FakeCG([{"id": "n1", "content": "候选内容"}]))
+    check("回取有候选 ok=True", r["ok"] is True, r)
+    check("有候选仍需人判断", "需判断" in r["note"], r["note"])
+
     print("")
     if FAILS:
         print("失败 %d 项：%s" % (len(FAILS), FAILS))
