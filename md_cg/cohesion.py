@@ -52,6 +52,7 @@ __all__ = [
     "split_sentences", "inner_adjacency", "cross_boundary",
     "seam_ratio", "check", "DEFAULT_THRESHOLD",
     "signal_ratio", "SIGNAL_LOW", "SIGNAL_OK",
+    "logic_flow", "LOGIC_LOW", "LOGIC_OK", "CONNECTORS",
 ]
 
 #: 接缝比阈值：低于此值判为「拼装断裂」。初设 0.5（4 样本，待更多验证）。
@@ -233,6 +234,72 @@ def signal_ratio(target_text, context_text):
             "target_words": len(tgt), "hit_words": hit,
             "context_words": len(ctx),
             "note": "占比 %.2f%%（%d/%d 实词）" % (ratio * 100, hit, len(ctx))}
+
+
+#: 逻辑连接词（2026-10-24 第四十三轮发现「词汇接缝测不出逻辑过渡」后补）：
+#: 好的过渡往往**刻意用不同词汇**，靠逻辑连接而非重复上节的词。
+#: 故词汇接缝低可能是好现象——需要一个独立的逻辑度量来区分
+#: 「逻辑连贯但用词不同」与「真的跳跃」。
+CONNECTORS = (
+    "因为", "所以", "因此", "因而", "于是", "故", "这就",
+    "但是", "然而", "不过", "可是", "但",
+    "而且", "并且", "此外", "同时", "更重要的是",
+    "总之", "综上", "可见", "这说明", "也就是说", "换言之",
+    "例如", "比如", "譬如", "具体说",
+    "换言之", "换句话说", "归根结底", "说到底",
+    "第一", "第二", "第三", "首先", "其次", "最后",
+)
+#: 参考线：句首连接词占比。低于 LOW 视为「缺显式逻辑标记」。
+LOGIC_LOW = 0.15
+LOGIC_OK = 0.30
+
+
+def logic_flow(segments):
+    """连接词密度——**注意：这测的是文风，不是连贯**（2026-10-24 实测证伪）。
+
+    初衷：第四十三轮发现「词汇接缝测不出逻辑过渡」，想加一个逻辑度量来区分
+    「逻辑连贯但用词不同」与「真的跳跃」。
+
+    **实测失败**：同一文本打乱句序后，连接词句数**不变**（纲要 5 → 5）。
+    因为本指标是与**顺序无关**的统计量——它数的是「文本里有多少句以连接词开头」，
+    而不是「连接词是否真的连接了上下文」。
+
+    所以：
+        * 它能告诉你「这份文本用不用显式连接词」（文风）；
+        * **不能**告诉你「逻辑是否连贯」——后者依赖语义，与词形无关，
+          和第十八轮「词频与嵌入看不见结构」同型。
+
+    **不要把它的 ok/verdict 当作连贯性判据。** 保留它只因为文风本身有参考价值。
+
+    返回 dict：
+        ok        True=不低于 LOGIC_OK；False=低于 LOGIC_LOW；None=之间
+        rate      句首连接词占比
+        verdict   'marked' / 'sparse' / 'bare' / 'unknown'
+    """
+    all_sents = []
+    for seg in (segments or []):
+        all_sents.extend(split_sentences(seg))
+    if not all_sents:
+        return {"ok": None, "rate": None, "verdict": "unknown",
+                "reason": "没有可分析的句子"}
+    marked = 0
+    for s in all_sents:
+        # 先剥掉 Markdown 标记（**、#、>、-、*）与序号——
+        # 否则「**但这里…**」的 startswith("但") 永远失败
+        # （2026-10-24 实测：不剥标记时纲要报 0%，与打乱文本无法区分）。
+        head = s.lstrip("\u3000 \t*#>-·•0123456789.、)）]】")
+        if any(head.startswith(c) for c in CONNECTORS):
+            marked += 1
+    rate = marked / float(len(all_sents))
+    if rate >= LOGIC_OK:
+        ok, verdict = True, "marked"
+    elif rate < LOGIC_LOW:
+        ok, verdict = False, "bare"
+    else:
+        ok, verdict = None, "sparse"
+    return {"ok": ok, "rate": round(rate, 4), "verdict": verdict,
+            "sentences": len(all_sents), "marked": marked,
+            "note": "句首连接词 %d/%d = %.1f%%" % (marked, len(all_sents), rate * 100)}
 
 
 def main(argv=None):
