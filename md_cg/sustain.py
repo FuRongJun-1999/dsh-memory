@@ -1878,7 +1878,7 @@ class SustainLoop:
             rep = scrub.sweep(self.cg, dry_run=not self.auto_scrub, seed=seed)
         except Exception as _e:
             try:
-                scrub._log(self.cg, "sweep", ok=False,
+                scrub.record_event(self.cg, "sweep", ok=False,
                              error=_tick_error_summary(_e),
                              phase="sweep", round=self.scrub_round,
                              seed=seed, dry_run=not self.auto_scrub)
