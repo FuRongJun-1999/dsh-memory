@@ -213,6 +213,25 @@ def main2():
     ok("江北那家咖啡店做过一年学徒" not in _b4.split("【经历】")[1].split("【")[0],
        "S3 _raw 证据键不进渲染值")
 
+    # ---- T：资料卡的源轮次注入（卡给属性、源轮次给原句）----
+    import os as _os5
+    _os5.environ["MDCG_ROLE_USER"] = "祁野"
+    _root5 = tempfile.mkdtemp(prefix="src_")
+    _cg5 = MdCGOS(_root5, actor="test")
+    _cg5.add("n2", "曾在江北那家咖啡店做过一年学徒，后来转到半坡调酒",
+             role="user", tags=["domain:d"], consistency=False)
+    _cg5.add("n1", "我叫祁野，25", role="user", tags=["domain:d"], consistency=False)
+    for _i in range(20):
+        _cg5.add("m%d" % _i, "今天店里做了第%d批贝果" % _i,
+                  role="user", tags=["domain:d"], consistency=False)
+    profiles.build(_cg5, dry_run=False)
+    bi.build(_cg5, write=True, with_content=True)
+    _out5 = _cg5.recall("我之前在哪儿做过学徒", budget_tokens=4000, k=20)
+    _ids5 = [x.get("id") for x in (_out5.get("pack") or [])]
+    ok("n2" in _ids5, "T1 资料卡事实行的源轮次被注入候选（原句进 pack）", _ids5[:6])
+    ok((_out5.get("meta") or {}).get("profile_injected", 0) >= 1,
+       "T2 meta 透出 profile_injected 计数（可审计）")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
