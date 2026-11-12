@@ -73,6 +73,31 @@ def main():
     r = ca.audit("分析影响", blocks=[A, B], checklist=LIST, target_text=TGT)
     check("必带 note", bool(r["note"]) and "只报不做" in r["note"], r["note"][:40])
 
+    # ⑦ 可选回取（2026-10-24 第四十一轮补）
+    class FakeCG:
+        def search(self, q, k=2):
+            return ([{"id": "cand_1", "content": "候选出处内容"}], {})
+    bad = LIST + "C9 不得把火星数据写入木星表\n"
+    r_no = ca.audit("导出数据，但不能覆盖旧文件", blocks=[A, B], checklist=bad, target_text=TGT)
+    check("不传 cg 时无 sources",
+          all("sources" not in m for m in r_no["losses"]["dropped"].get("missing", [])),
+          r_no["losses"]["dropped"].get("missing"))
+    r_yes = ca.audit("导出数据，但不能覆盖旧文件", blocks=[A, B], checklist=bad,
+                     target_text=TGT, cg=FakeCG())
+    missing = r_yes["losses"]["dropped"].get("missing", [])
+    check("传 cg 时补 sources",
+          any(m.get("sources") for m in missing), missing)
+    check("actions 含候选出处",
+          any("候选出处" in a for a in r_yes["actions"]), r_yes["actions"][:2])
+    check("note 声明只查不改", "只查不改" in r_yes["note"], r_yes["note"][:60])
+    # 限量：max_lookup 生效
+    many = LIST + "".join("C%d 不得写入木星表%d\n" % (i, i) for i in range(100, 110))
+    r_lim = ca.audit("导出数据，但不能覆盖旧文件", blocks=[A, B], checklist=many,
+                     target_text=TGT, cg=FakeCG(), max_lookup=2)
+    withsrc = sum(1 for m in r_lim["losses"]["dropped"].get("missing", [])
+                  if m.get("sources"))
+    check("max_lookup 限量生效", withsrc <= 2, withsrc)
+
     print("")
     if FAILS:
         print("失败 %d 项：%s" % (len(FAILS), FAILS))

@@ -89,7 +89,7 @@ def _verdict_of(required, results):
     return "PASS", failure, unknown
 
 
-def audit(task_text, blocks=None, checklist=None, target_text=None):
+def audit(task_text, blocks=None, checklist=None, target_text=None, cg=None, max_lookup=3):
     """跑完三种损失检查并给出一个判定。
 
     参数：
@@ -97,6 +97,10 @@ def audit(task_text, blocks=None, checklist=None, target_text=None):
         blocks      上下文块列表（用于接缝检查）
         checklist   约束清单文本（用于丢弃检查）
         target_text 目标事实文本（用于稀释检查）；应包含在 blocks 拼起来的文本里
+        cg          认知图实例（可选）。**传了才对缺失约束自动回取候选出处**；
+                    不传则只报缺失——本模块仍「只报不做」，回取只是**查**，
+                    不改任何上下文，故不越过「不做」的边界
+        max_lookup  最多为几条缺失约束做回取，防止一次审计打爆检索（默认 3）
 
     返回 dict：
         verdict   PASS / FAIL / UNKNOWN
@@ -140,7 +144,22 @@ def audit(task_text, blocks=None, checklist=None, target_text=None):
     actions = []
     dropped = losses["dropped"]
     if dropped.get("ok") is False:
-        for m in dropped.get("missing", []):
+        missing = dropped.get("missing", [])
+        # 可选回取：只在传了 cg 时做，且限量。回取只**查**不改，故不越过「只报不做」。
+        for idx, m in enumerate(missing):
+            if cg is not None and idx < max_lookup:
+                got = cw.retrieve_for(m.get("text", ""), cg, k=2)
+                m["sources"] = got.get("candidates", [])
+                if m["sources"]:
+                    actions.append("丢弃·%s %s → %s；候选出处 %s"
+                                   % (m.get("id", ""), m.get("text", ""),
+                                      m.get("advice", "回取"),
+                                      ", ".join(s["id"] for s in m["sources"])))
+                    continue
+                actions.append("丢弃·%s %s → %s（未检索到候选，不等于库里没有）"
+                               % (m.get("id", ""), m.get("text", ""),
+                                  m.get("advice", "回取")))
+                continue
             actions.append("丢弃·%s %s → %s" % (m.get("id", ""), m.get("text", ""),
                                               m.get("advice", "回取")))
     if losses["diluted"].get("ok") is False:
@@ -168,8 +187,10 @@ def audit(task_text, blocks=None, checklist=None, target_text=None):
         "failed": failure,
         "unknown": unknown,
         "actions": actions,
-        "note": "本模块只报不做：actions 是建议，执行（回取/降级）由调用方负责。"
-                "UNKNOWN 不等于失败，也不等于通过。",
+        "note": ("本模块只报不做：actions 是建议，执行（写回/降级）由调用方负责。"
+                 + ("（本次已为缺失约束检索候选出处，但**只查不改**）"
+                    if cg is not None else "")
+                 + "UNKNOWN 不等于失败，也不等于通过。"),
     }
 
 
