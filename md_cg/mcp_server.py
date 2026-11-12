@@ -3716,6 +3716,19 @@ def _session_call(cg, a):
             importance=float(0.6 if imp is None else imp),
             sensitivity=a.get("sensitivity"), conditions=a.get("conditions"),
             basis=a.get("basis") or "data")
+    # issue #694（使用者裁定）：默认公开，**逐会话自选私有**。
+    # 只切「后续写入的默认密级」——不动已写节点（改历史是危险动作，另给迁移 op 的位置）。
+    if act in ("private", "public", "visibility"):
+        from .sustain import SessionLedger as _SL
+        _sess = a.get("session") or getattr(cg, "session", None)
+        _led = _SL(cg.root)
+        if act == "visibility":
+            return {"session": _sess, "private": _led.is_private(_sess),
+                    "mode": "private" if _led.is_private(_sess) else "public"}
+        if principal is not None and not getattr(principal, "can_write", False):
+            principal.require_admin("session_visibility")   # 改档属写面
+        return _led.set_private(_sess, act == "private")
+
     if act == "recall":
         return cg.session_recall(
             session=a.get("session"), limit=int(a.get("limit") or 5),
