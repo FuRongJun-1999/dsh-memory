@@ -118,6 +118,19 @@ def main():
                                       "_raw": "江北那家咖啡店做过一年学徒"}]}, _T4)
     ok(len((_a7.get("经历") or {}).get("value") or []) == 1, "R4 序列项 _raw 锚定通过", _a7)
 
+    # ---- U：槽位长度闸 + 序列项扁平化 ----
+    _T5 = "她61了，从社区超市理货员退下来，现在当广场舞领队。我大学读的是土木工程，后来做了结构设计。"
+    _a8, _r8 = distill.verify({"母": "61了，从社区超市理货员退下来，现在当广场舞领队"}, _T5)
+    ok(not _a8 and _r8 and _r8[0]["reason"] == "too_long",
+       "U1 母填整句 ⇒ 拒收 too_long（要求拆成短值/序列）", _r8)
+    _a9, _r9 = distill.verify({"母": "社区超市理货员"}, _T5)
+    ok("母" in _a9, "U2 母填短值 ⇒ 通过", _a9)
+    _a10, _r10 = distill.verify({"经历": [{"单位": "社区超市", "职位": {"value": "理货员",
+                                                    "_raw": "社区超市理货员"}}]}, _T5)
+    _items = ((_a10.get("经历") or {}).get("value") or [])
+    ok(bool(_items) and _items[0].get("职位") == "理货员",
+       "U3 序列项嵌套值被扁平化（{\"value\":..} ⇒ 值本身）", _items[:1])
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
