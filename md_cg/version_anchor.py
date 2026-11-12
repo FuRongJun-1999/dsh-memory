@@ -144,9 +144,13 @@ def check_staleness(text, current):
     **「本投影」版本不参与比较**——它是本文档自己的版本，无所谓过期。
     """
     rep = parse_anchor(text)
+    # legacy 材料：已显式标注为历史（I18 的 legacy_no_anchor）。
+    # 它「没有三元锚」是**明示的选择**，不是遗漏——故与「忘了标」区分开。
+    legacy = LEGACY_MARK in str(text or "")
     if not rep.get("found"):
-        return {"ok": None, "stale": [], "anchor": {},
-                "reason": "没有版本锚，无从判断是否过期"}
+        return {"ok": None, "stale": [], "anchor": {}, "legacy": legacy,
+                "reason": ("已标 legacy（历史材料），不参与陈化检查" if legacy
+                           else "没有版本锚，无从判断是否过期")}
     stale = []
     notes = []
 
