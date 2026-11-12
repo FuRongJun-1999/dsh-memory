@@ -34,7 +34,8 @@
 import re
 
 __all__ = [
-    "parse_constraints", "coverage", "check", "COVER_THRESHOLD", "CONSTRAINT_RE",
+    "parse_constraints", "coverage", "check", "retrieve_for",
+    "COVER_THRESHOLD", "CONSTRAINT_RE",
 ]
 
 #: 实词覆盖阈值：低于此值判为「约束已不在场」。与第二十一轮同法。
@@ -118,6 +119,42 @@ def check(constraints, current_text, threshold=COVER_THRESHOLD):
             "threshold": threshold,
             "counts": {"total": len(items), "present": len(present),
                        "missing": len(missing)}}
+
+
+def retrieve_for(constraint_text, cg, k=3):
+    """为一条缺失的约束回取候选原文（框架 v4 第⑤步「三选一」中的「回取」）。
+
+    为什么需要：本模块此前只做到「报缺失」，没做到「回取」。
+    本函数补上这一环：拿约束文本去记忆库检索，返回候选出处。
+
+    **找不到不等于不存在**（智能论 I6）：ok=False 只表示「这次没检索到」，
+    不等于「库里没有」，调用方不得据此断言「无出处」。
+    """
+    text = str(constraint_text or "").strip()
+    if not text:
+        return {"ok": None, "candidates": [], "note": "约束文本为空"}
+    if cg is None:
+        return {"ok": None, "candidates": [],
+                "note": "未接入记忆库（cg=None），无法回取"}
+    try:
+        res = cg.search(text, k=k)
+    except Exception as exc:                       # noqa: BLE001
+        return {"ok": None, "candidates": [],
+                "note": "检索异常：%s" % str(exc)[:80]}
+    hits = res[0] if isinstance(res, tuple) else res
+    out = []
+    for el in (hits or []):
+        node = el[0] if isinstance(el, tuple) else el
+        if isinstance(node, dict):
+            nid = node.get("id")
+            content = (node.get("content") or "")[:120].replace(chr(10), " ")
+            if nid:
+                out.append({"id": nid, "snippet": content})
+    if out:
+        return {"ok": True, "candidates": out,
+                "note": "检索到 %d 条候选，需判断是否即为出处" % len(out)}
+    return {"ok": False, "candidates": [],
+            "note": "本次未检索到（不等于库里没有，见 I6）"}
 
 
 def main(argv=None):
