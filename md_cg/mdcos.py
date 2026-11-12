@@ -2893,6 +2893,9 @@ class MdCGOS(MdCG):
             # 故按**实体标签直取**资料卡并入候选：确定性、与词法切词无关，卡不再依赖 lexical 命中。
             try:
                 _extra = self._profile_candidates(query)
+                # 【外测 2026-11-12】34/39 个值「原轮次没进 pack」；而资料卡每条事实带「来源 <id>」
+                # ⇒ 把**被注入卡的源轮次**一并拉进候选：卡给属性、源轮次给原句。
+                _extra += self._profile_source_nodes(_extra, limit=4)
                 if _extra:
                     _seen = {r[0].get("id") for r in results if r and r[0]}
                     for _n, _sc, _q, _p in _extra:
@@ -3203,6 +3206,28 @@ class MdCGOS(MdCG):
     #: 注入分类型配额（外测实证：event 卡一天一张、天数多、分高，会把 role/person 卡挤光，
     #: 而 event 卡对「姓名/年龄/职业」这类属性题没有帮助）。
     _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
+
+    # 生效条件：cards 为已注入的资料卡候选；返回其事实行里「来源 <id>」指向的源节点
+    def _profile_source_nodes(self, cards, limit=4):
+        """资料卡的**源轮次**注入：卡给属性、源轮次给原句（外测：34/39 值缺的是原句轮次）。
+
+        卡正文事实行形如 `- 2026-05-12 | 文本（来源 n1）`；抽出 n1 即源节点 id。
+        只注入已存在的节点；去重；受 limit 约束（防淹没）。
+        """
+        if not cards:
+            return []
+        import re as _re
+        out, seen = [], set()
+        for node, *_rest in cards:
+            body = (node or {}).get("content") or ""
+            for nid in _re.findall(r"（来源\s*([^）\s]+)\s*）", body):
+                if nid in seen or len(out) >= limit:
+                    continue
+                seen.add(nid)
+                src = self.get(nid)
+                if src:
+                    out.append((src, 0.9, {"path": "profile_source"}, "profile_source"))
+        return out
 
     # 生效条件：query 非空；返回按实体标签命中的资料卡候选 [(node, score, qual, prov)]
     def _profile_candidates(self, query, limit=6):
