@@ -248,6 +248,18 @@ def main2():
     ok(any(x in _i6 for x in ("a1", "a2")),
        "V2 词法打不中时自述轮次仍被注入", _i6)
 
+    # ---- W：selfstmt API 容错 + maintain 补登入口 ----
+    _root7 = tempfile.mkdtemp(prefix="ss2_")
+    _cg7 = MdCGOS(_root7, actor="test")
+    _cg7.add("s1", "我叫沈知夏，24", tags=["domain:d"], consistency=False)
+    ok(_ss2.load(_cg7) == _ss2.load(_root7) == ["s1"],
+       "W1 load() 传 cg 或 root 等价（API 容错）", _ss2.load(_cg7))
+    import os as _os7
+    _os7.remove(_os7.path.join(_root7, "_selfstmt.json"))
+    _o7 = _cg7.maintain(action="selfstmt", apply=True)
+    ok(_o7.get("recorded") == 1 and _ss2.load(_cg7) == ["s1"],
+       "W2 maintain action=selfstmt 可补登存量库", _o7)
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

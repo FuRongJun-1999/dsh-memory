@@ -5450,6 +5450,16 @@ class MdCGOS(MdCG):
             _st = _prof.build(self, dry_run=_dry_p, limit=limit)
             _st.update({"ok": True, "op": "maintain", "action": "profiles"})
             return _st
+        if act == "selfstmt":
+            # 【自述轮次登记，2026-11-12 外测实证】存量库补登入口。
+            # 写时钩子已在 add() 里自动登记；此处用于「已有图、未重写节点」的库。
+            # dry_run 口径同 maintain 其余动作：apply=True 才落盘。
+            from . import selfstmt as _ss
+            _dry_s = (not apply) if dry_run is None else (bool(dry_run) or not apply)
+            _st = _ss.rebuild(self, dry_run=_dry_s, limit=limit or 100000)
+            _st.update({"ok": True, "op": "maintain", "action": "selfstmt",
+                        "ids_sample": _ss.load(self)[:5]})
+            return _st
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
