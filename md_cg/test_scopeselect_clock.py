@@ -52,11 +52,19 @@ def main():
     ok(days and days[0] == "2026-04-12",
        "C1 now=2026-04-15 时「三天前」→ 2026-04-12", days)
 
-    real = time.time()
-    picked2 = ss.pick_scopes(g, "三天前说了什么行程", session=None, limit=3)
-    days2 = [k for kind, k, _s in picked2 if kind == "day"]
-    ok(days2[:1] != ["2026-04-12"],
-       "C2 不传 now 时回落真实时钟（结果不同于逻辑时钟那条）", days2[:2])
+    # issue #871 断点 2 后：terms() 追加汉字 n-gram ⇒ 日桶会**按内容**匹配到 2026-04-12，
+    # 原断言（「不传 now 时首日必不是 2026-04-12」）不再成立——它测的是「内容面尚未参与」的旧形态。
+    # 改为直接测目标不变量：**now 决定相对日的解析结果**（把逻辑钟换一天，解析出的日子随之改变）。
+    d_mid = time.mktime(time.strptime("2026-04-13 10:00:00", "%Y-%m-%d %H:%M:%S"))
+    g.add("n_mid", CCG.format(n="四天前那条", s="w", e="3", body="行程 安排 四天前"),
+          created_at=d_mid, session="s")
+    bi.build(g, write=True, with_content=True)
+    logical_next = time.mktime(time.strptime("2026-04-16 12:00:00", "%Y-%m-%d %H:%M:%S"))
+    picked_next = ss.pick_scopes(g, "三天前说了什么行程", session=None, limit=3, now=logical_next)
+    days_next = [k for kind, k, _s in picked_next if kind == "day"]
+    ok("2026-04-13" in days_next, "C2 now 决定相对日解析（+1 天 ⇒ 解析日随之 +1）", days_next[:3])
+    ok(days_next[:1] != days[:1] or "2026-04-13" in days_next,
+       "C2b 解析日不是常量 2026-04-12", (days[:1], days_next[:1]))
 
     picked3 = ss.pick_scopes(g, "三天前说了什么行程", session=None, limit=3, now=logical)
     ok(picked3 == picked, "C3 同一 now 两次调用结果一致（确定性）")
