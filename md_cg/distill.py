@@ -109,6 +109,30 @@ def _part_in_source(k, v, text):
     return False
 
 
+#: 槽位值的长度上限（超限即拒收，reason=too_long）。
+#: 依据（外测 2026-11-12）：LLM 会把「母」填成整句
+#:   "61了，从社区超市理货员退下来，现在当广场舞领队" —— 那不是槽位值。
+#: 语义上这些槽位是**短值**；长内容应当拆成 家庭/经历 序列项。
+MAX_LEN = {"姓名": 4, "年龄": 3, "城市": 12, "职业": 20, "单位": 20,
+           "学历": 6, "专业": 12, "父": 12, "母": 12}
+
+
+# 生效条件：item 为序列项 dict；返回**扁平化**后的新 dict（值若是 {value,_raw} 取 value）
+def _flat_item(item):
+    """序列项扁平化：LLM 有时把值写成 {value, _raw}，扁平后避免嵌套进卡。"""
+    out = {}
+    raw = None
+    for kk, vv in (item or {}).items():
+        if isinstance(vv, dict) and "value" in vv:
+            out[kk] = vv.get("value")
+            if vv.get("_raw") and not raw:
+                raw = vv.get("_raw")
+        else:
+            out[kk] = vv
+    if raw and "_raw" not in out:
+        out["_raw"] = raw
+    return out
+
 #: 地名后缀（值必须带其一，或在已知地名词典里）。
 PLACE_SUFFIX = ("市", "区", "县", "路", "街", "镇", "州", "村", "岛", "港")
 #: 已知地名（可扩展；用于「南宁」「江北」这类无后缀写法）。
@@ -163,6 +187,7 @@ def verify(filled, text):
                 if isinstance(_raw, str) and _raw.strip() and span_of(_raw, text) is not None:
                     _kept.append(_it)
                     continue
+                _it = _flat_item(_it)
                 _item_raw = _it.get("_raw")
                 if _item_raw:
                     _ok_item = span_of(_item_raw, text) is not None
@@ -184,6 +209,10 @@ def verify(filled, text):
             rejected.append({"field": k, "value": _val, "reason": "not_in_source"})
             continue
         # 字段级形态校验（目前只对城市）：原文有 ≠ 是地名
+        _lim = MAX_LEN.get(k)
+        if _lim and isinstance(_val, str) and len(_val.strip()) > _lim:
+            rejected.append({"field": k, "value": _val, "reason": "too_long"})
+            continue
         if k == "城市" and not is_place(_val):
             rejected.append({"field": k, "value": _val, "reason": "not_a_place"})
             continue
