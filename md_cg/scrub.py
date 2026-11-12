@@ -161,6 +161,15 @@ def _days(ts, now) -> float:
 
 
 # 生效条件：调用即返回带 t 与 op 的 rec；写 append_jsonl(os.path.join(cg.root, SCRUB_LOG), rec) 抛任何异常都被吞掉，不影响返回值。
+# 生效条件：cg 提供 root、op 为动作名；向 _scrub.jsonl 追加一行并返回该行（写失败被吞）
+def record_event(cg, op: str, **rec) -> dict:
+    """治理台账的**公开写入口**（issue #804 反思意见：sustain 不该直接调私有 `_log`）。
+
+    语义与 `_log` 完全同一（`_log` 是本函数的实现单点）；保留 `_log` 名是因为仓内既有调用点
+    与守卫大量按该名字引用，改名会造无收益的改动面。跨模块（sustain）一律走本入口。
+    """
+    return _log(cg, op, **rec)
+
 def _log(cg, op: str, **rec) -> dict:
     rec = dict(rec, t=time.time(), op=op)
     try:
@@ -1135,7 +1144,10 @@ def sweep(cg, *, n: int = DEFAULT_SAMPLE, seed=None, dry_run: bool = True,
     out = {"ok": not hi, "dry_run": dry_run, "n_high_medium": len(hi),
            "sample": smp, "associate": assoc, "audit": rep,
            "decontaminate": dec, "calibration": cal, "t": time.time()}
-    _log(cg, "sweep", n_sample=smp["n"], n_issues=rep["n_issues"],
+    # issue #804（反思单元意见）：成功轮**显式写 ok=True**——
+    # 历史行无 ok 键，判据只能写 `is not False`（`not r.get("ok")` 会把成功行误判失败）。
+    # 新行统一带 ok，旧行仍按 `is not False` 兼容。
+    _log(cg, "sweep", ok=True, n_sample=smp["n"], n_issues=rep["n_issues"],
          n_high_medium=len(hi), applied=dec["applied"], dry_run=dry_run,
          # 覆盖账（issue #66）：轮级读数也带逐条去向分类——dry_run 轮是常驻
          # 默认下**唯一的账**（批量记录仅在实修轮写），不带则「三个旧面孔 +
@@ -1158,17 +1170,37 @@ def history(cg, limit: int = 100) -> dict:
 def summary(cg) -> dict:
     """给 health_os / 自维持循环用的只读摘要。
 
+    issue #804 读法（务必同时看两键）：
+      · `sweeps` = **成功轮**数（旧台账无 ok 键的行也算成功，按 `is not False` 判）；
+      · `failed_sweeps` + `last_sweep_failed` = 崩溃轮（summary 记 t/error/phase/round）；
+      · `last_sweep` 取**最近成功轮** —— 连续失败时它的 t 会停在旧时间，**只读它会误判「在正常跑」**。
+
     `decontaminated`（issue #66 口径修正）= 批量汇总记录的**累计 applied 之和**
     ——「实际处置量」；原口径（`op="decontaminate"` 单条记录条数）另留
     `decontaminated_records`，`batches` 为批量轮数——三键并置，信息不丢。
     """
     recs = list(read_jsonl(os.path.join(cg.root, SCRUB_LOG)))
-    sweeps = [r for r in recs if r.get("op") == "sweep"]
+    # issue #804：失败轮也写 op="sweep" ok=False（崩溃补账）。
+    # 口径必须分开：`sweeps` 仍只数**成功轮**（否则崩溃轮会被读成「自净过一轮」），
+    # 失败轮单列 `failed_sweeps`，且 `last_sweep` 仍取**最近成功轮**
+    # （旧读数含义不变：最后一个字段齐备的轮次）。
+    sweeps = [r for r in recs
+              if r.get("op") == "sweep" and r.get("ok") is not False]
+    failed = [r for r in recs
+              if r.get("op") == "sweep" and r.get("ok") is False]
     decs = [r for r in recs if r.get("op") == "decontaminate" and r.get("ok")]
     batches = [r for r in recs if r.get("op") == "decontaminate_batch"
                and r.get("ok")]
     last = sweeps[-1] if sweeps else None
+    _last_failed = failed[-1] if failed else None
     return {"sweeps": len(sweeps),
+            "failed_sweeps": len(failed),
+            "last_sweep_failed": (None if not _last_failed else {
+                "t": _last_failed.get("t"),
+                "error": _last_failed.get("error"),
+                "phase": _last_failed.get("phase"),
+                "round": _last_failed.get("round"),
+            }),
             "decontaminated": sum(int(r.get("applied") or 0) for r in batches),
             "decontaminated_records": len(decs),
             "batches": len(batches),
