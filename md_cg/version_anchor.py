@@ -26,7 +26,8 @@
 
 import re
 
-__all__ = ["FIELDS", "parse_anchor", "check_anchor", "ANCHOR_LINE_RE"]
+__all__ = ["FIELDS", "parse_anchor", "check_anchor", "check_staleness",
+           "scan_dir", "ANCHOR_LINE_RE"]
 
 #: 三元字段（键名 → 中文别名，都接受）
 FIELDS = ("theory", "architecture", "projection")
@@ -99,6 +100,46 @@ def check_anchor(text):
     legacy = LEGACY_MARK in str(text or "")
     return ok, {"anchor": rep["anchor"], "missing": rep["missing"],
                 "found": rep["found"], "legacy": legacy}
+
+
+def _norm(v):
+    """归一化版本串：去空白与全角空格，便于比较「智能论 3.4」与「智能论3.4」。"""
+    import re as _re
+    return _re.sub(r"\s+", "", str(v or ""))
+
+
+def check_staleness(text, current):
+    """陈化检查——判断锚里的理论/架构版本是否还是当前版本。
+
+    为什么需要（2026-10-24 第五十一、五十二轮）：
+        第五十一轮发现「过期」是三种不可测失效之一，对策是「版本锚」。
+        但实测发现：56 份文档 100% 都有锚，**却没有工具核对锚是否过期**——
+        写上 ≠ 核对。本函数补上核对这一步。
+
+    参数：
+        current  当前版本，形如 {"theory": "智能论 3.4", "architecture": "..."}。
+                 **必须由调用方提供**——本模块不知道「现在是什么版本」，
+                 那是外部事实，不能猜。
+
+    返回 dict：
+        ok          True=锚与当前一致；False=**过期**；None=无锚或无法判定
+        stale       [{field, found, current}] 过期的字段
+        anchor      解析出的锚
+
+    **「本投影」版本不参与比较**——它是本文档自己的版本，无所谓过期。
+    """
+    rep = parse_anchor(text)
+    if not rep.get("found"):
+        return {"ok": None, "stale": [], "anchor": {},
+                "reason": "没有版本锚，无从判断是否过期"}
+    stale = []
+    for field in ("theory", "architecture"):
+        want = (current or {}).get(field)
+        got = rep["anchor"].get(field)
+        if want and got and _norm(got) != _norm(want):
+            stale.append({"field": field, "found": got, "current": want})
+    return {"ok": not stale, "stale": stale, "anchor": rep["anchor"],
+            "note": "本投影版本不参与比较（它是本文档自己的版本）"}
 
 
 def scan_dir(directory, suffix=".md"):
