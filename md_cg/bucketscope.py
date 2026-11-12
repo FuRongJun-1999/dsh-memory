@@ -129,6 +129,7 @@ DEFAULT_CAP = 8
 SESSION_QUOTA = 4
 #: 早段意图下的会话配额（把名额让给日桶）
 SESSION_QUOTA_EARLY = 2
+BUCKET_SCOPE_QUOTA = 3      #: 条件桶范围配额（issue #871 断点 3；只取最高分一个桶）
 #: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
 DAY_LOOKBACK = 14
 
@@ -283,6 +284,33 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
             qual["bucket"] = "session"
             out.append((node, score, qual, prov))
             seen.add(node.get("id"))
+    # ①.5 条件桶范围（issue #871 断点 3）：scopeselect 也能给出 kind=="bucket" 的
+    # 范围，但此前只消费 kind=="day"，桶范围被静默丢弃 ⇒ 条件桶面恒 0 命中。
+    # 取向：只取**最高分的一个桶**、配额 3（保守：防把日桶挤掉；无评分即不注入）。
+    _bucket_scope_tried = False
+    try:
+        if os.environ.get("MDCG_SCOPE_SELECT", "1") != "0":
+            from . import scopeselect as _ss0      # noqa: PLC0415
+            _bk = [(k, sc) for kind, k, sc in _ss0.pick_scopes(store, query, session=session,
+                                                           limit=DAY_LOOKBACK, now=now)
+                   if kind == "bucket"]
+            if _bk:
+                _bk.sort(key=lambda kv: -kv[1])
+                _key = _bk[0][0]
+                _bids = [nid for nid, e in list(store.index.get("nodes", {}).items())
+                         if (e or {}).get("bucket") == _key]
+                _bucket_scope_tried = True
+                if _bids:
+                    picked_b = _pick(store, _bids, terms, BUCKET_SCOPE_QUOTA,
+                                     validity=validity, now=now)
+                    for node, score, qual, prov in picked_b:
+                        qual = dict(qual)
+                        qual["bucket"] = _key
+                        out.append((node, score, qual, prov))
+                        seen.add(node.get("id"))
+    except Exception:          # noqa: BLE001 —— 桶范围推断失败不影响主路径
+        pass
+
     # ② 桶顺序：**范围选择优先**（状态追踪式共现推断），否则按日期倒排。
     #    MDCG_SCOPE_SELECT=1（缺省）→ 用 scopeselect 排序；=0 回落「最近优先」。
     #    依据：bench 实测共现推断时间桶 94.20%（字面无关），词面消融仅 90.76%。

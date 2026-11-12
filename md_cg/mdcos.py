@@ -1797,6 +1797,40 @@ class MdCGOS(MdCG):
             return []
         inb = [e for e in entries if e.get("bucket") == b]
         if not inb:
+            # issue #871 断点 1/2：精确键失配时回落 scopeselect 的桶评分。
+            # 原实现只做精确键路由（query 措辞一变就 0 命中）；而 scopeselect
+            # 已按 bm25 + 汉字 2/3-gram 给桶打分。此处取最高分的 kind==bucket
+            # （排除 day/session）再过滤，仍按 _(score) 排序。
+            try:
+                from . import scopeselect as _ss
+                _picked = _ss.score_buckets(self, query)
+            except Exception:
+                _picked = []
+            _bkeys = [k for kind, k, _s in _picked if kind == "bucket"]
+            if not _bkeys:
+                # 词表未必收录 bucket:* 词条（_bucketterms 由构建决定）；此处在
+                # **条目自带的桶键**上做确定性词面匹配，避免整条路径依赖词表是否建全。
+                try:
+                    _toks = [t for t in _ss.terms(query) if len(t) >= 2]
+                except Exception:
+                    _toks = []
+                _rank = []
+                for _k in {e.get("bucket") for e in entries}:
+                    if not isinstance(_k, str) or not _k:
+                        continue
+                    _parts = _k.split("_")
+                    _zh = _parts[1] if len(_parts) >= 3 else _k
+                    _hit = sum(1 for t in _toks if t in _zh)
+                    if _hit:
+                        _rank.append((-_hit, _k))
+                _bkeys = [k for _h, k in sorted(_rank)]
+            for _k in _bkeys:
+                _cand = [e for e in entries if e.get("bucket") == _k]
+                if _cand:
+                    inb = _cand
+                    b = _k
+                    break
+        if not inb:
             return []
         stat = {"scanned": 0}
         docs = self._read_many(inb, stat)
