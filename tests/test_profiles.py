@@ -273,6 +273,13 @@ def main2():
        "X2 限 1 条时也选到早期高密度轮次（不是最新那条）",
        [((x[0] or {}).get("id")) for x in _top1])
 
+    # ---- Y：SELF_RX 覆盖「我有 + 身体状况」，但排除第三人陈述 ----
+    ok(_ss2.matches("刚找了半天眼镜。我有近视，看书时要戴眼镜"),
+       "Y1 我有近视 ⇒ 命中（原句来自外测 P20-034）")
+    ok(not _ss2.matches("我有个朋友近视得厉害"),
+       "Y2 我有个朋友近视 ⇒ 不命中（负向约束挡第三人）")
+    ok(not _ss2.matches("我同事有鼻炎"), "Y3 我同事有鼻炎 ⇒ 不命中")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
