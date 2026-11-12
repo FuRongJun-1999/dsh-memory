@@ -457,6 +457,7 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_ROLE_AI', 'env', 'dsh-memory-main', '字符串', 'AI 角色名（闭集）：配置后 role=assistant 的节点归到角色卡；未配置不建卡（md_cg/profiles.py）'),
     ('MDCG_SUSTAIN_DIR', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_SUSTAIN_NAME', 'env', 'dsh-memory-main', '字符串', ''),
+    ('MDCG_SELFSTMT_LIMIT', 'env', 'dsh-memory-main', '整数（条）', '自述轮次注入上限，缺省 20（按信息密度降序取；登记总量通常 3–16/库；md_cg/mdcos.py _selfstmt_nodes）'),
     ('MDCG_SWARM_DIR', 'env', 'dsh-memory-main', '目录路径', ''),
     ('MDCG_TENANT_REGISTRY', 'env', 'dsh-memory-main', '文件路径', ''),
     ('MDCG_TESTLOG_DIR', 'env', 'dsh-memory-main', '目录路径', ''),

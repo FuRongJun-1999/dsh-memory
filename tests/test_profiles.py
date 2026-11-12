@@ -260,6 +260,19 @@ def main2():
     ok(_o7.get("recorded") == 1 and _ss2.load(_cg7) == ["s1"],
        "W2 maintain action=selfstmt 可补登存量库", _o7)
 
+    # ---- X：自述注入按信息密度排序（不能因「最新优先」漏掉早期答案句）----
+    _root8 = tempfile.mkdtemp(prefix="rk_")
+    _cg8 = MdCGOS(_root8, actor="test")
+    _cg8.add("t0013", "我叫谈书宁，谈是谈话的谈", tags=["domain:d"], consistency=False)
+    for _i, _m in enumerate(["今天做了点吃的", "我在店里忙了一天", "我妈打电话来问我"]):
+        _cg8.add("m%d" % _i, _m, tags=["domain:d"], consistency=False)
+    ok(_ss2.density("我叫谈书宁") > _ss2.density("我在店里忙了一天"),
+       "X1 密度分能把「我叫…」排到「我在…」之前")
+    _top1 = _cg8._selfstmt_nodes(limit=1)
+    ok(bool(_top1) and (_top1[0][0] or {}).get("id") == "t0013",
+       "X2 限 1 条时也选到早期高密度轮次（不是最新那条）",
+       [((x[0] or {}).get("id")) for x in _top1])
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

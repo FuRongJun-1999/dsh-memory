@@ -3219,27 +3219,41 @@ class MdCGOS(MdCG):
     _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
 
     # 生效条件：无参；返回自述轮次节点（写时登记的小索引，limit 控制注入量）
-    def _selfstmt_nodes(self, limit=6):
+    def _selfstmt_nodes(self, limit=None):
         """自述轮次注入：零模型、与题目无关（外测实证 12.8%→35.9% 的那条规则）。
 
         写时登记、读时 load 小索引 —— 不做每查询全库扫（2k 节点 ≈ 2s 不可接受）。
         只注入**已存在**的节点；去重；受 limit 约束防淹没。
         """
+        if limit is None:
+            try:
+                limit = int(os.environ.get("MDCG_SELFSTMT_LIMIT", "20"))
+            except ValueError:
+                limit = 20
         try:
             from . import selfstmt as _ss
             ids = _ss.load(getattr(self, "root", ""))
         except Exception:
             return []
+        # 【外测 2026-11-12】原实现 `reversed(ids)` + limit=6（最新优先）把**早期自述轮次**全滤掉：
+        # P16 的「我最早在江北…学徒」、P17 的「我叫谈书宁…」都排不进最近 6 ⇒ 收益被吃掉
+        # （实验全量注入 35.9%，实现 12.8%）。改为：**按信息密度降序**，限量放宽到 20（登记总量 3–16/库）。
+        scored = []
+        for _pos, nid in enumerate(ids):
+            node = self.get(nid)
+            if not node:
+                continue
+            scored.append((-_ss.density(node.get("content") or ""), -_pos, node))
+        scored.sort(key=lambda x: (x[0], x[1]))
         out, seen = [], set()
-        for nid in reversed(ids):            # 新的优先
+        for _d, _p, node in scored:
+            nid = str(node.get("id") or "")
             if len(out) >= limit:
                 break
             if nid in seen:
                 continue
             seen.add(nid)
-            node = self.get(nid)
-            if node:
-                out.append((node, 0.85, {"path": "self_stmt"}, "self_stmt"))
+            out.append((node, 0.85, {"path": "self_stmt", "density": -_d}, "self_stmt"))
         return out
 
     # 生效条件：cards 为已注入的资料卡候选；返回其事实行里「来源 <id>」指向的源节点
