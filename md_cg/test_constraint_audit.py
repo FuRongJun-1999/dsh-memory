@@ -63,6 +63,18 @@ def main():
     check("部分命中 checked=1", rep["counts"]["checked"] == 1, rep["counts"])
     check("部分命中 unchecked=1", rep["counts"]["unchecked"] == 1, rep["counts"])
 
+    # ⑥ 留痕缺口检查（2026-10-24 第四十九轮补）
+    import tempfile, subprocess, os
+    tg = cau.trace_gap(repo=os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    check("trace_gap 返回 ok 字段", "ok" in tg, tg)
+    check("trace_gap 有 counts", "counts" in tg or tg.get("ok") is None, tg)
+    check("trace_gap note 说明不等于违反",
+          "不等于违反" in (tg.get("note") or ""), (tg.get("note") or "")[:40])
+    # 非 git 目录 → ok=None（不默认通过）
+    with tempfile.TemporaryDirectory() as td:
+        tg2 = cau.trace_gap(repo=td)
+    check("非 git 目录 ok=None", tg2.get("ok") is None, tg2)
+
     print("")
     if FAILS:
         print("失败 %d 项：%s" % (len(FAILS), FAILS))

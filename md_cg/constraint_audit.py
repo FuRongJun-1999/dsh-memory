@@ -43,7 +43,7 @@
 
 import re
 
-__all__ = ["cross_check", "parse_constraints", "MATCH_THRESHOLD"]
+__all__ = ["cross_check", "parse_constraints", "trace_gap", "MATCH_THRESHOLD"]
 
 #: 约束与日志的实词覆盖阈值。低于此值视为「日志里没有对应记录」。
 MATCH_THRESHOLD = 0.6
@@ -130,6 +130,66 @@ def cross_check(constraints, log_text, threshold=MATCH_THRESHOLD):
                    "unchecked": len(unchecked)},
         "note": "「无记录」**不等于**「没违反」（I6）：日志只能证明发生过，不能证明没发生。"
                 "本结论是「有记录/无记录」，不是「遵守/违反」。",
+    }
+
+
+def trace_gap(repo=None, paths=None):
+    """留痕缺口检查——找出「有行为但没留痕」的改动。
+
+    为什么需要（2026-10-24 第四十八轮）：H7 首次实测漏检率 100%，
+    根因是违反从未提交、故日志无痕。**先能查出「没留痕的改动」，
+    才谈得上用日志验证行为。**
+
+    做法：跑 git status，把未提交的改动列出来——它们就是「尚未留痕的行为」。
+
+    返回 dict：
+        ok          True=工作区干净（当前改动都已留痕）；False=有未留痕改动
+        untracked   未跟踪文件（新文件，行为没进历史）
+        modified    已修改未提交
+        staged      已暂存未提交
+        note        边界提示
+
+    注意 ok=False **不等于违反约束**——只是「这些改动还没进历史」，
+    提交后就留痕了。它是**前置检查**，不是违规判定。
+    """
+    import os
+    import subprocess
+    root = str(repo or os.getcwd())
+    try:
+        env = dict(os.environ)
+        env.setdefault("PYTHONUTF8", "1")
+        r = subprocess.run(["git", "status", "--porcelain"],
+                           capture_output=True, text=True, encoding="utf-8",
+                           errors="replace", env=env, cwd=root, shell=False)
+    except Exception as exc:                       # noqa: BLE001
+        return {"ok": None, "reason": "无法执行 git status：%s" % str(exc)[:80]}
+    if r.returncode != 0:
+        return {"ok": None, "reason": "git status 返回 %d" % r.returncode}
+
+    untracked, modified, staged = [], [], []
+    for line in (r.stdout or "").splitlines():
+        if not line.strip():
+            continue
+        code, _, path = line[:2], line[2:3], line[3:].strip()
+        if paths and not any(pp in path for pp in paths):
+            continue
+        if code.strip() == "??":
+            untracked.append(path)
+        elif code[0] not in (" ", "?"):
+            staged.append(path)
+        else:
+            modified.append(path)
+
+    total = len(untracked) + len(modified) + len(staged)
+    return {
+        "ok": total == 0,
+        "untracked": untracked,
+        "modified": modified,
+        "staged": staged,
+        "counts": {"untracked": len(untracked), "modified": len(modified),
+                   "staged": len(staged), "total": total},
+        "note": "ok=False 只表示「这些改动尚未进历史」，**不等于违反约束**——"
+                "提交即留痕。本函数是 H7 的**前置检查**，不是违规判定。",
     }
 
 
