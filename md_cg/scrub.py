@@ -1163,12 +1163,27 @@ def summary(cg) -> dict:
     `decontaminated_records`，`batches` 为批量轮数——三键并置，信息不丢。
     """
     recs = list(read_jsonl(os.path.join(cg.root, SCRUB_LOG)))
-    sweeps = [r for r in recs if r.get("op") == "sweep"]
+    # issue #804：失败轮也写 op="sweep" ok=False（崩溃补账）。
+    # 口径必须分开：`sweeps` 仍只数**成功轮**（否则崩溃轮会被读成「自净过一轮」），
+    # 失败轮单列 `failed_sweeps`，且 `last_sweep` 仍取**最近成功轮**
+    # （旧读数含义不变：最后一个字段齐备的轮次）。
+    sweeps = [r for r in recs
+              if r.get("op") == "sweep" and r.get("ok") is not False]
+    failed = [r for r in recs
+              if r.get("op") == "sweep" and r.get("ok") is False]
     decs = [r for r in recs if r.get("op") == "decontaminate" and r.get("ok")]
     batches = [r for r in recs if r.get("op") == "decontaminate_batch"
                and r.get("ok")]
     last = sweeps[-1] if sweeps else None
+    _last_failed = failed[-1] if failed else None
     return {"sweeps": len(sweeps),
+            "failed_sweeps": len(failed),
+            "last_sweep_failed": (None if not _last_failed else {
+                "t": _last_failed.get("t"),
+                "error": _last_failed.get("error"),
+                "phase": _last_failed.get("phase"),
+                "round": _last_failed.get("round"),
+            }),
             "decontaminated": sum(int(r.get("applied") or 0) for r in batches),
             "decontaminated_records": len(decs),
             "batches": len(batches),
