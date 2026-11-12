@@ -111,6 +111,45 @@ def cmd_init(wm: str) -> dict:
 
 
 # 生效条件：job 下 result.json 非 os.path.isfile 时先返回凭证不足错误，result.json 可读但 result.get("ok") is not True 时返回带 verdict（str(result.get("error",""))[:200]）的错误，job 下 status.json 存在但解析失败时返回 conflict=status_unreadable 的记账面不可读错误（fail-closed，事故信号不静默）、其 state=error 时返回 conflict=late_result_after_error 的矛盾态拒绝（R02：error 终态与 ok=true 并存，人工裁决前不放行），status.json 缺失按旧口径仅凭 ok 门放行（旧格式/手工目录零回归），job 下 spec.json 非 os.path.isfile 时返回规格缺失错误；通过后 job_id 取 str(result.get("job_id") or os.path.basename(job))（result.job_id 为 None/空串时回落 basename(job)），job_id 含 / \ 或为 . .. 时返回非法 job_id 错误（路径段校验，防穿越删库），branch 为真值时用 branch、假值时回落 f"task/{job_id}"，artifacts 为真值时先按逗号切分（strip 后非空段）、相对名拼 job 做存在性预检，任一源非 os.path.isfile 即在任何 staging 写入前返回 artifacts 缺失错误（v10 N83：不拷半份）；随后 rmtree/makedirs(wm/jobs/<job_id>) 并拷 spec.json、result.json、log.txt 与 PROGRESS_FILE（两者各自 os.path.isfile 为真才拷、PROGRESS_FILE 缺失即 has_progress=False 不报错）、拷 artifacts/ 并收集 basename；然后 checkout -B branch、add jobs、commit（model 取 result.get("model") 为假值回落 "?"，duration_s 为真值才附）、rev-parse --short HEAD 四步包于内层 try/finally——finally 无条件 checkout main（v2 N10：提交链任一步抛 WmError 也不残留 HEAD 于 task 分支），checkout main 失败时若 try 内有正传播异常则抛消息合并且 from 原异常的 WmError、无则直接抛 WmError（均含 HEAD 可能残留提示）；staging 拷贝起至提交链整体包于外层 try/except——任一步异常先 rmtree 清理已拷入的 wm/jobs/<job_id>/（不留绕闸残留）再原样重抛；全部成功返回 ok True 与 job_id/branch/commit/artifacts/progress/message。
+
+# 生效条件：status 为已解析的 status.json 字典时——state 属 (error, timeout, killed) 返回
+# conflict=late_result_after_error 的矛盾态拒绝；state != "done" 返回 conflict=not_terminal_done
+# 的未完成拒绝；state == "done" 返回 None（放行）。本函数不读盘，status.json **缺失**面不在
+# 本判据内（缺失仍由调用点按旧口径只凭 result.ok 门放行）。
+def _credential_state_gate(status):
+    """issue #156②：凭证闸的记账面**终态**校验（唯一成功终态 = state="done"）。
+
+    病象：原闸只拒 error/timeout/killed —— status.json 存在且 state 为
+    pending/running/claimed（worker 未收口）或 needs_review（P11 锚不可信的
+    终态失败，hive/orch.py TERMINAL_STATES 的失败分支）时一律放行，未完成 /
+    未采信产物入库（实测 pending/running 提交成功）。文档自述「result.ok=true
+    才许提交」缺的正是「记账面说它完成了」这一半，本函数补齐。
+    不适用范围：status.json 缺失（旧格式/手工目录）仍按旧口径放行——由调用点
+    保持（v10 零回归），不在本函数判据面内。
+    """
+    state = str(status.get("state") or "")
+    if state in ("error", "timeout", "killed"):
+        return {
+            "ok": False,
+            "conflict": "late_result_after_error",
+            "error": "矛盾态拒绝: status.state=error 终态与 result.ok=true 并存"
+                     "（late_result_after_error——serve 中断误标后孤儿执行器"
+                     "补写产物），人工核实产物有效并改写记账终态后方可快照",
+            "verdict": str(status.get("error", ""))[:200],
+        }
+    if state != "done":
+        return {
+            "ok": False,
+            "conflict": "not_terminal_done",
+            "error": ("任务未完成拒绝: status.state=%r —— 凭证闸只认 state=done 的"
+                      "成功终态（pending/claimed/running = worker 未收口，"
+                      "needs_review = 锚不可信）；记账面未说「完成了」前产物"
+                      "不得入库") % (state,),
+            "verdict": str(status.get("error", ""))[:200],
+        }
+    return None
+
+
 def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                  branch: str | None = None) -> dict:
     """凭证闸：result.ok=true 才许提交；白名单拷贝产物后 commit 到任务分支。
@@ -143,15 +182,14 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
             return {"ok": False, "conflict": "status_unreadable",
                     "error": f"记账面不可读: status.json 解析失败（{e}）——"
                              f"事故信号不静默，须人工裁决后方可快照"}
-        if status.get("state") == "error":
-            return {
-                "ok": False,
-                "conflict": "late_result_after_error",
-                "error": "矛盾态拒绝: status.state=error 终态与 result.ok=true 并存"
-                         "（late_result_after_error——serve 中断误标后孤儿执行器"
-                         "补写产物），人工核实产物有效并改写记账终态后方可快照",
-                "verdict": str(status.get("error", ""))[:200],
-            }
+        # issue #156⑤：**失败类终态闸**——error / timeout / killed 任一终态与
+        # result.ok=true 并存即矛盾（serve 中断/被杀后孤儿执行器补写产物），人工
+        # 裁决前不放行。done 是正常成功终态，**不**入闸（否则正常快照全被拒）。
+        # issue #156②：记账面**终态闸**——判据抽入 _credential_state_gate（守卫可
+        # 定点变异：替换该函数即回退到「只拒 error/timeout/killed」的旧形态）。
+        _gate = _credential_state_gate(status)
+        if _gate is not None:
+            return _gate
     if not os.path.isfile(spec_path):
         return {"ok": False, "error": f"{spec_path} 不存在（任务规格缺失，不可复现）"}
 
@@ -236,7 +274,7 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
 
 # ---------------------------------------------------------------- 进展面读取
 
-# 生效条件：lines 逐行 strip，空行跳过且不计 total，非空行 total+1 并尝试 json.loads，抛 json.JSONDecodeError 的行不入 entries；返回 entries 在 limit > 0 时取 entries[-limit:]，limit <= 0（含 0）时返回全部 entries，并附非空行总数 total。
+# 生效条件：lines 逐行 strip，空行跳过且不计 total，非空行 total+1 并尝试 json.loads，抛 json.JSONDecodeError 的行不入 entries，**合法 JSON 但非映射（list/str/null/数字）的行同样不入 entries**（issue #399：坏行口径同款，防消费点 .get 抛穿）；返回 entries 在 limit > 0 时取 entries[-limit:]，limit <= 0（含 0）时返回全部 entries，并附非空行总数 total。
 def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
     """解析进展卡行流：返回 (尾部 limit 条, 总行数)。坏行跳过不炸（诚实降级）。"""
     entries: list[dict] = []
@@ -247,9 +285,15 @@ def _parse_progress(lines, limit: int) -> tuple[list[dict], int]:
             continue
         total += 1
         try:
-            entries.append(json.loads(ln))
+            v = json.loads(ln)
         except json.JSONDecodeError:
             continue
+        # issue #399：坏行口径与「非法 JSON」**同款**——合法 JSON 但顶层非映射
+        # （`[1,2]`/`null`/`"str"`）同样跳过。修前它们进 entries，消费点 `e.get("kind")`
+        # 立刻 AttributeError 把 `wm progress` 打崩（与本函数自述的「坏行跳过不炸」相悖）。
+        if not isinstance(v, dict):
+            continue
+        entries.append(v)
     return (entries[-limit:] if limit > 0 else entries), total
 
 

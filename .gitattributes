@@ -19,3 +19,9 @@ scripts/git-hooks/* text eol=lf
 # 32 CRLF / 11 LF），跨平台一致性与 diff 噪声都要求归一。
 *.yml text eol=lf
 *.yaml text eol=lf
+
+# ui/minimal/payload：安装器对 payload **逐文件校验 sha256**（ui/minimal/integrity.json 按
+# LF 记录），checkout 若转成 CRLF，Get-FileHash 即失配 ⇒ 安装器判「分享包缺失或损坏」并
+# 拒绝安装（Windows 默认 core.autocrlf=true 时必现；2026-10-27 实测：工作树 9/9 不符、
+# LF 化后 9/9 相符）。故 payload 全树钉 LF。
+ui/minimal/payload/** text eol=lf

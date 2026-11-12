@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """md_cg · B4 守卫：索引分片目录不自愈（长驻进程内 `_index_log/` 被删后
 append 永抛 `FileNotFoundError`，且永不恢复）
 

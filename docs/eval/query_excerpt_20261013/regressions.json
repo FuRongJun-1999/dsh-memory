@@ -1,0 +1,67 @@
+[
+  {
+    "module": "md_cg.test_recall_metadata",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_recall_face_guards",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_chain_read_isolate",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_n123_derive_expiry_chain",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_p8_subgraph_chain",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_c8_search_rrf_gates",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_rrf_candidates",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_rrf_graph_seed_cache",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_issue130_rrf_rank_credibility",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_lifecycle",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_lifecycle_retire_leak",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_readcache_precise_inval",
+    "exit_code": 0,
+    "explicit_skip": false
+  },
+  {
+    "module": "md_cg.test_subproc_encoding",
+    "exit_code": 0,
+    "explicit_skip": false
+  }
+]

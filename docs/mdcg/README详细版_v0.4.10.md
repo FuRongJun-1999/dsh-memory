@@ -36,7 +36,7 @@ dsh plugin --profile web add @furongjun1999/dsh-memory
 # ③ 配置 cordis.yml 启用
 ```
 ```yaml
-- id: lingshu-memory
+- id: furongjun1999-dsh-memory
   name: '@furongjun1999/dsh-memory'
   config:
     mdcg:               # 记忆唯一真源：认知图（md 文档）
@@ -526,7 +526,7 @@ npm install && npm run build     # 构建插件本身（tsc → lib/）
 在 profile 的 `cordis.yml`（或 `cordis.patch.yml`）中追加：
 
 ```yaml
-- id: lingshu-memory
+- id: furongjun1999-dsh-memory
   name: '@furongjun1999/dsh-memory'
   config:
     mdcg:                              # 记忆唯一真源：认知图（md 文档）

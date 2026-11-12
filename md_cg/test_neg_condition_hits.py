@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """负条件（不适用条件）命中判据的守卫（批次76，2026-09-28）。
 
 运行：python -X utf8 -m md_cg.test_neg_condition_hits        # 正常跑

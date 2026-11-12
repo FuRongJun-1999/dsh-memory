@@ -98,7 +98,12 @@ def _fusion_lib():
     cg.add("m_aa", _CCG.format(n="m_aa", t="苹果 别的内容 章节 分离"),
            layer="knowledge", tags=["苹果"], importance=0.5)
     cg.add("m_zz", _CCG.format(n="m_zz", t="苹果 别的内容 章节 分离"),
-           layer="knowledge", tags=["苹果"], importance=0.9)
+    # 2026-10-12（#130 名次可信度契约）：本夹具原用「entity 路对 m_aa/m_zz 给同一个常量分、
+    # 交由 importance 兜底分先后」来制造两路共识——而该形态正是 #130 判定为「名次不可信」
+    # 因而不投票的形态；契约生效后 sum/max 退化为同序 ⇒ A2「逐条不同」失去可观测性
+    # （CI 实测 29 通过 / 2 失败）。改法：让 m_zz 的 tag 成为**真分数**（aff 1.0，m_aa 为 0.7）
+    # 而非常量 ⇒ entity 路重新携带名次信息，A2 恢复可观测。契约本身不动，本改动=夹具前提修复。
+           layer="knowledge", tags=["苹果 章节"], importance=0.9)
     cg.add("m_lex", _CCG.format(n="m_lex", t="苹果章节 同构"),
            layer="knowledge", importance=0.5)
     cg.add("m_other", _CCG.format(n="m_other", t="苹果 别的内容 章节 分离 更多"),

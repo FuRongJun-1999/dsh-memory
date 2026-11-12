@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """navigate.py · CSPRE 导航递归（《导航递归CSPRE_实现文档_v0.1》落地）
 
 核心：条件空间导航递归——graph_retrieve 命中复合知识后，进入其内部

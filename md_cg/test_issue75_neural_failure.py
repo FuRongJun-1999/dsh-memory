@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """issue #75 部位②守卫：neural_retrieve 降级路径的**结构化失败 + 可观测**。
 
 病灶（issue #75 部位②）：neural_retrieve.py 的降级路径以裸 except Exception

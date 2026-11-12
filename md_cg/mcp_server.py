@@ -175,6 +175,102 @@ def _note_doc_filter(meta, dropped, enabled):
     return meta
 
 
+def norm_tags(value):
+    """#721：把调用方给的标签入参规范化成 tuple。
+
+    判据（与 op_table.read.params 的注释同一真源，改一处须改两处）：
+      · None / 缺省 / 空容器 => ()  —— 调用方「没提这个维度」，不是「要空集」
+      · 单个 str           => (str,) —— 允许省略列表，避免调用方为一个标签写数组
+      · list/tuple/set     => 逐项转 str 后去重保序
+      · 其他（int/dict/…）  => TypeError —— 显式报错，不静默当没传
+    """
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        v = value.strip()
+        return (v,) if v else ()
+    if isinstance(value, (list, tuple, set, frozenset)):
+        out = []
+        for it in value:
+            if not isinstance(it, str):
+                raise TypeError("标签必须是字符串，收到 %s" % type(it).__name__)
+            s = it.strip()
+            if s and s not in out:
+                out.append(s)
+        return tuple(out)
+    raise TypeError("标签入参必须是字符串或字符串列表，收到 %s" % type(value).__name__)
+
+
+def filter_by_tags(items, tags_of, include_tags=(), exclude_tags=()):
+    """#721：按标签过滤检索结果（域隔离）。
+
+    语义（三条判据，显式声明，与 issue #721 的建议一致）：
+      · 多标签 = **OR**：命中所给任一标签即命中（include 保留 / exclude 剔除）；
+      · 匹配 = **全等**：不做前缀、不做大小写折叠以外的归一（见 _fold）；
+      · 无匹配 = **返回空集，不报错**：空集是合法检索答案，不是异常。
+    优先级：**exclude 先于 include** —— 同一节点两边都命中时被剔除。
+    缺省（两个都为空）=> 原样返回且 dropped=0，调用方行为逐位不变。
+    """
+    inc = tuple(include_tags or ())
+    exc = tuple(exclude_tags or ())
+    if not inc and not exc:
+        return items, 0
+    kept = []
+    dropped = 0
+    for it in items or []:
+        tags = set(tags_of(it) or ())
+        if exc and tags & set(exc):
+            dropped += 1
+            continue
+        if inc and not (tags & set(inc)):
+            dropped += 1
+            continue
+        kept.append(it)
+    return kept, dropped
+
+
+def _note_tag_filter(meta, dropped, include_tags, exclude_tags):
+    """#721：把标签过滤读数体现在 meta 上（不静默吞掉筛掉的条数）。"""
+    if not isinstance(meta, dict):
+        meta = {}
+    else:
+        meta = dict(meta)
+    meta["include_tags"] = list(include_tags or ())
+    meta["exclude_tags"] = list(exclude_tags or ())
+    meta["tag_filtered"] = dropped
+    return meta
+
+
+def tags_of_item(cg, item):
+    """#721：取一条结果所属节点的标签集合。
+
+    先看结果自带的（search 面的 node dict / recall 面的 pack 条目），缺了才回库取一次。
+    回库失败按「无标签」处理而**不抛**：读面不该因为一次 tags 查询炸掉整次检索
+    ——失败读数会体现在 meta.tag_filtered 上，而不是静默。
+    """
+    if isinstance(item, (list, tuple)):   # search 面： (node, score, qual)
+        item = item[0] if item else None
+    if not isinstance(item, dict):
+        return ()
+    fm = item.get("frontmatter")
+    if isinstance(fm, dict) and fm.get("tags") is not None:
+        return fm.get("tags") or ()
+    if item.get("tags") is not None:
+        return item.get("tags") or ()
+    nid = item.get("id") or item.get("node_id")
+    if nid and cg is not None:
+        try:
+            node = cg.get(nid)
+        except Exception:                 # noqa: BLE001 —— 见 docstring
+            node = None
+        if isinstance(node, dict):
+            nfm = node.get("frontmatter")
+            if isinstance(nfm, dict):
+                return nfm.get("tags") or ()
+            return node.get("tags") or ()
+    return ()
+
+
 def _p(t, desc, req=False, **extra):
     d = {"type": t, "description": desc}
     if req:
@@ -294,6 +390,11 @@ TOOLS = [
                           exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex ⑤ 断言"
                                                 "文档节点必须可被检索到；需要「只看真记忆卡」的调用方显式传 true）"),
+                          # issue #721（#802）：op_table 的 read 面登记了这两个参数，但 cg 的
+                          # schema 里没有 ⇒ check_op_table_parity 判「幻影参数」，并连带让
+                          # test_issue153b / test_issue71 的跨面对账红。此处补齐。
+                          include_tags=_p("array", "issue #721：检索期按标签过滤——只保留含任一标签的节点"),
+                          exclude_tags=_p("array", "issue #721：检索期按标签过滤——剔除含任一标签的节点"),
                           expand=_p("array", "LLM 查询侧扩展词：[{term,weight}] 或 [\"词\"]；"
                                              "仅在查询时刻生效，索引侧仍白箱"),
                           session=_p("string", "会话归属过滤（frontmatter.session；"
@@ -843,6 +944,11 @@ KERNEL_TOOLS = [
                                                          "DEFER、不冒充已确认；传 true 回严格闸门）"),                          exclude_doc=_p("boolean", "检索面排除 doc_ 索引节点（会话日志切片；"
                                                 "默认 false = 保持既有契约——test_p27_docindex 断言"
                                                 "文档节点必须可被检索到；需要只看真记忆卡时显式传 true）"),
+                          # issue #721（#802）：op_table 的 read 面登记了 include_tags/exclude_tags，
+                          # 但 cg 的 schema 里没有 ⇒ check_op_table_parity 判「幻影参数」，
+                          # 并连带 test_issue153b / test_issue71 的跨面对账红。此处补齐。
+                          include_tags=_p("array", "issue #721：检索期按标签过滤——只保留含任一标签的节点"),
+                          exclude_tags=_p("array", "issue #721：检索期按标签过滤——剔除含任一标签的节点"),
             excerpt_strategy=_p("string", "read 超预算条目摘录方式：prefix（默认）或 query（查询相关原文片段）"),
             bm25=_p("boolean", "read：显式使用 BM25 倒排评分（默认否）"),
             evidence=_p("string", "verify 的证据；state_event：出处（五元之一，"
@@ -2123,6 +2229,11 @@ def _action_sig(a, op):
 
 
 # 生效条件：op0=(a.get("op") or "").strip().lower()，op0 为空时按 a.get("content")→"write"、a.get("query") 或 a.get("node_id")→"read"、a.get("intent")→"route"、都无→"read" 推导 op；act0=(args.get("action") or "").strip().lower()，act0 为空时用 _action_sig(args, op) 推导且推导出时写回 args["action"]；另恒定计算 act_source（explicit|sig|default|none）；args["op"]=op 后调 _cg_dispatch，返回 dict 且 op0 为空时补 out["op"]、out["op_derived"]=True 与 hint，**无条件** setdefault out["action_source"]=act_source，act0 为空且 (act_derived 或 op in _ACTION_DEFAULT) 时 setdefault("action", eff)、out["action_derived"]=True 并按是否有 act_derived 写 hint_action。
+#: issue #810：允许 `root` 参数的 op —— 它们的 `root` 语义是「覆盖索引里记录的根」（跨机器搬迁），
+#: **不是**数据根选择。数据面（write/read/recall/...）出现 `root` 一律显式拒绝。
+_ROOT_SCOPED_OPS = frozenset({"ref", "index_code", "index_doc"})
+
+
 def _cg_call(cg, a):
     """认知图唯一入口（外层：op/action 缺省推导兜底 + 推导透出；主体见 `_cg_dispatch`）。
 
@@ -2166,6 +2277,16 @@ def _cg_call(cg, a):
             op = "route"
         else:
             op = "read"        # 无任何签名可依：维持旧缺省 read
+    # issue #810（2026-11-07 真实污染事故）：`root` **不参与数据根选择**——数据根的真源是
+    # 插件 datapath.ts 的四层链（env MDCG_DATA_ROOT/MDCG_ROOT → paths.json → 插件 config.mdcg.root → 默认）。
+    # 历史上 `root` 被静默忽略，调用方「以为分库了、实际全写进主库」（Ornn8 事件：主库 33805→35884）。
+    # 现在在数据面上**显式拒绝**，只在「覆盖索引里记录的 root」那几个面保留（ref / index_code / index_doc）。
+    # 空串视为「未传」（复核 0097：`root=""` 会让数据面全线报错，那是误伤）。
+    if a.get("root") and op not in _ROOT_SCOPED_OPS:
+        raise ValueError(
+            "root 不用于选择数据根（issue #810）：请用环境变量 MDCG_ROOT 启动独立进程；"
+            "root 参数仅在 ref / index_code / index_doc 上有效（覆盖索引里记录的 root）。"
+        )
     args = dict(a)
     act0 = (args.get("action") or "").strip().lower()
     act_sig = act_derived = None
@@ -2396,6 +2517,9 @@ def _task_call(cg, a):
     return _t.list_tasks(cg, status=tstat or None, limit=a.get("limit"))
 
 
+#: require 词别名：新 op 复用既有 op 词，不给令牌 face 引入新词（对账见 scripts/check_op_table_parity.py）。
+_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}
+
 # 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；fork：op=="forget" 的**删除**分支走 cg.forget_gated（三档自治批次②：档位判定在既有资格闸之后，变更确认档出变更单且不软删；restore 分支不变），op=="write" 经 writepipe 默认链（链尾 autonomy 档位闸）；
 def _gate_link_signers_file(a):
     """issue #167：signers_file 由调用方指定 = 调用方自选「验签策略来源」。
@@ -2494,6 +2618,27 @@ def _require_verify_for_vstate(p, a):
     p.require_op("verify")
 
 
+
+
+#: 落盘索引节点数缓存：{path: (mtime, size, count)}。issue #812 后续——60MB JSON 不该每次重解析。
+_DISK_COUNT_CACHE: dict = {}
+
+
+# 生效条件：path 指向 _index.json；返回其 nodes 条目数（按 mtime+size 缓存，外部改动自动失效）
+def _disk_index_count(path: str) -> int:
+    """落盘索引的节点数（缓存版）。解析失败由调用方兜底，这里只负责计数。"""
+    import json as _json
+    st = os.stat(path)
+    key = (st.st_mtime, st.st_size)
+    hit = _DISK_COUNT_CACHE.get(path)
+    if hit and hit[0] == key[0] and hit[1] == key[1]:
+        return hit[2]
+    with open(path, encoding="utf-8") as fh:
+        n = len(((_json.load(fh) or {}).get("nodes")) or {})
+    _DISK_COUNT_CACHE[path] = (key[0], key[1], n)
+    return n
+
+
 def _cg_dispatch(cg, a):
     # issue #722（Q1=A）：**工具面 read/route 缺省放宽**——在派发入口补默认，
     # 而不是在每个调用点编造参数：读面「不编造默认」约束的是**参数推导/回显**，
@@ -2511,7 +2656,10 @@ def _cg_dispatch(cg, a):
         # P3 写口（state_event）映射到既有 "write" op 词——不给令牌 face 引入新
         # op 词（角色白名单/派生收窄面零改动）：凡 ops 白名单含 write 的角色可
         # 记账，guest/只读令牌照拒。其余 op 逐位不变。
-        _p.require_op("write" if op == "state_event" else op)
+        # 【require 词别名】新 op 不引入新 require 词（角色白名单/派生收窄面零改动）：
+        #   state_event（写账本）→ "write"；state_view（只读回放+租约）→ "read"。
+        # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
+        _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
@@ -2682,6 +2830,16 @@ def _cg_dispatch(cg, a):
         raise ValueError(f"link 未知 action：{act}")
 
     if op == "info":
+        # 桶索引的**每日收尾自动重建**（2026-11-09 使用者裁定）：
+        # info 是低温、天然被面板/诊断周期性调用的点，适合做「陈旧才重建 + 后台线程」。
+        # 重建 3–5 秒，绝不阻塞本请求：maybe_auto_rebuild 缺省 background=True。
+        # 开关：MDCG_BUCKET_AUTO=0 关；间隔：MDCG_BUCKET_INTERVAL_H（缺省 20 小时）。
+        _bucket_auto = None
+        try:
+            from . import bucketindex as _bki      # noqa: PLC0415
+            _bucket_auto = _bki.maybe_auto_rebuild(cg)
+        except Exception:            # noqa: BLE001 —— 自动重建失败不影响 info
+            _bucket_auto = {"rebuilt": False, "reason": "error"}
         from . import audit
         from . import nodefile
         from . import theory as _th
@@ -2693,11 +2851,33 @@ def _cg_dispatch(cg, a):
         # 客户端 60s 超时（#677 现场：write 与 info 同时超时）。
         _full = _as_flag(a.get("full"))
         _nodes_info = ((getattr(cg, "index", None) or {}).get("nodes") or {})
+        # issue #812：`node_count` 是**进程内存索引**的条目数；外部进程（如直接调 MdCGOS 批量 forget）
+        # 改库后，这里不会变——2026-11-07 实测：批量软删 1987 条后 node_count 35884→35886，
+        # 而落盘 `_index.json` 实际只有 33900 条（被删节点已不在盘上索引里）。
+        # 修法：默认只透出 `index_mtime`（os.stat，零成本）；`full=true` 时再解析落盘索引，
+        # 给出 `index_node_count` 与 `index_stale`，让「内存 vs 落盘」的偏差可判定而不是靠猜。
+        # issue #812：`MdCG` 有 `index_path`，`MdCGOS` 没有 ⇒ 退回按 `root` 拼（同一文件名，见 mdcg.py）。
+        _idx_path = getattr(cg, "index_path", None)
+        if not _idx_path:
+            _root = getattr(cg, "root", None)
+            if _root:
+                _idx_path = os.path.join(str(_root), "_index.json")
+        _idx_mtime = None
+        if _idx_path:
+            try:
+                _idx_mtime = os.stat(str(_idx_path)).st_mtime
+            except OSError:
+                _idx_mtime = None
         h = {"surface": SURFACE,
              "tools": [t["name"] for t in tools_for_surface()],
              # 纯 MdCG 没有 whoami（Secure 才有）——诊断面不得因它崩（#677 B）。
              "whoami": (cg.whoami() if callable(getattr(cg, "whoami", None)) else None),
              "node_count": len(_nodes_info),
+             # issue #812：口径写明——它是**内存索引条目数**，不是「磁盘上活节点数」
+             "node_count_scope": "memory_index",
+            "bucket_auto": _bucket_auto,
+             # issue #812：落盘索引的 mtime（零成本）。若它晚于本进程启动，说明索引被外部改过。
+             "index_mtime": _idx_mtime,
              "audit_kinds": audit.kinds(),
              # 裁定 B：CCG 六要素的契约角色（术语真源在 nodefile，此处只透出）
              "ccg_contract": dict(nodefile.CCG_CONTRACT_ROLES),
@@ -2709,6 +2889,23 @@ def _cg_dispatch(cg, a):
                 h["flush_state"] = _fs()
             except Exception:               # noqa: BLE001 —— 诊断面不得拖崩
                 h["flush_state"] = None
+        # issue #812：落盘索引 vs 内存索引的偏差（只在 full=true 时解析——58MB JSON，快照面不能付这个成本）。
+        if _full and _idx_path:
+            try:
+                # 【issue #812 后续】60 MB 索引每次都整份 json.load 太重：
+                # 实测本机 0.7s，但在持 3.4 万节点内存索引的进程里会触发内存压力 ⇒ info(full=true) 曾 60s 超时。
+                # 现按 (mtime, size) 缓存计数：外部改库 ⇒ mtime 变 ⇒ 自动失效；只读面重复调用零成本。
+                _disk_nodes = _disk_index_count(str(_idx_path))
+                h["index_node_count"] = _disk_nodes
+                h["index_stale"] = _disk_nodes != len(_nodes_info)
+                h["index_stale_hint"] = ("index_stale=true 表示内存索引与落盘索引不一致。两种成因："
+                                         "① 外部进程改过库（如直接调 MdCGOS 批量 forget）；"
+                                         "② 本进程有尚未 flush 的写入。前者需重载/重启，"
+                                         "后者等待 flush 即可——不要一律当成外部改动") if h["index_stale"] else None
+            except Exception as _ie:            # noqa: BLE001 —— 诊断面不拖崩
+                h["index_node_count"] = None
+                h["index_stale"] = None
+                h["index_stale_error"] = "%s: %s" % (type(_ie).__name__, _ie)
         if _full:
             # 慢面：只有显式 full=true 才跑。**慢面不得覆盖快照已有键**（#677 复核：
             # 旧序 h.update(health_os()) 会让同名键覆盖快照值，两条腿对同一键不同值）。
@@ -2858,14 +3055,29 @@ def _cg_dispatch(cg, a):
         q = a.get("query") or a.get("intent") or ""
         # issue #303 O4：k 越界的信号单点（保留夹紧/切片行为，只在返回体加 warning）
         _kwarn = _k_warning(_int_arg(a, "k", 20))
+        # issue #721：检索期按标签过滤（域隔离）。
+        # 入参规范化放在**两条路径分叉之前**——recall(budget_tokens) 与 search 必须同口径，
+        # 否则同一个参数在两条路径上语义不同，正是本 issue 要消灭的那类「软约束」。
+        # 类型非法 -> 结构化 error（fail-closed），不静默当没传：静默会把调用方的
+        # 「域隔离」请求变成「全部域」返回，比报错危险得多。
+        try:
+            _inc_tags = norm_tags(a.get("include_tags"))
+            _exc_tags = norm_tags(a.get("exclude_tags"))
+        except TypeError as _e:
+            return {"ok": False, "error": "invalid_tags",
+                    "include_tags": a.get("include_tags"),
+                    "exclude_tags": a.get("exclude_tags"),
+                    "hint": "%s；标签须为字符串或字符串列表" % _e}
+        _tag_on = bool(_inc_tags or _exc_tags)
         # 显式 0 也是「显式」（2026-09-24 修复）：旧写法 `if a.get("budget_tokens")`
         # 把 0 当没传，静默换成 1200 —— 调用方以为「零预算」拿到的是满预算结果。
         if a.get("budget_tokens") is not None:
             # #188：`excerpt_strategy` 透传；#303 O4 的 k 越界 warning 仍走
             # 下方 `_out` 后处理（两处改动正交——一个加参数、一个加返回体字段）。
+            _ctx_r = a.get("context") or (a.get("condition_space") if a.get("condition_space") else None)
             _out = cg.recall(q, budget_tokens=int(a["budget_tokens"]),
                              excerpt_strategy=a.get("excerpt_strategy") or "prefix",
-                             k=_int_arg(a, "k", 20), context=a.get("context"),
+                             k=_int_arg(a, "k", 20), context=_ctx_r,
                              goal_text=a.get("goal"),
                              include_recent=bool(a.get("include_recent")),
                              recent_limit=int(a.get("limit") or 10),
@@ -2905,31 +3117,33 @@ def _cg_dispatch(cg, a):
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
         _doc_filter_on = _as_flag(a.get("exclude_doc", False))
+        # 【issue #811】`condition_space` 早先**没有进链路**（只透传 context）⇒ 传了等于没传。
+        # 判据同源：condition_space 与 context 都是「条件过滤面」，context 显式给了就优先，
+        # 否则用 condition_space 顶上（不再静默丢弃）。
+        _ctx = a.get("context")
+        _ctx_from = "context" if _ctx is not None else None
+        if _ctx is None and a.get("condition_space"):
+            _ctx = a.get("condition_space")
+            _ctx_from = "condition_space"
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
-                           context=a.get("context"), session=a.get("session"),
-                           validity=(_as_flag(a["validity"]) if "validity" in a else True),
+                           context=_ctx, session=a.get("session"),
+                           validity=a.get("validity"),
                            # issue #722：**只在显式传参时透传**（读面纪律：不编造默认）。
                            **({"strict_conditions": _as_flag(a["strict_conditions"])}
                               if "strict_conditions" in a else {}),
                            **_tkw)
         _k_want = search_args["k"]
-        if _doc_filter_on:
-            # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）
+        if _doc_filter_on or _tag_on:
+            # 只在过滤开启时超取（过滤后再截回 _k_want，对外语义不变）。
+            # issue #721：标签过滤与 doc 过滤同理会吃配额——top-k 被反面域占满时
+            # 结果会假性空掉，故两者共用同一条超取规则。
             search_args["k"] = min(max(_k_want * 4, _k_want + 32), 400)
         if a.get("bm25", True) and hasattr(cg, "search_rrf"):
-            ranked, meta = cg.search_rrf(q, paths=("bm25",), **search_args)
+            # 【issue #811】read 面早先**忽略 `semantic`**（该参数只在 mdcg_search 生效）⇒ 传了等于没传。
+            # 现显式并入第 6 路（向量/语义仅在库里有向量时才产候选，没有则自然为空，不造假）。
+            _paths = ("bm25", "semantic") if a.get("semantic") else ("bm25",)
+            ranked, meta = cg.search_rrf(q, paths=_paths, **search_args)
             res = [(n, s, qual) for n, s, qual, _provenance in ranked]
-            # 2026-11-08 空答闸（审计报告 §90.3）：RRF 分是常数 1/(60+rank)，
-            # 阈值只能落在**原始词法分**上。实测 T=0.094 时金标误杀 0/22、
-            # 负控漏放 2/12。默认 0 = 关闭，行为零变化。
-            _gate = float(os.environ.get("MDCG_EMPTY_GATE", "0") or 0)
-            if _gate > 0 and res:
-                _tr = ((meta or {}).get("bm25") or {}).get("top_raw")
-                if _tr is not None and float(_tr) < _gate:
-                    meta = dict(meta or {})
-                    meta["empty_gate"] = {"threshold": _gate, "top_raw": float(_tr),
-                                          "dropped": len(res)}
-                    res = []
         else:
             res, meta = cg.search(q, **search_args)
         # read 面过滤 doc_ 索引节点（2026-10-23 使用者批准）：doc_ 为会话日志切片，
@@ -2937,10 +3151,19 @@ def _cg_dispatch(cg, a):
         # issue #653：判据收敛到 drop_doc_nodes（单一真源），不再就地手写第二条。
         res, _excluded_doc = drop_doc_nodes(
             res, lambda x: (x[0] or {}).get("id"), _doc_filter_on)
-        # 截回调用方要的 k（超取只为让 doc_ 不占配额，不改变对外语义）
-        if _doc_filter_on and len(res) > _k_want:
+        # issue #721：标签过滤（search 路径）。与 recall 路径同一判据函数 filter_by_tags，
+        # 语义见其 docstring：多标签 OR / 全等 / 无匹配返回空集 / exclude 优先于 include。
+        _tag_dropped = 0
+        if _tag_on:
+            res, _tag_dropped = filter_by_tags(
+                res, lambda x: tags_of_item(cg, x), include_tags=_inc_tags,
+                exclude_tags=_exc_tags)
+        # 截回调用方要的 k（超取只为让被过滤项不占配额，不改变对外语义）
+        if (_doc_filter_on or _tag_on) and len(res) > _k_want:
             res = res[:_k_want]
         meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
+        if _tag_on:
+            meta = _note_tag_filter(meta, _tag_dropped, _inc_tags, _exc_tags)
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"),
@@ -3086,10 +3309,37 @@ def _cg_dispatch(cg, a):
     if op == "recent":
         act = (a.get("action") or "list").strip().lower()
         if act in ("add", "append", "remember"):
-            return cg.remember_event(a.get("role") or "user",
-                                     a.get("text") or a.get("content") or "",
-                                     tags=a.get("tags"), meta=a.get("meta"),
+            _role = a.get("role") or "user"
+            _text = a.get("text") or a.get("content") or ""
+            _meta = a.get("meta") or {}
+            _res = cg.remember_event(_role, _text, tags=a.get("tags"),
+                                     meta=a.get("meta"),
                                      window=int(a.get("window") or 200))
+            # L2 状态台账的**双端共用触发点**（2026-11-02 接线）。
+            # 放在这里而不是各端钩子里的理由：DSH 端（src/hooks.ts 的
+            # recentAdd）与 zcode 端（sync_zcode_session）**都**经过本分支，
+            # 一处接线即覆盖两端；且 op 面零扩张——本 op 的 require 是
+            # `recent`，而「能写 _recent」本就已隐含「能写运行态面」，
+            # 不把任何角色抬到 `write`（实测：output/guest 两个角色有 recent
+            # 无 write，但它们 can_write=False，remember_event 已在上一行拒掉，
+            # 到不了这里）。
+            #
+            # 三个前置条件（缺一不抽）：
+            #   ① role == "user"——抽取器只认真人发言（助手自述不复盖真值）；
+            #   ② meta 带 session——无会话归属的事件无法做去重与审计；
+            #   ③ 开关 MDCG_STATE_EXTRACT 开（缺省开）。
+            # 逐轮 fail-soft：抽取/记账任何失败都**不得**影响窗口写入的返回值
+            # （窗口是运行态面，状态台账是派生面）。
+            if _role == "user" and _text and _meta.get("session"):
+                try:
+                    from . import state_extract as _sx
+                    if _sx.enabled():
+                        _sx.extract_and_record(
+                            cg, _meta.get("session"),
+                            _meta.get("turn"), "user", _text)
+                except Exception:  # noqa: BLE001
+                    pass
+            return _res
         if act == "clear":
             return {"cleared": cg.clear_recent()}
         return {"events": cg.recent_events(limit=int(a.get("limit") or 20),
@@ -3114,6 +3364,17 @@ def _cg_dispatch(cg, a):
                          evidence=a.get("evidence") or "",
                          actor=_actor)
         return {"ok": True, "event": rec}
+
+    if op == "state_view":
+        # 【设计稿 docs/设计_状态账本与终态投影_v0.1.md §3.2/§3.3】
+        # 账本是源（state_events）、槽位是回放投影（state_slots）、本 op 在其上加**租约语义**：
+        #   stable ⟺ (now - t_from) < TTL 且值非撤回；超时 ⇒ weak=True 但**不删值**（智能论 3.2.2 P1-003）。
+        # 并把同一 subject 的全部槽位**联合给出**——多要素题要求时间/参与人/地点同时在场。
+        # 纯只读：不写盘、不建缓存；同一账本 + 同一 now 必得同一结果。
+        from . import state_view as _sv
+        return _sv.state_view(cg, subject=a.get("subject"), slot=a.get("slot"),
+                              include_retired=bool(a.get("include_retired")),
+                              limit=a.get("limit"))
 
     if op == "verify":
         return cg.verify(a.get("node_id", ""), a.get("evidence", ""),
@@ -4274,23 +4535,23 @@ _MDCG_TOOL_OP = {
     "mdcg_rejected": "write", "mdcg_unresolved": "write",
     "mdcg_propose": "write", "mdcg_review_decide": "write",
     "mdcg_forget": "write", "mdcg_restore": "write",
-    "mdcg_ingest": "ingest",
-    "mdcg_consistency": "consistency",
+    "mdcg_ingest": "write",
+    "mdcg_consistency": "write",
     # 读面
     "mdcg_recall": "read", "mdcg_search": "read", "mdcg_get": "read",
     # issue #398 站点 2：裁决记录台账属**裁决面**（`cg(op=review, action=records)` 要
     # require_op("review")），此前映射粗粒度 read ⇒ 无令牌访客（guest，仅 read）可经
     # 工具面明文读回裁决台账（id/path/tags[含 pid、round]/created_at）。对齐真源 review。
     "mdcg_review_records": "review",
-    "mdcg_identity": "identity",
+    "mdcg_identity": "read",
     # issue #398 站点 1：自我状态机（refresh 会**真写 self 层**状态卡、override=True）
     # 在规范出口要 require_op("self_state")，此前工具面只查 read ⇒ 无 self_state op 的
     # 令牌可经工具面驱动它。对齐真源 self_state。
-    "mdcg_metacognition": "metacognition", "mdcg_self_state": "self_state",
-    "mdcg_predict": "predict", "mdcg_causal": "causal",
+    "mdcg_metacognition": "read", "mdcg_self_state": "self_state",
+    "mdcg_predict": "read", "mdcg_causal": "read",
     "mdcg_health": "read",
     "mdcg_whoami": "read", "mdcg_watermarks": "read",
-    "mdcg_whitebox": "whitebox",
+    "mdcg_whitebox": "read",
     # issue #578 / dsh-bounty#435：本入口**不在这张表里** ⇒ _dispatch 取
     # `_MDCG_OP_REQUIRE.get(name)` 得 None ⇒ 跳过 require_op。而它回吐的
     # `principal.as_dict()` 与受 read 闸管着的 `mdcg_whoami` 是**同一份**身份清单
@@ -4665,6 +4926,8 @@ def _dispatch(cg, name, args):
                          override=bool(a.get("override")),
                          consistency=bool(a.get("consistency", True)),
                          on_conflict=a.get("on_conflict") or "reject",
+                         # 【情景层 v0.1】diary 声明透传：角色名/地点/事件日由调用方声明，不靠抽取。
+                         **({"diary": a["diary"]} if isinstance(a.get("diary"), dict) else {}),
                          derived_from=_split_ids(a.get("derived_from")),
                          relation=a.get("relation"))
         if written is None:

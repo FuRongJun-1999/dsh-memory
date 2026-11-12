@@ -1,0 +1,108 @@
+[
+  {
+    "module": "md_cg.test_csre_correctness",
+    "returncode": 0,
+    "seconds": 1.542759699994349,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_csre_correctness"
+    ]
+  },
+  {
+    "module": "md_cg.test_csre_session",
+    "returncode": 0,
+    "seconds": 1.5276092999993125,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_csre_session"
+    ]
+  },
+  {
+    "module": "md_cg.test_csre_mutations",
+    "returncode": 0,
+    "seconds": 1.4627496999892173,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_csre_mutations",
+      "--output",
+      "E:\\lingshu\\work\\memory-rsi-submit-20261012\\docs\\eval\\memory-rsi-evidence-20261012\\submission-checks\\csre-mutations.json"
+    ]
+  },
+  {
+    "module": "md_cg.test_memory_rsi",
+    "returncode": 0,
+    "seconds": 1.3489886000024853,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_memory_rsi"
+    ]
+  },
+  {
+    "module": "md_cg.test_memory_rsi_adversarial",
+    "returncode": 0,
+    "seconds": 1.4732177999976557,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_memory_rsi_adversarial"
+    ]
+  },
+  {
+    "module": "md_cg.test_evidence_delivery_compact",
+    "returncode": 0,
+    "seconds": 0.5132430999947246,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_evidence_delivery_compact"
+    ]
+  },
+  {
+    "module": "md_cg.test_experience_consolidation",
+    "returncode": 0,
+    "seconds": 1.6422229000017978,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_experience_consolidation"
+    ]
+  },
+  {
+    "module": "md_cg.test_issue75_neural_failure",
+    "returncode": 0,
+    "seconds": 0.5019117000047117,
+    "command": [
+      "E:\\lingshu\\work\\r4-runtime-20261012\\Scripts\\python.exe",
+      "-B",
+      "-X",
+      "utf8",
+      "-m",
+      "md_cg.test_issue75_neural_failure"
+    ]
+  }
+]

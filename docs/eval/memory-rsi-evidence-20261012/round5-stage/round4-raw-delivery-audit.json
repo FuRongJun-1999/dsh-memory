@@ -1,0 +1,322 @@
+[
+  {
+    "task": "dependency-version-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "dependency-version-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "dependency-version-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "dependency-version-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "api-parameter-migration-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "api-parameter-migration-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "api-parameter-migration-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "api-parameter-migration-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "configuration-root-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "configuration-root-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "configuration-root-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "configuration-root-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "data-structure-protocol-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "data-structure-protocol-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "data-structure-protocol-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "data-structure-protocol-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "permission-conjunction-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "permission-conjunction-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "permission-conjunction-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "permission-conjunction-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "stale-event-knowledge-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "stale-event-knowledge-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "stale-event-knowledge-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "stale-event-knowledge-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "multi-step-url-encoding-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "multi-step-url-encoding-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "multi-step-url-encoding-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "multi-step-url-encoding-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "historical-policy-conflict-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "historical-policy-conflict-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "historical-policy-conflict-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "historical-policy-conflict-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "insufficient-evidence-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "insufficient-evidence-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "insufficient-evidence-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "insufficient-evidence-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "failure-safe-publication-1",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "failure-safe-publication-1",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "failure-safe-publication-2",
+    "rep": 1,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  },
+  {
+    "task": "failure-safe-publication-2",
+    "rep": 2,
+    "pack": 4,
+    "id_mentions_in_text": 2,
+    "outer_truncated": true,
+    "null_FM_sources": 0
+  }
+]

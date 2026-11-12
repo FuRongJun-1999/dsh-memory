@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """test_state_event_op · cg(op=state_event) 记账写口守卫（P3 批：写侧入口）。
 
 契约：`docs/plans/语义时空图补全_世界模型功能端_设计_v0.1.md` §2「事件是源、槽位是

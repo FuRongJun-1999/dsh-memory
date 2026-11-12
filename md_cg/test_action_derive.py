@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """test_action_derive · action 缺省静默降级防呆（与 op 推导同构）
 
 背景：`op` 传了、`action` 漏了 → 各分支按字面量默认 action 执行。若默认恰是

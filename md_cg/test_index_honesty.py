@@ -49,7 +49,8 @@ def _mklink_junction(link, target):
     try:
         if os.name == "nt":
             r = subprocess.run(["cmd", "/c", "mklink", "/J", link, target],
-                               capture_output=True, text=True)
+                               capture_output=True, text=True,
+                               encoding="utf-8", errors="replace")
             return r.returncode == 0 and os.path.isdir(link)
         os.symlink(target, link, target_is_directory=True)
         return True

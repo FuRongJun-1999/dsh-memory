@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """Default exports must preserve each snapshot, including concurrent requests.
 
 移植来源（2026-10-09 DSH 端）：GitHub PR #79「fix/export-default-snapshots」，

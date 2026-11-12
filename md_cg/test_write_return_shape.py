@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 '''写返回体判据守卫（issue #109 相邻面）：committed 必须可机器判定。
 
 背景：`mdcg_remember` 工具面的**同一个返回体**在闸门短路分支给 `committed=False`，

@@ -1,0 +1,1228 @@
+{
+  "split": "development",
+  "partial": false,
+  "arms": {
+    "A": {
+      "success": 4,
+      "n": 6,
+      "rate": 0.6666666666666666,
+      "by_family": {
+        "interval-ledger": {
+          "success": 1,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 0,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 0,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 2,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 12661,
+        "outputTokens": 4431,
+        "cacheReadTokens": 40448,
+        "cacheWriteTokens": 0,
+        "totalTokens": 57540
+      },
+      "uncached_input_plus_output": 17092,
+      "model_requests": 31,
+      "P50_ms": 8712.0,
+      "P95_ms": 11240.25,
+      "memory_P50_ms": 0.4393999988678843,
+      "memory_P95_ms": 0.4689250017690938,
+      "memory_tool_P50_ms": 768.4802,
+      "memory_tool_P95_ms": 791.20755,
+      "target_retrievals": 0,
+      "necessary_complete_A_fact_delivery_runs": 0,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": null,
+      "declared_target_use": 0,
+      "safe_abstentions": 1,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 0,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "safe_abstention": 1,
+        "implementation_ownership": 1
+      }
+    },
+    "B": {
+      "success": 4,
+      "n": 6,
+      "rate": 0.6666666666666666,
+      "by_family": {
+        "interval-ledger": {
+          "success": 1,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 0,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 0,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 2,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 15363,
+        "outputTokens": 4863,
+        "cacheReadTokens": 55296,
+        "cacheWriteTokens": 0,
+        "totalTokens": 75522
+      },
+      "uncached_input_plus_output": 20226,
+      "model_requests": 34,
+      "P50_ms": 9805.5,
+      "P95_ms": 11819.25,
+      "memory_P50_ms": 65.32154999877093,
+      "memory_P95_ms": 66.68489999356098,
+      "memory_tool_P50_ms": 844.7738000000002,
+      "memory_tool_P95_ms": 854.2995000000001,
+      "target_retrievals": 6,
+      "necessary_complete_A_fact_delivery_runs": 0,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": 0.3333333333333333,
+      "declared_target_use": 1,
+      "safe_abstentions": 2,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 1,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "E_required_fact_delivery_loss": 2,
+        "safe_abstention": 2
+      }
+    },
+    "C": {
+      "success": 3,
+      "n": 6,
+      "rate": 0.5,
+      "by_family": {
+        "interval-ledger": {
+          "success": 0,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 0,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 0,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 1,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 15006,
+        "outputTokens": 5131,
+        "cacheReadTokens": 57600,
+        "cacheWriteTokens": 0,
+        "totalTokens": 77737
+      },
+      "uncached_input_plus_output": 20137,
+      "model_requests": 35,
+      "P50_ms": 11370.0,
+      "P95_ms": 12614.25,
+      "memory_P50_ms": 65.00459999369923,
+      "memory_P95_ms": 67.22822499796166,
+      "memory_tool_P50_ms": 850.165,
+      "memory_tool_P95_ms": 865.4431249999999,
+      "target_retrievals": 6,
+      "necessary_complete_A_fact_delivery_runs": 0,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": 1.0,
+      "declared_target_use": 1,
+      "safe_abstentions": 1,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 1,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "E_required_fact_delivery_loss": 2,
+        "safe_abstention": 1,
+        "implementation_ownership": 1,
+        "H_current_task_self_contained": 1
+      }
+    },
+    "D": {
+      "success": 5,
+      "n": 6,
+      "rate": 0.8333333333333334,
+      "by_family": {
+        "interval-ledger": {
+          "success": 1,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 1,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 1,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 2,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 18019,
+        "outputTokens": 5956,
+        "cacheReadTokens": 77824,
+        "cacheWriteTokens": 0,
+        "totalTokens": 101799
+      },
+      "uncached_input_plus_output": 23975,
+      "model_requests": 37,
+      "P50_ms": 10229.0,
+      "P95_ms": 12676.75,
+      "memory_P50_ms": 65.87954999122303,
+      "memory_P95_ms": 67.72215000091819,
+      "memory_tool_P50_ms": 853.3769,
+      "memory_tool_P95_ms": 886.2147750000001,
+      "target_retrievals": 6,
+      "necessary_complete_A_fact_delivery_runs": 2,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": 0.16666666666666666,
+      "declared_target_use": 4,
+      "safe_abstentions": 0,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 5,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "F_G_after_complete_evidence": 1,
+        "implementation_ownership": 1
+      }
+    },
+    "E": {
+      "success": 5,
+      "n": 6,
+      "rate": 0.8333333333333334,
+      "by_family": {
+        "interval-ledger": {
+          "success": 1,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 1,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 1,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 2,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 12961,
+        "outputTokens": 4913,
+        "cacheReadTokens": 46208,
+        "cacheWriteTokens": 0,
+        "totalTokens": 64082
+      },
+      "uncached_input_plus_output": 17874,
+      "model_requests": 31,
+      "P50_ms": 8193.0,
+      "P95_ms": 12848.5,
+      "memory_P50_ms": 64.00355000369018,
+      "memory_P95_ms": 64.08124999870779,
+      "memory_tool_P50_ms": 843.3852000000002,
+      "memory_tool_P95_ms": 852.5536250000001,
+      "target_retrievals": 6,
+      "necessary_complete_A_fact_delivery_runs": 2,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": 1.0,
+      "declared_target_use": 3,
+      "safe_abstentions": 0,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 3,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "F_G_after_complete_evidence": 1,
+        "implementation_ownership": 1
+      }
+    },
+    "F": {
+      "success": 4,
+      "n": 6,
+      "rate": 0.6666666666666666,
+      "by_family": {
+        "interval-ledger": {
+          "success": 1,
+          "n": 1
+        },
+        "ownership-tree": {
+          "success": 1,
+          "n": 1
+        },
+        "retention-policy": {
+          "success": 0,
+          "n": 1
+        },
+        "routing-registry": {
+          "success": 0,
+          "n": 1
+        },
+        "sentinel-contract": {
+          "success": 1,
+          "n": 1
+        },
+        "timestamp-contract": {
+          "success": 1,
+          "n": 1
+        }
+      },
+      "by_category": {
+        "memory-essential": {
+          "success": 0,
+          "n": 2
+        },
+        "negative-transfer": {
+          "success": 2,
+          "n": 2
+        },
+        "transfer": {
+          "success": 2,
+          "n": 2
+        }
+      },
+      "usage": {
+        "inputTokens": 16859,
+        "outputTokens": 4072,
+        "cacheReadTokens": 53888,
+        "cacheWriteTokens": 0,
+        "totalTokens": 74819
+      },
+      "uncached_input_plus_output": 20931,
+      "model_requests": 30,
+      "P50_ms": 8593.5,
+      "P95_ms": 11873.75,
+      "memory_P50_ms": 97.61799999978393,
+      "memory_P95_ms": 100.93227499964996,
+      "memory_tool_P50_ms": 873.7639,
+      "memory_tool_P95_ms": 905.3608999999999,
+      "target_retrievals": 6,
+      "necessary_complete_A_fact_delivery_runs": 0,
+      "necessary_runs": 2,
+      "mean_delivered_applicability_precision": null,
+      "declared_target_use": 0,
+      "safe_abstentions": 1,
+      "mixed_repeat_instances": 0,
+      "repeat_instances": 6,
+      "declaration_interface_errors": 0,
+      "reflection_triggers": 0,
+      "failure_stage_multilabel_counts": {
+        "safe_abstention": 1,
+        "implementation_ownership": 1
+      }
+    }
+  },
+  "paired": {
+    "A->B": {
+      "wins": 0,
+      "losses": 0,
+      "ties": 6,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "A->C": {
+      "wins": 0,
+      "losses": 1,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": -1,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": -0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        -0.5,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": false,
+          "delta": -1
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "A->D": {
+      "wins": 1,
+      "losses": 0,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 1,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.5
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": true,
+          "delta": 1
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "A->E": {
+      "wins": 1,
+      "losses": 0,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 1,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.5
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": true,
+          "delta": 1
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "A->F": {
+      "wins": 0,
+      "losses": 0,
+      "ties": 6,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "B->C": {
+      "wins": 0,
+      "losses": 1,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": -1,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": -0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        -0.5,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": false,
+          "delta": -1
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "B->D": {
+      "wins": 1,
+      "losses": 0,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 1,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.5
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": true,
+          "delta": 1
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "B->E": {
+      "wins": 1,
+      "losses": 0,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 1,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.5
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": true,
+          "delta": 1
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "B->F": {
+      "wins": 0,
+      "losses": 0,
+      "ties": 6,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "D->E": {
+      "wins": 0,
+      "losses": 0,
+      "ties": 6,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": 0,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": 0,
+      "descriptive_family_bootstrap_95_interval": [
+        0.0,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    },
+    "D->F": {
+      "wins": 0,
+      "losses": 1,
+      "ties": 5,
+      "family_mean_differences": {
+        "routing-registry": 0,
+        "retention-policy": -1,
+        "interval-ledger": 0,
+        "ownership-tree": 0,
+        "timestamp-contract": 0,
+        "sentinel-contract": 0
+      },
+      "mean_family_delta": -0.16666666666666666,
+      "descriptive_family_bootstrap_95_interval": [
+        -0.5,
+        0.0
+      ],
+      "family_count": 6,
+      "detail": [
+        {
+          "task": "development-routing-registry-1",
+          "rep": 1,
+          "family": "routing-registry",
+          "base": false,
+          "other": false,
+          "delta": 0
+        },
+        {
+          "task": "development-retention-policy-1",
+          "rep": 1,
+          "family": "retention-policy",
+          "base": true,
+          "other": false,
+          "delta": -1
+        },
+        {
+          "task": "development-interval-ledger-1",
+          "rep": 1,
+          "family": "interval-ledger",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-ownership-tree-1",
+          "rep": 1,
+          "family": "ownership-tree",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-timestamp-contract-1",
+          "rep": 1,
+          "family": "timestamp-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        },
+        {
+          "task": "development-sentinel-contract-1",
+          "rep": 1,
+          "family": "sentinel-contract",
+          "base": true,
+          "other": true,
+          "delta": 0
+        }
+      ],
+      "caution": "Small, correlated task family set; descriptive interval is not proof of statistical significance."
+    }
+  },
+  "trials": 36,
+  "families": 6,
+  "reflection_enabled": false,
+  "actual_API_currency_cost": "Not reported by DSH usage; token counts are observed, no account balance delta treated as per-run billing."
+}

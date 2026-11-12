@@ -80,6 +80,18 @@ def _cat_of(slot: str, events) -> str:
     return "未分类"
 
 
+# 生效条件：text 经 str() 后竖线转 "\\|"、换行转空格并 strip，返回该串；不校验真值/类型。
+def _cell(text):
+    """表格单元格转义单点（issue #171；与 scripts/render_discipline.py::_cell 同款）。
+
+    病象：单元格裸拼接——登记文本/用户原话里的竖线被 markdown 读成列分隔符，
+    整行多出一格、整张表错位。
+    为什么只做转义：单元格是**数据**不是 markdown——值逐字保留（含竖线），只把
+    「数据里的竖线」与「表格分隔符」机械分开；无竖线的单元格输出与修复前逐字相同。
+    """
+    return str(text).replace("|", "\\|").replace("\n", " ").strip()
+
+
 def render(events, units, act_gap: int) -> str:
     L = []
     L.append("# 鲸娘 · 状态追踪图 v1（世界书 ＋ 大事记 ＋ 分幕大纲）")
@@ -104,9 +116,9 @@ def render(events, units, act_gap: int) -> str:
         old = e.get("old") if e.get("old") is not None else "∅"
         new = e.get("new") if e.get("new") is not None else "∅（作废）"
         L.append("| %d | %s | %s | %s → %s | %s |"
-                 % (e["seq"], e.get("cat") or "?", e["slot"],
-                    str(old)[:28], str(new)[:40],
-                    KIND_ZH.get(e["kind"], e["kind"])))
+                 % (e["seq"], _cell(e.get("cat") or "?"), _cell(e["slot"]),
+                    _cell(str(old)[:28]), _cell(str(new)[:40]),
+                    _cell(KIND_ZH.get(e["kind"], e["kind"]))))
     L.append("")
 
     # ---- ① 世界书条目 ----

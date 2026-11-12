@@ -45,7 +45,15 @@ def _build_rules():
         ("旧机 Program Files", DRIVE + SEP + "[Pp]rogram Files" + SEP + "2_ai"),
         ("DSH 本机 home", DRIVE + SEP + "dsh-home(?![A-Za-z0-9_])"),
         ("E 盘沙箱", "E:" + SEP + "test(?![A-Za-z0-9_])"),
-        ("用户实名目录", "C:" + SEP + "Users" + SEP + "(Fu" + "RongJun|FU" + " RONG~1)"),
+        # ★ 本笔修（B6-⑥ 空格缺陷）：原为 `"(Fu" + "RongJun|FU" + " RONG~1)"` ——
+        #   `FU` 与 `RONG~1` 之间**多一个空格**，生效形态变成 `FU RONG~1`，
+        #   于是 8.3 短名（实名目录的 8.3 形态，本文件里按体例以拼接构造写出，不进字面量）
+        #   **整类漏抓**。
+        #   同仓姊妹件 `check_publish_artifact.py` 的 R3-b 拼的是 `"FU" + "RONG~1"`（无空格）
+        #   ⇒ 同一形态在 R3 命中、在 B6 不命中，两守卫口径分叉；本笔把 B6 对齐到无空格。
+        #   判据与自证**同时漏**的原因：正样例只喂了长名（见 POSITIVE_SAMPLES），
+        #   故 `--selftest` 在该分支上一直是绿的。本笔一并补短名正样例。
+        ("用户实名目录", "C:" + SEP + "Users" + SEP + "(Fu" + "RongJun|FU" + "RONG~1)"),
         ("用户目录子面",
          "C:" + SEP + "Users" + SEP + "[^" + BS + "/]+" + SEP
          + "(AppData|" + BS + ".dsh|" + BS + ".mdcg)"),
@@ -77,6 +85,11 @@ POSITIVE_SAMPLES = [
     ("DSH 本机 home", _DR + ":" + _DL + "dsh-home" + _DL + "sessions"),
     ("E 盘沙箱", "E" + ":" + _SL + "test/smoke"),
     ("用户实名目录", _CR + ":" + _SL + "Users" + _SL + "Fu" + "RongJun"),
+    # ★ 本笔补（防"判据与自证同时漏"复发）：8.3 短名与**转义形态**各一条正样例。
+    #   修前这两条必红（修前 selftest 正样例 11 项里**没有**它们 ⇒ 缺陷得以长期静默）。
+    ("用户实名目录", _CR + ":" + _SL + "Users" + _SL + "FU" + "RONG~1"),
+    ("用户实名目录", _CR + ":" + _DL + "Users" + _DL + "FU" + "RONG~1"),
+    ("用户实名目录", _CR + ":" + _DL + _DL + "Users" + _DL + _DL + "FU" + "RONG~1" + _DL + _DL + "x"),
     ("用户目录子面", _CR + ":" + _DL + "Users" + _DL + "somebody" + _DL + "AppData" + _DL + "Temp"),
     ("用户目录子面", _CR + ":" + _SL + "Users" + _SL + "somebody" + _SL + ".mdcg/x.py"),
     ("安装面读数", _CR + ":" + _DL + "Program Files" + _DL + "Docker" + _DL + "x.exe"),

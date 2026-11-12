@@ -1,0 +1,414 @@
+{
+  "baseline_commit": "10bc96a28e742e04676556e1a6789f7c873ccdce",
+  "kind": "actual temporary-store guards / named runtime mutations",
+  "platforms": {
+    "windows": {
+      "baseline": {
+        "tests": 12,
+        "passed": 1,
+        "failed": 11,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... FAIL\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... FAIL\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... FAIL\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... FAIL\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... FAIL\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... FAIL\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... FAIL\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... FAIL\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... FAIL\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n======================================================================\nFAIL: test_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 158, in test_append_subgraph_refreshes_chain\n    self.assertIn('tail', [nid for nid, _ in chain.adjacency(self.cg).get('seed', [])])\nAssertionError: 'tail' not found in []\n\n======================================================================\nFAIL: test_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 236, in test_base_mdcg_metadata_write\n    self.assertEqual(chain.walk(cg, 'a')[0:1] and chain.walk(cg, 'a')[0]['nodes'], ['a', 'b'])\nAssertionError: Lists differ: [] != ['a', 'b']\n\nSecond list contains 2 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a', 'b']\n\n======================================================================\nFAIL: test_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 166, in test_edge_condition_refreshes_chain\n    self.assertIn('new condition', str(chain.walk(self.cg, 'seed')[0]['conditions']))\nAssertionError: 'new condition' not found in \"['载体/位置：old condition']\"\n\n======================================================================\nFAIL: test_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 189, in test_lifecycle_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['lifecycle_state'], 'converged')\nAssertionError: 'active' != 'converged'\n- active\n+ converged\n\n\n======================================================================\nFAIL: test_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 173, in test_metadata_write_refreshes_query\n    self.assertIn('tail', [r[0]['id'] for r in rows], 'graph hit must join the next result after metadata write')\nAssertionError: 'tail' not found in ['seed'] : graph hit must join the next result after metadata write\n\n======================================================================\nFAIL: test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 209, in test_rebuild_refreshes_both_hierarchy_directions\n    self.assertEqual(subgraph.children(self.cg, 'seed'), ['tail'])\nAssertionError: Lists differ: [] != ['tail']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'tail'\n\n- []\n+ ['tail']\n\n======================================================================\nFAIL: test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 216, in test_rebuild_refreshes_dependency_index\n    self.assertEqual(trust.dependents_index(self.cg).get('seed'), ['tail'],\nAssertionError: None != ['tail'] : dependency cache must follow the rebuilt authoritative snapshot\n\n======================================================================\nFAIL: test_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 202, in test_rebuild_refreshes_graph\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']])\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']]\n\n======================================================================\nFAIL: test_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 196, in test_rebuild_refreshes_query\n    self.assertIn('new-source-tag', rows[0][0]['frontmatter']['tags'])\nAssertionError: 'new-source-tag' not found in []\n\n======================================================================\nFAIL: test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 181, in test_verification_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['verification_state'], 'verified')\nAssertionError: 'unverified' != 'verified'\n- unverified\n? --\n+ verified\n\n\n----------------------------------------------------------------------\nRan 12 tests in 0.538s\n\nFAILED (failures=11)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... ok\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... ok\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... ok\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... ok\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... ok\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... ok\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... ok\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... ok\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... ok\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... ok\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.651s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "ignore dirty generation",
+            "test": "Guards.test_append_edge_refreshes_chain",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n----------------------------------------------------------------------\nRan 1 test in 0.051s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c5baae03b4d258395ae80aab0543feb12ddd3683e9919fb696670a7862808521"
+          },
+          {
+            "name": "ignore chain generation",
+            "test": "Guards.test_append_edge_refreshes_chain",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n----------------------------------------------------------------------\nRan 1 test in 0.048s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "56a518fb3a0e3d971a9e5d41f3ec898b9922e5a2a3ac544e7b7649a74cd2b64c"
+          },
+          {
+            "name": "omit query generation witness",
+            "test": "Guards.test_verification_change_refreshes_query",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... FAIL\n\n======================================================================\nFAIL: test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 181, in test_verification_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['verification_state'], 'verified')\nAssertionError: 'unverified' != 'verified'\n- unverified\n? --\n+ verified\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.055s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "aeae6e0106e72d54b48860f6ad97d973958eef7457c6fc63d66770eb4a16d4f1"
+          },
+          {
+            "name": "omit hierarchy generation",
+            "test": "Guards.test_rebuild_refreshes_both_hierarchy_directions",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... FAIL\n\n======================================================================\nFAIL: test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 209, in test_rebuild_refreshes_both_hierarchy_directions\n    self.assertEqual(subgraph.children(self.cg, 'seed'), ['tail'])\nAssertionError: Lists differ: [] != ['tail']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'tail'\n\n- []\n+ ['tail']\n\n----------------------------------------------------------------------\nRan 1 test in 0.061s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "df70714d79d99a241ff94ad58b784ce98d9f72a23ce8ba12cfc9b0fe546eaac8"
+          },
+          {
+            "name": "ignore dependency generation",
+            "test": "Guards.test_rebuild_refreshes_dependency_index",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... FAIL\n\n======================================================================\nFAIL: test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>\\memory-three-cache-20261015\\md_cg\\test_derived_cache_generations.py\", line 216, in test_rebuild_refreshes_dependency_index\n    self.assertEqual(trust.dependents_index(self.cg).get('seed'), ['tail'],\nAssertionError: None != ['tail'] : dependency cache must follow the rebuilt authoritative snapshot\n\n----------------------------------------------------------------------\nRan 1 test in 0.057s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5d0845d060e4c0640cd52799a841e49ff599a9cb44e00a3a08917a6f275c6826"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... ok\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... ok\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... ok\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... ok\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... ok\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... ok\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... ok\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... ok\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... ok\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... ok\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 0.630s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      },
+      "related_regressions": [
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.554,
+          "tail": ", '服务在运行']\n  [PASS] 只走 causal（不含 sequential）\n  [PASS] relation_types 过滤生效  · [{'start': 'job', 'nodes': ['job', 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\n"
+        },
+        {
+          "module": "md_cg.test_chain_best_first",
+          "args": [
+            "--mutate"
+          ],
+          "exit": 0,
+          "seconds": 1.657,
+          "tail": "KILLED legacy_dfs -> test_strong_target_default_budget: strong_target starved\nKILLED weakest_first -> test_priority_under_truncation: priority must preserve strong target\nKILLED no_dominance -> test_convergence_work_and_order: duplicate label queue bound\nKILLED ignore_depth_in_dominance -> test_shallow_weaker_prefix: shallow weak prefix must retain remaining depth\nKILLED omit_seed_score -> test_multiple_seeds_and_decay: seed scaling, decay\nKILLED omit_decay -> test_multiple_seeds_and_decay: seed scaling, decay\nKILLED ignore_relation_filter -> test_conditions_and_relation_filter: default relation filter\nKILLED ignore_depth_limit -> test_depth_and_budget_edges: zero depth\nKILLED erase_conditions -> test_conditions_and_relation_filter: downstream provenance\n通过 9 / 失败 0\n"
+        },
+        {
+          "module": "md_cg.test_chain_read_isolate",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.386,
+          "tail": "  OK   R0 基线：reader.get(Y秘密) 隔离生效\n  OK   R1a causal_chain(X苹果) 输出不含不可见节点 id\n  OK   R1b causal_chain(X苹果) 输出不含秘密边条件文本\n  OK   R2 causal_chain(Y秘密) 不可见起点返回空链\n  OK   R3 explain_chain(X苹果) 渲染输出零泄漏\n  OK   R4 causal_path(X苹果→Z结论) 不可达且零泄漏\n  OK   R5a search_rrf provenance 链不含不可见节点 id\n  OK   R5b search_rrf provenance 条件不含秘密文本\n  OK   G1a reader 对可见链 A内→B内 照常展开\n  OK   G1b 可见边条件文本照常返回\n  OK   G2a designer causal_chain 照常含 private 节点（admin 可见性不变）\n  OK   G2b designer 照常见到边条件文本\n\n============================================================\n结果：PASS 12 / FAIL 0\n"
+        },
+        {
+          "module": "md_cg.test_i28_hotcache_prodpath",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.448,
+          "tail": "== H1 默认零变更 ==\n  OK   H1 无 env → 不挂载（get=None；能红『无条件挂载』误修）\n== H2 开关挂载（能红旧实现）==\n  OK   H2 生产类构造后 hotcache 已挂（旧实现恒 None）\n== H3 query 缓存命中 ==\n  OK   H3a 重复 query 命中缓存（meta.cached=True）\n  OK   H3b 统计计数可见（query_hits>=1）\n== H4 写后失效联动（生产写入路径）==\n  OK   H4a 生产写入成功（失效触发前提）\n  OK   H4b 写入后 query 缓存全清（不返回陈旧结果）\n== H5 容量 env 生效 ==\n  OK   H5a 容量 env 进入实例（max_nodes=3）\n  OK   H5b LRU 按新上限淘汰（size==3，最旧两节点不在）\n\nALL OK: 8 项（issue #28 热缓存生产路径守卫全绿）\n"
+        },
+        {
+          "module": "md_cg.test_i32_hotcache_env_key",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.512,
+          "tail": "== K1/K2 清单真源与键值 ==\n  OK   K1 _KEYED_EXTRA 登记 env_switch\n  OK   K2 env_switch_key() 随开关变化（未设=None 也进键）\n== K3~K6 跨口径缓存（MDCG_HOTCACHE=1，归一层关闭以隔离变量）==\n  OK   K3 semantic=1 首查：gold 命中且非缓存\n  OK   K4 切开关后不命中旧口径缓存（旧实现 cached=True）\n  OK   K5 切开关后结果与 semantic=1 不同（无跨口径串味）\n  OK   K6 同口径重复查仍命中缓存（缓存未被打废）\n  OK   K5b 与旁路（无缓存）重算结果一致\n== K7~K10 MDCG_CN_GRAMS 入键（v9 N78）==\n  OK   K7 MDCG_CN_GRAMS 登记在 _ENV_SWITCHES（清单真源，新增一个登记一个）\n  OK   K8 env_switch_key() 随 MDCG_CN_GRAMS 变化（未设=None 也进键）\n  OK   K9a grams 开首查：gold 经 2-gram 召回命中且非缓存\n  OK   K9b 翻转后不命中旧口径缓存（旧实现 cached=True 静默错答）\n  OK   K9c 翻转后结果与 grams 开不同（无跨口径串味）\n  OK   K10 同口径重复查仍命中缓存（缓存未被打废）\n  OK   K10b 与旁路（无缓存）重算结果一致\n\n================================================================\nPASS=14  FAIL=0\n"
+        },
+        {
+          "module": "md_cg.test_issue153b_index_generation_invalidation",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.498,
+          "tail": "  [PASS] A0 MDCG_HOTCACHE=1 ⇒ 热缓存已挂\n  [PASS] A1a 首查见 a（此时填缓存）  · ['a']\n  [PASS] A1 写后读不陈旧：新写入可见（无静默错答）  · ['a', 'b']\n  [PASS] A2a 同代重复查询命中（代际未变 ⇒ 命中率不受损）  · (0, 1)\n  [PASS] A2 代际进键：推进代际后同一查询**不再命中**  · (2, 3)\n  [PASS] A3 禁全清：索引突变后 query 缓存条目未被清空  · (4, 4)\n  [PASS] A4 命中率不退化：100 次同查询 + 10 次写 ⇒ 新增命中 ≥80  · (1, 100)\n  [PASS] A5 _KEYED_EXTRA 登记 index_gen（清单真源，防漏登）  · 14\n\nissue153b: 8 pass / 0 fail\n"
+        },
+        {
+          "module": "md_cg.test_issue153b_cache_alias_and_canon",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.554,
+          "tail": "  [PASS] A0 MDCG_HOTCACHE=1 ⇒ 热缓存已挂\n\n[A] 缓存出口不得返回内部可变对象（别名污染）\n  [PASS] A0b 第二次命中缓存（前置）  · True\n  [PASS] A1 两次命中返回的 results 不是同一对象\n  [PASS] A2 append 不污染后续命中  · (5, 5)\n  [PASS] A3 行内 node dict 改名不污染后续命中  · ('n0', 'n0')\n  [PASS] A4 正对照：缓存关时同样 is False\n  [PASS] A5 candidate_pool 两次命中返回不同对象\n  [PASS] A6 append 不污染候选池缓存  · (8, 8)\n\n[B] 混合类型 context 不抛异常\n  [PASS] B1 search_rrf 混合类型 context 不抛异常\n  [PASS] B2 _canon 对同一入参可复现（且不抛）  · (None, None)\n  [PASS] B3 _canon 含混合键 dict 不抛\n\n[C] 消撞键\n  [PASS] C1 int 键 1 与 str 键 '1' 不撞  · (((('k', 'int', '1'), 'x'),), ((('k', 'str', '1'), 'x'),))\n  [PASS] C2 dict 与 list-of-pairs 不撞\n  [PASS] C3 _canon 稳定可复现（键序无关）\n\n[D] 池复用不退化（拷贝不得让池复用失效）\n  [PASS] D1 同池不同 k 的第二次查询 bm25 池复用为真  · {'k1': 1.2, 'b': 0.75, 'limit': 50, 'input': 9, 'build_reads': 0, 'update_reads': 0, 'unavailable': 0, 'posting_visits': 1, 'matched': 1, 'block_layout_rebuilt': False, 'block_layout_touched': 0, 'block_repaired_blocks': 0, 'block_update_slots': 0, 'block_rebuild_postings': 0, 'cache_mode': 'path_generations', 'documents': 9, 'tokens': 507, 'pool_reused': True, 'build_workers': 0, 'posting_candidates': 1, 'hydrated': 1, 'ms': 0.037099998735357076}\n\n通过 15 / 失败 0\n"
+        },
+        {
+          "module": "md_cg.test_readcache_precise_inval",
+          "args": [],
+          "exit": 0,
+          "seconds": 1.089,
+          "tail": "  OK   G0a 库就绪且读缓存默认装配\n  OK   G0b 稳态二次查询零重解析（loads==0）\n== G1 写读交替精确失效 ==\n  OK   G1a add 1 节点后同查询 loads ≤ 2（旧整代际 ≈ 池+1 全量）\n  OK   G1b 新节点可检索（不陈旧）\n== G4 邻居条目不误伤 ==\n  OK   G4pre A 条目已在缓存\n  OK   G4a 写其它节点后 A 缓存条目 identity 不变（不重读）\n== G2 写提交边界（add+flush）不整池重装 ==\n  OK   G2a add+flush 后同查询 loads ≤ 2（clear 不整池失效）\n  OK   G2b flush 后新节点可检索（不陈旧）\n== G3 覆写后不陈旧 ==\n  OK   G3a 覆写后 _read 缓存视图见新内容（不陈旧）\n  OK   G3b 覆写后检索命中新内容\n== G7 派生物缓存（_doc_norm_bigrams）不误伤 ==\n  OK   G7pre 派生物缓存已装载\n  OK   G7a 写 1 节点后旧派生物条目零重算（identity 不变）\n== G5 删除保守整池失效 ==\n  OK   G5a _unstage 后同查询整池重装（loads ≥ 剩余池规模）\n== G6 _DirtyDict 脏集簿记 ==\n  OK   G6a path_gen/broad_gen 簿记就位\n  OK   G6b 带 path 标脏 → path_gen 记录、broad_gen 不动\n  OK   G6c 写另一 path 不推进前一 path 的脏代际\n  OK   G6d tombstone → broad_gen 保守推进\n  OK   G6e flush 形态 clear() 推进 write_gen 但不动 broad/path_gen\n  OK   G6f 无 path 可辨的值 → broad_gen 保守推进\n  OK   G6h clear(broad=True) → broad_gen 推进（rebuild 兜底）\n  OK   G6g write_gen 单调不回退（P7b 口径保留）\n== G8 直写+rebuild 收尾写方缓存可见性 ==\n  OK   G8b rebuild 后整池重装（broad 兜底，loads ≥ 池规模）\n  OK   G8a 直写+rebuild 后缓存视图见新内容（不陈旧）\n\n============================================================\n结果：PASS 23 / FAIL 0\n"
+        },
+        {
+          "module": "md_cg.test_readcache_default_on",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.565,
+          "tail": "== D1 默认装配 ==\n  OK   D1a env 未设时构造即装读缓存（hasattr _read_cache）\n  OK   D1b 库就绪（12 节点）\n== D2/D3 装载恰一次 / 二次检索零重解析 ==\n  OK   D3a 首次检索装载 ≤ 池节点数\n  OK   D2a 二次检索零重解析（loads==0）\n  OK   D3b 3 次检索累计装载 ≤ 池节点数（O(装载1次)，旧默认为 3×池）\n== D5 写后失效 ==\n  OK   D5a 写入后新内容立即可检索（不陈旧）\n== D6 开/关结果一致 ==\n  OK   D6a 开/关同库同 query 结果 id 序一致\n  OK   D6b 关态退出阀生效（无 _read_cache 属性）\n== D4 opt-out 退出阀 ==\n  OK   D4a MDCG_READ_CACHE=0 → 未装缓存（零变更退出阀）\n  OK   D4b 关态二次检索仍逐节点重解析（loads>0，证明退出阀真关）\n\n============================================================\n结果：PASS 10 / FAIL 0\n"
+        },
+        {
+          "module": "md_cg.test_readcache_prodpath",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.703,
+          "tail": "== P1 默认开（env 未设）+ MDCG_READ_CACHE=0 退出阀 ==\n  OK   P1a 默认（env 未设）构造即装读缓存\n  OK   P1b 检索正常（基线）\n  OK   P1c MDCG_READ_CACHE=0 → 未装缓存（opt-out 零变更退出阀）\n== P2/P3/P4 MDCG_READ_CACHE=1 ==\n  OK   P2a 开启后结果一致（同库同 query）\n== P3 写后失效（能红朴素实现）==\n  OK   P3a 写入后新内容可检索（不陈旧）\n  OK   P3b 独有标记命中新节点\n== P4 二次检索零磁盘 open ==\n  OK   P4a 热缓存后二次检索 open=0（报告基线：572/查询）\n== P6 文档侧派生物缓存（_score 88% 热点面）==\n  OK   P6pre 缓存已装载\n  OK   P6a 热缓存后二次检索派生物零重算（identity 不变）\n== P8 召回键派生物缓存（_positive_body，N273）==\n  OK   P8pre 召回键派生物缓存已装载\n  OK   P8a 热态二次检索 _positive_body 零重调（修前 = 每候选一次）\n  OK   P8b 热态二次检索派生物零重算（identity 不变）\n  OK   P8c 写 1 节点后仅该节点重算（脏集精确失效）\n  OK   P8c2 写后新内容可检索（不陈旧）\n  OK   P8d 红基线自证：未缓存实现下同查询调用计数 >0\n  OK   P8e 恢复缓存版后再次零重调\n  OK   P5 clear 返回清空条目数\n  OK   P5b clear 一并清空召回键派生物缓存\n== P7 flush 后同量写入不回退（D-4 陈旧读）==\n  OK   P7a flush 回退场景：检索新内容返回 NEW（len 代际实现必返 OLD）\n  OK   P7b write_gen 单调不回退（clear 后再写仍前进）\n\n============================================================\n结果：PASS 20 / FAIL 0\n[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.526,
+          "tail": "7 add 覆写显式非法状态 → 硬拒\n[ok] ④8 硬拒后磁盘内容未被改写（校验先于写盘）\n[ok] ⑤1 同状态幂等（noop / changed=False）\n[ok] ⑤2 幂等不刷历史\n[ok] ⑤3 幂等不写审计\n[ok] ⑥0 新建即自动受保护（importance≥0.7）\n[ok] ⑥1 受保护节点降级被拒 → protected 码\n[ok] ⑥2 拒绝后状态未变（保护 = 不可遗忘）\n[ok] ⑥3 override=True 放行降级\n[ok] ⑥4 回升不受保护限制（无需 override）\n[ok] ⑦1 裸 add 覆写**继承**旧状态（不静默打回 active）\n[ok] ⑦2 继承后索引仍是 converged\n[ok] ⑦3 显式合法迁移放行（converged→active）\n[ok] ⑦4 新节点显式状态从 active 起算（active→converged 合法）\n[ok] ⑧0 旧库形态成立（字段已摘除）\n[ok] ⑧1 dry-run 盘点缺失且不改盘\n[ok] ⑧2 apply 回填为显式 active\n[ok] ⑧3 回填幂等（第二次无缺失）\n[ok] ⑧4 缺字段节点在回填前也按 active 工作（state_of 缺省）\n[ok] ⑨1 tidy 降权 → lifecycle_state=converged\n[ok] ⑨2 兼容别名 tidy:converged tag 保留（历史数据不破）\n[ok] ⑨3 降权后索引同步 converged\n[ok] ⑨4 MERGE 强化 → 逐级回升 active\n[ok] ⑨5 回升与 importance 强化同批落盘（+delta）\n[ok] ⑨6 两处收口共用同一迁移历史（active→converged→active 两条，同一 actor 面）\n[ok] ⑨7 强化 active 节点：状态幂等（不刷历史、不误降）\n[ok] ⑩1 状态字段名与裁决四态 state 不撞名（消歧）\n[ok] ⑩2 set_state 返回体恒带 from/to/code（可审计）\n[ok] ⑩3 迁移历史滚动上限（不无界膨胀）\n==========================================================\ntest_lifecycle: 55 通过 / 0 失败\n[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle_retire_leak",
+          "args": [],
+          "exit": 0,
+          "seconds": 1.287,
+          "tail": "ead+node_id 分支）不受限：archived 仍可显式取回\n[ok] R4.5 四条读面口径同源（都经 _candidates 单点）\n[ok] R1.11a 前提：graph/chain 扩散确实能到达边目标（非空断言，防本腿空转）\n[ok] R1.11b 目标退役后图扩展路不返回它、种子照常返回（图扩展不绕过 _candidates）\n[ok] R1.12a 前提：会话要点与未解问题都确在续接包里（非空断言，防本腿空转）\n[ok] R1.12b 退役后续接包不再回该要点与未解问题（注入面剔除）；在役对照仍在\n[ok] R3.5 恢复后续接包重新回该要点（退役可逆，同面）\n[ok] R1.13a 前提：活跃目标与任务卡都确在续接包里（非空断言，防本腿空转）\n[ok] R1.13b0 台账两节点退役成功（任务卡默认 protected，降级走 override=True）\n[ok] R1.13b 退役后台账段不再回该目标与任务卡；在役对照仍在；total 取剔除后计数\n[ok] R1.13c 管理面不受限对照：cg(op=goal/task, action=list) 仍可见 archived 台账\n[ok] R3.6 恢复后台账段重新回该目标（退役可逆，同面）\n[ok] R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现\n[ok] R5.1 基类面：archived（rl_v2）不出现、v1 出现\n[ok] R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）\n[ok] R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）\n[ok] R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）\n[ok] R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）\n[ok] R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）\n[ok] R6.4 恢复后因果链重新扩散（退役可逆，同面）\n[ok] R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）\n[ok] R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）\n[ok] R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）\n==========================================================\ntest_lifecycle_retire_leak: 46 通过 / 0 失败\n"
+        },
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.46,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\n"
+        },
+        {
+          "module": "md_cg.test_issue86_runtime_revoke",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.293,
+          "tail": "[PASS] G2 未吊销的令牌 ⇒ 正常写入（不误伤）  · ok=True\n[PASS] G1 吊销后**同进程**再写 ⇒ 被拒（修前仍成功——#86 的核心）  · ok='DENY:AccessDenied'\n[PASS] G3 复检缓存键 == 令牌表 (path, mtime_ns, size)  · key=('E:\\\\lingshu\\\\outputs\\\\memory-three-20261015\\\\tmp\\\\p86_eh2hm7nu\\\\_tokens.json', 1791995226877882200, 528)\n[PASS] G4 令牌表不可读 ⇒ 放行（fail-open，不阻塞服务）  · ok=True\n\n================================================================\n通过 4 ／ 失败 0\n================================================================\n[mdcg-mcp] ⚠ #86 运行期令牌复检异常（已放行）：FileNotFoundError: [WinError 2] 系统找不到指定的文件。: 'E:\\\\lingshu\\\\outputs\\\\memory-three-20261015\\\\tmp\\\\p86_eh2hm7nu\\\\_nope.json'\n"
+        }
+      ]
+    },
+    "linux": {
+      "baseline": {
+        "tests": 12,
+        "passed": 1,
+        "failed": 11,
+        "errors": 0,
+        "skipped": 0,
+        "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... FAIL\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... FAIL\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... FAIL\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... FAIL\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... FAIL\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... FAIL\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... FAIL\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... FAIL\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... FAIL\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     'a committed edge must be visible without manual cache invalidation')\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n======================================================================\nFAIL: test_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 158, in test_append_subgraph_refreshes_chain\n    self.assertIn('tail', [nid for nid, _ in chain.adjacency(self.cg).get('seed', [])])\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' not found in []\n\n======================================================================\nFAIL: test_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 236, in test_base_mdcg_metadata_write\n    self.assertEqual(chain.walk(cg, 'a')[0:1] and chain.walk(cg, 'a')[0]['nodes'], ['a', 'b'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['a', 'b']\n\nSecond list contains 2 additional elements.\nFirst extra element 0:\n'a'\n\n- []\n+ ['a', 'b']\n\n======================================================================\nFAIL: test_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 166, in test_edge_condition_refreshes_chain\n    self.assertIn('new condition', str(chain.walk(self.cg, 'seed')[0]['conditions']))\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'new condition' not found in \"['载体/位置：old condition']\"\n\n======================================================================\nFAIL: test_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 189, in test_lifecycle_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['lifecycle_state'], 'converged')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'active' != 'converged'\n- active\n+ converged\n\n\n======================================================================\nFAIL: test_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 173, in test_metadata_write_refreshes_query\n    self.assertIn('tail', [r[0]['id'] for r in rows], 'graph hit must join the next result after metadata write')\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'tail' not found in ['seed'] : graph hit must join the next result after metadata write\n\n======================================================================\nFAIL: test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 209, in test_rebuild_refreshes_both_hierarchy_directions\n    self.assertEqual(subgraph.children(self.cg, 'seed'), ['tail'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['tail']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'tail'\n\n- []\n+ ['tail']\n\n======================================================================\nFAIL: test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 216, in test_rebuild_refreshes_dependency_index\n    self.assertEqual(trust.dependents_index(self.cg).get('seed'), ['tail'],\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     'dependency cache must follow the rebuilt authoritative snapshot')\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != ['tail'] : dependency cache must follow the rebuilt authoritative snapshot\n\n======================================================================\nFAIL: test_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 202, in test_rebuild_refreshes_graph\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']]\n\n======================================================================\nFAIL: test_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 196, in test_rebuild_refreshes_query\n    self.assertIn('new-source-tag', rows[0][0]['frontmatter']['tags'])\n    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'new-source-tag' not found in []\n\n======================================================================\nFAIL: test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 181, in test_verification_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['verification_state'], 'verified')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'unverified' != 'verified'\n- unverified\n? --\n+ verified\n\n\n----------------------------------------------------------------------\nRan 12 tests in 5.225s\n\nFAILED (failures=11)\n"
+      },
+      "fixed_and_mutations": {
+        "baseline": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... ok\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... ok\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... ok\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... ok\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... ok\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... ok\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... ok\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... ok\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... ok\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... ok\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 5.512s\n\nOK\n"
+        },
+        "mutants": [
+          {
+            "name": "ignore dirty generation",
+            "test": "Guards.test_append_edge_refreshes_chain",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     'a committed edge must be visible without manual cache invalidation')\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n----------------------------------------------------------------------\nRan 1 test in 0.399s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "c5baae03b4d258395ae80aab0543feb12ddd3683e9919fb696670a7862808521"
+          },
+          {
+            "name": "ignore chain generation",
+            "test": "Guards.test_append_edge_refreshes_chain",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... FAIL\n\n======================================================================\nFAIL: test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 151, in test_append_edge_refreshes_chain\n    self.assertEqual([r['nodes'] for r in chain.walk(self.cg, 'seed')], [['seed', 'tail']],\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     'a committed edge must be visible without manual cache invalidation')\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != [['seed', 'tail']]\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n['seed', 'tail']\n\n- []\n+ [['seed', 'tail']] : a committed edge must be visible without manual cache invalidation\n\n----------------------------------------------------------------------\nRan 1 test in 0.396s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "56a518fb3a0e3d971a9e5d41f3ec898b9922e5a2a3ac544e7b7649a74cd2b64c"
+          },
+          {
+            "name": "omit query generation witness",
+            "test": "Guards.test_verification_change_refreshes_query",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... FAIL\n\n======================================================================\nFAIL: test_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 181, in test_verification_change_refreshes_query\n    self.assertEqual(rows[0][0]['frontmatter']['verification_state'], 'verified')\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 'unverified' != 'verified'\n- unverified\n? --\n+ verified\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.457s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "aeae6e0106e72d54b48860f6ad97d973958eef7457c6fc63d66770eb4a16d4f1"
+          },
+          {
+            "name": "omit hierarchy generation",
+            "test": "Guards.test_rebuild_refreshes_both_hierarchy_directions",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... FAIL\n\n======================================================================\nFAIL: test_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 209, in test_rebuild_refreshes_both_hierarchy_directions\n    self.assertEqual(subgraph.children(self.cg, 'seed'), ['tail'])\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: Lists differ: [] != ['tail']\n\nSecond list contains 1 additional elements.\nFirst extra element 0:\n'tail'\n\n- []\n+ ['tail']\n\n----------------------------------------------------------------------\nRan 1 test in 0.447s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "df70714d79d99a241ff94ad58b784ce98d9f72a23ce8ba12cfc9b0fe546eaac8"
+          },
+          {
+            "name": "ignore dependency generation",
+            "test": "Guards.test_rebuild_refreshes_dependency_index",
+            "killed": true,
+            "tests": 1,
+            "passed": 0,
+            "failed": 1,
+            "errors": 0,
+            "skipped": 0,
+            "log": "test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... FAIL\n\n======================================================================\nFAIL: test_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<work>/memory-three-cache-20261015/md_cg/test_derived_cache_generations.py\", line 216, in test_rebuild_refreshes_dependency_index\n    self.assertEqual(trust.dependents_index(self.cg).get('seed'), ['tail'],\n    ~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n                     'dependency cache must follow the rebuilt authoritative snapshot')\n                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: None != ['tail'] : dependency cache must follow the rebuilt authoritative snapshot\n\n----------------------------------------------------------------------\nRan 1 test in 0.437s\n\nFAILED (failures=1)\n",
+            "source_untouched": true,
+            "source_sha256": "5d0845d060e4c0640cd52799a841e49ff599a9cb44e00a3a08917a6f275c6826"
+          }
+        ],
+        "restored": {
+          "tests": 12,
+          "passed": 12,
+          "failed": 0,
+          "errors": 0,
+          "skipped": 0,
+          "log": "test_append_edge_refreshes_chain (__main__.Guards.test_append_edge_refreshes_chain) ... ok\ntest_append_subgraph_refreshes_chain (__main__.Guards.test_append_subgraph_refreshes_chain) ... ok\ntest_base_mdcg_metadata_write (__main__.Guards.test_base_mdcg_metadata_write) ... ok\ntest_edge_condition_refreshes_chain (__main__.Guards.test_edge_condition_refreshes_chain) ... ok\ntest_lifecycle_change_refreshes_query (__main__.Guards.test_lifecycle_change_refreshes_query) ... ok\ntest_metadata_write_refreshes_query (__main__.Guards.test_metadata_write_refreshes_query) ... ok\ntest_rebuild_refreshes_both_hierarchy_directions (__main__.Guards.test_rebuild_refreshes_both_hierarchy_directions) ... ok\ntest_rebuild_refreshes_dependency_index (__main__.Guards.test_rebuild_refreshes_dependency_index) ... ok\ntest_rebuild_refreshes_graph (__main__.Guards.test_rebuild_refreshes_graph) ... ok\ntest_rebuild_refreshes_query (__main__.Guards.test_rebuild_refreshes_query) ... ok\ntest_unchanged_reads_reuse_caches (__main__.Guards.test_unchanged_reads_reuse_caches) ... ok\ntest_verification_change_refreshes_query (__main__.Guards.test_verification_change_refreshes_query) ... ok\n\n----------------------------------------------------------------------\nRan 12 tests in 5.133s\n\nOK\n"
+        },
+        "tests": 5,
+        "passed": 5,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "source_untouched": true
+      }
+    },
+    "linux-native": {
+      "related_regressions": [
+        {
+          "module": "md_cg.test_p8_subgraph_chain",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.798,
+          "tail": " 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_chain_best_first",
+          "args": [
+            "--mutate"
+          ],
+          "exit": 0,
+          "seconds": 1.352,
+          "tail": "KILLED legacy_dfs -> test_strong_target_default_budget: strong_target starved\nKILLED weakest_first -> test_priority_under_truncation: priority must preserve strong target\nKILLED no_dominance -> test_convergence_work_and_order: duplicate label queue bound\nKILLED ignore_depth_in_dominance -> test_shallow_weaker_prefix: shallow weak prefix must retain remaining depth\nKILLED omit_seed_score -> test_multiple_seeds_and_decay: seed scaling, decay\nKILLED omit_decay -> test_multiple_seeds_and_decay: seed scaling, decay\nKILLED ignore_relation_filter -> test_conditions_and_relation_filter: default relation filter\nKILLED ignore_depth_limit -> test_depth_and_budget_edges: zero depth\nKILLED erase_conditions -> test_conditions_and_relation_filter: downstream provenance\n通过 9 / 失败 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_chain_read_isolate",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.758,
+          "tail": "  OK   R0 基线：reader.get(Y秘密) 隔离生效\n  OK   R1a causal_chain(X苹果) 输出不含不可见节点 id\n  OK   R1b causal_chain(X苹果) 输出不含秘密边条件文本\n  OK   R2 causal_chain(Y秘密) 不可见起点返回空链\n  OK   R3 explain_chain(X苹果) 渲染输出零泄漏\n  OK   R4 causal_path(X苹果→Z结论) 不可达且零泄漏\n  OK   R5a search_rrf provenance 链不含不可见节点 id\n  OK   R5b search_rrf provenance 条件不含秘密文本\n  OK   G1a reader 对可见链 A内→B内 照常展开\n  OK   G1b 可见边条件文本照常返回\n  OK   G2a designer causal_chain 照常含 private 节点（admin 可见性不变）\n  OK   G2b designer 照常见到边条件文本\n\n============================================================\n结果：PASS 12 / FAIL 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_i28_hotcache_prodpath",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.899,
+          "tail": "== H1 默认零变更 ==\n  OK   H1 无 env → 不挂载（get=None；能红『无条件挂载』误修）\n== H2 开关挂载（能红旧实现）==\n  OK   H2 生产类构造后 hotcache 已挂（旧实现恒 None）\n== H3 query 缓存命中 ==\n  OK   H3a 重复 query 命中缓存（meta.cached=True）\n  OK   H3b 统计计数可见（query_hits>=1）\n== H4 写后失效联动（生产写入路径）==\n  OK   H4a 生产写入成功（失效触发前提）\n  OK   H4b 写入后 query 缓存全清（不返回陈旧结果）\n== H5 容量 env 生效 ==\n  OK   H5a 容量 env 进入实例（max_nodes=3）\n  OK   H5b LRU 按新上限淘汰（size==3，最旧两节点不在）\n\nALL OK: 8 项（issue #28 热缓存生产路径守卫全绿）\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_i32_hotcache_env_key",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.856,
+          "tail": "== K1/K2 清单真源与键值 ==\n  OK   K1 _KEYED_EXTRA 登记 env_switch\n  OK   K2 env_switch_key() 随开关变化（未设=None 也进键）\n== K3~K6 跨口径缓存（MDCG_HOTCACHE=1，归一层关闭以隔离变量）==\n  OK   K3 semantic=1 首查：gold 命中且非缓存\n  OK   K4 切开关后不命中旧口径缓存（旧实现 cached=True）\n  OK   K5 切开关后结果与 semantic=1 不同（无跨口径串味）\n  OK   K6 同口径重复查仍命中缓存（缓存未被打废）\n  OK   K5b 与旁路（无缓存）重算结果一致\n== K7~K10 MDCG_CN_GRAMS 入键（v9 N78）==\n  OK   K7 MDCG_CN_GRAMS 登记在 _ENV_SWITCHES（清单真源，新增一个登记一个）\n  OK   K8 env_switch_key() 随 MDCG_CN_GRAMS 变化（未设=None 也进键）\n  OK   K9a grams 开首查：gold 经 2-gram 召回命中且非缓存\n  OK   K9b 翻转后不命中旧口径缓存（旧实现 cached=True 静默错答）\n  OK   K9c 翻转后结果与 grams 开不同（无跨口径串味）\n  OK   K10 同口径重复查仍命中缓存（缓存未被打废）\n  OK   K10b 与旁路（无缓存）重算结果一致\n\n================================================================\nPASS=14  FAIL=0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_issue153b_index_generation_invalidation",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.736,
+          "tail": "  [PASS] A0 MDCG_HOTCACHE=1 ⇒ 热缓存已挂\n  [PASS] A1a 首查见 a（此时填缓存）  · ['a']\n  [PASS] A1 写后读不陈旧：新写入可见（无静默错答）  · ['a', 'b']\n  [PASS] A2a 同代重复查询命中（代际未变 ⇒ 命中率不受损）  · (0, 1)\n  [PASS] A2 代际进键：推进代际后同一查询**不再命中**  · (2, 3)\n  [PASS] A3 禁全清：索引突变后 query 缓存条目未被清空  · (4, 4)\n  [PASS] A4 命中率不退化：100 次同查询 + 10 次写 ⇒ 新增命中 ≥80  · (1, 100)\n  [PASS] A5 _KEYED_EXTRA 登记 index_gen（清单真源，防漏登）  · 14\n\nissue153b: 8 pass / 0 fail\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_issue153b_cache_alias_and_canon",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.805,
+          "tail": "1 两次命中返回的 results 不是同一对象\n  [PASS] A2 append 不污染后续命中  · (5, 5)\n  [PASS] A3 行内 node dict 改名不污染后续命中  · ('n0', 'n0')\n  [PASS] A4 正对照：缓存关时同样 is False\n  [PASS] A5 candidate_pool 两次命中返回不同对象\n  [PASS] A6 append 不污染候选池缓存  · (8, 8)\n\n[B] 混合类型 context 不抛异常\n  [PASS] B1 search_rrf 混合类型 context 不抛异常\n  [PASS] B2 _canon 对同一入参可复现（且不抛）  · (None, None)\n  [PASS] B3 _canon 含混合键 dict 不抛\n\n[C] 消撞键\n  [PASS] C1 int 键 1 与 str 键 '1' 不撞  · (((('k', 'int', '1'), 'x'),), ((('k', 'str', '1'), 'x'),))\n  [PASS] C2 dict 与 list-of-pairs 不撞\n  [PASS] C3 _canon 稳定可复现（键序无关）\n\n[D] 池复用不退化（拷贝不得让池复用失效）\n  [PASS] D1 同池不同 k 的第二次查询 bm25 池复用为真  · {'k1': 1.2, 'b': 0.75, 'limit': 50, 'input': 9, 'build_reads': 0, 'update_reads': 0, 'unavailable': 0, 'posting_visits': 1, 'matched': 1, 'block_layout_rebuilt': False, 'block_layout_touched': 0, 'block_repaired_blocks': 0, 'block_update_slots': 0, 'block_rebuild_postings': 0, 'cache_mode': 'path_generations', 'documents': 9, 'tokens': 507, 'pool_reused': True, 'build_workers': 0, 'posting_candidates': 1, 'hydrated': 1, 'ms': 0.03618900007040793}\n\n通过 15 / 失败 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_readcache_precise_inval",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.795,
+          "tail": " OK   G1a add 1 节点后同查询 loads ≤ 2（旧整代际 ≈ 池+1 全量）\n  OK   G1b 新节点可检索（不陈旧）\n== G4 邻居条目不误伤 ==\n  OK   G4pre A 条目已在缓存\n  OK   G4a 写其它节点后 A 缓存条目 identity 不变（不重读）\n== G2 写提交边界（add+flush）不整池重装 ==\n  OK   G2a add+flush 后同查询 loads ≤ 2（clear 不整池失效）\n  OK   G2b flush 后新节点可检索（不陈旧）\n== G3 覆写后不陈旧 ==\n  OK   G3a 覆写后 _read 缓存视图见新内容（不陈旧）\n  OK   G3b 覆写后检索命中新内容\n== G7 派生物缓存（_doc_norm_bigrams）不误伤 ==\n  OK   G7pre 派生物缓存已装载\n  OK   G7a 写 1 节点后旧派生物条目零重算（identity 不变）\n== G5 删除保守整池失效 ==\n  OK   G5a _unstage 后同查询整池重装（loads ≥ 剩余池规模）\n== G6 _DirtyDict 脏集簿记 ==\n  OK   G6a path_gen/broad_gen 簿记就位\n  OK   G6b 带 path 标脏 → path_gen 记录、broad_gen 不动\n  OK   G6c 写另一 path 不推进前一 path 的脏代际\n  OK   G6d tombstone → broad_gen 保守推进\n  OK   G6e flush 形态 clear() 推进 write_gen 但不动 broad/path_gen\n  OK   G6f 无 path 可辨的值 → broad_gen 保守推进\n  OK   G6h clear(broad=True) → broad_gen 推进（rebuild 兜底）\n  OK   G6g write_gen 单调不回退（P7b 口径保留）\n== G8 直写+rebuild 收尾写方缓存可见性 ==\n  OK   G8b rebuild 后整池重装（broad 兜底，loads ≥ 池规模）\n  OK   G8a 直写+rebuild 后缓存视图见新内容（不陈旧）\n\n============================================================\n结果：PASS 23 / FAIL 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_readcache_default_on",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.772,
+          "tail": "== D1 默认装配 ==\n  OK   D1a env 未设时构造即装读缓存（hasattr _read_cache）\n  OK   D1b 库就绪（12 节点）\n== D2/D3 装载恰一次 / 二次检索零重解析 ==\n  OK   D3a 首次检索装载 ≤ 池节点数\n  OK   D2a 二次检索零重解析（loads==0）\n  OK   D3b 3 次检索累计装载 ≤ 池节点数（O(装载1次)，旧默认为 3×池）\n== D5 写后失效 ==\n  OK   D5a 写入后新内容立即可检索（不陈旧）\n== D6 开/关结果一致 ==\n  OK   D6a 开/关同库同 query 结果 id 序一致\n  OK   D6b 关态退出阀生效（无 _read_cache 属性）\n== D4 opt-out 退出阀 ==\n  OK   D4a MDCG_READ_CACHE=0 → 未装缓存（零变更退出阀）\n  OK   D4b 关态二次检索仍逐节点重解析（loads>0，证明退出阀真关）\n\n============================================================\n结果：PASS 10 / FAIL 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_readcache_prodpath",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.773,
+          "tail": "出阀 ==\n  OK   P1a 默认（env 未设）构造即装读缓存\n  OK   P1b 检索正常（基线）\n  OK   P1c MDCG_READ_CACHE=0 → 未装缓存（opt-out 零变更退出阀）\n== P2/P3/P4 MDCG_READ_CACHE=1 ==\n  OK   P2a 开启后结果一致（同库同 query）\n== P3 写后失效（能红朴素实现）==\n  OK   P3a 写入后新内容可检索（不陈旧）\n  OK   P3b 独有标记命中新节点\n== P4 二次检索零磁盘 open ==\n  OK   P4a 热缓存后二次检索 open=0（报告基线：572/查询）\n== P6 文档侧派生物缓存（_score 88% 热点面）==\n  OK   P6pre 缓存已装载\n  OK   P6a 热缓存后二次检索派生物零重算（identity 不变）\n== P8 召回键派生物缓存（_positive_body，N273）==\n  OK   P8pre 召回键派生物缓存已装载\n  OK   P8a 热态二次检索 _positive_body 零重调（修前 = 每候选一次）\n  OK   P8b 热态二次检索派生物零重算（identity 不变）\n  OK   P8c 写 1 节点后仅该节点重算（脏集精确失效）\n  OK   P8c2 写后新内容可检索（不陈旧）\n  OK   P8d 红基线自证：未缓存实现下同查询调用计数 >0\n  OK   P8e 恢复缓存版后再次零重调\n  OK   P5 clear 返回清空条目数\n  OK   P5b clear 一并清空召回键派生物缓存\n== P7 flush 后同量写入不回退（D-4 陈旧读）==\n  OK   P7a flush 回退场景：检索新内容返回 NEW（len 代际实现必返 OLD）\n  OK   P7b write_gen 单调不回退（clear 后再写仍前进）\n\n============================================================\n结果：PASS 20 / FAIL 0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.65,
+          "tail": "ok] ⑤3 幂等不写审计\n[ok] ⑥0 新建即自动受保护（importance≥0.7）\n[ok] ⑥1 受保护节点降级被拒 → protected 码\n[ok] ⑥2 拒绝后状态未变（保护 = 不可遗忘）\n[ok] ⑥3 override=True 放行降级\n[ok] ⑥4 回升不受保护限制（无需 override）\n[ok] ⑦1 裸 add 覆写**继承**旧状态（不静默打回 active）\n[ok] ⑦2 继承后索引仍是 converged\n[ok] ⑦3 显式合法迁移放行（converged→active）\n[ok] ⑦4 新节点显式状态从 active 起算（active→converged 合法）\n[ok] ⑧0 旧库形态成立（字段已摘除）\n[ok] ⑧1 dry-run 盘点缺失且不改盘\n[ok] ⑧2 apply 回填为显式 active\n[ok] ⑧3 回填幂等（第二次无缺失）\n[ok] ⑧4 缺字段节点在回填前也按 active 工作（state_of 缺省）\n[ok] ⑨1 tidy 降权 → lifecycle_state=converged\n[ok] ⑨2 兼容别名 tidy:converged tag 保留（历史数据不破）\n[ok] ⑨3 降权后索引同步 converged\n[ok] ⑨4 MERGE 强化 → 逐级回升 active\n[ok] ⑨5 回升与 importance 强化同批落盘（+delta）\n[ok] ⑨6 两处收口共用同一迁移历史（active→converged→active 两条，同一 actor 面）\n[ok] ⑨7 强化 active 节点：状态幂等（不刷历史、不误降）\n[ok] ⑩1 状态字段名与裁决四态 state 不撞名（消歧）\n[ok] ⑩2 set_state 返回体恒带 from/to/code（可审计）\n[ok] ⑩3 迁移历史滚动上限（不无界膨胀）\n==========================================================\ntest_lifecycle: 55 通过 / 0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+        },
+        {
+          "module": "md_cg.test_lifecycle_retire_leak",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.926,
+          "tail": "边目标（非空断言，防本腿空转）\n[ok] R1.11b 目标退役后图扩展路不返回它、种子照常返回（图扩展不绕过 _candidates）\n[ok] R1.12a 前提：会话要点与未解问题都确在续接包里（非空断言，防本腿空转）\n[ok] R1.12b 退役后续接包不再回该要点与未解问题（注入面剔除）；在役对照仍在\n[ok] R3.5 恢复后续接包重新回该要点（退役可逆，同面）\n[ok] R1.13a 前提：活跃目标与任务卡都确在续接包里（非空断言，防本腿空转）\n[ok] R1.13b0 台账两节点退役成功（任务卡默认 protected，降级走 override=True）\n[ok] R1.13b 退役后台账段不再回该目标与任务卡；在役对照仍在；total 取剔除后计数\n[ok] R1.13c 管理面不受限对照：cg(op=goal/task, action=list) 仍可见 archived 台账\n[ok] R3.6 恢复后台账段重新回该目标（退役可逆，同面）\n[ok] R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现\n[ok] R5.1 基类面：archived（rl_v2）不出现、v1 出现\n[ok] R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）\n[ok] R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）\n[ok] R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）\n[ok] R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）\n[ok] R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）\n[ok] R6.4 恢复后因果链重新扩散（退役可逆，同面）\n[ok] R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）\n[ok] R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）\n[ok] R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）\n==========================================================\ntest_lifecycle_retire_leak: 46 通过 / 0 失败\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_trust",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.639,
+          "tail": "--- ① 裁决\n--- ② 解析\n--- ③ 时间轴\n--- ④ 缺省/幂等\n--- ⑤ set_state\n--- ⑥ 覆写继承\n--- ⑦ 反查索引\n--- ⑧ 一跳同步传播\n--- ⑨ 多跳异步传播\n--- ⑩ 写入闸门\n--- ⑪ 输出协议\n--- ⑫ 巡检/自描述\n--- ⑬ MCP 面：status op / 状态头 / 写闸硬拒\n\nPASS=127 FAIL=0\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000"
+        },
+        {
+          "module": "md_cg.test_issue86_runtime_revoke",
+          "args": [],
+          "exit": 0,
+          "seconds": 0.762,
+          "tail": "[PASS] G2 未吊销的令牌 ⇒ 正常写入（不误伤）  · ok=True\n[PASS] G1 吊销后**同进程**再写 ⇒ 被拒（修前仍成功——#86 的核心）  · ok='DENY:AccessDenied'\n[PASS] G3 复检缓存键 == 令牌表 (path, mtime_ns, size)  · key=('/tmp/p86_h7sgkc35/_tokens.json', 1791995686791751587, 529)\n[PASS] G4 令牌表不可读 ⇒ 放行（fail-open，不阻塞服务）  · ok=True\n\n================================================================\n通过 4 ／ 失败 0\n================================================================\nw\u0000s\u0000l\u0000:\u0000 \u0000�hKm0R \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006tM�n\f�FO*g\\��P0R \u0000W\u0000S\u0000L\u0000\u00020N\u0000A\u0000T\u0000 \u0000!j\u000f_\u000bN�v \u0000W\u0000S\u0000L\u0000 \u0000\rN/e\u0001c \u0000l\u0000o\u0000c\u0000a\u0000l\u0000h\u0000o\u0000s\u0000t\u0000 \u0000�N\u0006t\u00020\r\u0000\n\u0000[mdcg-mcp] ⚠ #86 运行期令牌复检异常（已放行）：FileNotFoundError: [Errno 2] No such file or directory: '/tmp/p86_h7sgkc35/_nope.json'\n"
+        }
+      ]
+    }
+  }
+}

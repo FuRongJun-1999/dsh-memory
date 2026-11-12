@@ -182,6 +182,23 @@ def attempt_history(cg, limit=100):
 
 
 
+# 生效条件：cg 可解析出 root 时，返回尝试账本的记录（**归档感知**：先按时间序读全部
+# 归档分片，再读活动文件），limit 为真时只取尾部 limit 条；文件不可读时按空计。
+def attempt_history(cg, limit=100):
+    """尝试账本的读面（issue #212 缺口 4，2026-10-13 DSH 端）。
+
+    为什么必须有它：本账此前**只有写面、没有任何读面**（全仓对 _write_attempts
+    的引用只有写入点与注释）。而轮转把活动文件整份 publish 进归档目录 ⇒
+    **只读活动文件的读面在轮转后看到的是空历史**（不是「最近 N 个分片」，是全部
+    消失）。本函数走 Rotator.read_records，故「轮转与否」对调用方透明；被淘汰的
+    只是超出 keep_shards 的旧分片（有界保留＝设计），不是全部历史。
+    """
+    from .rotate import Rotator
+    return Rotator(cg.root, ATTEMPT_BASENAME, ATTEMPT_ARCHIVE_DIR,
+                   rotate_bytes=_attempt_rotate_bytes()).read_records(limit=limit)
+
+
+
 
 # 生效条件：cg 有 request_flush 时走**异步**通道（置事件即返回，不在返回路径上等落盘；env MDCG_ASYNC_FLUSH=0 时该方法自身退化为同步 flush），无该能力时回落同步 flush()；两条路径在无脏数据时都是 no-op；同步路径抛异常而 out 是 dict 时在 out 写入 "flush_error"（异常本身不外抛），异步路径在 out 写入 "index_flush"="async" 如实标记「索引派生物尚未保证落盘」；
 def _commit_visibility(cg, out):

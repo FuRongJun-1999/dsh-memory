@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """test_interop_judgment —— 互验执行链判据强度守卫（issue #37 六项）
 
 J1  valid=单一放行位（断言 AND 套件）——套件全挂时必须 False
@@ -153,6 +152,13 @@ def main():
         vp = os.path.join(td, "verdict.json")
         ok_v = dict(base, verdict="pass", valid=True, assertions_ok=True,
                     failure_reason=None, passed=9, failed=0)
+        # 2026-11-12 合并：门禁新增外部锚（issue #126 B-2b）——与 verdict.json 同目录
+        # 必须有 `frozen.json`，且其 `digest` == verdict 的 `verifier_fingerprint`。
+        # 没有外部锚 = 没互验（fail-closed），所以夹具要一并造出来，
+        # 否则这里测的是「锚缺失」，不是「pass 该放行」。
+        json.dump({"digest": ok_v["verifier_fingerprint"]},
+                  open(os.path.join(td, "frozen.json"), "w", encoding="utf-8"),
+                  ensure_ascii=False)
         json.dump(ok_v, open(vp, "w", encoding="utf-8"), ensure_ascii=False)
         r = subprocess.run([sys.executable, gate, "--path", vp],
                            capture_output=True, text=True, encoding="utf-8")

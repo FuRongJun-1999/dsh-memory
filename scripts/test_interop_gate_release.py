@@ -130,10 +130,36 @@ def main():
         check("G1 stdout 点名断言面阻因",
               "assertions_ok" in (got.stdout or ""), got.stdout)
 
-        _write(vp, _produced(verdict="pass", passed=9, failed=0))
+        # issue #126 新契约：真放行须有合法冻结凭证（外部锚 A3）。
+        # _produced 的声明指纹固定 "a"*12，故先 freeze 真凭证再改写为 digest。
+        from md_cg.interop import freeze as _freeze
+        cred = _freeze("zz-g2", out_dir=tmp)
+        rel = _produced(verdict="pass", passed=9, failed=0)
+        rel["verifier_fingerprint"] = cred["digest"]
+        _write(vp, rel)
         got = _gate(vp)
-        check("G2 生产端真放行态 → exit 0（不误伤）", got.returncode == 0,
+        check("G2 凭证齐备 + 生产端真放行态 → exit 0（不误伤）",
+              got.returncode == 0, "rc=%s | %s" % (got.returncode, got.stdout))
+        # issue #126 A3 阻因：无凭证 / 伪造 / 不可解析 / 缺 digest ⇒ 拒收（非 0）。
+        frz_fp = os.path.join(tmp, "frozen.json")
+        os.remove(frz_fp)
+        got = _gate(vp)
+        check("G2 无冻结凭证 → 拒收（非 0）", got.returncode != 0,
               "rc=%s | %s" % (got.returncode, got.stdout))
+        _write(frz_fp, {"digest": "0" * 64})
+        got = _gate(vp)
+        check("G2 伪造凭证（digest 不符）→ 拒收（非 0）", got.returncode != 0,
+              "rc=%s | %s" % (got.returncode, got.stdout))
+        with open(frz_fp, "w", encoding="utf-8") as fh:
+            fh.write("{ not json")
+        got = _gate(vp)
+        check("G2 凭证不可解析 → 拒收（非 0）", got.returncode != 0,
+              "rc=%s | %s" % (got.returncode, got.stdout))
+        _write(frz_fp, {"iter_id": "zz", "files": []})
+        got = _gate(vp)
+        check("G2 凭证缺 digest → 拒收（非 0）", got.returncode != 0,
+              "rc=%s | %s" % (got.returncode, got.stdout))
+        os.remove(frz_fp)
 
         _write(vp, _produced(verdict="fail", passed=9, failed=0))
         got = _gate(vp)

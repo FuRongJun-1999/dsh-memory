@@ -60,6 +60,21 @@ class TokenType(Enum):
     DENGYU = auto()       # 等于
     DAYU = auto()         # 大于
     XIAOYU = auto()       # 小于
+    # issue #127（2026-10-12）：否定比较词——此前词法表缺这三词，`不小于`
+    # 被切成 IDENTIFIER('不') + XIAOYU('小于')，parser 合并成 `甲不 < 乙`，
+    # 语义与字面**相反**（后端 CMP_GE/CMP_LE/CMP_NE 早已就绪，纯前端缺接线）。
+    BUDENGYU = auto()     # 不等于
+    BUDAYU = auto()       # 不大于
+    BUXIAOYU = auto()     # 不小于
+    # issue #180（2026-10-19）：复合比较词（大于等于/小于等于/大于或等于/小于或等于）
+    # ——此前词法表缺这四词，`甲 大于等于 乙` 里短词「大于」先行命中，余下的
+    # 「等于」+ 右操作数被并成字面量操作数（字节码证据 `PUSH_CONST 等于乙`）。
+    # 编译 ok=True / errors=[]，运行期却 TypeError:
+    # '>' not supported between 'float' and 'str'（静默错答）。
+    # 修法与 #127 同一条路：长词进 KEYWORDS，既有 SORTED_KW（按长度降序）＋
+    # _segment 正向最大匹配 ⇒ 长词先命中；后端 CMP_GE/CMP_LE 早已就绪。
+    DAYUDENGYU = auto()    # 大于等于 / 大于或等于
+    XIAOYUDENGYU = auto()  # 小于等于 / 小于或等于
     
     # === 循环关键字（当…执行：白箱循环语法）===
     DANG = auto()         # 当
@@ -132,6 +147,11 @@ KEYWORDS = {
     # 条件/逻辑
     "若", "则", "否则", "于", "为", "不为", "且", "或", "非",
     "等于", "大于", "小于",
+    # issue #180：复合比较词（长匹配优先——SORTED_KW 按长度降序，长词先命中）
+    "大于或等于", "小于或等于", "大于等于", "小于等于",
+    # issue #127：否定比较词（长匹配优先——SORTED_KW 按长度降序，
+    # 「不小于」先于「小于」命中）
+    "不等于", "不大于", "不小于",
     # 循环（当…执行：白箱循环语法）
     "当", "执行",
     # 函数（定义…返回：函数抽象）
@@ -167,6 +187,15 @@ KEYWORD_MAP = {
     "等于": TokenType.DENGYU,
     "大于": TokenType.DAYU,
     "小于": TokenType.XIAOYU,
+    # issue #127：否定比较词 → 独立 TokenType（parser 侧映射 >= / <= / !=）
+    "不等于": TokenType.BUDENGYU,
+    "不大于": TokenType.BUDAYU,
+    "不小于": TokenType.BUXIAOYU,
+    # issue #180：复合比较词（同 #127 规则：独立 TokenType → parser 映射 >= / <=）
+    "大于等于": TokenType.DAYUDENGYU,
+    "大于或等于": TokenType.DAYUDENGYU,
+    "小于等于": TokenType.XIAOYUDENGYU,
+    "小于或等于": TokenType.XIAOYUDENGYU,
     "当": TokenType.DANG,
     "执行": TokenType.ZHIXING,
     "定义": TokenType.DINGYI,
@@ -179,6 +208,27 @@ KEYWORD_MAP = {
 
 # 按长度降序排列
 SORTED_KW = sorted(KEYWORDS, key=len, reverse=True)
+
+#: CJK 标识符收集的**断开前瞻集合**（`_segment` 的 CJK 分支专用）：这些词一旦
+#: 出现在 CJK run 中途即须断开，断点落在**词首**，使主循环的最长匹配能正常发出
+#: 对应 token。内容 = 「于」+ 以「于」结尾的比较词（含 issue #127 的三个否定
+#: 比较词）。**必须是 KEYWORDS 的子集**：集合里有而词法表里没有的词会让 CJK 分支
+#: 在词首 break、主循环又匹配不到 ⇒ `ident` 为空且 i 不前进 ⇒ **死循环**。
+#: 故此处由 KEYWORDS 派生校验（见模块末尾 `_assert_break_words_are_keywords`）。
+CJK_BREAK_WORDS = ("不等于", "不大于", "不小于",
+                   "大于", "等于", "小于", "于")
+
+# 生效条件：CJK_BREAK_WORDS 每个元素都在 KEYWORDS 中时返回 None（不动作）；存在
+# 不在 KEYWORDS 的元素时抛 AssertionError 并点名——该形态会让 _segment 的 CJK
+# 分支在词首 break 而主循环匹配不到，`ident` 为空且 i 不前进 ⇒ 分词死循环。
+def _assert_break_words_are_keywords():
+    _orphans = [w for w in CJK_BREAK_WORDS if w not in KEYWORDS]
+    if _orphans:
+        raise AssertionError(
+            f"CJK_BREAK_WORDS 含非关键字 {_orphans}：该形态会让 _segment 死循环")
+
+
+_assert_break_words_are_keywords()
 
 # 中文标点映射
 PUNCTUATION_MAP = {
@@ -390,8 +440,10 @@ class Lexer:
                         # + 孤立 YU。其余关键词（乘/加/为/且…）不在此断开：
                         # 运算词内嵌于名词是合法标识符（「阶乘」「加权」），
                         # 全量前瞻会把它们切碎（见上 docstring 的整段保护规则）。
-                        if any(text.startswith(k, i) for k in
-                               ("大于", "等于", "小于", "于")):
+                        # issue #127：否定比较词（不等于/不大于/不小于）同规——
+                        # 断点须落在词首「不」，否则「甲不小于乙」被吞作
+                        # IDENTIFIER('甲不') + XIAOYU('小于')（字面相反）。
+                        if any(text.startswith(k, i) for k in CJK_BREAK_WORDS):
                             break
                         # 定向断开（安全修复）：「条件空间为X」的无空格
                         # 写法。仅当「为/不为」紧接在名词「条件空间」之后
@@ -467,29 +519,47 @@ class Lexer:
     
     # ---- 字符串读取 ----
     
-# 生效条件：self.source[self.pos] 为 `"` 时 end_quote 取 `"`、为 `“` 时取 `”`，随后逐字符累积进 result 直到遇 end_quote；遇 `\n` 时向 self.errors 记 "字符串未闭合" 并 break（此时 self.pos 仍在串长内，仍会 pos+=1、column+=1 跳过该换行），最后 _emit(TokenType.STRING, 累积内容)。
+# 生效条件：self.source[self.pos] 为 `"` 时 end_quote 取 `"`、为 `“` 时取 `”`，随后逐字符累积进 result 直到遇 end_quote；遇 `\n` 时向 self.errors 记 "字符串未闭合"（行列指向该串起始位置）、先 emit 该 STRING（列号沿用修前口径＝换行后一列）再消费换行并令 self.line += 1、self.column = 1（issue #436：换行不是结束引号，不得吞掉行号）；扫描到 EOF 仍未遇 end_quote 同样记 "字符串未闭合"（不静默接受）；只有真正遇到 end_quote 时才 pos+=1、column+=1 跳过结束引号。
     def _read_string(self):
-        """读取字符串"""
+        """读取字符串（issue #436：未闭合不得吞换行、不得压平后续行号）"""
         quote_char = self.source[self.pos]
         end_quote = '"' if quote_char == '"' else "\u201d"
-        
+        start_line, start_col = self.line, self.column
+
         self.pos += 1
         self.column += 1
         result = []
-        
-        while self.pos < len(self.source) and self.source[self.pos] != end_quote:
+        closed = False
+
+        while self.pos < len(self.source):
             ch = self.source[self.pos]
-            if ch == "\n":
-                self.errors.append(f"L{self.line}:C{self.column} 字符串未闭合")
+            if ch == end_quote:
+                closed = True
                 break
+            if ch == "\n":
+                # 未闭合：换行是**错误边界**，不是结束引号。
+                # 错误报文指向该串**起始**位置（修前指向换行处，会随
+                # 「未闭合串吞行」整体错位）；STRING token 的列号保持修前
+                # 口径（换行后一列），不引入显示层漂移。
+                self.errors.append(
+                    f"L{start_line}:C{start_col} 字符串未闭合")
+                self._emit(TokenType.STRING, "".join(result),
+                           self.column + 1)
+                self.pos += 1          # 消费换行
+                self.line += 1         # 行号推进（修复前被吞）
+                self.column = 1
+                return
             result.append(ch)
             self.pos += 1
             self.column += 1
-        
-        if self.pos < len(self.source):
-            self.pos += 1  # 跳过结束引号
+
+        if closed:
+            self.pos += 1              # 仅在真遇到结束引号时跳过它
             self.column += 1
-        
+        else:
+            # EOF 处未闭合：必须报错（修复前静默接受）
+            self.errors.append(f"L{start_line}:C{start_col} 字符串未闭合")
+
         self._emit(TokenType.STRING, "".join(result))
     
     # ---- 注释跳过 ----

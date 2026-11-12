@@ -1,0 +1,26 @@
+{
+  "base_head": "9c5d946aef17f756f07053f7f386483015f626cc",
+  "optimized_measurement_head": "ddb845f71300f49aaa79d869e35876cfc86e0845",
+  "unchanged_query_contexts": 92,
+  "unchanged_functional_query_packs": 92,
+  "ignored_ingest_metadata": [
+    "created_at",
+    "condition_space.time_window"
+  ],
+  "baseline_p50_ms": 15.909649999230169,
+  "query_p50_ms": 38.14619999320712,
+  "source_sha256": {
+    "md_cg/mdcos.py": "14e54b6fa87c1d3e0a29077dfb3c30f4d5778df13dd5d818237ff9c247399c66",
+    "md_cg/chain.py": "c31dd9b07432e2a7c655f8a94a856b5985629ec41ad25535517a08d4304ea90d",
+    "md_cg/bm25.py": "a0c90e699ead99bd385b93d2af64d6cf472f2005050e00036242c3cf9fc78169",
+    "md_cg/query_excerpt.py": "c365f025d06ec1a10aa54ac47bb3186dc0d6d32ed7e4d572ae40e5d0c26a6f17"
+  },
+  "dataset_sha256": {
+    "corpus\\u01.json": "abe918aa050c9fbfac98695c63dd3a8c1e609963d3b4b59434647ede47aa195a",
+    "corpus\\u02.json": "a17493c92524930ede636d7531065d3cef2c093a5fda9023908cc1cb634f0fbe",
+    "corpus\\u03.json": "417c34513f13368b5fd79afb86cb85ad7a38a22eeff86982f08e10cf2d30fabd",
+    "questions\\题目_主轮.json": "72f8778a9da608a1ff5326b151ba8629fedbecee80a32c1cd889b440fcd40a2f"
+  },
+  "reader_answers": "184 frozen original answers reused only after exact material parity; no new model calls",
+  "scope": "Submission contains query excerpt capability only; no PR168 chain algorithm changes"
+}

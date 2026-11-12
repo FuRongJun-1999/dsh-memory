@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """时间核审计器（E5 口径）＋ P3 图检索路守卫（`md_cg/test_time_core_lint.py`）。
 
 ## 为什么有这个文件

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """第七阶段: 7 终极目标 × 7 初级复现 生态盘点 + 跨域组装验证"""
 import sys
 import os, io, re

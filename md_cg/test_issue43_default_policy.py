@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """默认策略加载守卫（issue #43 问题 1 修复，2026-09-29）。
 
 运行：python -X utf8 -m md_cg.test_issue43_default_policy

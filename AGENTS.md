@@ -46,7 +46,7 @@ ssh aliyun 'cd /home/ubuntu/mdcg && git diff --numstat | awk "{s+=\$1+\$2} END {
 
 | 接口 | 本树历史 | 服务器现状 | 裁定 | 落地 |
 |---|---|---|---|---|
-| `crypto.tenant_actors` | `bdd44232` 引入 | **无** | 以本树为准恢复 | `crypto.py:515`（`tenant_actors`） |
+| `crypto.tenant_actors` | `bdd44232` 引入 | **无** | 以本树为准恢复 | `crypto.py::tenant_actors`（`tenant_actors`） |
 | `signer.policy_source` | `d293921f` 引入 | **无** | 以本树为准恢复 | `signer.py:408`（`policy_source`） |
 | `MdCGOS.fold_access_records` | `d293921f` 引入（原在 `mdcg.py` 的 `MdCG`） | **无** | 以本树为准恢复，落子类 | `mdcos.py:973`（`fold_access_records`） |
 | `MdCGOS.list_nodes` | `d293921f` 引入 | **无** | 以本树为准恢复，落子类 | `mdcos.py:935`（`list_nodes`） |

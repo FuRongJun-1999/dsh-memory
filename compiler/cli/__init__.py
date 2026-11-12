@@ -302,6 +302,27 @@ def cmd_tokens(args) -> int:
 
 
 # 生效条件：args.input 可读出源码（非 None）且 tokenize(source) 的 lex_errors 为空时，用 parse_tokens(tokens, []) 解析并打印 node_to_dict 的 JSON 后返回 0；source 为 None 或 lex_errors 非空（打印词法错误）时返回 1。
+
+# 生效条件：tokens 为 tokenize() 的 Token 序列时调 parse_tokens(tokens, []) 解析——成功返回
+# (ast, None)；解析抛 RecursionError（超长算术链/深嵌套触发 parser 右递归
+# _parse_binary_tail→_parse_expression）时窄捕获，返回 (None, 结构化错误文案)；其他异常原样穿透。
+def _parse_ast_guarded(tokens):
+    """issue #156⑤c：`pc ast` 的 parse_tokens 递归护栏。
+
+    病象：api.compile_source 早在 N102 已窄捕获 RecursionError 转结构化 errors
+    （compiler/api.py），而 cmd_ast 直调 parse_tokens 未捕获 —— `pc ast` 遇超长
+    算术链/深嵌套（约 500 运算符）时裸 Traceback 逃出（资源耗尽/DoS 面）。
+    本函数补齐同一护栏：返回 (ast, err)，err is None 表示成功。
+    不适用范围：序列化面（node_to_dict）保持原实现 —— 深 AST 在 parse 阶段已先
+    抛 RecursionError，本函数只收口 parse 一处，不改输出语义。
+    """
+    try:
+        return parse_tokens(tokens, []), None
+    except RecursionError:
+        return None, ("递归深度超限（RecursionError）：表达式/嵌套过深——"
+                      "请拆短算术链或降低嵌套层级")
+
+
 def cmd_ast(args) -> int:
     """执行 ast 命令（调试用）"""
     source = _read_input(args.input)
@@ -315,7 +336,12 @@ def cmd_ast(args) -> int:
             print(f"   {e}")
         return 1
     
-    ast = parse_tokens(tokens, [])
+    # issue #156⑤c：parse 护栏——判据抽入 _parse_ast_guarded（守卫可定点变异：
+    # 替换该函数即回退到「裸调 parse_tokens」的旧形态）。
+    ast, _ast_err = _parse_ast_guarded(tokens)
+    if _ast_err is not None:
+        print("❌ " + _ast_err)
+        return 1
     
 # 生效条件：node 为 None 时返回字符串 "null"；否则返回含 type（有 type 属性取 node.type.name，否则取 str(type(node))）、line、value 的字典，且 getattr(node, 'children', []) 非空时追加递归 node_to_dict(c, depth+1) 的 children 列表。
     def node_to_dict(node, depth=0):

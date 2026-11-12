@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 功能名：B4 分片目录缺失自愈的**独立**判别力守卫（长驻进程内 `_index_log/` 被删后 append 必自愈、必留痕、read_all 不回归）
 # 生效条件：`md_cg/fsutil.py` 的 `ShardedLog`（`__init__` 首建 / `append` 打开前复查）经唯一实现点 `ensure_shard_dir` 保证分片目录存在时；本守卫以真实 `MdCG` 实例在沙箱库根上端到端跑，**不读在役库**。
 # 子功能：①端到端自愈（写 1 条 → rmtree `_index_log/` → 再写 3 条全成功 + 目录重建 + 分片记录与读面可见）；②可观测（记账 + 有界样本 + stderr 告警，重建失败也记账）；③`read_all` 既有语义（非目录 → `[]`）；④单点（AST：全文件 `ensure_shard_dir` 只有 1 份定义，`ShardedLog` 内 2 处调用点全是委托、无裸 makedirs 副本）
@@ -14,7 +13,7 @@
 
 修复（单点）：``md_cg/fsutil.py:979`` ``ensure_shard_dir`` 是分片目录存在性的
 **唯一**实现，两处调用点均为委托——``fsutil.py:706``（``__init__``, "init"，首建
-不记账）与 ``fsutil.py:1029``（``append``, "append"，打开前复查、记账 + 告警）。
+不记账）与 ``fsutil.py::append``（``append``, "append"，打开前复查、记账 + 告警）。
 
 本文件的三条硬断言（对应派单 ①②③）与两条加固（单点 / 失败结构化）：
   A 自愈端到端：删目录后再写三条全成功，目录重建、分片记录与读面都可见

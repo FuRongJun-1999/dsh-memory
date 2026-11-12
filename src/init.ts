@@ -26,14 +26,14 @@
  * node:path）——与全仓「CLI 不加第三方依赖」纪律一致。
  */
 
-import { writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { createInterface } from 'node:readline/promises'
 import type { Readable, Writable } from 'node:stream'
 import { join, resolve } from 'node:path'
 import { pathToFileURL, fileURLToPath } from 'node:url'
 import { realpathSync } from 'node:fs'
-import { repoRoot } from './lib/datapath.js'
+import { expandHome, repoRoot } from './lib/datapath.js'
 import { defaultPython } from './lib/python_path.js'
 
 /** 接入端：1=DSH 插件 2=Claude Code 3=Codex CLI 4=通用 MCP。 */
@@ -101,19 +101,6 @@ function matchEnd(value: string): EndSpec | null {
 /** 缺省记忆根：<home>/.lingshu/memory（home 可注入，供测试）。 */
 export function defaultMemoryRoot(home: string = homedir()): string {
   return join(home, '.lingshu', 'memory')
-}
-
-/**
- * N167：根入口波浪线展开——`~` / `~/x`（含 `~\x`）前缀按 home 展开，缺省
- * os.homedir()。与大脑侧 md_cg/datapath.py 的 expanduser+abspath 同口径：
- * 帮助文案与 :264 自带示例都写着「--root ~/.lingshu/memory」，不展开就会把
- * 记忆根解析成宿主 cwd 下的字面 ~ 目录——落错位且随 cwd 漂移分裂。
- * 边界：`~user` 形态 Node 无便携语义（POSIX pwd 查询不可用），原样保留。
- */
-function expandHomeTilde(p: string, home: string = homedir()): string {
-  if (p === '~') return home
-  if (p.startsWith('~/') || p.startsWith('~\\')) return join(home, p.slice(2))
-  return p
 }
 
 /** 生成的 mcp.json 片段（键序固定 → 序列化稳定 → 幂等）。 */
@@ -302,15 +289,36 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   }
 
   const endSpec = end as EndSpec
-  // N167：flag（--root）与交互手输两条入口在此汇合，展开一次即双路覆盖
-  const rootAbs = resolve(cwd, expandHomeTilde(root as string, opts.home))
+  // N167：flag（--root）与交互手输两条入口在此汇合，展开一次即双路覆盖。
+  // 展开用 `src/lib/datapath.ts::expandHome`（**唯一实现**，原 expandHomeTilde 已删）：
+  // 帮助文案与 :264 自带示例都写着「--root ~/.lingshu/memory」，不展开就会把记忆根
+  // 解析成宿主 cwd 下的字面 ~ 目录——落错位且随 cwd 漂移分裂。`~user` 不展开，
+  // 与 python 侧 md_cg/datapath.py::_expand_home 同判据（登记见 datapath.ts 该函数）。
+  const rootAbs = resolve(cwd, expandHome(root as string, opts.home))
   const pythonName = (python as string).trim()
   if (pythonName === '') throw new InitError('--python 不能为空串')
 
   const snippet = buildSnippet(endSpec, rootAbs, pythonName)
   const snippetJson = `${JSON.stringify(snippet, null, 2)}\n`
   const snippetPath = join(cwd, SNIPPET_FILENAME)
-  writeFileSync(snippetPath, snippetJson, 'utf8')
+  // 覆盖前先判断：用户可能已在本目录手写过同名文件（甚至已把真实 MDCG_TOKEN 填进去）。
+  // 无条件 writeFileSync 会把它们连同令牌一起冲掉，而 init 的文案只承诺「重跑输出一致」。
+  // 已有且内容不同时：不覆盖，改写旁路文件名，并在输出里说明——宁可多一个文件，不可丢数据。
+  // 旁路名**固定不含时间戳**：反复跑 init 只覆盖同一个 -new.json，不随时间线性堆积；
+  // 内容与 -new.json 相同时也跳过写入，做到真正幂等（issue #1193）。
+  let writtenPath = snippetPath
+  if (existsSync(snippetPath)) {
+    let prev = ''
+    try { prev = readFileSync(snippetPath, 'utf8') } catch { /* 读不出当作不同，走旁路 */ }
+    if (prev !== snippetJson) {
+      const alt = join(cwd, SNIPPET_FILENAME.replace(/\.json$/, '-new.json'))
+      writtenPath = alt
+    }
+  }
+  // 幂等：目标文件已是这份内容就不再落盘（避免重复写同一字节串，也保住 mtime）
+  let needWrite = true
+  try { needWrite = readFileSync(writtenPath, 'utf8') !== snippetJson } catch { /* 不存在则写 */ }
+  if (needWrite) writeFileSync(writtenPath, snippetJson, 'utf8')
 
   say()
   say(`灵枢（Lingshu）一键配置 · 端=${endSpec.label}`)
@@ -323,7 +331,7 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
   for (const line of nextSteps(endSpec, pythonName)) say(line)
   for (const line of tokenCommand(pythonName, endSpec.tokenActor, '')) say(line)
   say()
-  say(`片段已写入：${snippetPath}（mcpServers 键直接复制即可）`)
+  say(`片段已写入：${writtenPath}（mcpServers 键直接复制即可）`)
   say('提示：PYTHONPATH 当前指向本命令所在包——若是 npx 临时包，建议换成 git clone 的常驻仓库绝对路径（免疫 npx 缓存清理）。')
   say('init 只生成配置：未创建目录、未启动服务、未写库；重跑输出一致。')
 
@@ -332,7 +340,7 @@ export async function runInit(argv: string[], opts: InitOptions = {}): Promise<I
     endLabel: endSpec.label,
     root: rootAbs,
     python: pythonName,
-    snippetPath,
+    snippetPath: writtenPath,
     snippet,
     output: collected,
     snippetFile: snippetJson,

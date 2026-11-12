@@ -478,6 +478,9 @@ def main():
             src[mod] = f.read()
     for name, fn in (("MdCG.search", MdCG.search),
                      ("MdCGOS.search_rrf", MdCGOS.search_rrf)):
+        _src = inspect.getsource(fn)
+        _via_impl = ("_search_impl" in _src
+                     and "apply_retrieval_gates" in _os_impl_src)
         check(f"P6a {name} 源码引用共享门控 apply_retrieval_gates",
               "apply_retrieval_gates" in inspect.getsource(fn))
     # 2026-11-10（审计 T3/T7 + R-511）：`MdCGOS.search` 已改成预筛回退**外壳**

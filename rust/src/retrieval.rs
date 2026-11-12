@@ -38,9 +38,12 @@ fn like(doc: &Doc, terms: &[String]) -> bool {
     // 只把求值时机前移（文档内容建库后不变 ⇒ 派生物不变）。
     let body = doc.like_body_lower.as_str();
     let tags = doc.tags_joined_lower.as_str();
+    // issue #150（与 Python `_like` 同步）：**空词项会使 `body.contains("")` 恒真**
+    // ⇒ LIKE 恒真、全库入池。两侧必须同时修，否则 parity 门禁立刻劈叉。
     terms
         .iter()
-        .any(|t| body.contains(t.as_str()) || (!tags.is_empty() && tags.contains(t.as_str())))
+        .any(|t| !t.is_empty()
+             && (body.contains(t.as_str()) || (!tags.is_empty() && tags.contains(t.as_str()))))
 }
 
 /// `_lexical`：LIKE 预筛 → 覆盖率打分。
@@ -187,12 +190,15 @@ pub fn lexical(
         } else {
             0.0
         };
-        // 对齐 `any(str(t) in q or q in str(t) for t in tags)`：逐个 tag 判定，
-        // 不做空串过滤（Python 里 `"" in q` 恒真，会触发 bonus）。
-        let tag_bonus = if d
-            .tags
-            .iter()
-            .any(|t| !query.is_empty() && (query.contains(t.as_str()) || t.contains(query)))
+        // 对齐 `any(str(t) and (str(t) in q or q in str(t)) for t in tags)`：逐个 tag
+        // 判定，**做空串过滤**（issue #150，2026-10-11 与 Python 同步）。
+        // 修前本处注释写的是「不做空串过滤（Python 里 `"" in q` 恒真，会触发 bonus）」
+        // ——那是**显式保留**同一缺陷以维持两侧一致；本件把两侧一起修，
+        // 该注释随之改写（保留此句以免后人以为可以只改一侧）。
+        let tag_bonus = if !query.is_empty()
+            && d.tags.iter().any(|t| {
+                !t.is_empty() && (query.contains(t.as_str()) || t.contains(query))
+            })
         {
             0.05
         } else {

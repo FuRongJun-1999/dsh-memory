@@ -10,10 +10,34 @@ AST（protocol-compiler parser）→ VM 指令（condition_vm）：
 若则=if——VM 执行结果与声明语义一致。
 """
 
+import math
+
 from .lexer import tokenize, TokenType
 from .parser import parse_tokens, NodeType
 from .name_checker import NameChecker
 from .condition_vm import Opcode
+
+
+def _finite_operand(val, line, what):
+    """数值操作数闸（单点）：非数值或非有限值 ⇒ SyntaxError 名实不符。
+
+    issue #435：float('inf') / float('nan') 是合法转换、不抛异常，故单靠
+    try/except 拦不住——「必须是数值」的闸会被穿透，而它们进信任寄存器后
+    永久毒化且不报错（NaN 破坏相等自反 ⇒「止」永不触发；inf 恒超任何阈值
+    ⇒「知足」恒早退）。故此处按「有限」判定，与「名实不符」同一口径拒绝。
+    """
+    try:
+        num = float(val) if val is not None else 0.0
+    except OverflowError:   # v0.9.0：10**400 超出 float 表示范围（OverflowError 不是 ValueError），按「非有限数值」拒
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是有限数值（超出浮点表示范围），得到 '{val}'（名实不符）")
+    except (TypeError, ValueError):
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是数值，得到 '{val}'（名实不符）")
+    if not math.isfinite(num):
+        raise SyntaxError(
+            f"L{line} {what} 的操作数必须是有限数值，得到 '{val}'（名实不符）")
+    return num
 
 
 # 中文比较词 → VM 比较指令（codegen CHINESE_COMP_MAP 同构）
@@ -169,7 +193,7 @@ class Compiler:
             self.warnings.append(f"L{s.line} 未编译语句类型: {s.type.name}")
 
     # ---- 道德经指令 ----
-# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels；其余指令向 warnings 追加未接入提示。
+# 生效条件：按 s.instruction 分派——DAO 发 (DAO, val)，val 为 None（operands 为空或 _operand_value 返回 None）时用 '无名路径'；DE 发 float(val)，val 为 None 时 0.0、非数值时抛 SyntaxError 名实不符；ZIRAN/WUWEI/ZHI 各发对应无参指令；ZHIZU 以 float(val)（None 时 0.0）为阈值新建标签并挂 pending 与 zhizu_labels，非数值操作数同 DE 口径抛 SyntaxError 名实不符（issue #434，裸 float 不再穿透编译主入口）；其余指令向 warnings 追加未接入提示。
     def _instr(self, s):
         op = s.instruction
         operands = s.operands
@@ -177,12 +201,7 @@ class Compiler:
         if op == TokenType.DAO:
             self._emit(Opcode.DAO, val if val is not None else "无名路径")
         elif op == TokenType.DE:
-            try:
-                self._emit(Opcode.DE, float(val) if val is not None else 0.0)
-            except (TypeError, ValueError):
-                # 以名举实：非数值操作数（未声明标识符）编译期拦截——名实不符
-                raise SyntaxError(
-                    f"L{s.line} 德 的操作数必须是数值，得到 '{val}'（名实不符）")
+            self._emit(Opcode.DE, _finite_operand(val, s.line, '德'))
         elif op == TokenType.ZIRAN:
             self._emit(Opcode.ZIRAN)
         elif op == TokenType.WUWEI:
@@ -190,7 +209,9 @@ class Compiler:
         elif op == TokenType.ZHI:
             self._emit(Opcode.ZHI)
         elif op == TokenType.ZHIZU:
-            threshold = float(val) if val is not None else 0.0
+            # issue #434：非数值阈值转结构化 SyntaxError（compile_source 已窄捕）；
+            # issue #435：同口径拦 inf/nan。两处判据收口在 _finite_operand 单点。
+            threshold = _finite_operand(val, s.line, '知足')
             lbl = self._new_label()
             self._emit(Opcode.ZHIZU, (threshold, lbl))
             self.pending.append((len(self.code) - 1, lbl))

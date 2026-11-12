@@ -105,6 +105,24 @@ def parse_a(text: str):
     return blocks, think, counts
 
 
+# 生效条件：每次调用累计 kind + "_unclosed" 与 unclosed_dropped_lines，并向 stderr
+# 写一行含 kind 与被吞行数的警告；不抛异常、不猜内容边界。
+def _warn_unclosed(counts, kind, swallowed):
+    """未闭合噪声块的可观测信号（issue #171 问题三）。
+
+    病象：`[Hermes UI Workspace]` 或 `<details>` 只见开标记、不见闭标记时，parse_b
+    把其后**直到文末**的一切都当噪声剥掉——正文被静默吞掉，产物里毫无痕迹。
+    处置：文末仍在块内 ⇒ 计数（kind + "_unclosed" / unclosed_dropped_lines）并把
+    被吞行数写进 stderr 警告。剥除语义不变（不猜边界），只让「吞了多少」可观测。
+    """
+    counts[kind + "_unclosed"] = counts.get(kind + "_unclosed", 0) + 1
+    counts["unclosed_dropped_lines"] = (counts.get("unclosed_dropped_lines", 0)
+                                        + int(swallowed))
+    sys.stderr.write("[whale_corpus_prep] 警告：%s 噪声块未闭合——其后 %d 行按噪声块"
+                     "剥除（该节正文可能被整段丢掉）；请核对语料闭合标记。\n"
+                     % (kind, int(swallowed)))
+
+
 def parse_b(text: str):
     """B 型（Hermes 导出）解析：`## N. 我` / `### 角色` 分节；`**思维链**` 标记后的
     `> ` 段为思考；`[Hermes UI Workspace]` 与 `<details>` 块为宿主噪声（剥离计数）。"""
@@ -118,6 +136,10 @@ def parse_b(text: str):
     counts = {"thinking_lines": 0, "workspace_blocks": 0, "detail_blocks": 0}
     in_ws = False
     in_details = False
+    # issue #171（问题三）：未闭合噪声块的可观测信号——*_swallow 计「自最近一次
+    # 闭块起被当噪声剥掉的行数」，闭块即清零；文末仍在块内 ⇒ 警告 + 计数。
+    ws_swallow = 0
+    det_swallow = 0
     for k, (i, role) in enumerate(heads):
         end = heads[k + 1][0] if k + 1 < len(heads) else len(lines)
         seg = lines[i + 1:end]
@@ -129,8 +151,10 @@ def parse_b(text: str):
                 continue
             if _DETAILS_CLOSE.match(ln):
                 in_details = False
+                det_swallow = 0
                 continue
             if in_details:
+                det_swallow += 1
                 continue
             if _WS.match(ln):
                 in_ws = True
@@ -138,8 +162,10 @@ def parse_b(text: str):
                 continue
             if _WS_END.match(ln):
                 in_ws = False
+                ws_swallow = 0
                 continue
             if in_ws:
+                ws_swallow += 1
                 continue
             if ln.strip() == "**思维链**":
                 continue
@@ -156,6 +182,10 @@ def parse_b(text: str):
         if th:
             think.append((len(blocks) - 1, "鲸鱼娘" if stream == "我说" else stream, th))
             counts["thinking_lines"] += len(th)
+    if in_ws:
+        _warn_unclosed(counts, "workspace", ws_swallow)
+    if in_details:
+        _warn_unclosed(counts, "details", det_swallow)
     return blocks, think, counts
 
 
@@ -255,6 +285,10 @@ def main() -> int:
             "thinking_lines": counts.get("thinking_lines", 0),
             "workspace_blocks": counts.get("workspace_blocks", 0),
             "detail_blocks": counts.get("detail_blocks", 0),
+            # issue #171 问题三：未闭合噪声块的机器可读信号（0 = 正常）
+            "workspace_unclosed": counts.get("workspace_unclosed", 0),
+            "details_unclosed": counts.get("details_unclosed", 0),
+            "unclosed_dropped_lines": counts.get("unclosed_dropped_lines", 0),
             "chars_我说": sum(len(x) for x in me),
             "chars_鲸鱼娘": sum(len(x) for x in her),
             "sha256_我说": hashlib.sha256("\n\n---\n\n".join(me).encode("utf-8")).hexdigest()[:16],

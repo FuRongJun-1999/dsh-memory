@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 r"""守卫 · #93 mdcg_remember 通路须过 policy 打码（2026-10-09 DSH 端实施）。
 
 缺陷（GitHub #93）：mdcg_remember（hooks 自动记忆走的通路）**不过** policy.json

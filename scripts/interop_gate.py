@@ -99,6 +99,38 @@ def release_blockers(v: dict) -> list:
     return blockers
 
 
+# N126-ANCHOR-BEGIN
+def _anchor_blockers(v: dict, verdict_path: str) -> list:
+    """issue #126 B-2b 外部锚（承重墙）：verifier_fingerprint == 冻结凭证 digest。
+
+    修前本门禁只判 verdict.json 自身字段（自洽即放行）——frozen / digest /
+    verifier_fingerprint 三个外部锚词在脚本里 0 出现，一份手写全假 verdict
+    （verdict=pass / valid=true / assertions_ok=true / failed=0）即 exit 0 放行。
+    冻结凭证是唯一的外部事实来源：与 verdict.json **同目录**的 frozen.json
+    （verify_runner.py 固定读 hive/interop/<iter_id>/frozen.json）。
+    缺失 / 不可读 / 顶层非对象 / 缺 digest / 与声明指纹不符 —— 一律列阻因
+    （fail-closed：没有外部锚就是没互验，不是「无异议」）。
+    """
+    frozen_fp = os.path.join(os.path.dirname(os.path.abspath(verdict_path)),
+                             "frozen.json")
+    try:
+        with open(frozen_fp, encoding="utf-8") as f:
+            frozen = json.load(f)
+    except (OSError, ValueError) as e:
+        return ["A3 无外部锚：冻结凭证不可读（%s）: %s —— 未互验（fail-closed）"
+                % (frozen_fp, e)]
+    if not isinstance(frozen, dict):
+        return ["A3 无外部锚：冻结凭证顶层非对象（实得 %s）"
+                % type(frozen).__name__]
+    digest = frozen.get("digest")
+    if not digest:
+        return ["A3 无外部锚：冻结凭证缺 digest（实得 %r）" % (digest,)]
+    if v.get("verifier_fingerprint") != digest:
+        return ["A3 不成立：verifier_fingerprint=%r != 冻结值 digest=%r"
+                % (v.get("verifier_fingerprint"), digest)]
+    return []
+# N126-ANCHOR-END
+
 def main(argv) -> int:
     if len(argv) < 2:
         print(__doc__)
@@ -116,6 +148,9 @@ def main(argv) -> int:
         print(f"[interop_gate] FAIL（形状非法，拒绝猜测）: {e}")
         return 3
     blockers = release_blockers(v)
+# N126-ANCHOR-BEGIN
+    blockers.extend(_anchor_blockers(v, path))
+# N126-ANCHOR-END
     if not blockers:
         print(f"[interop_gate] PASS: {path} verdict=pass valid=true "
               f"assertions_ok=true passed={v['passed']} failed={v['failed']}")

@@ -406,10 +406,7 @@ def main() -> int:
     # 水位**按目标库分键**（隔离测试与在役互不污染）：normcase(root)|session
     if a.root:
         os.environ["MDCG_ROOT"] = a.root
-        root = a.root
-    else:
-        from md_cg.datapath import mdcg_root
-        root = mdcg_root()
+    root = _resolve_root()
     key = os.path.normcase(os.path.abspath(root)) + "|" + sid
     sst = state.setdefault(key, {})
     last_t = int(sst.get("last_turn_created") or 0)

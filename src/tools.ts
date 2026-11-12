@@ -6,12 +6,19 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { defineTool, type ParameterPropertySpec, type ParameterSchemaSpec, type ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
+// #222：`@deepseek-ai/dsh-tools` 是 **optional peer**（peerDependenciesMeta），而
+// optional 的语义是「没有它也能加载本包」。此前这里是**静态值导入**，于是干净
+// 安装（npm 7+ 不装 optional peer）后 `import('@furongjun1999/dsh-memory')` 直接
+// ERR_MODULE_NOT_FOUND——整包不可加载，不是「用到才失败」。故改为**惰性导入**
+// （仅在真正注册工具时 `await import`，见 registerLingshuTools）；类型仍走
+// `import type`（编译期擦除，运行期不解析）。
+import type { ParameterPropertySpec, ParameterSchemaSpec, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
 import type { LingshuBridge, McpTool } from './bridge.ts'
 // B 治本批（2026-10-06）：写归因注入单点（运行期会话 → 写归因调用）。
 // 运行时导入写 `.js`（本仓口径：type-only 才写 `.ts`，tsconfig 未开
 // allowImportingTsExtensions —— 值导入写 `.ts` 会 TS5097 编译失败）。
 import { attributeSession } from './lib/session_state.js'
+import { neutralizeUntrustedBoundary, stripLoneSurrogates, truncateSafe } from './lib/prompt_safety.js'
 
 /** 默认暴露的核心工具集合：**记忆面已基元化**，只注册 `cg` / `stg` 两个认知基元。
  *
@@ -102,7 +109,12 @@ export function schemaToParameters(inputSchema: Record<string, unknown> | undefi
   const properties = inputSchema['properties'] as Record<string, unknown> | undefined
   if (!properties || typeof properties !== 'object') return {}
   const required = new Set(Array.isArray(inputSchema['required']) ? (inputSchema['required'] as string[]) : [])
-  const spec: Record<string, ParameterPropertySpec> = {}
+  // issue #354 [P2-15]：属性表必须是**无原型**对象。用 `{}` 时 `spec['__proto__'] = v`
+  // 走的是 Object.prototype 的原型 setter——局部 spec 的原型被换成 v，该属性在
+  // Object.keys / 展开 / JSON 序列化里静默消失（工具参数定义丢字段，且原型链上
+  // 多出一层可控对象）。`Object.create(null)` 让 `__proto__` 成为普通自有键。
+  // 类型断言：ParameterSchemaSpec 是「属性名 → 规格」的字典，无原型对象仍是合法字典。
+  const spec = Object.create(null) as Record<string, ParameterPropertySpec>
   for (const [key, raw] of Object.entries(properties)) {
     const value = toValueSpec(raw)
     if (required.has(key)) {
@@ -152,6 +164,14 @@ function toValueSpec(raw: unknown): ValueSchemaSpec {
 }
 
 /** 从灵枢 content 数组中提取文本（MCP text block 拼接）。 */
+/** 工具面返回文本的插件级兜底上限（issue #563②）。
+ *
+ * 服务端 `cg(op=read)` 等已有 `offset`/`truncated` 分页（`_clip_text`），本上限**不**替代
+ * 它、也不重新定义预算：只兜「一次把整库搬进上下文」的极端形态。取 64KiB——远大于
+ * 单页预算（服务端 preview 200 字 / read 分页 KB 级），正常调用不会触发。
+ */
+export const TOOL_RENDER_MAX_CHARS = 65536
+
 export function extractText(content: Array<{ type: string; text?: string; [key: string]: unknown }>): string {
   return content
     .map((block) => (block.type === 'text' && typeof block.text === 'string' ? block.text : ''))
@@ -159,28 +179,83 @@ export function extractText(content: Array<{ type: string; text?: string; [key: 
     .join('\n')
 }
 
-/** 注册灵枢工具到 ctx.tools；返回取消注册函数。 */
+/** 注册灵枢工具到 ctx.tools；返回取消注册函数。
+ *
+ * #222：`defineTool` 在**这里**惰性导入（而不是模块顶层静态导入）——本包对
+ * `@deepseek-ai/dsh-tools` 的声明是 optional peer，静态导入会让「干净安装后
+ * import 本包」在模块求值前就失败。惰性导入后：不在 DSH 宿主内时包仍可加载，
+ * 只有真正注册工具才报错，且错误消息点名缺哪个包。
+ */
+/** 工具对外名（issue #634）：正式名 + 可选兼容别名。
+ *
+ * 0.9.9 起去掉了 `${serverName}_` 前缀（lingshu_cg -> cg），升级瞬间
+ * 已存在会话里的旧名调用全部变成 unknown tool。这里给出「一个工具要注册哪些名字」的
+ * 纯函数，注册面与测试共用，避免两处各写一份判据。
+ */
+export function toolPublicNames(
+  toolName: string,
+  prefix: string,
+  legacyAliases = true,
+): string[] {
+  const primary = `${prefix}${toolName}`
+  if (prefix || !legacyAliases || toolName.startsWith("lingshu_")) return [primary]
+  return [primary, `lingshu_${toolName}`]
+}
+
 export async function registerLingshuTools(
   ctx: Context,
   bridge: LingshuBridge,
-  opts: { selection: ToolSelection; toolPrefix: string },
+  opts: { selection: ToolSelection; toolPrefix: string; legacyAliases?: boolean },
 ): Promise<() => void> {
+  let defineTool: typeof import('@deepseek-ai/dsh-tools').defineTool
+  try {
+    ({ defineTool } = await import('@deepseek-ai/dsh-tools'))
+  } catch (err) {
+    throw new Error(
+      '无法加载 @deepseek-ai/dsh-tools（灵枢工具注册依赖 DSH 宿主提供的该包）——'
+      + '请确认插件运行在 DSH 宿主内，或在宿主环境中安装 @deepseek-ai/dsh-tools。'
+      + `原始错误：${err instanceof Error ? err.message : String(err)}`)
+  }
   const tools = await bridge.listTools()
   const wanted = new Set(selectTools(tools.map((t) => t.name), opts.selection))
   const disposers: Array<() => void> = []
   const registered: string[] = []
   try {
+    // issue #634（2026-10-22）：0.9.9 起工具名去掉 serverName 前缀（lingshu_cg -> cg），
+    // 升级瞬间已存在的会话里旧名调用全变 unknown tool，宿主与插件都没有提示。
+    // 这里加兼容别名：裸名照常注册，同时补注册 lingshu_<name>（legacyAliases=false 可关）。
+    // 别名与正式名指向同一个 execute，语义不变；描述标注 deprecated 供模型与人识别。
     for (const tool of tools) {
       if (!wanted.has(tool.name)) continue
-      const publicName = `${opts.toolPrefix}${tool.name}`
-      const definition = defineTool({
-        name: publicName,
-        description: tool.description || `灵枢 ${tool.name}`,
+      const names = toolPublicNames(tool.name, opts.toolPrefix, opts.legacyAliases !== false)
+      const publicName = names[0] as string
+      const aliasName = names[1] ?? ""
+      const makeDefinition = (registeredName: string, deprecated: boolean) => defineTool({
+        name: registeredName,
+        description: deprecated
+          ? '【已弃用别名】旧版工具名（升级兼容用），请改用 ' + publicName + '。原始描述：'
+            + (tool.description || '灵枢 ' + tool.name)
+          : (tool.description || '灵枢 ' + tool.name),
         parameters: schemaToParameters(tool.inputSchema),
         output: {
           schema: { type: 'json' } as never,
           render(_args, value) {
-            return [{ type: 'text', text: extractText((value as McpCallResultLike).content ?? []) }]
+            // issue #563②：工具面与自动注入面同源（都可能含他者写入的记忆原文），
+            // 但此前**完全不打断边界标记、也无插件级上限**——同一条记忆在注入面被
+            // 打断，在 `cg(op=read)` 的返回里却原样带出，模型可据此提前闭合边界块。
+            // 两件事在此单点做：①打断（与注入面同一实现 `neutralizeUntrustedBoundary`）；
+            // ②兜底上限（服务端已有 offset 分页，插件层只兜一个远大于单页的硬上限，
+            // 防止一次把整库搬进上下文；截断必须显式标注，不静默）。
+            const raw = extractText((value as McpCallResultLike).content ?? [])
+            // issue #762：工具返回同样是模型上下文的一部分——半个 emoji 会让宿主
+            // JSON.stringify 产出 "\ud83d" ⇒ 整条请求 400。出口先清孤立代理。
+            const safe = neutralizeUntrustedBoundary(stripLoneSurrogates(raw))
+            const text = safe.length > TOOL_RENDER_MAX_CHARS
+              ? truncateSafe(safe, TOOL_RENDER_MAX_CHARS)   // issue #762：不劈代理对
+                + `
+…[已截断：工具返回超过插件上限 ${TOOL_RENDER_MAX_CHARS} 字符]`
+              : safe
+            return [{ type: 'text', text }]
           },
         },
         timeoutMs: 120_000,
@@ -205,8 +280,14 @@ export async function registerLingshuTools(
           return { content: result.content } as never
         },
       })
-      disposers.push(ctx.tools.register(definition))
+      disposers.push(ctx.tools.register(makeDefinition(publicName, false)))
       registered.push(publicName)
+      if (aliasName) {
+        // 兼容别名：指向同一个 execute（makeDefinition 复用了同一份定义体），
+        // 标记 deprecated；下一轮 minor 再评估是否移除。
+        disposers.push(ctx.tools.register(makeDefinition(aliasName, true)))
+        registered.push(aliasName)
+      }
     }
   } catch (err) {
     for (const dispose of disposers) dispose()

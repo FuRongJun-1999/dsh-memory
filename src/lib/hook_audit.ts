@@ -34,12 +34,14 @@
  *   · `written` 记的是「**成功发起**」的写入（fire-and-forget 的发起时刻），
  *     发起后失败另记 `skipped.failed`——与 hooks.ts 的 memorize 两段式对应。
  */
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
+import { closeSync, mkdirSync, openSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { expandHome } from './datapath.js'
 import { dirname, join } from 'node:path'
 
 /** 三处过滤分支的成因（与 hooks.ts 一一对应：子代理会话 / 中继消息 / kind 非 user）。 */
-export type HookFilterReason = 'subagent' | 'relay' | 'kind'
+/** issue #695：`session_excluded` = 会话在 memory.excludeSessions 里（按会话显式排除）。 */
+export type HookFilterReason = 'subagent' | 'relay' | 'kind' | 'session_excluded'
 /** 写入路径的角色（与 md_cg 对 DSH 会话事件的 role 约定一致）。 */
 export type HookWriteRole = 'user' | 'assistant' | 'tool'
 /** 跳过写入的成因。 */
@@ -66,13 +68,31 @@ export interface HookAuditState {
   }
   /** 进入消息级处理的 `source.kind` 分布（缺字段/空串/非字符串记 "undefined"）。 */
   kinds: Record<string, number>
+  /** `source` 的**键名集合**分布（issue #695：只记键名，绝不记值）。
+   *  为什么需要：`kind` 只说明「以什么形式提交」，不说明「谁提交的」。
+   *  外部桥接经 `sessions.prompt()` 注入的控制提示同样以 kind="user" 通过，
+   *  只看 kind 无法区分；而**键名集合**（如 `kind` / `form+kind` / `kind+origin`）
+   *  能直接回答「这条事件的 source 到底带哪些字段」，是排查来源归因缺口的第一读数。 */
+  source_shapes: Record<string, number>
   /** 最近 ≤MAX_LAST 条摘要。 */
   last: HookAuditEntry[]
   updated_at: string
 }
 
 /** 缺省审计文件：与桥探针 / apply 探针同目录同惯例（README.md:110）。 */
-export const DEFAULT_HOOK_AUDIT_PATH = join(homedir(), '.dsh', 'logs', 'dsh-memory-hook-audit.json')
+/**
+ * 审计根：优先 `DSH_HOME`（隔离/多 home 安装必须显式给），否则 `~/.dsh`。
+ * issue #554 §7：此前恒用 homedir，隔离 home 下审计写到生产 home，与 brain 分离。
+ * 兼容 `~` 与 `~/x` 形态；其余按字面路径处理（不做 shell 展开）。
+ */
+function defaultHookAuditPath(): string {
+  const raw = (process.env.DSH_HOME ?? '').trim()
+  // 唯一实现：路径展开复用 datapath.expandHome（禁止第二处判据，见 test/datapath-expandhome）。
+  const root = raw ? expandHome(raw) : join(homedir(), '.dsh')
+  return join(root, 'logs', 'dsh-memory-hook-audit.json')
+}
+
+export const DEFAULT_HOOK_AUDIT_PATH = defaultHookAuditPath()
 
 /** last 条数上限（有界性单点——没有它 audit 文件会随会话无限增长）。 */
 const MAX_LAST = 20
@@ -81,7 +101,9 @@ const MAX_KINDS = 32
 /** kinds 归并桶。 */
 const OTHER_KIND = 'other'
 
-const FILTER_REASONS: HookFilterReason[] = ['subagent', 'relay', 'kind']
+const FILTER_REASONS: HookFilterReason[] = ['subagent', 'relay', 'kind', 'session_excluded']
+/** 只在**新增**键上允许旧盘面缺省（前向兼容），旧键缺失仍判坏盘面。 */
+const OPTIONAL_COUNT_KEYS = new Set<string>(['session_excluded'])
 const WRITE_ROLES: HookWriteRole[] = ['user', 'assistant', 'tool']
 const SKIP_REASONS: HookSkipReason[] = ['sanitized', 'not_ready', 'failed']
 
@@ -92,6 +114,15 @@ export function kindOf(source: unknown): string {
   return typeof k === 'string' && k.length > 0 ? k : 'undefined'
 }
 
+/** `source` 的键名集合（排序后 join '+'）：空对象记 "empty"，非对象记 "not-object"。
+ *  只取 `Object.keys`——**绝不读值**，因此不含任何内容/凭据。 */
+export function sourceShapeOf(source: unknown): string {
+  if (source === null || source === undefined) return 'undefined'
+  if (typeof source !== 'object') return 'not-object'
+  const keys = Object.keys(source as Record<string, unknown>).sort()
+  return keys.length ? keys.join('+') : 'empty'
+}
+
 function nowIso(): string {
   return new Date().toISOString()
 }
@@ -99,11 +130,12 @@ function nowIso(): string {
 function emptyState(): HookAuditState {
   return {
     counts: {
-      filtered: { subagent: 0, relay: 0, kind: 0 },
+      filtered: { subagent: 0, relay: 0, kind: 0, session_excluded: 0 },
       written: { user: 0, assistant: 0, tool: 0 },
       skipped: { sanitized: 0, not_ready: 0, failed: 0 },
     },
     kinds: {},
+    source_shapes: {},
     last: [],
     updated_at: nowIso(),
   }
@@ -114,11 +146,31 @@ function countOf(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0 ? Math.floor(v) : 0
 }
 
+/** 摘要只接受非负安全整数桶；**缺键按 0 计**（版本前向兼容：旧盘面没有新增 reason），
+ *  形态不符仍返回 null（坏盘面不伪装成零计数）。 */
+function sumCounts(bucket: unknown, keys: readonly string[]): number | null {
+  if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) return null
+  let total = 0
+  for (const key of keys) {
+    const value = (bucket as Record<string, unknown>)[key]
+    // 只对**新增**键放行缺省（旧盘面没有它）；旧三项缺键仍判坏——
+    // 否则「盘面被手改删键」会被伪装成健康零计数。
+    if (value === undefined) {
+      if (OPTIONAL_COUNT_KEYS.has(key)) continue
+      return null
+    }
+    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) return null
+    total += value
+    if (!Number.isSafeInteger(total)) return null
+  }
+  return total
+}
+
 /** 盘面内容 → 状态：逐字段归并，形态不符的字段一律丢弃（不信任盘面内容）。 */
 function mergeState(raw: unknown): HookAuditState {
   const s = emptyState()
   if (!raw || typeof raw !== 'object') return s
-  const r = raw as { counts?: unknown; kinds?: unknown; last?: unknown }
+  const r = raw as { counts?: unknown; kinds?: unknown; source_shapes?: unknown; last?: unknown }
   if (r.counts && typeof r.counts === 'object') {
     const c = r.counts as { filtered?: unknown; written?: unknown; skipped?: unknown }
     const buckets: Array<[Record<string, number>, string[], unknown]> = [
@@ -134,6 +186,11 @@ function mergeState(raw: unknown): HookAuditState {
   if (r.kinds && typeof r.kinds === 'object') {
     for (const [k, v] of Object.entries(r.kinds as Record<string, unknown>)) {
       if (typeof v === 'number' && Number.isFinite(v) && v > 0) s.kinds[k] = Math.floor(v)
+    }
+  }
+  if (r.source_shapes && typeof r.source_shapes === 'object') {
+    for (const [k, v] of Object.entries(r.source_shapes as Record<string, unknown>)) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) s.source_shapes[k] = Math.floor(v)
     }
   }
   if (Array.isArray(r.last)) {
@@ -160,12 +217,33 @@ export class HookAuditRecorder {
   readonly path: string
   /** 进程内状态缓存（首次记录时从盘面载入，此后只增量改内存 + 全量重写）。 */
   #state: HookAuditState | null = null
+  /** 本进程持有的锁 token；null 表示当前未持锁。 */
+  #lockToken: string | null = null
 
   constructor(path?: string) {
     this.path = typeof path === 'string' && path.trim() ? path.trim() : DEFAULT_HOOK_AUDIT_PATH
   }
 
-  /** 一条**被设计滤除**的消息（三处过滤分支各调一次）。 */
+  /** #606：收尾时只读最新盘面，返回一行累计计数；缺失/损坏/不可读均静默。
+   * written 沿用“成功发起”口径，不能当成成功落库数；不读取 last/kinds 等文本进日志。 */
+  summary(): string | null {
+    try {
+      const raw: unknown = JSON.parse(readFileSync(this.path, 'utf8'))
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+      const counts: unknown = (raw as { counts?: unknown }).counts
+      if (!counts || typeof counts !== 'object' || Array.isArray(counts)) return null
+      const buckets = counts as Record<string, unknown>
+      const written = sumCounts(buckets.written, WRITE_ROLES)
+      const filtered = sumCounts(buckets.filtered, FILTER_REASONS)
+      const skipped = sumCounts(buckets.skipped, SKIP_REASONS)
+      if (written === null || filtered === null || skipped === null) return null
+      return `dsh-memory: 自动记忆审计（累计）written=${written} filtered=${filtered} skipped=${skipped}`
+    } catch {
+      return null
+    }
+  }
+
+  /** 一条**被设计滤除**的消息（各过滤分支各调一次）。 */
   filtered(reason: HookFilterReason, kind?: string): void {
     this.#mutate((s) => {
       s.counts.filtered[reason] += 1
@@ -180,6 +258,18 @@ export class HookAuditRecorder {
     this.#mutate((s) => {
       const key = this.#boundedKindKey(s, kind)
       s.kinds[key] = (s.kinds[key] ?? 0) + 1
+    })
+  }
+
+  /** `source` 的键名集合分布（issue #695）：只记**键名**，不记任何值。
+   *
+   *  与 `observeKind` 的分工：kind 回答「以什么形式提交」，本方法回答「source 带哪些字段」。
+   *  两者都不参与写入判定（本模块是诊断面，红线不动）。
+   */
+  observeSourceShape(source: unknown): void {
+    const shape = sourceShapeOf(source)
+    this.#mutate((s) => {
+      s.source_shapes[shape] = (s.source_shapes[shape] ?? 0) + 1
     })
   }
 
@@ -209,13 +299,57 @@ export class HookAuditRecorder {
 
   /** 读改写 + 原子落盘；整段 try/catch——审计失败静默降级（绝不冒泡进记忆路径）。 */
   #mutate(fn: (s: HookAuditState) => void): void {
+    // #563④：审计文件被同用户的多个 DSH 进程共用；此前 #state 只在首次载入、写回整份 rename 覆盖
+    // ⇒ 并发时后写者用内存态盖掉他人计数（实测 400→201 / 400→311）。现改为锁内 重读→改→写。
+    if (!this.#acquireLock()) return
     try {
-      const s = this.#state ?? (this.#state = this.#load())
+      const s = this.#load()
       fn(s)
       if (s.last.length > MAX_LAST) s.last = s.last.slice(-MAX_LAST)
       s.updated_at = nowIso()
       this.#save(s)
+      this.#state = s
     } catch { /* 审计失败静默降级：记忆路径必须照常 */ }
+    finally { this.#releaseLock() }
+  }
+
+  /** 跨进程排他锁：独占创建 `${path}.lock`；陈旧锁（>5s）清掉；超时返回 false（静默降级）。 */
+  #acquireLock(timeoutMs = 800): boolean {
+    const lock = `${this.path}.lock`
+    const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+    const t0 = Date.now()
+    for (;;) {
+      try {
+        closeSync(openSync(lock, 'wx'))
+        // #563④补（ABA）：把归属 token 写进锁文件，释放时据此判断锁是否仍是自己的。
+        // 不加 token 时：A 的锁被 B 判陈旧清掉 → B 建新锁 → A 在 finally 无条件 unlink，
+        // 把 B 的锁删掉，互斥窗口重新打开（回到本函数要修的丢计数问题）。
+        try { writeFileSync(lock, token) } catch {
+          // 写不进归属 token ⇒ 不持有无法验证归属的锁，立即归还（否则 releaseLock 比对失败会漏删）
+          try { unlinkSync(lock) } catch { /* 已被他人清理 */ }
+          return false
+        }
+        this.#lockToken = token
+        return true
+      } catch {
+        try { if (Date.now() - statSync(lock).mtimeMs > 5000) unlinkSync(lock) } catch { /* 已释放 */ }
+        if (Date.now() - t0 > timeoutMs) return false
+        const until = Date.now() + 5
+        while (Date.now() < until) { /* 自旋 5ms */ }
+      }
+    }
+  }
+
+  #releaseLock(): void {
+    // #563④补（ABA）：只删自己的锁。锁可能已被他人判陈旧清掉并重建——
+    // 无条件 unlink 会删掉别人的锁，互斥窗口重新打开。
+    const token = this.#lockToken
+    this.#lockToken = null
+    if (!token) return
+    try {
+      if (readFileSync(`${this.path}.lock`, 'utf8') !== token) return
+      unlinkSync(`${this.path}.lock`)
+    } catch { /* 已清理 */ }
   }
 
   /** 盘面 → 状态；不存在/不可读/坏 JSON/形态不符 → 空态重建（不抛）。 */

@@ -35,8 +35,41 @@ import tempfile
 import traceback
 from typing import Dict, List
 
-from .rust_codegen import generate_rust_project
-from .rust_swarm import make_swarm_config, run_swarm, verify_wal_signatures
+# issue #125：**不在模块顶层**导入 swarm 内其余子模块 —— 它们在旧形态下会把
+# rust_codegen 的 compiler 顶层硬导入**二级传导**到本模块（隔离根下 import 即失败）。
+# 改为**惰性 re-export**（PEP 562）：模块属性面照旧（`mock.patch("swarm.swarm_cli.x")`、
+# `from swarm.swarm_cli import x` 均可用），但导入期不加载它们。
+# 对外契约不变：仍是 `python -m swarm.swarm_cli {run,verify}`。
+
+_LAZY_EXPORTS = {
+    "generate_rust_project": ".rust_codegen",
+    "make_swarm_config": ".rust_swarm",
+    "run_swarm": ".rust_swarm",
+    "verify_wal_signatures": ".rust_swarm",
+}
+
+
+def __getattr__(name):
+    """issue #125 · PEP 562 惰性 re-export。
+
+    导入期**不得**触发 swarm 子模块（否则二级传导到 compiler，隔离根下本模块不可导入）；
+    但模块属性面必须照旧：`mock.patch("swarm.swarm_cli.generate_rust_project")`
+    （swarm/tests/test_swarm_cli_report_atomic.py 在用）与 `from ... import 名` 都经本函数
+    取真身并**写回 globals 缓存**——patch 打的就是该模块属性，函数体名字查找随之命中补丁。
+    """
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+    import importlib
+    value = getattr(importlib.import_module(target, __package__), name)
+    globals()[name] = value
+    return value
+
+
+
+# 模块自引用：模块内使用惰性导出名时走**属性访问**（触发 __getattr__，并命中
+# mock.patch 打在模块属性上的补丁——test_swarm_cli_report_atomic 即 patch.object(sc, ...)）。
+_me = sys.modules[__name__]
 
 
 # 生效条件：无条件把 payload 以 ensure_ascii=False 序列化为单行 JSON 打印到 stdout，随后 sys.exit(code)；
@@ -115,17 +148,17 @@ def cmd_run(args: argparse.Namespace) -> None:
     project = args.project or os.path.join(base_dir, "swarm_proj")
 
     try:
-        gen = generate_rust_project(source, project, strict=args.strict)
+        gen = _me.generate_rust_project(source, project, strict=args.strict)
         if not gen.get("ok"):
             _emit({"ok": False, "stage": "compile",
                    "result": gen.get("result")}, 1)
 
-        cfg = make_swarm_config(cfg_in["instances"], cfg_in.get("routes"),
+        cfg = _me.make_swarm_config(cfg_in["instances"], cfg_in.get("routes"),
                                 rounds=cfg_in.get("rounds", 1),
                                 shared_secret=cfg_in.get("shared_secret", ""),
                                 topology=cfg_in.get("topology", ""),
                                 condition_space=cfg_in.get("condition_space"))
-        rr = run_swarm(project, cfg, wal_path=args.wal, timeout=args.timeout)
+        rr = _me.run_swarm(project, cfg, wal_path=args.wal, timeout=args.timeout)
         if not rr.get("ok"):
             _emit({"ok": False, "stage": rr.get("stage", "swarm"),
                    "stderr": rr.get("stderr", rr.get("stdout", ""))[-2000:]}, 1)
@@ -169,7 +202,7 @@ def cmd_verify(args: argparse.Namespace) -> None:
     if not os.path.exists(args.wal):
         _fail("verify", f"WAL 不存在: {args.wal}", 2)
     try:
-        v = verify_wal_signatures(args.wal, args.secret)
+        v = _me.verify_wal_signatures(args.wal, args.secret)
     except Exception:
         _fail("verify", traceback.format_exc())
     _emit({"ok": bool(v["all_valid"]), "stage": "verify", **v}, 0 if v["all_valid"] else 1)

@@ -280,7 +280,7 @@ def _epoch(value):
     真实形态**两种都有**（实读确认）：
       · 数值 epoch 秒 —— `fold_access_records`（mdcos.py:973；R-101 裁定后
         该接口落在 `MdCGOS` 子类，不再在 mdcg.py）与
-        `compact_access`（mdcg.py:7219）写的就是 `float`/`int`；`add()` 落盘
+        `compact_access`（mdcg.py::compact_access）写的就是 `float`/`int`；`add()` 落盘
         的初值是 `0`（int，falsy）。
       · ISO8601 串 —— 早期/外部写入面留下的形态（含尾部 `Z` 与 `+08:00`）。
     兼容必须两者都吃下：只认数值形态时，ISO 形态的节点会被读成「无时间」而
@@ -764,7 +764,7 @@ def apply_trash(cg, *, ids=None, dry_run=True, actor="sink", policy=None,
     dry_run=True（**默认**）只预演：不调 `cg.forget`、不写账本 —— 默认值
     必须是 True（进 trash 是真实文件搬迁，默认动作绝不能是它）。
 
-    进 trash 的**唯一正路**是 `cg.forget`（mdcos.py:4596）：
+    进 trash 的**唯一正路**是 `cg.forget`（mdcos.py::forget）：
         `_forget_qualify`（索引代际感知 → not_found → `protect.guard_forget`）
         → `_forget_apply`（`publish(src, trash_dir/<id>.md)` → 写
         `deletions_log`（含 t/id/hash/reason/actor/trash）→ `_unstage`

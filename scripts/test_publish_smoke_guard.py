@@ -67,6 +67,10 @@ BEHAVIOR_EXPECTED_REDS = {
     "S2 装好的目录含 utf8_boot.py",
     "S4 真握手成功（initialize → serverInfo；tools/list → tools）",
     "S5 tools 面 == 缺省面 ['cg','stg']",
+    # S8/S9 是**行为面**判据：握手起不来 ⇒ 无从发 recent·add / 无从回读，故必然同红。
+    # 这两项写进本集合是**语义必然**（不是凑数）：装不起来的包不可能有台账。
+    "S8 装机后 recent·add 真落台账（至少 1 条 actor=state_extract）",
+    "S9 台账读得回来（state_slots 投影数 == 台账数 且 state_chain 可查）",
 }
 MISSING_HINT = "修法：files 加 utf8_boot.py"
 
@@ -78,6 +82,17 @@ S7_RULE_NAME = "S7 装机后 md_cg/units.py 的字符集表可解析（懒加载
 MISSING_HINT_CHARSET = "修法：files 加 hive/id_charset_blocks.txt"
 BEHAVIOR_EXPECTED_REDS_CHARSET = {S7_RULE_NAME}
 
+#: S8/S9（L2 状态台账**行为面**：装机后真发 recent·add，台账必须真落）的判据名与锚点。
+#: 为什么还要这一层：S1–S3/S7 全是**静态面**（件在不在、数据能不能解析），而 L2 台账的
+#: 真缺陷恰恰是「静态全绿、链路不通」——抽取器本体曾落在不随包的 `scripts/`
+#: ⇒ 装机侧 `_state_events.jsonl` 长期不存在。判据必须落在**行为**上。
+#: 判据名与 check_publish_smoke.py 的 report.rule 逐字一致——改名而本表未同步即红。
+S8_RULE_NAME = "S8 装机后 recent·add 真落台账（至少 1 条 actor=state_extract）"
+S9_RULE_NAME = "S9 台账读得回来（state_slots 投影数 == 台账数 且 state_chain 可查）"
+BEHAVIOR_EXPECTED_REDS_L2 = {S8_RULE_NAME, S9_RULE_NAME}
+#: S8 判负时必须点名修法（不是泛泛报错）。
+MISSING_HINT_L2 = "修法：确认 md_cg/state_extract.py 随包（R9a 管的）"
+
 ANCHOR_CHECK_NAMES = (
     "C4 锚点·出货清单点名缺件与修法行",
     "C5 锚点·缺省工具面 DEFAULT_TOOLS",
@@ -87,6 +102,7 @@ ANCHOR_CHECK_NAMES = (
     "C9 锚点·真握手三条 JSON-RPC",
     "C10 锚点·沙箱内注入 MDCG_ROOT/MDCG_AUX_ROOT",
     "C12 锚点·懒加载数据面 S7（真 import 字符集表 + 修法行）",
+    "C13 锚点·L2 台账行为面 S8/S9（签凭据 → 真发 recent·add → 读台账）",
 )
 
 _PASS = []
@@ -192,6 +208,17 @@ def _static_checks(root):
             and (S7_RULE_NAME in src)
             and ("import md_cg.units as u" in src)
             and ("CHARSET_BLOCKS_ERROR" in src), "")
+        # C13：L2 台账**行为面**的锚点。四处缺一不可：
+        #   ① 判据名（S8/S9）在场；② 修法行在场（判负要点名缺什么面）；
+        #   ③ 真发一条 recent·add（不是只读窗口，必须真写）；④ 真读台账文件并解析行。
+        # 少任一处 ⇒ 这一层退化成「静态再查一遍」，正是本层要防的陈化形态。
+        add("C13", ANCHOR_CHECK_NAMES[8],
+            (S8_RULE_NAME in src)
+            and (S9_RULE_NAME in src)
+            and (MISSING_HINT_L2 in src)
+            and ('"op": "recent", "action": "add", "role": "user"' in src)
+            and ('"_state_events.jsonl"' in src)
+            and ('"actor=state_extract"' in src or "state_extract" in src), "")
 
     try:
         cpa = _read(root, *CPA_REL)
@@ -272,34 +299,88 @@ def _static_mutations():
          {"C11"}),
         ("去掉字符集表修法行", rep(*SMOKE_REL, old=MISSING_HINT_CHARSET, new="修法见文档"),
          {"C12"}),
+        ("去掉 L2 台账修法行", rep(*SMOKE_REL, old=MISSING_HINT_L2, new="修法见文档"),
+         {"C13"}),
     )
 
 
-# 生效条件：src 为仓库根、dst 为新建的目标目录时，按 git 追踪面（git ls-files -z）逐件
-# 复制到 dst，再补拷包内非追踪件 lib/（R4 允许面，npm pack 的既有出货件）与本腿自身的
-# 源文件（_STATIC_FILES，未提交前是未追踪件——守卫**不以 git 提交为基线**，故须显式补拷，
-# 否则「新腿刚落地、还没 git add」时守卫自己先红）；返回复制件数。
-# 不复制 .git/node_modules——本副本只用于「真 pack + 真装」的定点变异，不需要历史与依赖。
+#: 材料化副本时**永不复制**的目录名（依赖/历史/临时/此前的沙箱残留）。
+#: 与 npm pack 的天然排除面同向：它们既不进包，也不需要参与「真 pack + 真装」。
+_MATERIALIZE_SKIP = {"node_modules", ".git", ".tmp", "__pycache__", "receipts"}
+
+
+# 生效条件：src 为仓库根、dst 为新建的目标目录时，把**能进包的东西**逐件复制到 dst，
+# 返回复制件数。两条路径：
+#   ① 有 git（正常仓库）：按追踪面 `git ls-files -z` 复制——最贴近「提交了什么」；
+#   ② 无 git（本仓实测：`git rev-parse` rc=128，工作树不是 git 仓库）：回落到
+#      **package.json 的 files 白名单**驱动——把每个条目（文件或目录）递归复制。
+#      这不是打折：npm pack 的出货面本就由 files 决定，按它材料化反而更准。
+# 两条路径都再补 _STATIC_FILES（本腿自身源文件，可能尚未入库）。
+# 不复制 .git/node_modules——本副本只用于「真 pack + 真装」的定点变异。
 def _materialize_repo(src, dst):
+    os.makedirs(dst, exist_ok=True)
+    n = 0
+
+    def _copy(rel):
+        nonlocal n
+        s = os.path.join(src, *rel.split("/"))
+        if os.path.isfile(s):
+            d = os.path.join(dst, *rel.split("/"))
+            os.makedirs(os.path.dirname(d), exist_ok=True)
+            shutil.copy2(s, d)
+            n += 1
+        elif os.path.isdir(s):
+            for dp, dn, fn in os.walk(s):
+                dn[:] = [x for x in dn if x not in _MATERIALIZE_SKIP]
+                for f in fn:
+                    p = os.path.join(dp, f)
+                    r = os.path.relpath(p, src).replace("\\", "/")
+                    d = os.path.join(dst, *r.split("/"))
+                    os.makedirs(os.path.dirname(d), exist_ok=True)
+                    shutil.copy2(p, d)
+                    n += 1
+
     proc = subprocess.run(["git", "ls-files", "-z"], capture_output=True,
                           cwd=src, env=_env(), timeout=300)
-    if proc.returncode != 0:
-        raise AnchorMiss("git ls-files 失败 rc=%s（无法材料化副本）" % proc.returncode)
-    rels = [r for r in proc.stdout.decode("utf-8", "replace").split("\0") if r]
-    if not rels:
-        raise AnchorMiss("git ls-files 为空（副本材料化无从谈起）")
-    os.makedirs(dst, exist_ok=True)
-    for rel in list(rels) + [r for r in _STATIC_FILES if r not in rels]:
-        s = os.path.join(src, *rel.split("/"))
-        if not os.path.isfile(s):
-            continue
+    git_rels = []
+    if proc.returncode == 0:
+        git_rels = [r for r in proc.stdout.decode("utf-8", "replace").split("\0") if r]
+
+    if git_rels:
+        print("     材料化来源：git ls-files（追踪面 %d 件）" % len(git_rels))
+        _copy("package.json")
+        for rel in git_rels:
+            _copy(rel)
+    else:
+        # 无 git：按 files 白名单材料化（并如实声明回落原因）
+        print("     材料化来源：package.json files 白名单"
+              "（git ls-files rc=%s ⇒ 本仓无 git，改用出货面驱动）" % proc.returncode)
+        pj = json.loads(_read(src, "package.json"))
+        entries = pj.get("files")
+        if not isinstance(entries, list) or not entries:
+            raise AnchorMiss("package.json 的 files 白名单缺失/为空（副本材料化无从谈起）")
+        _copy("package.json")
+        for e in entries:
+            _copy(str(e).lstrip("./"))
+
+    # 本腿自身源文件可能尚未入库/不在白名单——显式补拷（守卫不以提交为基线）
+    for rel in _STATIC_FILES:
         d = os.path.join(dst, *rel.split("/"))
-        os.makedirs(os.path.dirname(d), exist_ok=True)
-        shutil.copy2(s, d)
+        if not os.path.isfile(d):
+            _copy(rel)
+
+    # `scripts/` 整目录补拷：本仓的 `prepare` 钩子会跑 `python scripts/build_ui.py`
+    # （不在 files 白名单里），缺它则 `npm pack` 直接 rc=2、本腿无从取证。
+    # 补拷**不影响** pack 的出货面（出货面由 files 白名单/`npmignore` 决定），
+    # 只是让副本能真跑一次打包。注意是**合并**拷贝：scripts/ 目录通常已存在
+    # （本腿源文件刚落进去），所以不能以「目录在不在」为条件。
+    _copy("scripts")
+
+    # 包内非追踪件 lib/（R4 允许面，npm pack 的既有出货件）
     lib = os.path.join(src, "lib")
-    if os.path.isdir(lib):
+    if os.path.isdir(lib) and not os.path.isdir(os.path.join(dst, "lib")):
         shutil.copytree(lib, os.path.join(dst, "lib"), dirs_exist_ok=True)
-    return len(rels)
+    return n
 
 
 def _run_smoke(root, sandbox):
@@ -460,6 +541,54 @@ def _behavior_body(tmp):
              (summary or {}).get("charset_blocks_error"),
              (summary or {}).get("charset_blocks_ranges")))
     print("     红侧2点名：%s" % "；".join(sorted(fails)))
+
+    # —— 变异 3：把抽取器改成空规则表（件在、链断）——
+    # 这一处才是本轮缺陷的**真形态**：包内件齐全（S1–S3/S7 全绿）、握手照常成（S4/S5 绿），
+    # 只有「装完发一轮、台账该有记录」这条**行为**会红。若本腿退回静态面，这里必绿不变红。
+    _write(copy_root, "package.json", text=_read(HERE, "package.json"))
+    se = os.path.join(copy_root, "md_cg", "state_extract.py")
+    if not os.path.isfile(se):
+        raise AnchorMiss("副本里没有 md_cg/state_extract.py（变异无从施加）")
+    with open(se, encoding="utf-8") as fh:
+        se_src = fh.read()
+    if "RULES = [" not in se_src:
+        raise AnchorMiss("md_cg/state_extract.py 里找不到 RULES 表锚点")
+    # 注意 1：**不能**写成 `RULES = [] or [` —— `[] or [A,B]` 求值仍是原列表，变异等于空转
+    #   （本轮实测踩过：三相断言全绿、行为面也绿，正是「变异没生效却以为守卫生效」的假绿）。
+    # 注意 2：变异结果必须是**合法 Python**——本轮还踩过一版把表头改成
+    #   `MUT_OLD_RULES = [\nRULES = []`（列表字面量里塞赋值语句）⇒ 语法错 ⇒ 进程起不来、
+    #   握手先红，红项变成「S4/S5 也红」，看起来像守卫更强，实则是自己把包改坏了。
+    #   正确形态：先给 RULES 空表，再用另一名字承接原表（两句都是顶层赋值）。
+    se_new = se_src.replace("RULES = [", "RULES = []\nMUT_OLD_RULES = [", 1)
+    if se_new == se_src:
+        raise AnchorMiss("RULES 表变异未生效（替换后文本不变）")
+    try:
+        compile(se_new, se, "exec")
+    except SyntaxError as exc:
+        raise AnchorMiss("RULES 表变异产生了非法 Python（%s）—— 变异无效，不能拿来当判据" % exc)
+    with open(se, "w", encoding="utf-8", newline="\n") as fh:
+        fh.write(se_new)
+    rc, summary, out = _run_smoke(copy_root, os.path.join(sandbox, "red_l2"))
+    fails = set((summary or {}).get("fails") or [])
+    ok(rc == 1, "B2 红侧3：抽取器空转后本腿 rc=1（静态面全绿也拦得住）", "rc=%s" % rc)
+    ok(fails == BEHAVIOR_EXPECTED_REDS_L2,
+       "B2 红侧3：恰好命中预期红项 %s" % sorted(BEHAVIOR_EXPECTED_REDS_L2),
+       "实得 %s" % sorted(fails))
+    ok(MISSING_HINT_L2 in out,
+       "B2 红侧3：点名缺件并打印修法行「%s」" % MISSING_HINT_L2)
+    ok((summary or {}).get("has_utf8_boot") is True
+       and (summary or {}).get("installed_has_mcp_server") is True
+       and (summary or {}).get("handshake_ok") is True,
+       "B2 红侧3：对照——静态面与握手全绿（证明红项只来自行为面）",
+       json.dumps({k: (summary or {}).get(k) for k in
+                   ("has_utf8_boot", "installed_has_mcp_server", "handshake_ok",
+                    "l2_ledger_exists", "l2_events")}, ensure_ascii=False)[:240])
+    print("     红侧3读数：握手=%s · 台账存在=%s · events=%s · actors=%s"
+          % ((summary or {}).get("handshake_ok"),
+             (summary or {}).get("l2_ledger_exists"),
+             (summary or {}).get("l2_events"),
+             (summary or {}).get("l2_actors")))
+    print("     红侧3点名：%s" % "；".join(sorted(fails)))
 
 
 def main():

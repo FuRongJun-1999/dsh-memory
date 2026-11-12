@@ -38,7 +38,13 @@ PATTERNS = [
     ("hive", "test_*.py"),
     ("scripts", "run_tests.py"),
     ("scripts", "test_*.py"),
+    # md_cg 递归面（issue #185）：run_tests 的发现面已递归（`md_cg/**/test_*.py`），
+    # 判据面必须同形递归，否则「跑什么 ⊆ 冻结什么」必报缺口——md_cg/whitebox_kb/
+    # wisdom/ 下的 7 条测试即本批新发现者，由此**明确纳入**冻结域。fnmatch 的 `*`
+    # 跨路径分隔符 ⇒ `md_cg/*/test_*.py` 覆盖任意深度的子目录；顶层
+    # `md_cg/test_*.py` 逐位不变地冻结顶层（两条互不重叠，无重复计数）。
     ("md_cg", "test_*.py"),
+    ("md_cg/*", "test_*.py"),
     ("compiler/tests", "*.py"),
     ("swarm/tests", "*.py"),
     # test/（A6，2026-10-05）：与 scripts/run_tests.py 的 TEST_DIR_TESTS 具名裁决
@@ -48,6 +54,18 @@ PATTERNS = [
     ("test", "hive_exec_test.py"),
     ("test", "hive_wm_test.py"),
     ("test/chaos_injection", "run_all.py"),
+    # tests/（复数，根，2026-11-07）：与 scripts/run_tests.py 的 ROOT_TESTS 具名
+    # 裁决清单同步——该目录原先**整个不在** run_tests 的收集面（判据面自然也
+    # 不含它），两处同时补才通得过「跑什么 ⊆ 冻结什么」。同样逐文件精确名冻结：
+    # 未过裁决件曾包含 pytest-style 无入口的 test_relation_type_whitelist_guard.py
+    # （冻结它就是冻结一个假守卫）—— 该件已于 2026-11-08 补齐 script-style 入口，
+    # 直跑与 -m pytest 结果等价（8 passed 1 skipped），现按裁决**收进**判据面。
+    ("tests", "test_hook_audit_summary.py"),
+    ("tests", "test_issue721_tag_filter.py"),
+    # 2026-11-08 收：原 pytest-style（直跑零用例 RC 恒 0）⇒ 已补 _ENTRY_CASES+main()
+    # + if __name__，pytest 依赖降级为可选软导入（approx/skip 做等价替换），
+    # 不新增 CI 依赖面。与 run_tests.py 的 ROOT_TESTS 逐字同步，两处必须同时改。
+    ("tests", "test_relation_type_whitelist_guard.py"),
 ]
 
 
@@ -57,12 +75,29 @@ def collect():
     for sub, pat in PATTERNS:
         base = os.path.join(HERE, sub)
         n = 0
-        if os.path.isdir(base):
+        pat_full = f"{sub}/{pat}"
+        if "*" in sub:
+            # 通配组（issue #185：`md_cg/*/test_*.py`）：判据与 coverage_gap 完全
+            # 同形（相对路径 fnmatch 于 `sub/pat`），故在 sub 首段目录下递归枚举；
+            # 若仍走 listdir，该组恒零命中——域覆盖判据认它、files 却永不含它（假牙）。
+            import fnmatch
+            import glob
+            root = os.path.join(HERE, sub.split("/")[0])
+            if os.path.isdir(root):
+                for full in sorted(glob.glob(os.path.join(root, "**", "*"),
+                                             recursive=True)):
+                    if not os.path.isfile(full):
+                        continue
+                    rel = os.path.relpath(full, HERE).replace("\\", "/")
+                    if fnmatch.fnmatch(rel, pat_full):
+                        files.append(rel)
+                        n += 1
+        elif os.path.isdir(base):
+            import fnmatch
             for name in sorted(os.listdir(base)):
                 full = os.path.join(base, name)
                 if not os.path.isfile(full):
                     continue
-                import fnmatch
                 if fnmatch.fnmatch(name, pat):
                     rel = os.path.relpath(full, HERE).replace("\\", "/")
                     files.append(rel)

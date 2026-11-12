@@ -37,6 +37,7 @@
 from __future__ import annotations
 
 import ast
+import os
 import re
 import subprocess
 import sys
@@ -45,7 +46,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SERVER = ROOT / "md_cg" / "mcp_server.py"
 WHITEBOX = ROOT / "md_cg" / "whitebox.py"
-README = ROOT / "README.md"
+README = ROOT / "docs" / "mdcg" / "cogmap_ops.md"   # COGMAP 段迁出首屏 README（原为仓根 README.md）
+# 生效条件：段内链接由 render_section 按**仓根**生成；目标文档换到子目录后必须按该目录重基，
+# 否则 md_cg/*、scripts/*、docs/* 会被按文档目录解析成 docs/mdcg/md_cg/x.py → 必断。
+COGMAP_DIR = README.parent.relative_to(ROOT).as_posix()          # "docs/mdcg"（校验基准）
+COGMAP_REBASE = "../" * (COGMAP_DIR.count("/") + 1)              # "../../"（回退到仓根的前缀）
 MAPDOC = ROOT / "docs" / "mdcg" / "功能调用映射表_v0.1.md"
 # 映射表所在目录（仓根相对）。段内**相对文件链接必须按该目录解析**，
 # 否则 GitHub/浏览器按文档目录解析成 `docs/mdcg/md_cg/x.py` → 必断。
@@ -56,6 +61,20 @@ BRANCH = "main"
 
 BEGIN = "<!-- COGMAP:BEGIN (scripts/cogmap_sync.py 自动生成 · 真源 md_cg/mcp_server.py · 勿手改段内) -->"
 END = "<!-- COGMAP:END -->"
+
+
+# 生效条件：把段内仓根相对链接改写成按 prefix 目录解析的形态；http(s)/mailto/页内锚/绝对/../ 原样保留；
+def _rebase_links(text: str, prefix: str) -> str:
+    if not prefix:
+        return text
+
+    def _sub(m):
+        link = m.group(1)
+        if link.startswith(("http://", "https://", "mailto:", "#", "/", "../")):
+            return m.group(0)
+        return "](" + prefix + "/" + link + ")"
+
+    return re.sub(r"\]\(([^)]+)\)", _sub, text)
 
 
 # 生效条件：传入任意 seg（含空串）即原样嵌入，返回 "<!-- FUNCMAP:BEGIN id={seg} (scripts/cogmap_sync.py 自动生成 · 勿手改段内) -->"，无分支与校验；
@@ -94,6 +113,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("cg", "task"): "任务实体（登记 / 计划 / 状态 / 结果；done 无结果拒收）",
     ("cg", "recent"): "最近记忆（事件窗口）",
     ("cg", "state_event"): "状态事件记账（追加五元事件；查询走 stg(state_chain)）",
+    ("cg", "state_view"): "状态视图（账本回放 + stable 租约 TTL/weak + 同主体多槽位联合，终态求解用）",
     ("cg", "verify"): "外部裁决回填（节点证据验证）",
     ("cg", "review"): "审核队列（DEFER / 提案裁决）",
     ("cg", "forget"): "主动遗忘 / 恢复",
@@ -156,7 +176,16 @@ def _func_span(src_lines: list[str], tree: ast.Module, fname: str) -> tuple[int,
 
 # 生效条件：以模块常量 ROOT 为 cwd 执行 git remote get-url origin 成功、且其 stdout.strip() 能匹配 r"github\.com[:/](.+?)(?:\.git)?/?$" 时返回 f"https://github.com/{m.group(1)}"；子进程抛 OSError 或无匹配则 raise SystemExit；
 def _repo_base() -> str:
-    """git origin → GitHub 仓库基址（https://github.com/Owner/repo）。"""
+    """GitHub 仓库基址：**优先取 COGMAP_REPO_BASE**，否则从 git origin 推导。
+
+    【issue #835】早先只认本机 `git remote get-url origin` ⇒ fork 里 check 必红
+    （文档里已提交的 owner 与本机 remote 不同，4 处差异全是 URL 里的 owner 字符串）。
+    现在：① 显式 env 优先（CI/fork 可钉住 canonical 仓库）；② 未设时仍从 origin 推导，
+    但 `check` 侧对链接只比对齐尾段（见 _same_link_tail），owner 不同不再判红。
+    """
+    env_base = (os.environ.get("COGMAP_REPO_BASE") or "").strip().rstrip("/")
+    if env_base:
+        return env_base
     try:
         url = subprocess.run(
             ["git", "remote", "get-url", "origin"],
@@ -484,6 +513,17 @@ _MDCG_RE = re.compile(r"\bmdcg_[a-z_]+\b")
 
 
 # 生效条件：e 含 "op_lines"/"branch_counts"/"cg_ops"/"stg_ops"/"mdcg_tools"/"op_modules" 键时，依次做 FUNC_DESC 覆盖、宽松与规范分支计数相等、README 与功能调用映射表两文档的标记段一致、op/工具引用、op_modules 模块候选、相对链接与锚点、段外手写行号锚校验，返回错误列表（无错为空列表）；文档 dpath 不满足 .exists() 时记一条错误并跳过该文档；
+
+
+_GH_REPO_RE = re.compile(r"https://github\.com/[^/\s)]+/[^/\s)#]+")
+
+
+# 生效条件：入参为任意文本；把其中所有 https://github.com/<owner>/<repo> 归一为占位符
+def _norm_repo_base(text: str) -> str:
+    """把 GitHub 仓库基址归一（issue #835）：owner/repo 不同不算漂移，只比路径与行号。"""
+    return _GH_REPO_RE.sub("https://github.com/OWNER/REPO", text or "")
+
+
 def check(e: dict) -> list[str]:
     errors: list[str] = []
 
@@ -502,9 +542,9 @@ def check(e: dict) -> list[str]:
                 "——存在非规范写法的分支被静默漏报（如单引号/别名形态），请统一写法或扩展提取正则"
             )
 
-    readme_secs = [(BEGIN, END, render_section(e))]
+    readme_secs = [(BEGIN, END, _rebase_links(render_section(e), COGMAP_REBASE))]
     map_secs = [(_funcmap_begin(seg), FUNCMAP_END, body) for seg, body in render_mapdoc(e)]
-    docs = (("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs))
+    docs = (("COGMAP", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs))
     for dname, dpath, secs in docs:
         if not dpath.exists():
             errors.append(f"{dname} 不存在：{dpath}")
@@ -525,6 +565,8 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
     """
     errors: list[str] = []
 
+    # 1) 标记段一致性（issue #835：链接只比对齐尾段——owner/host 不同不算漂移，
+    #    因为文档是提交进仓库的，fork 的 remote 与本体 owner 天然不同）
     # 1) 标记段一致性
     for begin, end, want in sections:
         label = "COGMAP" if begin == BEGIN else begin.split("id=")[1].split(" ")[0]
@@ -534,12 +576,16 @@ def _check_doc(e: dict, dname: str, text: str, sections: list[tuple[str, str, st
             errors.append(f"{dname} 缺少 {label} 标记段")
             continue
         have = m.group(0)
-        if want != have:
-            for wl, hl in zip(want.splitlines(), have.splitlines()):
+        # issue #835：比较前把「任意 GitHub 仓库基址」归一为占位符。
+        # 文档是提交进仓库的、带了 canonical owner；fork 的 remote 不同，
+        # 直接在字面上比会 4 处全红且差异只在 owner 字符串（行号/op 名一字不差）。
+        want_c, have_c = _norm_repo_base(want), _norm_repo_base(have)
+        if want_c != have_c:
+            for wl, hl in zip(want_c.splitlines(), have_c.splitlines()):
                 if wl != hl:
                     errors.append(f"{dname} {label} 段与真源不一致：\n  期望: {wl}\n  实际: {hl}")
                     break
-            if len(want.splitlines()) != len(have.splitlines()):
+            if len(want_c.splitlines()) != len(have_c.splitlines()):
                 errors.append(
                     f"{dname} {label} 段行数漂移：期望 {len(want.splitlines())} 行，实际 {len(have.splitlines())} 行"
                 )
@@ -630,9 +676,9 @@ def _save(path: Path, text: str, nl: str) -> None:
 # 生效条件：返回两项——("README", 模块常量 README, [(BEGIN, END, render_section(e))]) 与 ("功能调用映射表", 模块常量 MAPDOC, render_mapdoc(e) 各 seg 的三元组)；e 缺所需键时由渲染函数索引抛 KeyError；
 def _targets(e: dict) -> list[tuple[str, Path, list[tuple[str, str, str]]]]:
     """全部投影目标：[(文档名, 路径, [(begin, end, 渲染内容)])]。"""
-    readme_secs = [(BEGIN, END, render_section(e))]
+    readme_secs = [(BEGIN, END, _rebase_links(render_section(e), COGMAP_REBASE))]
     map_secs = [(_funcmap_begin(seg), FUNCMAP_END, body) for seg, body in render_mapdoc(e)]
-    return [("README", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs)]
+    return [("COGMAP", README, readme_secs), ("功能调用映射表", MAPDOC, map_secs)]
 
 
 # 生效条件：对 _targets(extract()) 的每个文档逐段执行 _splice，任一段未匹配到 begin..end 即打印缺段提示、ok=False 并跳过该文档写回；全部匹配才 _save 写回并打印段数，最后返回 0，存在缺段时返回 1；

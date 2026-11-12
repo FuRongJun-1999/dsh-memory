@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # 功能名：B2 密级「声明 → 落盘」透传与 fail-closed 闸守卫（cg(op=write) 端到端）
 # 生效条件：writepipe._executor 的 cg.add 实参表带 sensitivity（:543）、
 #           mcp_server.mdcg_remember 两分支带 sensitivity（:3199 / :3213）、

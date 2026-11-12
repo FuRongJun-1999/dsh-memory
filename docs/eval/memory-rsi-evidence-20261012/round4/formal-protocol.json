@@ -1,0 +1,622 @@
+{
+  "pairs": [
+    {
+      "id": "dependency-version-1",
+      "family": "dependency-version",
+      "split": "formal",
+      "a_problem": "The package compatibility guard must use standard Python distribution version ordering, including numeric release segments, prereleases and epochs. Do not coerce versions to floating point.",
+      "b_problem": "Validate every required package in a lock record. Respect Python distribution version ordering; missing or invalid versions are failures, and return sorted failing names without changing the inputs.",
+      "title": "Validate every required package in a lock record. Respect Python distribution version ordering; missing or invalid versions are failures, and return sorted failing names without changing the inputs.",
+      "a_facts": {
+        "language": "python",
+        "version_source": "python_distribution",
+        "ordering_contract": "PEP440"
+      },
+      "b_facts": {
+        "language": "python",
+        "version_source": "python_distribution",
+        "ordering_contract": "PEP440"
+      },
+      "source_reference": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+      "transfer_reference": "https://pip.pypa.io/en/stable/topics/dependency-resolution/",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "dependency-version-2",
+      "family": "dependency-version",
+      "split": "formal",
+      "a_problem": "The package compatibility guard must use standard Python distribution version ordering, including numeric release segments, prereleases and epochs. Do not coerce versions to floating point.",
+      "b_problem": "Select a vendor artifact by explicit numeric priority. Tags are opaque identifiers, not package versions. Keep the first record on a priority tie and return None for an empty inventory.",
+      "title": "Select a vendor artifact by explicit numeric priority. Tags are opaque identifiers, not package versions. Keep the first record on a priority tie and return None for an empty inventory.",
+      "a_facts": {
+        "language": "python",
+        "version_source": "python_distribution",
+        "ordering_contract": "PEP440"
+      },
+      "b_facts": {
+        "language": "python",
+        "version_source": "vendor_labels",
+        "ordering_contract": "explicit_priority"
+      },
+      "source_reference": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+      "transfer_reference": "https://git-scm.com/docs/git-tag",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "api-parameter-migration-1",
+      "family": "api-parameter-migration",
+      "split": "formal",
+      "a_problem": "Build HTTPX 0.28 Client keyword options. The deprecated proxies argument is removed; preserve explicit zero timeouts and use the default only for None.",
+      "b_problem": "Migrate this merged user/default transport adapter to HTTPX 0.28 Client kwargs. Respect explicit zero/False, adapt proxy_url, and keep both inputs unchanged.",
+      "title": "Migrate this merged user/default transport adapter to HTTPX 0.28 Client kwargs. Respect explicit zero/False, adapt proxy_url, and keep both inputs unchanged.",
+      "a_facts": {
+        "language": "python",
+        "http_client": "httpx",
+        "api_series": "0.28"
+      },
+      "b_facts": {
+        "language": "python",
+        "http_client": "httpx",
+        "api_series": "0.28"
+      },
+      "source_reference": "https://github.com/encode/httpx/releases/tag/0.28.0",
+      "transfer_reference": "https://github.com/encode/httpx/releases/tag/0.28.0",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "api-parameter-migration-2",
+      "family": "api-parameter-migration",
+      "split": "formal",
+      "a_problem": "Build HTTPX 0.28 Client keyword options. The deprecated proxies argument is removed; preserve explicit zero timeouts and use the default only for None.",
+      "b_problem": "Repair keyword construction for Requests Session.request. Preserve an explicit zero timeout, the scheme-to-proxy mapping contract and caller-owned data.",
+      "title": "Repair keyword construction for Requests Session.request. Preserve an explicit zero timeout, the scheme-to-proxy mapping contract and caller-owned data.",
+      "a_facts": {
+        "language": "python",
+        "http_client": "httpx",
+        "api_series": "0.28"
+      },
+      "b_facts": {
+        "language": "python",
+        "http_client": "requests",
+        "api_series": "2"
+      },
+      "source_reference": "https://github.com/encode/httpx/releases/tag/0.28.0",
+      "transfer_reference": "https://requests.readthedocs.io/en/latest/api/",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "configuration-root-1",
+      "family": "configuration-root",
+      "split": "formal",
+      "a_problem": "Load a YAML mapping configuration. An empty document means an empty mapping; false, zero, strings and sequences are invalid roots, not missing data. Preserve valid false values inside mappings.",
+      "b_problem": "Load a JSON mapping over nested defaults. A null document is an empty mapping, other non-mapping roots must raise TypeError, and caller defaults must remain independent.",
+      "title": "Load a JSON mapping over nested defaults. A null document is an empty mapping, other non-mapping roots must raise TypeError, and caller defaults must remain independent.",
+      "a_facts": {
+        "language": "python",
+        "configuration_root": "mapping",
+        "empty_document": "empty_mapping"
+      },
+      "b_facts": {
+        "language": "python",
+        "configuration_root": "mapping",
+        "empty_document": "empty_mapping"
+      },
+      "source_reference": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+      "transfer_reference": "https://docs.python.org/3.12/library/json.html",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "configuration-root-2",
+      "family": "configuration-root",
+      "split": "formal",
+      "a_problem": "Load a YAML mapping configuration. An empty document means an empty mapping; false, zero, strings and sequences are invalid roots, not missing data. Preserve valid false values inside mappings.",
+      "b_problem": "The extension manifest is a YAML sequence of nonempty strings. Empty input is an empty list; reject mappings, scalars and invalid members.",
+      "title": "The extension manifest is a YAML sequence of nonempty strings. Empty input is an empty list; reject mappings, scalars and invalid members.",
+      "a_facts": {
+        "language": "python",
+        "configuration_root": "mapping",
+        "empty_document": "empty_mapping"
+      },
+      "b_facts": {
+        "language": "python",
+        "configuration_root": "sequence",
+        "empty_document": "empty_sequence"
+      },
+      "source_reference": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+      "transfer_reference": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "data-structure-protocol-1",
+      "family": "data-structure-protocol",
+      "split": "formal",
+      "a_problem": "Accept the Python Mapping protocol, including read-only/custom mappings. Produce a new normalized dictionary; this API does not accept iterable pairs as mappings.",
+      "b_problem": "Filter allowed options from any Mapping, preserve false values, return a fresh dictionary and leave the original untouched. Iterable pairs are outside this particular API.",
+      "title": "Filter allowed options from any Mapping, preserve false values, return a fresh dictionary and leave the original untouched. Iterable pairs are outside this particular API.",
+      "a_facts": {
+        "language": "python",
+        "accepted_input_protocol": "Mapping",
+        "ownership": "input_unchanged"
+      },
+      "b_facts": {
+        "language": "python",
+        "accepted_input_protocol": "Mapping",
+        "ownership": "input_unchanged"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/collections.abc.html",
+      "transfer_reference": "https://docs.python.org/3.12/library/collections.abc.html",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "data-structure-protocol-2",
+      "family": "data-structure-protocol",
+      "split": "formal",
+      "a_problem": "Accept the Python Mapping protocol, including read-only/custom mappings. Produce a new normalized dictionary; this API does not accept iterable pairs as mappings.",
+      "b_problem": "Decode a one-pass iterable of key/value pairs. Later duplicate keys win, input is not consumed twice or mutated, and empty input returns an empty dictionary.",
+      "title": "Decode a one-pass iterable of key/value pairs. Later duplicate keys win, input is not consumed twice or mutated, and empty input returns an empty dictionary.",
+      "a_facts": {
+        "language": "python",
+        "accepted_input_protocol": "Mapping",
+        "ownership": "input_unchanged"
+      },
+      "b_facts": {
+        "language": "python",
+        "accepted_input_protocol": "iterable_pairs",
+        "ownership": "input_unchanged"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/collections.abc.html",
+      "transfer_reference": "https://docs.python.org/3.12/library/stdtypes.html#dict",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "permission-conjunction-1",
+      "family": "permission-conjunction",
+      "split": "formal",
+      "a_problem": "A private object write requires an active actor, an explicitly matching tenant and the editor role together. Neither same-tenant readers nor cross-tenant editors are authorized.",
+      "b_problem": "Repair this private-object permission adapter. Same-tenant active readers/editors may read; writes additionally require editor role and the write capability. Unknown operations, absent tenant and cross-tenant access must be rejected.",
+      "title": "Repair this private-object permission adapter. Same-tenant active readers/editors may read; writes additionally require editor role and the write capability. Unknown operations, absent tenant and cross-tenant access must be rejected.",
+      "a_facts": {
+        "language": "python",
+        "object_visibility": "private",
+        "authorization": "tenant_conjunction"
+      },
+      "b_facts": {
+        "language": "python",
+        "object_visibility": "private",
+        "authorization": "tenant_conjunction"
+      },
+      "source_reference": "https://www.django-rest-framework.org/api-guide/permissions/",
+      "transfer_reference": "https://www.django-rest-framework.org/api-guide/permissions/",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "permission-conjunction-2",
+      "family": "permission-conjunction",
+      "split": "formal",
+      "a_problem": "A private object write requires an active actor, an explicitly matching tenant and the editor role together. Neither same-tenant readers nor cross-tenant editors are authorized.",
+      "b_problem": "The application deliberately allows public-object reads without an actor or tenant match. Private reads and every write still require active same-tenant authorization; writes also require editor and write capability. Unknown operations remain denied.",
+      "title": "The application deliberately allows public-object reads without an actor or tenant match. Private reads and every write still require active same-tenant authorization; writes also require editor and write capability. Unknown operations remain denied.",
+      "a_facts": {
+        "language": "python",
+        "object_visibility": "private",
+        "authorization": "tenant_conjunction"
+      },
+      "b_facts": {
+        "language": "python",
+        "object_visibility": "public_read_supported",
+        "authorization": "operation_sensitive"
+      },
+      "source_reference": "https://www.django-rest-framework.org/api-guide/permissions/",
+      "transfer_reference": "https://www.django-rest-framework.org/api-guide/permissions/",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "stale-event-knowledge-1",
+      "family": "stale-event-knowledge",
+      "split": "formal",
+      "a_problem": "Maintain a latest-state projection. Older and equal revisions must not overwrite a newer observation; newer revisions replace it without mutating the input.",
+      "b_problem": "Rebuild a per-key latest-state view from out-of-order versioned events. Ignore older/equal revisions, keep first on ties and isolate nested returned state from caller events.",
+      "title": "Rebuild a per-key latest-state view from out-of-order versioned events. Ignore older/equal revisions, keep first on ties and isolate nested returned state from caller events.",
+      "a_facts": {
+        "language": "python",
+        "event_retention": "latest_projection",
+        "revision_semantics": "monotonic_integer"
+      },
+      "b_facts": {
+        "language": "python",
+        "event_retention": "latest_projection",
+        "revision_semantics": "monotonic_integer"
+      },
+      "source_reference": "https://www.mongodb.com/docs/manual/reference/operator/update/max/",
+      "transfer_reference": "https://docs.sqlalchemy.org/en/20/orm/versioning.html",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "stale-event-knowledge-2",
+      "family": "stale-event-knowledge",
+      "split": "formal",
+      "a_problem": "Maintain a latest-state projection. Older and equal revisions must not overwrite a newer observation; newer revisions replace it without mutating the input.",
+      "b_problem": "This audit API must retain all distinct historical (key,revision) events, not only latest state. Keep first on duplicate identity and return key/revision order without mutating inputs.",
+      "title": "This audit API must retain all distinct historical (key,revision) events, not only latest state. Keep first on duplicate identity and return key/revision order without mutating inputs.",
+      "a_facts": {
+        "language": "python",
+        "event_retention": "latest_projection",
+        "revision_semantics": "monotonic_integer"
+      },
+      "b_facts": {
+        "language": "python",
+        "event_retention": "full_history",
+        "revision_semantics": "monotonic_integer"
+      },
+      "source_reference": "https://www.mongodb.com/docs/manual/reference/operator/update/max/",
+      "transfer_reference": "https://docs.python.org/3.12/howto/sorting.html",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "multi-step-url-encoding-1",
+      "family": "multi-step-url-encoding",
+      "split": "formal",
+      "a_problem": "Encode one raw URL path component. A slash inside that component is data and must be percent-encoded, as must spaces and plus signs.",
+      "b_problem": "Compose a URL from raw individual path segments and query values. Encode segment-internal slashes, support list-valued queries, and omit an empty question mark.",
+      "title": "Compose a URL from raw individual path segments and query values. Encode segment-internal slashes, support list-valued queries, and omit an empty question mark.",
+      "a_facts": {
+        "language": "python",
+        "URL_input": "raw_components",
+        "encoding_policy": "encode_once"
+      },
+      "b_facts": {
+        "language": "python",
+        "URL_input": "raw_components",
+        "encoding_policy": "encode_once"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/urllib.parse.html#urllib.parse.quote",
+      "transfer_reference": "https://docs.python.org/3.12/library/urllib.parse.html#urllib.parse.urlencode",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "multi-step-url-encoding-2",
+      "family": "multi-step-url-encoding",
+      "split": "formal",
+      "a_problem": "Encode one raw URL path component. A slash inside that component is data and must be percent-encoded, as must spaces and plus signs.",
+      "b_problem": "Add or replace only the fragment of an already percent-encoded signed URL. Preserve the exact path/query octets and duplicate-query order; encode the new raw fragment.",
+      "title": "Add or replace only the fragment of an already percent-encoded signed URL. Preserve the exact path/query octets and duplicate-query order; encode the new raw fragment.",
+      "a_facts": {
+        "language": "python",
+        "URL_input": "raw_components",
+        "encoding_policy": "encode_once"
+      },
+      "b_facts": {
+        "language": "python",
+        "URL_input": "already_encoded_signed_URL",
+        "encoding_policy": "preserve_existing_octets"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/urllib.parse.html#urllib.parse.quote",
+      "transfer_reference": "https://www.rfc-editor.org/rfc/rfc3986#section-3.5",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "historical-policy-conflict-1",
+      "family": "historical-policy-conflict",
+      "split": "formal",
+      "a_problem": "Resolve a configuration value in explicit, environment, default order. None alone is unset; explicit False, zero and empty strings override lower-priority sources.",
+      "b_problem": "Resolve all setting keys with explicit > environment > defaults precedence, treating only None as unset. Preserve explicit falsey values and all source dictionaries.",
+      "title": "Resolve all setting keys with explicit > environment > defaults precedence, treating only None as unset. Preserve explicit falsey values and all source dictionaries.",
+      "a_facts": {
+        "language": "python",
+        "settings_contract": "explicit_environment_default",
+        "None_means": "unset"
+      },
+      "b_facts": {
+        "language": "python",
+        "settings_contract": "explicit_environment_default",
+        "None_means": "unset"
+      },
+      "source_reference": "https://click.palletsprojects.com/en/stable/commands-and-groups/#detecting-the-source-of-a-parameter",
+      "transfer_reference": "https://docs.pydantic.dev/latest/concepts/pydantic_settings/",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "historical-policy-conflict-2",
+      "family": "historical-policy-conflict",
+      "split": "formal",
+      "a_problem": "Resolve a configuration value in explicit, environment, default order. None alone is unset; explicit False, zero and empty strings override lower-priority sources.",
+      "b_problem": "This deployment uses a sealed policy. Neither environment nor requested values may override or add policy keys. Return an isolated nested copy of policy.",
+      "title": "This deployment uses a sealed policy. Neither environment nor requested values may override or add policy keys. Return an isolated nested copy of policy.",
+      "a_facts": {
+        "language": "python",
+        "settings_contract": "explicit_environment_default",
+        "None_means": "unset"
+      },
+      "b_facts": {
+        "language": "python",
+        "settings_contract": "sealed_policy",
+        "None_means": "literal_policy_value"
+      },
+      "source_reference": "https://click.palletsprojects.com/en/stable/commands-and-groups/#detecting-the-source-of-a-parameter",
+      "transfer_reference": "https://docs.python.org/3.12/library/copy.html",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "insufficient-evidence-1",
+      "family": "insufficient-evidence",
+      "split": "formal",
+      "a_problem": "A required execution check passes only when passed is literal True and source is tool. Missing fields, truthy numeric stand-ins and model self-reports do not establish success.",
+      "b_problem": "Approve a nonempty required-check batch only when every required ID occurs exactly once with literal passed=True and source=tool. Missing, duplicate or unsupported observations must fail.",
+      "title": "Approve a nonempty required-check batch only when every required ID occurs exactly once with literal passed=True and source=tool. Missing, duplicate or unsupported observations must fail.",
+      "a_facts": {
+        "language": "python",
+        "evidence_contract": "required_all_checks",
+        "missing_evidence": "not_success"
+      },
+      "b_facts": {
+        "language": "python",
+        "evidence_contract": "required_all_checks",
+        "missing_evidence": "not_success"
+      },
+      "source_reference": "https://json-schema.org/understanding-json-schema/reference/object",
+      "transfer_reference": "https://json-schema.org/understanding-json-schema/reference/object",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "insufficient-evidence-2",
+      "family": "insufficient-evidence",
+      "split": "formal",
+      "a_problem": "A required execution check passes only when passed is literal True and source is tool. Missing fields, truthy numeric stand-ins and model self-reports do not establish success.",
+      "b_problem": "Metrics are optional enrichment, not approval evidence. None means no metrics field. A supplied mapping, including zero latency, is copied into an isolated payload; non-mapping metrics are rejected.",
+      "title": "Metrics are optional enrichment, not approval evidence. None means no metrics field. A supplied mapping, including zero latency, is copied into an isolated payload; non-mapping metrics are rejected.",
+      "a_facts": {
+        "language": "python",
+        "evidence_contract": "required_all_checks",
+        "missing_evidence": "not_success"
+      },
+      "b_facts": {
+        "language": "python",
+        "evidence_contract": "optional_enrichment",
+        "missing_evidence": "omit_optional_field"
+      },
+      "source_reference": "https://json-schema.org/understanding-json-schema/reference/object",
+      "transfer_reference": "https://spec.openapis.org/oas/v3.1.0.html",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "failure-safe-publication-1",
+      "family": "failure-safe-publication",
+      "split": "formal",
+      "a_problem": "Publishing a JSON snapshot must leave the previous file intact when serialization fails. Publish a complete replacement only after serialization succeeds.",
+      "b_problem": "Publish a complete UTF-8 JSON state replacement and return the path. Serialization failures must preserve the old snapshot; successful publication must contain the new complete value.",
+      "title": "Publish a complete UTF-8 JSON state replacement and return the path. Serialization failures must preserve the old snapshot; successful publication must contain the new complete value.",
+      "a_facts": {
+        "language": "python",
+        "publication_policy": "replace_snapshot",
+        "failure_policy": "old_content_survives"
+      },
+      "b_facts": {
+        "language": "python",
+        "publication_policy": "replace_snapshot",
+        "failure_policy": "old_content_survives"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/os.html#os.replace",
+      "transfer_reference": "https://docs.python.org/3.12/library/os.html#os.replace",
+      "expected_transfer_class": "positive",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    },
+    {
+      "id": "failure-safe-publication-2",
+      "family": "failure-safe-publication",
+      "split": "formal",
+      "a_problem": "Publishing a JSON snapshot must leave the previous file intact when serialization fails. Publish a complete replacement only after serialization succeeds.",
+      "b_problem": "This JSONL audit writer is append-only. Preserve every previous event, add one serialized record per line, and leave the log unchanged when serialization fails.",
+      "title": "This JSONL audit writer is append-only. Preserve every previous event, add one serialized record per line, and leave the log unchanged when serialization fails.",
+      "a_facts": {
+        "language": "python",
+        "publication_policy": "replace_snapshot",
+        "failure_policy": "old_content_survives"
+      },
+      "b_facts": {
+        "language": "python",
+        "publication_policy": "append_only",
+        "failure_policy": "old_content_survives"
+      },
+      "source_reference": "https://docs.python.org/3.12/library/os.html#os.replace",
+      "transfer_reference": "https://docs.python.org/3.12/library/logging.handlers.html#filehandler",
+      "expected_transfer_class": "negative",
+      "source_instance_independence": "two related constructed source instances, not two independent defect families"
+    }
+  ],
+  "fixture_sha256": {
+    "api-parameter-migration-1/learn/checks.py": "e406014f9de799a7b45927425d209f25866468d8fbc68fe2258e9819f1c7bbc7",
+    "api-parameter-migration-1/learn/context.json": "128eb1697c64a2723d5e64147bdae9530aba57ff3f7a1eda255fb0a13803da48",
+    "api-parameter-migration-1/learn/reference.py": "8895da815270b4fe2917848c56b5d0ddb3a4bebcba9eda0457c7bf16e9f7355b",
+    "api-parameter-migration-1/learn/solution.py": "b58b6426097a5c2eb90072f3ded25f6e9e5f3eb96bf56d073f934dc3735bd287",
+    "api-parameter-migration-1/transfer/checks.py": "ede6181336cc80ad1377660066f10e6c1caefeaf61d6695d3aabd943f176dac6",
+    "api-parameter-migration-1/transfer/context.json": "128eb1697c64a2723d5e64147bdae9530aba57ff3f7a1eda255fb0a13803da48",
+    "api-parameter-migration-1/transfer/reference.py": "c4ee4fcae21cad0139dff18b6bfcfd059994a087e79cd729714b7efc9a643f25",
+    "api-parameter-migration-1/transfer/solution.py": "08b9c368c4fc61864e68c4c9ab95971ed3c74a64a0dc918119a877f23ae0b4d4",
+    "api-parameter-migration-2/learn/checks.py": "57d46d1bca0308318c48cb01d4f0af975f652d105f072fce61b4ce8beca647fb",
+    "api-parameter-migration-2/learn/context.json": "128eb1697c64a2723d5e64147bdae9530aba57ff3f7a1eda255fb0a13803da48",
+    "api-parameter-migration-2/learn/reference.py": "469705952d0ee7d26de527e8f45f5ce4af69bc05a1a2374c4fa9e3c6e4b40dae",
+    "api-parameter-migration-2/learn/solution.py": "290d06cd1877d11a0853f57bc76621333110e8d675bdb275069c07a7e9a2703c",
+    "api-parameter-migration-2/transfer/checks.py": "5a1c808714bf09da0a0876db94eca0bded43884038bf249c52df670307a74698",
+    "api-parameter-migration-2/transfer/context.json": "31cf43e4bc893d6910fbec43b97c7ccb95ba9a79880c3c29d13c6b9946b43b75",
+    "api-parameter-migration-2/transfer/reference.py": "46bdff8c96a8ced7bc6ece4823475490c018dea56d6b839b278126a34613a138",
+    "api-parameter-migration-2/transfer/solution.py": "49935ea82eb41afa2a81a62c99d2d4839be7eb1bcbc069afbfd7752f0028303e",
+    "configuration-root-1/learn/checks.py": "d244bad4f69f2c048b8215df805a723df89926e469244fdb2b4c2076bfc954e3",
+    "configuration-root-1/learn/context.json": "dfec6fff235fb558381a605147ec76f90281abd409f525c0c5151d5411b1781c",
+    "configuration-root-1/learn/reference.py": "78f5f012405f4533f0506e205aa6b3f3d93bca83c0f320a85fc38369bce72694",
+    "configuration-root-1/learn/solution.py": "1980870cf3de3331db86a22a795a0fff2139edd260d1072a6ecc42ddf66226ef",
+    "configuration-root-1/transfer/checks.py": "b99e379c5dbaefb75467cad045f45f2820bf05472818689f0eb3eaa3ccbd4ef4",
+    "configuration-root-1/transfer/context.json": "dfec6fff235fb558381a605147ec76f90281abd409f525c0c5151d5411b1781c",
+    "configuration-root-1/transfer/reference.py": "795ba2bba00b8c3c2313bc515e46c86e03df00c90be5b1017678e2fc62df07c5",
+    "configuration-root-1/transfer/solution.py": "badcd0e3c34e46e44797d123c4aaac1da1ee633998a618d322a7c2ea812231b5",
+    "configuration-root-2/learn/checks.py": "c8a1bf89cfc7599f4595a1a48c5a9867ea2a825cac22d152945cbcbc37c1ddf0",
+    "configuration-root-2/learn/context.json": "dfec6fff235fb558381a605147ec76f90281abd409f525c0c5151d5411b1781c",
+    "configuration-root-2/learn/reference.py": "45b44f949af2a2ce742fbfed1d87861caf4ed0d449be7cc85ef78ef323f51f1b",
+    "configuration-root-2/learn/solution.py": "b0b80fb41de75c592bc2a7982d276eb348166df5b45a73126cdfec05a9be9a6a",
+    "configuration-root-2/transfer/checks.py": "8864e69f515ef06620c3f43d060cc09f29fba85c2adb38b995f804c454952581",
+    "configuration-root-2/transfer/context.json": "88445108841d8bd72f98ad65fc6679b4df292247e5f1a6e94dbd4e325e60f0f1",
+    "configuration-root-2/transfer/reference.py": "bdc8fb6a250a1797919446fdca24fc3408304e5d2e85f0015717ad97322fdd37",
+    "configuration-root-2/transfer/solution.py": "2869ea5a6e0076d3bbc64fac2d8a48f628d085e248a3871881b9eb3b3cf3a22d",
+    "data-structure-protocol-1/learn/checks.py": "92921a4b094603037909270d423f72fe5e19b1e8f480b47d10f26b7dfa9b75e4",
+    "data-structure-protocol-1/learn/context.json": "49bb82152cd91caa5d12974a09dd53183259472b16a3781d8bba680affb98fae",
+    "data-structure-protocol-1/learn/reference.py": "208f7898d7ab7da7ed95218f853951c29e3d77164d944d857b93e62b00ddf8ea",
+    "data-structure-protocol-1/learn/solution.py": "daddebb6e6c6d57c87c14d48a04e03ae4292c2253157baecc6df4f8fcfc6a725",
+    "data-structure-protocol-1/transfer/checks.py": "5eb80751ab2253d405f8b445bfb1acfd9def8b13e3f2af133beacf747a975f17",
+    "data-structure-protocol-1/transfer/context.json": "49bb82152cd91caa5d12974a09dd53183259472b16a3781d8bba680affb98fae",
+    "data-structure-protocol-1/transfer/reference.py": "9dc98f2fee4ad62f01f29c6145f316a06d8c7404253c902ee7f47d5bce32b802",
+    "data-structure-protocol-1/transfer/solution.py": "7f6b488a5b1d503ce0b4e87814313bdcdaba119ace0495bfe4ce3c7f1a3a452a",
+    "data-structure-protocol-2/learn/checks.py": "2bbfe5bf078f7e5281a80a176516ffe839b6eefbbfc4b9d660af30e458af2f87",
+    "data-structure-protocol-2/learn/context.json": "49bb82152cd91caa5d12974a09dd53183259472b16a3781d8bba680affb98fae",
+    "data-structure-protocol-2/learn/reference.py": "907933d3335039fc683fdd3ba7454718d0970747b3d0f6d83d930d58b9c1cb3b",
+    "data-structure-protocol-2/learn/solution.py": "ab87b0d9de7096dcd0639be6284554b0334db55757dbf0d31186c23d7dd5dd3c",
+    "data-structure-protocol-2/transfer/checks.py": "0300ce0aa77270fad4c0fbadabc140bfb0814bd73d911c600be822e16c25fa5a",
+    "data-structure-protocol-2/transfer/context.json": "69e3d22a70931dfe38bd6e68ef05332b8530567b2f62a866475cd292435aa86f",
+    "data-structure-protocol-2/transfer/reference.py": "4ddd4153fdd0610938520eca2d2c43bcefdbb5ecf6824984f254ce314916a193",
+    "data-structure-protocol-2/transfer/solution.py": "58a196e7ebe9fc132531bbbbbb5d03861a5cc9476c1f8ef2ad11c93dd87698f3",
+    "dependency-version-1/learn/checks.py": "6264a3bbd548ba6d5cb29d18c9e6a66432e747b3d246f38c6cce924adce0e07c",
+    "dependency-version-1/learn/context.json": "9e2cc69c37e4122fdac6e58de6c303b51892ecf794b408b16ec605cc4f7fea4a",
+    "dependency-version-1/learn/reference.py": "0b343547d0d1eb8b730a6fae5ebacd51ef63e463a807a7df3bcd6c0961025015",
+    "dependency-version-1/learn/solution.py": "870143778e34d2b110512882760b4de3ea36950ea3906adce444e4af81fc89d3",
+    "dependency-version-1/transfer/checks.py": "6b42ac818cec8240a02bb32ae06a34fa565185a4494c5bab465235b2139f3afd",
+    "dependency-version-1/transfer/context.json": "9e2cc69c37e4122fdac6e58de6c303b51892ecf794b408b16ec605cc4f7fea4a",
+    "dependency-version-1/transfer/reference.py": "ffb6db619a932b2c35c19c7ebc12550a4a1008ffdd2ac45b5d47e1c4b4305d0b",
+    "dependency-version-1/transfer/solution.py": "e62a3c725697d9b67c4fb16081195aa2b49e0293a00085b8d75704c439ed1a7a",
+    "dependency-version-2/learn/checks.py": "66e8424d8c008f467f228b2d594088fcad91b517c0a93360dbfed822336b1f88",
+    "dependency-version-2/learn/context.json": "9e2cc69c37e4122fdac6e58de6c303b51892ecf794b408b16ec605cc4f7fea4a",
+    "dependency-version-2/learn/reference.py": "f84cd3bfb256914f4ced357b9364b5eb0bbd56c8f8178287a2a53353016fc97b",
+    "dependency-version-2/learn/solution.py": "dbfaeeb0eec53f836e1ea8d57f4fad444cf186d3abd631ec0dfd7fe57c1089d4",
+    "dependency-version-2/transfer/checks.py": "4d9a2473f502db44b46e0f5ba07e8af6c5c8a1d77da9665055e84cd15cb00904",
+    "dependency-version-2/transfer/context.json": "820f883b29307705704a8b29e5c0a6fb26eb0d866cfa1f7b3efcafa67954ea66",
+    "dependency-version-2/transfer/reference.py": "1df856a728fd8959470780f441e075368d5b5400af7a39f6c57f408bae2da769",
+    "dependency-version-2/transfer/solution.py": "3c89da30ca975a0d95006c7fed2dc6c2dc251ae52306d1ed411c62323a5cf961",
+    "failure-safe-publication-1/learn/checks.py": "2682f3a6dabf370068cea4d702942fe24ec1b493f0d5c948d78eca2b772e5502",
+    "failure-safe-publication-1/learn/context.json": "8a6e7d10b37e71ead79282d8617a6dd5d689e9e1196e8868ba804b20c6338f6e",
+    "failure-safe-publication-1/learn/reference.py": "85bd432e8e58eed905177965b934ef6b6615fab90bb5a9f8d19dfb86d559bf5d",
+    "failure-safe-publication-1/learn/solution.py": "15e8bed8e813c022e1883053c4e7578782c34005f301c1209ae1d33c1c55fa7f",
+    "failure-safe-publication-1/transfer/checks.py": "475c0a34eb2214eed2ae68fe7ad4d70a6f06fc0a0290da21fee603a08c11c29c",
+    "failure-safe-publication-1/transfer/context.json": "8a6e7d10b37e71ead79282d8617a6dd5d689e9e1196e8868ba804b20c6338f6e",
+    "failure-safe-publication-1/transfer/reference.py": "6467db105f094a3d631d643a95c80710da1c1c0316e1e9cc24cfb1d2b0290d43",
+    "failure-safe-publication-1/transfer/solution.py": "d3e8d447a1970a1c999b17b87202310492253e7ca130ff81c17e2dfa4e1d7cc6",
+    "failure-safe-publication-2/learn/checks.py": "866c8124ed4250349589157b761a689b52b08813732f1bbc721a4310518dd4a7",
+    "failure-safe-publication-2/learn/context.json": "8a6e7d10b37e71ead79282d8617a6dd5d689e9e1196e8868ba804b20c6338f6e",
+    "failure-safe-publication-2/learn/reference.py": "d8ac54f1ee8d5349865b61df5741ee2719ee1843bf70f272f9899d6268e04489",
+    "failure-safe-publication-2/learn/solution.py": "6fa0e4bfd1bc2a03af912bdb0220437d6fb48cc8fee7d26995439e872ef99777",
+    "failure-safe-publication-2/transfer/checks.py": "c45e26758ef2f233f22492eedf12c3ffe4ccc4cf363086a65e3a8e0a5679a6bd",
+    "failure-safe-publication-2/transfer/context.json": "4e2b14c18a4ef05bebe2333413a838db5589d6caaf4e958f2ca9a4b91ad402a8",
+    "failure-safe-publication-2/transfer/reference.py": "55720d542ed0e7214e9b897d1d8e6ca2ec67a61f295a73d974bada2794f87576",
+    "failure-safe-publication-2/transfer/solution.py": "f105cabfcafb8f25950cebfc7f39b7f1fbe176d3b3393f0efdc781f118b9ffd5",
+    "historical-policy-conflict-1/learn/checks.py": "a55af79ac6ada112119ae00519bc538b6068cb9894235c6ad87fcdefe7141cee",
+    "historical-policy-conflict-1/learn/context.json": "e296b5f62bcd74c59a7102bfdba6cd4bcf6d5e39e97d976e5b69ba520aa0bafc",
+    "historical-policy-conflict-1/learn/reference.py": "2072f59cb0fd3cbeaed5d56ce870766aed872079a61b185a51c69b81eda5d35a",
+    "historical-policy-conflict-1/learn/solution.py": "78e2c8261bae6c407f2882d86b30242f5ff4cf881a0254a6ff757f25149c4188",
+    "historical-policy-conflict-1/transfer/checks.py": "38afae079d81853da046a4b920f7c7d3d60a4c97d840665ff61d45688db0a743",
+    "historical-policy-conflict-1/transfer/context.json": "e296b5f62bcd74c59a7102bfdba6cd4bcf6d5e39e97d976e5b69ba520aa0bafc",
+    "historical-policy-conflict-1/transfer/reference.py": "935d2fc58604ce614a772b1f2ddabbb796a03521e3fc3dd00aa06e697fa2a868",
+    "historical-policy-conflict-1/transfer/solution.py": "2e089c961cfc824fe65d500552cc60c56eba7e549963c7675781deb83096156a",
+    "historical-policy-conflict-2/learn/checks.py": "be387d29afc071edfc9d98d709afae077bab34068498bb9367ab6eb6fe49b08e",
+    "historical-policy-conflict-2/learn/context.json": "e296b5f62bcd74c59a7102bfdba6cd4bcf6d5e39e97d976e5b69ba520aa0bafc",
+    "historical-policy-conflict-2/learn/reference.py": "646c2f2f093831cd33c685c270dbbcbf5b2aaa1829eb405a85fd995a16a00bed",
+    "historical-policy-conflict-2/learn/solution.py": "87278207ca1bc14714c3d25c8596aaead68cf597153b9697bd19a0bae8e71fd2",
+    "historical-policy-conflict-2/transfer/checks.py": "d099a077eaf58096b4fffdf9501db8eb8d5596c5ef2d77167909f3e711abb995",
+    "historical-policy-conflict-2/transfer/context.json": "875c2ad33632065a02b8be51e8eeafc17c86f17c45c7db79191e60915363c0d3",
+    "historical-policy-conflict-2/transfer/reference.py": "de7eb131c05558ab689d9ea6faa77d88002c7447a123362870bebad265194730",
+    "historical-policy-conflict-2/transfer/solution.py": "a9d400e27bd4ba2be8e1e01c7b5eaf498dbefc1af009e40b420c8ba94d970b0b",
+    "insufficient-evidence-1/learn/checks.py": "b10c60c80488a7981c29f17acf3d5c1d97221e85e3f3319947f9d93e8a371c5c",
+    "insufficient-evidence-1/learn/context.json": "cc93cae6b92124a956cd03b13017f8678396dc69ed14b16fc7989810eb180ad8",
+    "insufficient-evidence-1/learn/reference.py": "2a0036db31f74f95b0f774e61af5011ec37d7f6fc31b0fb962f025f144d0816c",
+    "insufficient-evidence-1/learn/solution.py": "9e8b97d77572ce51f1ad63d0173a8abf6cc46696c7e2774242589b6a366f4bad",
+    "insufficient-evidence-1/transfer/checks.py": "6431a3793ba4a636f45bc1b5e962c83c832743eacbfe48869d30c5c100af1621",
+    "insufficient-evidence-1/transfer/context.json": "cc93cae6b92124a956cd03b13017f8678396dc69ed14b16fc7989810eb180ad8",
+    "insufficient-evidence-1/transfer/reference.py": "233a4867a07b9118b29d889e4fc5dd8feba809eacaa52b10ef6b2b7b352d0fef",
+    "insufficient-evidence-1/transfer/solution.py": "b3535340114e7fc3617dc535ae49fc3b130ee16b31fee870f70a0d28fed01985",
+    "insufficient-evidence-2/learn/checks.py": "28c22fe1f5ecef2a5ec809d15512a00cc2dd7097ee0401639f3725f7cd9c61e0",
+    "insufficient-evidence-2/learn/context.json": "cc93cae6b92124a956cd03b13017f8678396dc69ed14b16fc7989810eb180ad8",
+    "insufficient-evidence-2/learn/reference.py": "fc88b6671efc096eac9a75458e5e3bd9df6c49768cdbbdf55f761733235b12ec",
+    "insufficient-evidence-2/learn/solution.py": "bc44459fda1e7ea80da70b806bd8a0d020690aae4f64d3bc79b5aa255f7e0f1e",
+    "insufficient-evidence-2/transfer/checks.py": "f36709de01f298d6d9da59d0945dbb360b27532e85c948ba8e8dd375a97a9969",
+    "insufficient-evidence-2/transfer/context.json": "48a6e7b8e4c319bb62a02d0690672a1b7d88253055be968a3fa0f5493ca66799",
+    "insufficient-evidence-2/transfer/reference.py": "4985d8fe7964c7564325720f250c1ecec3405a61a74051b0795a448611284650",
+    "insufficient-evidence-2/transfer/solution.py": "8b247c4521ade8c67d157d3c279dc714c91efbf5ea3089d861c2af022ba430e4",
+    "multi-step-url-encoding-1/learn/checks.py": "9e98b63f97ac69a97e077815cb63e20eddfed82228a9385863c31396da736e47",
+    "multi-step-url-encoding-1/learn/context.json": "e0c5d67fca10ec6410accb9ec18cdea55f7e41f375227b45a6526072eba7da8a",
+    "multi-step-url-encoding-1/learn/reference.py": "f4fdca1134065f9e72f0adfa083101f069933dc184cc3fb6100e98c79bc240ce",
+    "multi-step-url-encoding-1/learn/solution.py": "5a34109d7f1743e5bf9583864565406b0271d9e8574dc225316156cf8703f816",
+    "multi-step-url-encoding-1/transfer/checks.py": "4010f400fe55e38e356dcbcdc6adb948a62ead2ddb6ead83ab0ede75536f5c5d",
+    "multi-step-url-encoding-1/transfer/context.json": "e0c5d67fca10ec6410accb9ec18cdea55f7e41f375227b45a6526072eba7da8a",
+    "multi-step-url-encoding-1/transfer/reference.py": "dbba34033918e103337a0405e9388ccff514642c6da63aa93bb07bf7a58a57fd",
+    "multi-step-url-encoding-1/transfer/solution.py": "83c83cceba17bb204462f05f06955a47680d9d61628b882dc1924b78d580e79c",
+    "multi-step-url-encoding-2/learn/checks.py": "bfb6355e1d9f0e4c474aa0ad79e544b526ce18ecbdfca5ee453061042fe1da1b",
+    "multi-step-url-encoding-2/learn/context.json": "e0c5d67fca10ec6410accb9ec18cdea55f7e41f375227b45a6526072eba7da8a",
+    "multi-step-url-encoding-2/learn/reference.py": "c28a36ee636e514915acce6ee0e5c272f9433f1843bce6f0c66ac7bdc81520f4",
+    "multi-step-url-encoding-2/learn/solution.py": "f12fa1fb725fe6cc2a4cf9e83e47631d3d377d33eb75e0b8b8260bda9b7aea14",
+    "multi-step-url-encoding-2/transfer/checks.py": "f4a43653b005c079d8145f4af1e50cceea03986631671bd0e08a3933d3ec13d1",
+    "multi-step-url-encoding-2/transfer/context.json": "0cc8c9377fbc4db32315f2794ee764e127fb4d9b6d9b48921d7ca3526e2eed93",
+    "multi-step-url-encoding-2/transfer/reference.py": "11a6928e7945e174e22067a66e6829494405a7c492d17a7f814c0fc10c0dc7e0",
+    "multi-step-url-encoding-2/transfer/solution.py": "a7e1e0ae0a77145017f819185fa3e978286be23ee8e3cb6cfd047bc3052504a6",
+    "permission-conjunction-1/learn/checks.py": "f2719e7099092a33547279c3a3790a78ccae49cf07752e235cdaf1e6c382a8dd",
+    "permission-conjunction-1/learn/context.json": "2f114e140eb737d5e8910c81014912c61eb5f0426ce6af910214dd35ac0b9643",
+    "permission-conjunction-1/learn/reference.py": "169f66c7f371737e59d301b5907ae9b5ed224d88e8371aa0995c6cbc546a80f9",
+    "permission-conjunction-1/learn/solution.py": "62b4e55099cc3a423ab30f4024b28328c3a257aee36d9eff9b34f5566970374f",
+    "permission-conjunction-1/transfer/checks.py": "6974771c078825a17c8c0693d74bc3c6add920df3249a79d77797b14c2a7ce68",
+    "permission-conjunction-1/transfer/context.json": "2f114e140eb737d5e8910c81014912c61eb5f0426ce6af910214dd35ac0b9643",
+    "permission-conjunction-1/transfer/reference.py": "7c445630478b1dca4f8129a153a540f0379bee13f3a52582aa14d3ecd36946be",
+    "permission-conjunction-1/transfer/solution.py": "5c766f887afa885bd6338bcd064f0bf48a6bc5ae1990d6ee52d375cc8dde475a",
+    "permission-conjunction-2/learn/checks.py": "94b6cd83dd7c0a4c597177dc50e426db5cedb77cb010c9125bf914c092fd3aad",
+    "permission-conjunction-2/learn/context.json": "2f114e140eb737d5e8910c81014912c61eb5f0426ce6af910214dd35ac0b9643",
+    "permission-conjunction-2/learn/reference.py": "b5ce37acc52d5ee0c59ed0ada4997e38b36ac56d278e6374a5fbf4e6b3d14aca",
+    "permission-conjunction-2/learn/solution.py": "b03ea90d8ebc9a523f6b2fed0c636eedc729b421bd95a41f1040c4e102017b32",
+    "permission-conjunction-2/transfer/checks.py": "46324c98d389bf25c49431dd00266ecb6f9300dbb24fd9ca0f92db57c9eb3efd",
+    "permission-conjunction-2/transfer/context.json": "50b168662c0a221ee6a77acb05ea1aae601f3232e3a55ea182c855bc6ca649a9",
+    "permission-conjunction-2/transfer/reference.py": "0764bdd12af75a4b85505d81cbbbcf1cf23629b1e71c475f7e2e9ab8292a3a5e",
+    "permission-conjunction-2/transfer/solution.py": "4e1c679608a67b61c9e65b0ad8cb9278532274ba847e171b7975f43621dbd842",
+    "stale-event-knowledge-1/learn/checks.py": "da1a40d24141e0fa8bbf51aa9c71854dc252f376fd0660699669e91e5f305905",
+    "stale-event-knowledge-1/learn/context.json": "716e31dc579e739bd966272b3a5352328753d66536e7a3ba22ab81167698e21b",
+    "stale-event-knowledge-1/learn/reference.py": "bd5f9fd9a7a7bd7038cb4bc4c3ef131f5bfa45cb672bdb0e7f96f05d89e53eeb",
+    "stale-event-knowledge-1/learn/solution.py": "854d6301fbb4e569b4301de7eae13ce83bdd56960b55010ee3964b3be2f5a3fd",
+    "stale-event-knowledge-1/transfer/checks.py": "6c3e04428af3df03e369ba90bf0cba23e984ff40c63f0212b63eaf3e8bd6d510",
+    "stale-event-knowledge-1/transfer/context.json": "716e31dc579e739bd966272b3a5352328753d66536e7a3ba22ab81167698e21b",
+    "stale-event-knowledge-1/transfer/reference.py": "ad304fc16f6c5c21bb5206d86f2679c6903073a4b0dbaee6289e7932d39f2abf",
+    "stale-event-knowledge-1/transfer/solution.py": "87fc2a1b6f01ea590dc44e78977d7079ff1df2138e7fef505732728b7d4925c3",
+    "stale-event-knowledge-2/learn/checks.py": "0f2dd0812f82bdc0c64f72e41e7a1f4ddaaa5a8c98b1d1c50f640355b9e76035",
+    "stale-event-knowledge-2/learn/context.json": "716e31dc579e739bd966272b3a5352328753d66536e7a3ba22ab81167698e21b",
+    "stale-event-knowledge-2/learn/reference.py": "2cc4083956ff7808cde9cbfe8bc7b2b874a42b3a298370d348cab90e5324805f",
+    "stale-event-knowledge-2/learn/solution.py": "3fd8bbde878ba9a3818b2d8012ed89876b8639b469624c27348a393cff21c863",
+    "stale-event-knowledge-2/transfer/checks.py": "3f82e244093d8c319413c4323438119ac22346fa5dbca92430275acde63143f9",
+    "stale-event-knowledge-2/transfer/context.json": "d1e775d3c4ac461c7d8db40cd28fa92d5b2ab90d7a232d34c34140d90a9aa78b",
+    "stale-event-knowledge-2/transfer/reference.py": "dd9672824c784a4586ce5cb3db14cf807fec0d742b4b19d4e4a21ccec359a3fc",
+    "stale-event-knowledge-2/transfer/solution.py": "b78194acb642dc28617d07c89abb0ea217a0d0fdf5bbb2977fd4d4f893036468"
+  },
+  "source_design_sha256": "88f744e777ab587dc530183dbf9e6765a95475bfe9e3cd5922eb587ac8b1a704",
+  "repetitions": 2,
+  "independent_broad_families": 10,
+  "separate_validation_required_before_final_B_calls": true,
+  "formal_transfer_budget": {
+    "requests": 8,
+    "executed_tools": 14,
+    "seconds": 120
+  },
+  "source_learning_budget": {
+    "requests": 12,
+    "executed_tools": 18,
+    "seconds": 120
+  },
+  "boundary": "Self-contained contract reproductions of public interfaces plus explicit application policies, not upstream Issue checkouts or independent third-party benchmark tasks.",
+  "source_instances_correlated_within_family": true
+}

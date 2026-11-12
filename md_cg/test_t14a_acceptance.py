@@ -46,7 +46,7 @@ accept 原文给了退路：「若该函数签名复杂就按 retained/not_retai
 ## 为什么 A 的引用要真走引擎路径（不是手改 fm）
 
 A 的 `access_count=5` 由 `cg.fold_access_records(['A'], ts=...)` **真落盘**
-五次得到——那是 E-T63a 修复后的唯一正路（mdcg.py:7196 `record_access` 的
+五次得到——那是 E-T63a 修复后的唯一正路（mdcg.py::record_access `record_access` 的
 即时折叠口径）。手改 frontmatter 也能造出 5，但那样钉住的只是「retain 会读
 access_count」；走引擎路径才能同时证明「E-T63a 的计数面」与「E-T14a 的判据面」
 **接得上**——这正是本条收口链要验的东西。`ts` 显式给一个固定基准，使

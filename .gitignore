@@ -1,4 +1,3 @@
-node_modules/
 /lib/
 *.tsbuildinfo
 
@@ -146,3 +145,5 @@ nul
 # 覆盖面自 `.zcode/` 顶收起：其下 `workflow-drafts/` 与 `workflow-runs/` 各自的
 # 内嵌 .gitignore（`*`）继续生效（更靠近路径者优先级更高，本规则只是补顶层）。
 /.zcode/
+# 合并期临时：发布件门禁需要 node_modules（未入库，见冲突裁决记录）
+node_modules/

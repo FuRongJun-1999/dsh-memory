@@ -15,8 +15,34 @@ import subprocess
 import sys
 from typing import Dict, Optional
 
-from compiler.compiler import compile_source
-from compiler.pbc import save_pbc, serialize
+# issue #125：**不在模块顶层**导入 compiler —— 方向对称（compiler/cli/__init__.py:444
+# 对 swarm 同样是函数内延迟导入）。顶层硬导入会让「只放 swarm 面」的隔离根下
+# rust_codegen / rust_swarm / swarm_cli 三个子模块全部 ModuleNotFoundError。
+# 延迟化后对外 API 一字不变（generate_rust_project / build_and_run 仍是模块级；
+# compile_source / save_pbc / serialize 经 PEP 562 __getattr__ 惰性 re-export）。
+
+_LAZY_EXPORTS = {
+    "compile_source": "compiler.compiler",
+    "save_pbc": "compiler.pbc",
+    "serialize": "compiler.pbc",
+}
+
+
+def __getattr__(name):
+    """issue #125 · PEP 562 惰性 re-export。
+
+    导入期**不得**触发 compiler（隔离根下本模块须可导入）；但模块属性面必须照旧：
+    `from X import 名` 与 `mock.patch("X.名")` 都经本函数取真身并**写回 globals 缓存**，
+    语义与顶层 import 等价（第二次起直接命中模块字典，零开销）。
+    """
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+    import importlib
+    value = getattr(importlib.import_module(target, __package__), name)
+    globals()[name] = value
+    return value
+
 
 ALGO = "rust_codegen-0.1"
 RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust_runtime")
@@ -25,6 +51,11 @@ RUNTIME_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rust_run
 # 生效条件：compile_source(source, strict=strict) 的 result["ok"] 为真时，在 abspath(out_dir) 下建 src/、写 program.pbc（内容与现存文件字节一致时不覆写——保 mtime 供 build_rust_exe 新鲜度判定，幂等重入不假重建）与 build_meta.json、把拷贝的 Cargo.toml 的 default 改写为 ["embed"]（模板默认关 embed——模板目录无 program.pbc，裸 cargo test 不失败；生成项目 program.pbc 在位，改写后编译期嵌入），返回 {"ok": True, "project_dir": out_dir, "pbc": ..., "instructions": len(code)}；result["ok"] 为假时返回 {"ok": False, "result": result, "algo": ALGO}；
 def generate_rust_project(source: str, out_dir: str, strict: bool = False) -> Dict:
     """中文源码 → Rust cargo 项目。返回 {ok, project_dir, pbc, result}。"""
+    # PEP 562 的模块 __getattr__ **不参与模块内部名字查找**（只对外部访问生效），
+    # 故模块内使用仍需显式导入——这与模块级 __getattr__（对外 API 面）并存。
+    from compiler.compiler import compile_source
+    from compiler.pbc import save_pbc, serialize
+
     code, result = compile_source(source, strict=strict)
     if not result["ok"]:
         return {"ok": False, "result": result, "algo": ALGO}

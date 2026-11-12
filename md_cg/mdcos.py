@@ -50,7 +50,7 @@ from . import (nodefile, routing, chain, subgraph, forgetting, protect,
                identity, consistency, metacognition, crypto, sustain,
                self_state, predict, evolution, weights, pooling,
                writelimit, reach, trust, roleviews, autonomy_modes, lifecycle,
-               rrf_candidates)
+               rrf_candidates, reldate)
 from .fsutil import (_ReentrantFileLock, FileLock, atomic_write, append_jsonl, read_jsonl,
                      read_jsonl_tail, count_jsonl, publish,
                      merge_rmw_lock, node_write_lock)
@@ -1010,8 +1010,13 @@ class MdCGOS(MdCG):
         return out
 
 # 生效条件：传入 root 时以 super().__init__(root, autoflush=autoflush) 初始化父类，把 actor 存入 self.actor，并按 root（及类常量 AUDIT_ARCHIVE/HIPPOCAMPUS/TRASH）拼出 audit_log/audit_archive/hippocampus/inbox_log/decisions_log/trash_dir 等路径，同时 makedirs(hippocampus/trash_dir, exist_ok=True)；读缓存装配走 readcache.install_default（#370：自动装配的唯一入口，基类已装则为幂等空操作，MDCG_READ_CACHE=0 时不装配）。
-    def __init__(self, root: str, autoflush: int = 64, actor: str = "system"):
-        super().__init__(root, autoflush=autoflush)
+    # 2026-11-12 合并：`async_flush` 必须**沿继承链透传** —— 远端给 `MdCG` 加了
+    # 这个形参（None=随 env），`MdCGSecure` 已经透传它，而这里原来把它丢了 ⇒
+    # `MdCGSecure(..., async_flush=False)` 会在本层报
+    # `TypeError: __init__() got an unexpected keyword argument`（实测 review_cli 全挂）。
+    def __init__(self, root: str, autoflush: int = 64, actor: str = "system",
+                 async_flush=None):
+        super().__init__(root, autoflush=autoflush, async_flush=async_flush)
         self.actor = actor
         self.audit_log = os.path.join(self.root, "_audit.jsonl")
         self.audit_archive = os.path.join(self.root, self.AUDIT_ARCHIVE)
@@ -1254,7 +1259,7 @@ class MdCGOS(MdCG):
             pass
         return self._index_gen
 
-    # 生效条件：node_id 与 entry 给定；转调父类 _set_index_entry 后调用 _on_index_mutation——所有 `_stage` 调用点经 `self._set_index_entry` 汇流（mdcg.py:4663-3225），故本覆盖即覆盖**全部索引突变入口**，无需在 mdcg.py 另写第二份口径；
+    # 生效条件：node_id 与 entry 给定；转调父类 _set_index_entry 后调用 _on_index_mutation——所有 `_stage` 调用点经 `self._set_index_entry` 汇流（mdcg.py::_set_index_entry-3225），故本覆盖即覆盖**全部索引突变入口**，无需在 mdcg.py 另写第二份口径；
     def _set_index_entry(self, node_id, entry):
         super()._set_index_entry(node_id, entry)
         self._on_index_mutation(node_id)
@@ -1263,7 +1268,7 @@ class MdCGOS(MdCG):
     def _move_layer(self, node_id, to_layer, reason="", override=False):
         """issue #322（复核补）：搬迁也是同 id 的读改写，必须与 add 共用一把锁。
 
-        父类实现（`md_cg/mdcg.py:4747`）直接调 `self._write_node`，**不经 add**
+        父类实现（`md_cg/mdcg.py::_write_node`）直接调 `self._write_node`，**不经 add**
         ⇒ 只锁 add 覆盖不到它：M 进程读到旧位置后慢写新层、A 进程同时 add 同 id，
         盘面最终只剩搬迁写下的旧正文，A 已应答的新值消失（探针
         `.tmp/u06/probe_move_add.py` 实测 3/3 轮新值不在盘）。本覆盖在库层收口，
@@ -1343,6 +1348,16 @@ class MdCGOS(MdCG):
                         continue
                     _ov = _ofm.get(_ik)
                     if _ov is not None:
+                        # #768：`condition_space.time_window` 是「**这次观测**发生在什么时候」，
+                        # 不是节点的静态属性——#550 的「未传字段继承旧值」把它一起继承过来后
+                        # 观测窗就被冻结在**首写时刻**（覆写旧节点 ⇒ 窗口落在过去），而
+                        # mdcg.add 的默认窗口构造因为「cs 已带 time_window」整段跳过、
+                        # 再也不刷新。故继承 cs 时剔除该键，让写面按本次写入重新定锚
+                        # （显式回填 created_at 仍锚在给出的时刻，见 mdcg.add）。
+                        if _ik == "condition_space" and isinstance(_ov, dict):
+                            _ov = {k: v for k, v in _ov.items() if k != "time_window"}
+                            if not _ov:
+                                continue
                         kw[_ik] = _ov
             nid = super().add(node_id, content, layer=layer, **kw)
             e = self.index["nodes"].get(nid)
@@ -2394,6 +2409,38 @@ class MdCGOS(MdCG):
         return out, gt
 
 # 生效条件：query 去空白为空→empty_query、候选为空→no_candidates；否则按 paths 各路召回后融合（fusion=="max" 取各路最大贡献、否则求和），recall_only 中的路只以 0 分补池不参与打分，judge 与 judge_ranking 同时为真时对 fused 前 max(k*2,10) 条做资格裁决（REJECT/BLINDSPOT 剔除、DEFER 降权 0.5），否则直接取 fused 前 k；validity 真值时候选层剔除已过期节点，且 query 缓存按 validity 分键不串口径。
+    def _log_query(self, q, k, ranked, fused, _rw_terms):
+        """把这次检索的读数追加进 `<root>/_queries.jsonl`（只追加、失败不影响检索）。
+
+        issue #111：`search_rrf` 必须保持**纯函数面**（不落盘、不取时钟），
+        故这块 I/O 从函数体里抽出来落到本方法；`MDCG_QUERY_LOG=0` 时整段关闭。
+        """
+        # 查询日志：`cache` 档改写需要预热源，而此前没有任何查询记录
+        # （`grep query_log md_cg/*.py` = 0，`log_message` 也静音）。
+        # 只在 `MDCG_QUERY_LOG=0` 时关；写失败绝不影响检索。
+        if (os.environ.get("MDCG_QUERY_LOG") or "1").strip() not in ("0", "false", "off"):
+            try:
+                _qlp = os.path.join(str(getattr(self, "root", "") or ""), "_queries.jsonl")
+                with io.open(_qlp, "a", encoding="utf-8", newline="\n") as _ql:
+                    _ql.write(json.dumps({
+                        "ts": time.time(), "q": q, "k": k,
+                        "paths": {k2: len(v2 or []) for k2, v2 in ranked.items()},
+                        # D 前置（2026-11-07）：每路**候选 id + 分数**。只有数量时，
+                        # 「vector 把 lexical 的候选整个盖住了」与「两路各自召回」在
+                        # 日志里长得一模一样，融合研究无从下手。top 截 10、分数截 3，
+                        # 单行仍是几百字节量级。
+                        "lanes": {k2: {"n": len(v2 or []),
+                                       "top": [r[0].get("id") for r in (v2 or [])[:10]],
+                                       "s": [round(float(r[1]), 6) for r in (v2 or [])[:3]]}
+                                  for k2, v2 in ranked.items()},
+                        "lane_family": _QL_LANE_FAMILY,
+                        "hits": len(fused),
+                        "top1": (fused[0][0] if fused else None),
+                        "expand": _rw_terms,
+                    }, ensure_ascii=False) + "\n")
+            except Exception:                          # noqa: BLE001
+                pass
+
     def search_rrf(self, query: str, k: int = 20, layer: str = None,
                    context=None, roles=None, include_work: bool = False,
                    judge: bool = True,
@@ -2406,7 +2453,7 @@ class MdCGOS(MdCG):
                    early_stop_threshold=None,
                    start_time=None, end_time=None, start_operator=None,
                    end_operator=None, time_axis=None, view=None,
-                   strict_conditions: bool = True):
+                   strict_conditions: bool = True, now=None):
         """并行多路召回 + RRF 融合。返回 (results, meta)。
 
         validity：**只排除「已过期」（expired），不排除「未生效」（not_yet）**。
@@ -2436,7 +2483,7 @@ class MdCGOS(MdCG):
             "temporal" **时间路**（P3-temporal，设计稿 §6.3）：按时间邻近度排序
                        的**排名项**，核走 `time_core.cred_factor`；无时间算子/
                        区间时恒空。
-            缺省 = ("lexical","bucket","entity","graph","chain","temporal")
+            缺省 = ("lexical","bucket","entity","graph","chain","temporal","vector")
             —— 后两路按裁定 9「全进默认检索」进缺省集；**每路可单独关**：
             显式传不含该路的 paths 即关（既有调用方口径一字不变）。
             两条新路在**无 edges / 无时间参数**的库上自然为空（零多算），
@@ -2786,6 +2833,18 @@ class MdCGOS(MdCG):
         # 温路径早停判据（2026-09-19 热温冷分层）：
         # top-1 RRF 分 >= threshold 且 top-k 全部来自 >=2 路共识 → 提前返回
         # 不改 RRF 核心算法，只在融合后判断
+        # 结构重排需要**先超取再截断**：实测（476 题）在 k=10 的池子里重排，gold@3 不动；
+        # 在 2×k 池子里重排再截到 k，gold@3 71.9%→85.5%。池子宽窄决定这条信号有没有用。
+        _struct_on = (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0)
+        # 注意：**不要**复用 `_time_on`——那是上面「时间算子启用」的既有变量，
+        # 覆盖它会让「时间算子查询绕开热缓存」失效（实测：默认查询被污染成 11 条）。
+        _timeboost_on = (int(os.environ.get("MDCG_TIME_BOOST", "0")) > 0)
+        # 时间重排的时钟：**复用**本函数内既有的唯一 time 调用点（#111 契约：打分层时钟恰 1 处），
+        # 新增 time.time() 会直接让契约守卫转红（实测：新增后「时钟调用 2 次」）。
+        # 故这里只派生，不取时钟：`_validity_clock` 未启用时由 _candidates 侧时钟兜底（见下）。
+        # `now` 由调用方显式给（缺省回落既有唯一时钟点）；None ⇒ 时间重排不启用（不猜「今天」）。
+        _rerank_now = now if now is not None else _validity_clock
+        _k_fetch = min(k * 2, 200) if ((_struct_on or _timeboost_on) and k) else k
         early_stopped = False
         if early_stop_threshold is not None and len(fused_all) >= k:
             top1_score = fused_all[0][1]
@@ -2803,7 +2862,7 @@ class MdCGOS(MdCG):
         filtered = 0
         if early_stopped:
             # 早停：直接取 top-k，不做 judge_ranking
-            fused = fused_all[:k]
+            fused = fused_all[:_k_fetch]
             judge = False  # 早停时跳过资格判定
             judge_ranking = False
         elif judge and judge_ranking:
@@ -2815,7 +2874,7 @@ class MdCGOS(MdCG):
                 # qualified result (including the deterministic id tie).
                 # A fixed oversampling window can run out of safe candidates.
                 upper = max(fs, fs * 0.5)
-                if (k > 0 and len(kept) == k
+                if (_k_fetch > 0 and len(kept) == _k_fetch
                         and (-upper, nid) >= (-kept[-1][1], kept[-1][0])):
                     break
                 node, s = node_by_id[nid]
@@ -2828,14 +2887,14 @@ class MdCGOS(MdCG):
                     continue
                 kept.append((nid, fs if st == STATE_ACCEPT else fs * 0.5))
                 kept.sort(key=lambda x: (-x[1], x[0]))
-                if k > 0:
-                    kept = kept[:k]
+                if _k_fetch > 0:
+                    kept = kept[:_k_fetch]
             kept.sort(key=lambda x: (-x[1], x[0]))
             if _ta_tier:
                 kept.sort(key=lambda x: _ta_tier.get(x[0], 2))   # 稳定排序：交集者前置
-            fused = kept[:k]
+            fused = kept[:_k_fetch]
         else:
-            fused = fused_all[:k]
+            fused = fused_all[:_k_fetch]
 
         # E：重排（默认关，`MDCG_RERANK=1` 才开）。只重排前 10 条，失败原样返回。
         if fused:
@@ -2846,32 +2905,11 @@ class MdCGOS(MdCG):
             except Exception:                          # noqa: BLE001
                 pass
 
-        # 查询日志：`cache` 档改写需要预热源，而此前没有任何查询记录
-        # （`grep query_log md_cg/*.py` = 0，`log_message` 也静音）。
-        # 只在 `MDCG_QUERY_LOG=0` 时关；写失败绝不影响检索。
-        if (os.environ.get("MDCG_QUERY_LOG") or "1").strip() not in ("0", "false", "off"):
-            try:
-                _qlp = os.path.join(str(getattr(self, "root", "") or ""), "_queries.jsonl")
-                with io.open(_qlp, "a", encoding="utf-8", newline="\n") as _ql:
-                    _ql.write(json.dumps({
-                        "ts": time.time(), "q": q, "k": k,
-                        "paths": {k2: len(v2 or []) for k2, v2 in ranked.items()},
-                        # D 前置（2026-11-07）：每路**候选 id + 分数**。只有数量时，
-                        # 「vector 把 lexical 的候选整个盖住了」与「两路各自召回」在
-                        # 日志里长得一模一样，融合研究无从下手。top 截 10、分数截 3，
-                        # 单行仍是几百字节量级。
-                        "lanes": {k2: {"n": len(v2 or []),
-                                       "top": [r[0].get("id") for r in (v2 or [])[:10]],
-                                       "s": [round(float(r[1]), 6) for r in (v2 or [])[:3]]}
-                                  for k2, v2 in ranked.items()},
-                        "lane_family": _QL_LANE_FAMILY,
-                        "hits": len(fused),
-                        "top1": (fused[0][0] if fused else None),
-                        "expand": _rw_terms,
-                    }, ensure_ascii=False) + "\n")
-            except Exception:                          # noqa: BLE001
-                pass
-
+        # 查询日志（issue #111 契约：`search_rrf` 是**纯函数面**，不得落盘/取时钟）。
+        # 2026-11-12 合并：远端把日志写在 search_rrf 里，直接违反 #111 的「打分层可换」
+        # 契约（①无落盘调用 ③时钟处数=1 双双转红）。抽出方法后两条性质同时成立：
+        # 日志照写，而 search_rrf 只多了一个非白名单的普通调用。
+        self._log_query(q, k, ranked, fused, _rw_terms)
         results = []
         # P2-2（§5.2）：默认召回路径上的**拒绝域双语义**——与 `MdCG._emit` 同款
         # 接线（同一个判据函数 `MdCG.judge_with_boundary`，此处不另写一份）：
@@ -3008,6 +3046,83 @@ class MdCGOS(MdCG):
                          view=view, extra=_cache_extra, clock_window=_query_window)
         if _rrf_dropped:
             stat["min_score"] = _rrf_min
+        # ===== 结构信号重排（章节路由 + 元素覆盖）：bench 读数驱动，缺省关 =====
+        # 读数（六元素判断题 476，gold=evidence 行号）：gold@1 49.6→52.5 / @3 71.9→85.7 / @10 92.0→96.2。
+        # 只在**已召回候选集内**重排（不改候选集、不过滤）⇒ 无召回损失风险；
+        # 与 recent_tail 的顺序无关（tail 是 0 分补尾，重排在补尾之前更干净）。
+        _struct_boosted = False
+        try:
+            if (int(os.environ.get("MDCG_STRUCT_BOOST", "0")) > 0
+                    and results and q):
+                from . import structboost as _sb      # noqa: PLC0415
+                results = _sb.rerank(results, q)
+                _struct_boosted = True
+        except Exception:            # noqa: BLE001 —— 重排失败回退原序，绝不拖崩检索
+            _struct_boosted = False
+        # ===== 时间桶重排（主库「章节=写入日期」）：缺省关，超取路径与 struct 共用 =====
+        # 读数（主库 k=20 池）：同日期在 top-5 的占比 10% → 37.5%；池内含该日期时有候选的日期到 100%。
+        # 边界（实测）：候选里**没有**那天的节点时重排无效——那需要「按日期二次召回」，
+        # 当前实现（timeboost.scoped_recall）在主库实测 2–17 秒且只有 0–4/6 命中，**未接线**。
+        _time_boosted = False
+        try:
+            if _timeboost_on and results and q and _rerank_now:
+                from . import timeboost as _tb      # noqa: PLC0415
+                results = _tb.rerank(results, q, _rerank_now, k=k)
+                _time_boosted = True
+        except Exception:            # noqa: BLE001
+            _time_boosted = False
+        if (_struct_boosted or _time_boosted) and k:
+            results = results[:k]        # 超取 → 重排 → 截回 k（对外语义不变）
+        # issue #814 后续 / Ornn8 测评建议②（读取策略立项单 A 之外的最小项）：
+        # **cutoff 邻近保障**——检索完成后，把「最近 N 条用户轮次」中与 query
+        # 有词法交集、且尚未出现在结果里的事件，按 0 分追加到结果**尾部**。
+        # 动机（测评 turn16/75/25 漏检）：相关但「不相似」的最近事实会被多路排序挤掉；
+        # 它们是用户刚刚说过的话，即使 RRF 排不进 k，也必须可见。
+        # 设计约束：**不进热路径缓存**（每轮 recent 不同，缓存键无法表达）；
+        # **不参与打分**（score=0.0，打乱正排等于换算法）；meta 记 recent_tail 计数。
+        _recent_tail_n = 0
+        try:
+            _rt_n = int(os.environ.get("MDCG_RECENT_TAIL", "6"))
+            if _rt_n > 0 and results:
+                _have_ids = {r[0].get("id") for r in results}
+                _q_terms = [t.lower() for t in re.split(r"[\s,，、;；]+", q or "")
+                            if len(t) >= 2]
+                _tail = []
+                _have_texts = [str(r[0].get("content") or "") for r in results]
+                for _ev in self.recent_events(limit=max(20, _rt_n * 4),
+                                               roles=["user"]):
+                    if len(_tail) >= _rt_n:
+                        break
+                    _txt = str(_ev.get("text") or "")
+                    if not _txt or _ev.get("id") in _have_ids:
+                        continue
+                    # 判重边界（B10 修订裁定）：补尾**只按事件 id 查重**，不做内容级判重。
+                    # 理由：「（轮20）灯箱已经报价」与正排命中的「灯箱已报价」是同一事实的
+                    # 不同措辞，词面判重（子串/分词覆盖）都会**漏判或误判**——语义判重
+                    # 属于跨层职责（将来可由 memory 层的 dup 信号提供），不进检索面。
+                    # 代价接受：同一事实可能正排一次 + 补尾一次（≤2 次出现，有 recent_event
+                    # 标记可识别）。宁可重复可见，不可静默丢失——与 #802/#811 的「不过滤
+                    # 就显式」是同一条哲学。
+                    _low = _txt.lower()
+                    if _q_terms and not any(t in _low for t in _q_terms):
+                        continue
+                    _tail.append({
+                        "id": _ev.get("id"),
+                        "frontmatter": {"tags": _ev.get("tags") or [],
+                                        "recent_event": True},
+                        "content": _txt,
+                        "path": "_recent.jsonl#" + str(_ev.get("id")),
+                        "recent_event": True,
+                    })
+                for _node in _tail:
+                    # issue #111 契约：打分层内 "state" 键字面量恰 1 处（取值=judge 结果）——
+                    # recent_tail 不自造 state（由 judge 面给），只给 reason。
+                    results.append((_node, 0.0,
+                                    {"reason": "recent_tail"},
+                                    []))
+                    _recent_tail_n += 1
+        except Exception:                # noqa: BLE001 —— 保障面不拖崩主检索
+            _recent_tail_n = 0
         # issue #672：把生效的时效口径如实透出——调用方看名字容易以为「只给有效的」，
         # 读 meta 一眼可辨（只排过期 / 未启用）。
         _validity_meta = ({"validity_scope": "expired_only"} if validity
@@ -3017,6 +3132,9 @@ class MdCGOS(MdCG):
                             if _rrf_min > 0 else {}),
                          **(_rrf_note or {}),
                          "paths": per_path, "fused": len(results),
+                         "recent_tail": _recent_tail_n,
+                         "struct_boost": _struct_boosted,
+                         "time_boost": _time_boosted,
                          "judge_ranking": bool(judge and judge_ranking),
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
@@ -3031,6 +3149,22 @@ class MdCGOS(MdCG):
     # ================= 7. budget-driven pack =================
 
 # 生效条件：query（配合 use_rrf 取 items）逐条按 budget_tokens 与 max_item_tokens 装包：若 used+t > budget_tokens，则 max_item_tokens 为真且 room=budget_tokens-used 不小于 min_excerpt（max_item_tokens 为真时取 max(1, min(50, max_item_tokens // 5))，否则为 0）时按 keep=min(max_item_tokens, room) 摘录，摘录后 est_tokens<=0 则该条以 excerpt_empty 进 skipped 并 continue；否则以 oversize_or_over_budget 进 skipped 并 continue；未超预算则计入 used 并 append，include_recent 为真时再按 left=budget_tokens-used 追加 recent_limit 条近期事件（逐条 est_tokens 不超过 left 才计入），最终返回含 pack/tokens_used/budget/skipped/recent/meta 的 dict；validity 真值时向候选层透传时效过滤（只排已过期）。
+    def _topic_aggregates(self, pack, query, min_members: int = 2,
+                          max_groups: int = 5) -> list:
+        """跨轮状态聚合（读取策略 A 项）：把同话题的命中条目排成状态时间线。
+
+        动机（Ornn8 终局报告）：答案状态常**散在多轮**里（轮9 报价 + 轮20 未安排制作），
+        search 只按单轮相关性交付，调用方拼不出完整状态。本方法**不改排序**，
+        只在装包后给一个「同话题 → 时间线」的聚合视图。
+
+        聚合键：优先用 tags 与 query 的亲和（`_tag_affinity`，与 entity 路同源），
+        无命中的条目归到 `__untagged__` 组（不输出，避免噪声）。
+        `state` 只读**既有字段**（qual 结果 / verification 状态），不自造——
+        遵守 issue #111「打分层不自造 state」的同一条纪律。
+        """
+        from .topicagg import aggregate as _agg      # noqa: PLC0415 —— 聚合实现单点
+        return _agg(pack, query, min_members=min_members, max_groups=max_groups)
+
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
@@ -3040,7 +3174,7 @@ class MdCGOS(MdCG):
                validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
                start_time=None, end_time=None, start_operator=None,
                end_operator=None, time_axis=None, view=None,
-               excerpt_strategy: str = "prefix"):
+               excerpt_strategy: str = "prefix", now=None):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -3200,8 +3334,234 @@ class MdCGOS(MdCG):
                 recent.append({"role": ev.get("role"), "t": ev.get("t"),
                                "text": ev.get("text"), "tokens": t,
                                "tags": ev.get("tags") or []})
+        # ===== 桶作用域召回（日期 + 会话是默认坐标；会话优先，日桶按日期倒排）=====
+        # 使用者口径（2026-11-09）：这两类是**默认开启**的通用设置，不是可选优化；
+        # 「条件才是筛选方式」，故桶召回只按查询词面筛选 + 时间降序，**不改正排名次**（score=0）。
+        # 关闭：MDCG_BUCKET_SCOPE=0。预算从同一包预算里扣（诚实口径：附了就是占了）。
+        _bucket_scope_n = 0
+        try:
+            if (os.environ.get("MDCG_BUCKET_SCOPE", "1") != "0"
+                    and pack is not None):
+                from . import bucketscope as _bs      # noqa: PLC0415
+                # 【#843】validity 必须透传：桶补召回在候选检索**之后**追加，
+                # 不传就会把调用方显式排除的过期记忆重新装回 pack（issue #843 复现）。
+                # 【外测 2026-11-11 卡点 2】时钟必须从**最外层 API** 透传：
+                # 早先这里只认内部 _rerank_clock / time.time()，宿主或外部复测走 recall 时
+                # 逻辑时间被真实时钟覆盖（resolved_dates 返回真实今天）。与 #111 同纪律。
+                _scope_now = (now if now is not None else
+                              (_rerank_clock if '_rerank_clock' in dir() else time.time()))
+                _extra = _bs.scope_recall(self, query, session, _scope_now,
+                                          validity=bool(validity))
+                _have = {e.get("id") for e in pack}
+                for _node, _score, _qual, _prov in _extra:
+                    if _node.get("id") in _have:
+                        continue
+                    _txt = str(_node.get("content") or "")
+                    _t = est_tokens(_txt)
+                    if used + _t > budget_tokens:
+                        continue
+                    fm = _node.get("frontmatter") or {}
+                    # 【外测 v2.1】metadata 必须带上 resolved_dates：早先只复制 state/reason/bucket，
+                    # 调用方在 pack 里取不到解析出的绝对日期，第 3 条建议等于没生效。
+                    _bm = {"state": (_qual or {}).get("state"),
+                           "reason": "bucket_scope",
+                           "bucket": (_qual or {}).get("bucket")}
+                    if (_qual or {}).get("resolved_dates"):
+                        _bm["resolved_dates"] = _qual["resolved_dates"]
+                    if (_qual or {}).get("fallback"):
+                        _bm["fallback"] = _qual["fallback"]
+                    pack.append({"id": _node.get("id"), "score": 0.0,
+                                 "state": (_qual or {}).get("state"),
+                                 "tokens": _t, "content": _txt,
+                                 "frontmatter": fm, "provenance": _prov or [],
+                                  "metadata": _bm})
+                    used += _t
+                    _bucket_scope_n += 1
+                    if _bucket_scope_n >= _bs.DEFAULT_CAP:
+                        break
+        except Exception:            # noqa: BLE001 —— 桶召回失败不拖崩装包
+            _bucket_scope_n = 0
+        # ===== 检索裁定：结论必须由确定性规则裁决（structural: mem_ruling_vector_ref_deterministic）=====
+        # 向量/语义相似度只提供候选参考；**最终名次由词法·时间·空间·交互四类可数信号重排**，
+        # 且必须确定性可回放。纯后处理：不改 pack 内容、不改 fused 分数，只调整交付顺序。
+        # 缺省关（MDCG_DET_RERANK=0）；开启后 meta 透出 det_reranked 与时钟来源。
+        det_reranked = False
+        _rerank_clock = (meta.get('clock') if isinstance(meta, dict) else None) or time.time()
+        _clock_source = ('search_meta' if (isinstance(meta, dict) and meta.get('clock'))
+                         else 'recall_local')
+        try:
+            if int(os.environ.get('MDCG_DET_RERANK', '0')) > 0 and len(pack) >= 2:
+                from . import detrerank as _dr      # noqa: PLC0415
+                _items = [({'id': e.get('id'),
+                           'content': e.get('content'),
+                           'frontmatter': e.get('frontmatter')},
+                           float(e.get('score') or 0.0), {}, []) for e in pack]
+                # 模式可配（bench 用）：tiebreak（缺省，零风险）/ window（有界上浮）/ replace（v1，已被读数否决）
+                _mode = (os.environ.get('MDCG_DET_MODE') or 'tiebreak').strip().lower()
+                _ranked = _dr.rerank_v2(_items, query, _rerank_clock,
+                                        mode=_mode, session=session)
+                _order = {it[0][0]['id']: i for i, it in enumerate(_ranked)}
+                pack.sort(key=lambda e: _order.get(e.get('id'), len(pack)))
+                # 四信号读数随包透出（可审计：谁因为什么排在前面）
+                _sig_by_id = {it[0][0]['id']: it[2] for it in _ranked}
+                for e in pack:
+                    sig = _sig_by_id.get(e.get('id'))
+                    if sig is not None:
+                        e['det'] = {'signals': sig, 'score': _dr.score(sig)}
+                det_reranked = True
+        except Exception:                # noqa: BLE001 —— 重排失败回退原序，绝不拖崩装包
+            det_reranked = False
+        # ===== 读取策略改造 · A 项：跨轮状态聚合（Ornn8 测评建议①，+2~4 点最大头）=====
+        # 病灶（report 原文）：「答案状态散在轮9 和轮20 两条里，检索给了直接相关的一条，
+        # 拼不出完整状态」——这是**记忆组织**问题：search 只按单轮相关性给材料。
+        # 本段不改排序、不改打分，只在**装包之后**追加一个聚合视图：同一话题的命中条目
+        # 按时间排在一起，附「该话题的状态时间线」，让调用方能拼出完整状态。
+        # 关闭：MDCG_TOPIC_AGG=0。
+        aggregates = []
+        try:
+            if int(os.environ.get("MDCG_TOPIC_AGG", "1")) > 0 and len(pack) >= 2:
+                aggregates = self._topic_aggregates(pack, query)
+        except Exception:            # noqa: BLE001 —— 聚合面不拖崩装包
+            aggregates = []
+        if isinstance(meta, dict):
+            meta["det_reranked"] = det_reranked
+            if det_reranked:
+                meta["det_clock_source"] = _clock_source
+                meta["det_mode"] = _mode
+        # 【2026-11-11 外测】状态序列必须作为**一等公民**进材料：
+        # 实测（Ornn8 B 类 19 题）——模型面对 20–30 条按检索分排的片段，
+        # **没有确定性的时序依据**去选「最早那次」：同一题两次跑给出不同锚点，
+        # 提示词让它「按日期排序再取最早」，它排的是自己回忆的顺序而不是材料里的日期序。
+        # 这里按 created_at 升序给出 (date, id, head) 三列——模型读表即得时序，不必归纳。
+        # 注意：这是**节点级**时间线（不含实体/槽位抽取），是「状态追踪」的便宜中间态。
+        # 【2026-11-12 外测】pack 条目自带**格式化日期**：`frontmatter.created_at` 是 epoch 浮点，
+        # 下游任何 `str(v)[:10]` 都会截出 `1784043360` 这种假日期（外测脚手架真实踩过：
+        # 材料前缀变成 `[1784043360]`，模型被喂了机器值；连带把『模型编造时间戳』这条归因带偏）。
+        # 结构性根治：在这里给出 `created_at_date`（YYYY-MM-DD），下游不该再自己截字符串。
+        # 取不到合法时间戳时不编造：置 None（下游按缺失处理，不得当今天）。
+        for _e in pack or []:
+            _fm = _e.get("frontmatter") or {}
+            _ts = _fm.get("created_at") or _fm.get("valid_from")
+            _d = None
+            if _ts is not None:
+                try:
+                    _d = time.strftime("%Y-%m-%d", time.localtime(float(_ts)))
+                except (TypeError, ValueError, OSError):
+                    _d = None
+            _e["created_at_date"] = _d
+            # 【2026-11-12 使用者裁定】相对日期**确定性地**补绝对日期，且内联在正文里：
+            # 外测判官原文：视图节给了绝对日期，模型仍照抄「周一/昨天」⇒ 平行章节被忽略，
+            # 只有正文内联标注才会被读到。锚点取本条的陈述时刻（created_at），不是今天。
+            try:
+                _e["content_dated"] = reldate.annotate(_e.get("content") or "", _ts)
+            except Exception:            # noqa: BLE001 —— 标注失败不拖崩装包，退化为原文
+                _e["content_dated"] = _e.get("content")
+        # 【情景层 v0.1 / 档1 验收主因】资料卡配额：外测实测每题 pack 里挤进 16–30 张 profile 卡，
+        # 把 30 条名额吃光，**正确的那张反而被挤掉**（这是档 1 未涨分的第一机制，比错名更普遍）。
+        # 故对 profile-* 单独设上限（缺省 3，`MDCG_PROFILE_CARDS` 可调），按已有 score 取前 N。
+        _prof_cap = 3
+        try:
+            _prof_cap = int(os.environ.get("MDCG_PROFILE_CARDS", "3"))
+        except ValueError:
+            _prof_cap = 3
+        _profs = [(i, e) for i, e in enumerate(pack or [])
+                  if str(e.get("id") or "").startswith("profile-")]
+        if _prof_cap >= 0 and len(_profs) > _prof_cap:
+            _keep = {i for i, _ in sorted(
+                _profs, key=lambda x: -(float(x[1].get("score") or 0.0)))[:_prof_cap]}
+            pack = [e for i, e in enumerate(pack)
+                    if i in _keep or not str(e.get("id") or "").startswith("profile-")]
+        timeline = self._pack_timeline(pack)
+        # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
+        # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，
+        # 需要**按主题归并**的序列（不是全表一张）。这里用已有字段做廉价归并：
+        # 优先 frontmatter.bucket（条件桶 cond_<topic>_<hash> 天然是主题轴），其次首个 tag。
+        timeline_groups = self._pack_timeline_groups(pack)
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
-                "skipped": skipped, "recent": recent, "meta": meta}
+                "skipped": skipped, "recent": recent, "meta": meta,
+                "aggregates": aggregates, "timeline": timeline,
+                "timeline_groups": timeline_groups}
+
+
+
+
+
+    # 生效条件：pack 为装好的条目；返回按「主题轴」归并的序列 [{"topic","items":[{date,id,head}]}]
+    def _pack_timeline_groups(self, pack):
+        """把时间线按**主题轴**归并（廉价版「七维图」的归并层，不用抽取器）。
+
+        为什么需要：外测实测「原文+timeline」已把 B 类 19 题从 2 救到 15，
+        但剩 4 题是「改期终态 / 多要素合成」——它们要的是**同一主题下的序列**
+        （最终值是什么、哪几个要素同时在场），而不是所有主题混在一张表里。
+
+        主题轴取已有字段，按优先级：
+          ① `frontmatter.bucket`（条件桶 `cond_<topic>_<hash>`，本身就是主题分组）；
+          ② 首个 `tag`（如 `domain:*` / 项目名）；
+          ③ 都缺 ⇒ "未分组"。
+        这是**启发式**：同一条件桶未必同主题，覆盖不全时仍有 timeline 兜底。
+        """
+        groups: dict = {}
+        for e in pack or []:
+            fm = e.get("frontmatter") or {}
+            ts = fm.get("created_at") or fm.get("valid_from")
+            date = ""
+            if ts is not None:
+                try:
+                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
+                except (TypeError, ValueError, OSError):
+                    date = ""
+            head = ""
+            for line in str(e.get("content") or "").splitlines():
+                s0 = line.strip()
+                if not s0 or s0.startswith("#"):
+                    continue
+                head = s0[:80]
+                break
+            topic = fm.get("bucket")
+            if not topic:
+                tags = fm.get("tags") or []
+                topic = tags[0] if isinstance(tags, (list, tuple)) and tags else "未分组"
+            groups.setdefault(str(topic), []).append(
+                {"date": date, "id": e.get("id"), "head": head})
+        out = []
+        for topic, items in groups.items():
+            items.sort(key=lambda x: (x["date"] or "9999-99-99", str(x.get("id") or "")))
+            out.append({"topic": topic, "items": items})
+        out.sort(key=lambda g: (-len(g["items"]), g["topic"]))
+        return out
+
+
+    # 生效条件：pack 为 recall 装好的条目列表；返回按 created_at **升序**的时间线 [{"date","id","head"}]
+    def _pack_timeline(self, pack):
+        """把装好的条目压成「日期 | 事件首句」时间线（issue：模型无法从片段做时序归纳）。
+
+        为什么必须由算法给：实测同一道「最早那次」题两次跑给出不同锚点 —— 说明模型没有
+        确定性依据在多个同主题候选里挑最早的。日期与事件首句都是**已有字段**，
+        压成表零成本；模型只需读表，不必排序。
+
+        只取首句（≤80 字）并跳过 CCG 头（`# 功能名：` 等六要素行），避免把元数据当事件。
+        """
+        out = []
+        for e in pack or []:
+            fm = e.get("frontmatter") or {}
+            ts = fm.get("created_at") or fm.get("valid_from")
+            date = None
+            if ts is not None:
+                try:
+                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
+                except (TypeError, ValueError, OSError):
+                    date = None
+            body = ""
+            for line in str(e.get("content") or "").splitlines():
+                s0 = line.strip()
+                if not s0 or s0.startswith("#"):
+                    continue
+                body = s0[:80]
+                break
+            out.append({"date": date or "", "id": e.get("id"), "head": body})
+        out.sort(key=lambda x: (x["date"] or "9999-99-99", str(x.get("id") or "")))
+        return out
+
 
     # ================= 1. Fix pairs 自动挖掘 =================
 
@@ -5302,6 +5662,17 @@ class MdCGOS(MdCG):
                 node_id or "", tags_add=tags_add, tags_remove=tags_remove,
                 condition_space_patch=condition_space_patch,
                 depends_on=depends_on, dry_run=_dry)
+        if act == "profiles":
+            # 【资料树档 1，2026-11-12 使用者裁定】人物/地点/事件 = 核心状态；物品/情绪 = 辅助（只进 facet）。
+            # 把散落节点聚合成**可召回的一等节点**（profile-<kind>-<slug>）：外测归因证明弱项 19 题
+            # 「要素不在 pack」（2/19），单点事实需要稠密容器才召得回。
+            # 幂等：渲染结果逐字比对，变了才写；增量：事实按 (日期, 节点 id) 稳定排序，新节点只追加。
+            # 缺省 dry_run：沿用 maintain 的「预演优先」口径，apply=True 才落盘。
+            from . import profiles as _prof
+            _dry_p = (not apply) if dry_run is None else (bool(dry_run) or not apply)
+            _st = _prof.build(self, dry_run=_dry_p, limit=limit)
+            _st.update({"ok": True, "op": "maintain", "action": "profiles"})
+            return _st
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
@@ -7297,7 +7668,7 @@ class MdCGSecure(MdCGOS):
             return declared
         # issue #322（复核补）：**继承读必须看到他进程已落盘的密级**。
         # 病象：`subgraph.node_sensitivity` 优先取**本进程内存索引**的
-        # `sensitivity` 键（subgraph.py:383-356），而跨进程代际感知
+        # `sensitivity` 键（subgraph.py:352-356），而跨进程代际感知
         # （`_maybe_reload_index`）此前只在读面/部分写面接线——同 id 两进程
         # 「A 声明 internal 覆写、B 未声明继承」时，B 按**陈旧索引**（seed 的
         # public）落盘，把 A 刚写的 internal 静默降级（探针

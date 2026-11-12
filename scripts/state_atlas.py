@@ -69,6 +69,18 @@ def cat_of_slot(slot: str, cat_map: dict) -> str:
     return "未分类"
 
 
+# 生效条件：text 经 str() 后竖线转 "\\|"、换行转空格并 strip，返回该串；不校验真值/类型。
+def _cell(text):
+    """表格单元格转义单点（issue #171；与 scripts/render_discipline.py::_cell 同款）。
+
+    病象：单元格裸拼接——登记文本/用户原话里的竖线被 markdown 读成列分隔符，
+    整行多出一格、整张表错位。
+    为什么只做转义：单元格是**数据**不是 markdown——值逐字保留（含竖线），只把
+    「数据里的竖线」与「表格分隔符」机械分开；无竖线的单元格输出与修复前逐字相同。
+    """
+    return str(text).replace("|", "\\|").replace("\n", " ").strip()
+
+
 def render_subject(subject, events, units, cat_map, act_gap=None) -> list:
     L = []
     L.append("## %s" % subject)
@@ -109,9 +121,11 @@ def render_subject(subject, events, units, cat_map, act_gap=None) -> list:
             old = e.get("old") if e.get("old") is not None else "∅"
             new = e.get("new") if e.get("new") is not None else "∅（作废）"
             L.append("| %s | %s | %s | %s → %s | %s |"
-                     % (e.get("seq"), cat_of_slot(e["slot"], cat_map), e["slot"],
-                        str(old)[:28], str(new)[:40],
-                        KIND_ZH.get(e.get("kind"), e.get("kind"))))
+                     % (_cell(e.get("seq")),
+                        _cell(cat_of_slot(e["slot"], cat_map)),
+                        _cell(e["slot"]), _cell(str(old)[:28]),
+                        _cell(str(new)[:40]),
+                        _cell(KIND_ZH.get(e.get("kind"), e.get("kind")))))
         L.append("")
     # 分幕（可选）
     if act_gap and events:

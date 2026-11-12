@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 r"""守卫 · #82 写入门禁禁表扩边界（2026-10-09 设计者裁定 + DSH 端实施）。
 
 背景（修订前）：
@@ -105,7 +104,10 @@ def _cases(rules):
         out.append((name, bool(ok), detail))
 
     forb = rules.get("forbidden") or []
-    add("G5 禁表可加载且条数=12", len(forb) == 12, "n=%d" % len(forb))
+    # 2026-11-12 合并：禁表 12 → 13（并入远端那条「截断私钥」变体
+    # `-----BEGIN ... [\s\S]{0,8192}`：它抓的是**被截断的**私钥块，与既有
+    # 「完整首尾对」那条互补，不是放宽）。条数是**校准常数**，增减必须在这里显式改。
+    add("G5 禁表可加载且条数=13", len(forb) == 13, "n=%d" % len(forb))
 
     for name, tail in (("是形态·中文", "我的密码是abc123456"),
                        ("is形态·英文", "the password is abc123456"),

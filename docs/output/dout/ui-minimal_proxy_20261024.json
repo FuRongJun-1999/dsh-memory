@@ -1,0 +1,42 @@
+{
+ "counts": {
+  "一致": 1,
+  "部分": 0,
+  "错位": 0,
+  "空白": 0
+ },
+ "rates": {
+  "一致": 1.0,
+  "部分": 0.0,
+  "错位": 0.0,
+  "空白": 0.0
+ },
+ "D_out": 0.0,
+ "misplaced_rate": 0.0,
+ "blank_rate": 0.0,
+ "rows": [
+  {
+   "subject": "proxy:echo-items-vs-source",
+   "qid": "all",
+   "bucket": "一致",
+   "items": [
+    "integrity.json",
+    "install.ps1"
+   ],
+   "unsupported": []
+  }
+ ],
+ "subjects": 0,
+ "items": 2,
+ "proxy": true,
+ "anchors": {
+  "理论": "v1.1",
+  "架构": "v0.9.13",
+  "本投影": "v0.9.13"
+ },
+ "material": {
+  "echo": "docs/output/echo/ui-minimal.md",
+  "source": "docs/UI_极简前端.md"
+ },
+ "measured_at": "2026-10-25T00:23:11"
+}

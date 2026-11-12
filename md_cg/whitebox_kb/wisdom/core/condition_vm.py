@@ -53,6 +53,13 @@ class VMHalt(Exception):
         super().__init__(f"VM {kind}")
 
 
+#: CALL 帧深上限（fail-closed；issue #326-③，与 compiler/condition_vm.py **同判据**，
+#: 但**就地定义**——本孪生没有 compiler/ 那套 VM_MAX_INT_BITS/VM_MAX_SEQ_REPEAT 资源闸常量区，
+#: 本条病灶只是「O(depth²) 帧拷贝 + 无帧深上限」，故只补这一件事、不顺手对齐整套形状。
+#: 越界报错沿用本文件的既有资源上限习语（步数上限同用 RecursionError），fail-closed。
+VM_MAX_CALL_DEPTH = 512
+
+
 class ConditionVM:
     """智能论字节码 VM：ip + 值栈 + 符号表 + 条件空间栈 + 信任值寄存器"""
 
@@ -184,9 +191,15 @@ class ConditionVM:
             for _ in range(len(param_names)):
                 args.append(self.stack.pop())
             args.reverse()
+            if len(self.call_stack) >= VM_MAX_CALL_DEPTH:
+                raise RecursionError(
+                    f"CALL 帧深超出上限 {VM_MAX_CALL_DEPTH}（当前 {len(self.call_stack)}）"
+                    f"——深递归 × 每帧保存的调用帧内存上限已被拒绝（issue #326-③；"
+                    f"fail-closed：不静默截断）")
             # 保存调用帧（返回地址 + 符号表 + 信任 + 条件空间）
             self.call_stack.append((self.ip, dict(self.symbols),
-                                    self.trust_value, list(self.condition_stack)))
+                                    self.trust_value, self.condition_stack,
+                                    len(self.condition_stack)))
             # 新作用域：继承全局 + 参数绑定（参数遮蔽同名全局）
             self.symbols = dict(self.symbols)
             for pname, pval in zip(param_names, args):
@@ -195,9 +208,16 @@ class ConditionVM:
         elif op == Opcode.RETURN:
             # 返回值：栈顶保留；恢复调用帧（无帧则程序结束）
             if self.call_stack:
-                ret_ip, saved_symbols, saved_trust, saved_cond = self.call_stack.pop()
+                (ret_ip, saved_symbols, saved_trust, saved_cond,
+                 saved_len) = self.call_stack.pop()
                 self.symbols = saved_symbols
                 self.trust_value = saved_trust
+                # issue #326-③：被调方可能在**同一对象**上压过栈（DAO）——先按保存的长度
+                # 截断撤销，再恢复引用（重绑定型变更由「恢复引用」本身撤销）。
+                # 本孪生没有「就地改写既有栈顶」的路径（condition_stack 只经 append/重绑定
+                # 变更），故**不需要** compiler/ 侧的写时复制单点 _cond_own——缺什么补什么。
+                if len(saved_cond) > saved_len:
+                    del saved_cond[saved_len:]
                 self.condition_stack = saved_cond
                 self.ip = ret_ip
             else:

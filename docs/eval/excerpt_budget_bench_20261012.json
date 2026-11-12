@@ -1,0 +1,430 @@
+{
+  "limits": [
+    "five synthetic text families and one controlled memory",
+    "actual frozen-source recall in separate processes; no patched production functions",
+    "estimated tokens, not any model tokenizer or QA score",
+    "return packing may retain more text and leave less room for later memories"
+  ],
+  "before": {
+    "commit": "c67585846c5222327735c29feb75f98985b1e642",
+    "mdcos_git_blob": "bdd365a7ee1625e1289d7d6a0350fee5bb9c3c2d",
+    "excerpts": [
+      {
+        "case": "ascii",
+        "budget": 1,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "…",
+        "chars": 1,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "ascii",
+        "budget": 80,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+        "chars": 132,
+        "tokens": 34,
+        "marker_retained": false
+      },
+      {
+        "case": "ascii",
+        "budget": 250,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa evidenceKEEP42 tailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtai…",
+        "chars": 416,
+        "tokens": 105,
+        "marker_retained": true
+      },
+      {
+        "case": "cjk",
+        "budget": 1,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "…",
+        "chars": 1,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "cjk",
+        "budget": 80,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙…",
+        "chars": 132,
+        "tokens": 79,
+        "marker_retained": false
+      },
+      {
+        "case": "cjk",
+        "budget": 250,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙…",
+        "chars": 375,
+        "tokens": 225,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 1,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "…",
+        "chars": 1,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 80,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "Alpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha…",
+        "chars": 132,
+        "tokens": 38,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 250,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "Alpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibra…",
+        "chars": 416,
+        "tokens": 119,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 1,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "…",
+        "chars": 1,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 80,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "あいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあ…",
+        "chars": 132,
+        "tokens": 79,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 250,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "あいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえ…",
+        "chars": 375,
+        "tokens": 225,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 1,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "…",
+        "chars": 1,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 80,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d…",
+        "chars": 132,
+        "tokens": 34,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 250,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c…",
+        "chars": 415,
+        "tokens": 104,
+        "marker_retained": false
+      }
+    ],
+    "recalls": [
+      {
+        "use_rrf": false,
+        "tokens_used": 34,
+        "budget": 80,
+        "skipped": [],
+        "pack": [
+          {
+            "id": "english_evidence",
+            "content": "anchorrecord aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+            "tokens": 34,
+            "score": 1.0,
+            "state": null,
+            "truncated": true,
+            "metadata": {
+              "state": null,
+              "reason": "judge_disabled",
+              "verification_state": "doubted",
+              "verification_basis": "data",
+              "source": "synthetic:excerpt"
+            },
+            "provenance": []
+          }
+        ]
+      },
+      {
+        "use_rrf": true,
+        "tokens_used": 34,
+        "budget": 80,
+        "skipped": [],
+        "pack": [
+          {
+            "id": "english_evidence",
+            "content": "anchorrecord aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…",
+            "tokens": 34,
+            "score": 0.016393,
+            "state": null,
+            "truncated": true,
+            "metadata": {
+              "state": null,
+              "reason": "judge_disabled",
+              "verification_state": "doubted",
+              "verification_basis": "data",
+              "source": "synthetic:excerpt"
+            },
+            "provenance": [
+              {
+                "path": "lexical",
+                "rank": 1
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "after": {
+    "commit": "9de069b7171c29cc4e58026991afd277e3234d61",
+    "mdcos_git_blob": "87f44d834d2b0a5f24ab76d8e7666479694568c1",
+    "excerpts": [
+      {
+        "case": "ascii",
+        "budget": 1,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "aa…",
+        "chars": 3,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "ascii",
+        "budget": 80,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa evidenceKEEP42 tailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailta…",
+        "chars": 319,
+        "tokens": 80,
+        "marker_retained": true
+      },
+      {
+        "case": "ascii",
+        "budget": 250,
+        "input_chars": 2176,
+        "input_sha256": "f8d7ebadee3548c161f35495b215f29d2a98b52b56f5a5715589dbe93d07d6ed",
+        "result": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa evidenceKEEP42 tailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailta…",
+        "chars": 999,
+        "tokens": 250,
+        "marker_retained": true
+      },
+      {
+        "case": "cjk",
+        "budget": 1,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "甲…",
+        "chars": 2,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "cjk",
+        "budget": 80,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁…",
+        "chars": 133,
+        "tokens": 80,
+        "marker_retained": false
+      },
+      {
+        "case": "cjk",
+        "budget": 250,
+        "input_chars": 2000,
+        "input_sha256": "a92813ba7d324259b2d8ca34362ce543318296dd4e774e4ad8bcf516e819b0b2",
+        "result": "甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁甲乙丙丁…",
+        "chars": 417,
+        "tokens": 250,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 1,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "Al…",
+        "chars": 3,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 80,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "Alpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中…",
+        "chars": 281,
+        "tokens": 80,
+        "marker_retained": false
+      },
+      {
+        "case": "mixed",
+        "budget": 250,
+        "input_chars": 3150,
+        "input_sha256": "d116f504adc0c653788ba2256a97000379aa63719d82a56387c1fd5d81d4ec57",
+        "result": "Alpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration\nAlpha 中文 calibration…",
+        "chars": 882,
+        "tokens": 250,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 1,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "あ…",
+        "chars": 2,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 80,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "あいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあい…",
+        "chars": 133,
+        "tokens": 80,
+        "marker_retained": false
+      },
+      {
+        "case": "japanese",
+        "budget": 250,
+        "input_chars": 2000,
+        "input_sha256": "cc5df1d25dd26cce5febd85cbbcd9ee53f5017da85a80db3949dd1ef90d2bf18",
+        "result": "あいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカキクケコあいうえおカ…",
+        "chars": 417,
+        "tokens": 250,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 1,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "a…",
+        "chars": 2,
+        "tokens": 1,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 80,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d…",
+        "chars": 319,
+        "tokens": 80,
+        "marker_retained": false
+      },
+      {
+        "case": "whitespace",
+        "budget": 250,
+        "input_chars": 1650,
+        "input_sha256": "069506a5eb3e94d9b21b33f5a8399e19f6a26881d66288e52adc83f8c93b9e1a",
+        "result": "a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c\n d a  b\t c…",
+        "chars": 998,
+        "tokens": 250,
+        "marker_retained": false
+      }
+    ],
+    "recalls": [
+      {
+        "use_rrf": false,
+        "tokens_used": 80,
+        "budget": 80,
+        "skipped": [],
+        "pack": [
+          {
+            "id": "english_evidence",
+            "content": "anchorrecord aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa evidenceKEEP42 tailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailt…",
+            "tokens": 80,
+            "score": 1.0,
+            "state": null,
+            "truncated": true,
+            "metadata": {
+              "state": null,
+              "reason": "judge_disabled",
+              "verification_state": "doubted",
+              "verification_basis": "data",
+              "source": "synthetic:excerpt"
+            },
+            "provenance": []
+          }
+        ]
+      },
+      {
+        "use_rrf": true,
+        "tokens_used": 80,
+        "budget": 80,
+        "skipped": [],
+        "pack": [
+          {
+            "id": "english_evidence",
+            "content": "anchorrecord aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa evidenceKEEP42 tailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailtailt…",
+            "tokens": 80,
+            "score": 0.016393,
+            "state": null,
+            "truncated": true,
+            "metadata": {
+              "state": null,
+              "reason": "judge_disabled",
+              "verification_state": "doubted",
+              "verification_basis": "data",
+              "source": "synthetic:excerpt"
+            },
+            "provenance": [
+              {
+                "path": "lexical",
+                "rank": 1
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

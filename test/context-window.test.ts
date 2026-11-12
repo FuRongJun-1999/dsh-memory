@@ -22,7 +22,7 @@
  *      一律不写（与自动记忆同口径）；
  *   W3 注入侧：两块齐（既有块 + 独立第二块）、取数参数面（session=sid /
  *      recent_limit=turns / budget_tokens）、条数 = min(turns, 返回数)、
- *      单条截断 ≤120、总长 ≤800、裁剪保最新且输出正序；
+ *      单条截断 ≤120、总长 ≤900、裁剪保最新且输出正序；
  *   W4 开关：`contextWindow.enabled=false` → 写侧零调用、注入侧无第二块
  *      （既有块不受影响）；
  *   W5 fail-soft：`sessionRecall` 抛错 → assemble 不抛、无第二块、既有块照常；
@@ -67,6 +67,12 @@ function makeGraph(opts: {
   recentAddThrows?: boolean
   omitRecentAdd?: boolean
   recentItems?: Array<Record<string, unknown>>
+  /** issue #715：timeline 返回项（缺省一条 contextual）。用于构造 self/anchor 节点，
+   *  验「身份块能取到永久层」——修前因复用带会话过滤的 payload 而恒空。 */
+  timelineItems?: Array<Record<string, unknown>>
+  /** 服务端 `session_recall` 的 `degraded` 标注（会话标识缺失 → 全局窗口）。
+   *  用于验注入侧 fail-closed：降级窗口**不得**冒充「本会话近期对话」注入。 */
+  sessionRecallDegraded?: string[]
 } = {}) {
   const timelineCalls: Array<Record<string, unknown>> = []
   const recentAddCalls: RecentAddCall[] = []
@@ -76,8 +82,8 @@ function makeGraph(opts: {
     async timeline(limit?: number, extra: Record<string, unknown> = {}) {
       timelineCalls.push({ limit, extra })
       return {
-        count: 1, limit: limit ?? 4,
-        items: [{ id: 'n1', layer: 'contextual', start: 1, end: 2, preview: '会话记忆预览' }],
+        count: opts.timelineItems?.length ?? 1, limit: limit ?? 4,
+        items: opts.timelineItems ?? [{ id: 'n1', layer: 'contextual', start: 1, end: 2, preview: '会话记忆预览' }],
       }
     },
     async sessionRecall(session: string, recentLimit: number, budgetTokens: number) {
@@ -87,6 +93,7 @@ function makeGraph(opts: {
         ok: true,
         recent: opts.recentItems
           ?? [winItem('user', '近窗口条目一'), winItem('assistant', '近窗口条目二')],
+        degraded: opts.sessionRecallDegraded ?? [],
       }
     },
     async remember() { return { ok: true } },
@@ -126,8 +133,10 @@ function makeHarness(graph: object, overrides: Partial<MemoryHooksOptions> = {})
   })
   const assemble = async (hostCtx: unknown): Promise<Assembly> => {
     assert.ok(assembleHandlers[0], '应注册 system-prompt/assemble 监听')
+    // 同名事件可能有多个监听（自动召回块 + 逢十轮提醒消费块是两个独立 handler，
+    // 见 issue #657），按注册顺序全部执行——只跑 [0] 会漏掉另一个块。
     const a: Assembly = { contexts: [], variables: {} }
-    await assembleHandlers[0]!(a, hostCtx, async () => a)
+    for (const h of assembleHandlers) await h(a, hostCtx, async () => a)
     return a
   }
   const send = (session: unknown, event: unknown): void => {
@@ -237,16 +246,20 @@ test('W3 注入侧：两块齐 + 取数参数面 + 条数/单条截断', async (
   const rows = windowRows(a.contexts[1]!.text)
   assert.equal(rows.length, 10, '条数 = min(turns=10, 返回数 12) = 10')
   for (const row of rows) {
-    assert.match(row, /^\[(user|assistant)\] /, `行格式须为 [role] 预览：${row.slice(0, 40)}`)
+    // issue #712：归因前缀（[MM-DD HH:mm|会话|密级]）成为行首，故正则放宽为「可选前缀 + [role] 」。
+  // 判据语义不变：仍然要求行含 [role] 预览段。
+  assert.match(row, /^(\[[^\]]+\] )?\[(user|assistant)\] /, `行格式须为 [role] 预览（可带归因前缀）：${row.slice(0, 40)}`)
   }
   // 单条截断：300 字 → 120 字 + 省略号
   const newest = last(rows)
-  assert.ok(newest.startsWith('[assistant] 长'), '最新条目仍在（正序输出 → 末行）')
-  const body = newest.slice('[assistant] '.length)
+  // issue #712：行首可能带归因前缀，故按「[role] 之后」切分，而不是固定下标切片。
+  const marker = '[assistant] '
+  assert.ok(newest.includes(marker + '长'), `最新条目仍在（正序输出 → 末行）；实际 ${newest.slice(0, 60)}`)
+  const body = newest.slice(newest.indexOf(marker) + marker.length)
   assert.ok(body.length <= 121, '单条 ≤120 字（+省略号）')
   assert.ok(body.endsWith('…'), '超长条目被截断（带省略号）')
-  // 总长 ≤800
-  assert.ok(rows.join('\n').length <= 800, '窗口载荷总长 ≤800')
+  // 总长 ≤900
+  assert.ok(rows.join('\n').length <= 900, '窗口载荷总长 ≤900')
 })
 
 test('W3b 限幅保最新 + turns 透传：放不下的旧条目整条不放入、最新必须保留', async () => {
@@ -262,7 +275,7 @@ test('W3b 限幅保最新 + turns 透传：放不下的旧条目整条不放入�
 
   const rows = windowRows(a.contexts[1]!.text)
   assert.ok(rows.length <= 4, '条数 ≤ turns')
-  assert.ok(rows.join('\n').length <= 800, '总长 ≤800')
+  assert.ok(rows.join('\n').length <= 900, '总长 ≤900')
   assert.ok(last(rows).includes('第1条：'), '最新条目保留且在最后（正序、保最新）')
 })
 
@@ -275,7 +288,7 @@ test('W3c 裁剪保最新（>turns 且超长场景）：丢的是最旧条目', 
   const a = await assemble({ agent: { session: { id: 'sess_A' } } })
   const rows = windowRows(a.contexts[1]!.text)
   assert.ok(rows.length < 10, '总长超限 → 条数被裁剪（保最新）')
-  assert.ok(rows.join('\n').length <= 800, '总长 ≤800')
+  assert.ok(rows.join('\n').length <= 900, '总长 ≤900')
   assert.ok(last(rows).includes('第1条：'), '最新条目保留')
   assert.ok(!rows.some((r) => r.includes(`第${items.length}条：`)),
     '最旧条目被丢弃（裁剪保最新，而非保最旧）')
@@ -342,4 +355,97 @@ test('W6 每步 push：同会话连续两步两块逐字节相同（与既有 �
   assert.equal(first.contexts[0]!.text, second.contexts[0]!.text, '既有块逐字节相同')
   assert.equal(first.contexts[1]!.text, second.contexts[1]!.text,
     '窗口块逐字节相同 → 宿主不追加新快照')
+})
+
+// ---------------------------------------------------------------- W715 身份块取数（issue #715）
+
+test('W715 身份块必须**不带会话过滤**取数（self/anchor 恒 unattributed）', async () => {
+  // 造 1 条 anchor + 1 条 self（永久层，语义上跨会话）+ 1 条 contextual。
+  const items = [
+    { id: 'id_user_t', layer: 'anchor', start: 1, end: 2, preview: '身份锚点：测试使用者' },
+    { id: 'self_state_1', layer: 'self', start: 1, end: 2, preview: '自我状态卡' },
+    { id: 'n_ctx', layer: 'contextual', start: 1, end: 2, preview: '本会话一条工作记忆' },
+  ]
+  const { graph, timelineCalls } = makeGraph({ timelineItems: items })
+  const { assemble } = makeHarness(graph, { autoRecallIdentity: true })
+
+  const a = await assemble({ agent: { session: { id: 'sess_A' } } })
+
+  // 判据 ①：两次取数——最近记忆块带 session，身份块**不带**。
+  assert.equal(timelineCalls.length, 2, 'autoRecallIdentity 开启后应有两次 timeline 取数')
+  const hasSid = (c: Record<string, unknown>): boolean =>
+    Boolean((c['extra'] as Record<string, unknown> | undefined)?.['session'])
+  const withSid = timelineCalls.filter(hasSid)
+  const withoutSid = timelineCalls.filter((c) => !hasSid(c))
+  assert.equal(withSid.length, 1, '「最近记忆」块带会话隔离（工作记忆跟会话走）')
+  assert.equal(withoutSid.length, 1,
+    '**「身份锚点」块不带会话过滤**——self/anchor 的 session 恒为 unattributed，带过滤会全被滤掉（#715 病灶）')
+
+  // 判据 ②：身份块**真的出现**了（修前：payload 里没有永久层 ⇒ idText 空 ⇒ 静默无块）。
+  const idBlock = a.contexts.find((c) => c.name === 'lingshu:identity-anchor')
+  assert.ok(idBlock, `身份块应出现；实际块名 ${a.contexts.map((c) => c.name).join(', ')}`)
+  assert.ok(idBlock!.text.includes('【灵枢身份锚点】'))
+  assert.ok(idBlock!.text.includes('身份锚点：测试使用者'), '锚点正文应在块内')
+
+  // 判据 ③：「最近记忆」块不得混入永久层（分层边界不变）。
+  const recallBlock = a.contexts.find((c) => c.name === 'lingshu:auto-recall')
+  if (recallBlock) {
+    assert.ok(!recallBlock.text.includes('自我状态卡'),
+      '「最近记忆」块不注入 self/anchor（RECALL_SKIP_LAYERS 边界仍在）')
+  }
+})
+
+// ---------------------------------------------------------------- W714 sid 空值告警（PR #714）
+
+test('W714 会话 id 为空时告警一次（不刷屏）', async () => {
+  const { graph } = makeGraph()
+  const { assemble, warns } = makeHarness(graph)
+
+  // 不传 agent.session ⇒ sid 为空（observedSession 初始 false）
+  await assemble({})
+  await assemble({})
+  await assemble({})
+
+  const hits = warns.filter((w) => w.includes('会话 id 为空'))
+  assert.equal(hits.length, 1,
+    `sid 为空应**只告警一次**（每步 assemble 都刷会淹没日志）；实际 ${hits.length} 次`)
+  assert.ok(hits[0]!.includes('跨会话串台'), '告警须点明后果（串台），否则用户不知道为何要管')
+})
+
+test('W714b sid 正常时不告警（不误报）', async () => {
+  const { graph } = makeGraph()
+  const { assemble, warns } = makeHarness(graph)
+  await assemble({ agent: { session: { id: 'sess_A' } } })
+  const hits = warns.filter((w) => w.includes('会话 id 为空'))
+  assert.equal(hits.length, 0, '有 sid 时不该告警')
+})
+
+// ---------------------------------------------------------------- W7 降级保护（本次）
+
+test('W7 降级保护：服务端标注 recent_global_window 时 fail-closed，不注入会话窗口块', async () => {
+  // 场景：宿主拿不到会话标识（sid 为空，见 W714 告警）⇒ 服务端把 recent 段降级为
+  // **全局滚动窗口**并在 degraded 标注。此时若仍以【本会话近期对话】为标题注入，
+  // 多窗口并发下会把 A 窗口/历史条目当成本会话输入（issue #65 同族，注入面残口）。
+  const { graph, sessionRecallCalls } = makeGraph({
+    recentItems: [winItem('user', '别的窗口说的话')],
+    sessionRecallDegraded: ['recent_global_window'],
+  })
+  const { assemble, warns } = makeHarness(graph, { autoRecall: true })
+
+  const a = await assemble({})
+
+  assert.equal(sessionRecallCalls.length, 1, '仍应发起一次窗口取数（不因怕降级而不取）')
+  assert.equal(a.contexts.length, 1, '降级时只保留既有块，不注入第二块')
+  assert.equal(a.contexts[0]!.name, 'lingshu:auto-recall', '既有 block 不受影响')
+  assert.ok(!a.contexts.some((c) => c.name === 'lingshu:session-window'),
+    '降级窗口不得以 lingshu:session-window 注入')
+  assert.ok(warns.some((w) => w.includes('降级为全局窗口')), '降级须显式留痕（不得静默）')
+})
+
+test('W7b 正常载荷（degraded 为空）仍注入第二块（不误伤）', async () => {
+  const { graph } = makeGraph({ recentItems: [winItem('user', '本会话的话')] })
+  const { assemble } = makeHarness(graph)
+  const a = await assemble({ agent: { session: { id: 'sess_A' } } })
+  assert.equal(a.contexts.length, 2, '正常载荷仍两块齐')
+  assert.equal(a.contexts[1]!.name, 'lingshu:session-window')
 })

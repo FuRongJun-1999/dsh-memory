@@ -7,14 +7,14 @@
 异常原样抛出（不包装、不吞、不打印）。
 
 库层真实现（签名以 mdcos.py / mdcg.py 现状为准）：
-  · store     → ``MdCGSecure.remember_event``（mdcos.py:7486；父类 mdcg.py:4575）
+  · store     → ``MdCGSecure.remember_event``（mdcos.py::remember_event；父类 mdcg.py::remember_event）
                  追加一条**近期事件**（原始、未结构化），返回 ``{"event", "dropped"}``。
-  · retrieve  → ``MdCGOS.recall``（mdcos.py:3034）按 token 预算装包，返回
+  · retrieve  → ``MdCGOS.recall``（mdcos.py::recall）按 token 预算装包，返回
                  ``{pack, tokens_used, budget, skipped, recent, meta}``。
-  · summarize → ``MdCGOS.consolidate_run``（mdcos.py:5485）离线固化面；
+  · summarize → ``MdCGOS.consolidate_run``（mdcos.py::consolidate_run）离线固化面；
                  ``action="promote"`` 走 ``consolidate.promote_memories``
                  （contextual → knowledge，``apply=False`` 时是纯只读盘点）。
-  · discard   → ``MdCGSecure.forget_gated``（mdcos.py:4652 → MdCGOS:3171）
+  · discard   → ``MdCGSecure.forget_gated``（mdcos.py::forget_gated → MdCGOS:3171）
                  软删的档位路径（MCP 工具面专用，先过保护/自治资格闸）。
 """
 

@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """md_cg · 变更单回滚面守卫（三档自治 · 设计 v0.2 §四/§十一 · 批次③）
 
 覆盖（设计 §十一 验收判据在本批的落点）：
@@ -677,10 +676,11 @@ _SRC_MUTATIONS = (
     #   早先的回滚句柄被踩掉。红 4（实测）：P「同秒两次=两个文件」+ P「两张
     #   各拍各自时点」+ P「既有 snapshot 命名形态不变」（微秒名与秒级名的
     #   判别被打乱）+ P「执行桥场景微秒/秒级各一条」。
+    # 2026-11-12 合并：命名已收口到单点 `_preimage_name`（issue #413），旧的内联 `ts =`
+    # 不再存在 ⇒ 锚点指向**现在的**微秒后缀处，否则变异不生效（判据假绿）。
     ("前像名去微秒（同秒互踩）", "mod", protect, "snapshot_preimage",
-     '    ts = (time.strftime("%Y%m%d-%H%M%S", time.localtime())\n'
-     '          + "-%06d" % (time.time_ns() // 1000 % 1000000))',
-     '    ts = time.strftime("%Y%m%d-%H%M%S", time.localtime())', 4),
+     '    p = _preimage_name(d, "-%06d" % (time.time_ns() // 1000 % 1000000))',
+     '    p = _preimage_name(d)', 4),
     # ⑧ 执行记录不落 mutation（_record_decision 摘除）——回滚 CLI 读不到载荷
     #   （「回滚命令」的读取源断链）。红 3（实测）：Q/R/S 三条「命令串实测
     #   演练」——CLI 报 decision_not_found 非零退出；进程内入口不受影响

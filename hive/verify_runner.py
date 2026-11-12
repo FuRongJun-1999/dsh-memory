@@ -25,7 +25,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)
 from md_cg.interop import (assert_a1, assert_a2, assert_a3, make_verdict,
                            sanity_check_verdict, shape_check_verdict)
-from md_cg.mdcos import _sig  # noqa: F401  保持与库同源初始化
+from md_cg.mdcos import sig  # noqa: F401  保持与库同源初始化
 
 
 # 生效条件：命令、超时秒数给定——正常结束返回 (exit_code, stdout, stderr)；

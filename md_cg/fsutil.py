@@ -1005,6 +1005,36 @@ def ensure_shard_dir(directory: str, where: str = "append") -> bool:
 
 
 # 生效条件：directory 经 abspath 存入 self.dir 后经 ensure_shard_dir(self.dir, "init") 保证目录存在（首建不记账；失败抛 ShardDirError 而非裸 OSError），实例分片文件名由 os.getpid() 与 uuid.uuid4().hex[:8] 拼成 "{pid}-{hex8}.log"，append 时各写者只写自己这一分片，从而不共享写入点。
+#: 增量游标回看最后一个换行的**有界**扫描窗口，以及总上限。
+#: 窗口内找不到换行（超长行）时退一个窗口继续；累计到上限仍未找到 ⇒ 记 0
+#: （安全方向：下次整片重读，重放幂等，不会漏记录）。
+_CURSOR_CHUNK = 64 * 1024
+_CURSOR_SCAN_CAP = 8 * 1024 * 1024
+
+
+# 生效条件：path 存在且 size>0 时，从 size 起向前回看找最后一个 "\n" 并返回其字节后一位（即已提交行边界）；回看到 _CURSOR_SCAN_CAP 仍未找到、或读失败时返回 0（全片重读，安全方向）。
+def _last_newline_boundary(path: str, size: int) -> int:
+    """分片「已提交行边界」字节水位（只认完整行，与 read_jsonl_tail 同口径）。"""
+    scanned = 0
+    end = size
+    try:
+        with open(path, "rb") as f:
+            while end > 0 and scanned < _CURSOR_SCAN_CAP:
+                start = max(0, end - _CURSOR_CHUNK)
+                f.seek(start)
+                buf = f.read(end - start)
+                if not buf:
+                    break
+                i = buf.rfind(b"\n")
+                if i >= 0:
+                    return start + i + 1
+                scanned += len(buf)
+                end = start
+    except OSError:
+        return 0
+    return 0
+
+
 class ShardedLog:
     """每写者独占一个分片的 append-only 日志——不能丢记录时用它。
 
@@ -1147,6 +1177,111 @@ class ShardedLog:
                     time.sleep(0.005)
         recs.sort(key=lambda r: (_norm(r.get("_t", 0)), _norm(r.get("_s", 0))))
         return recs
+
+    @staticmethod
+# 生效条件：directory 为目录时返回 dict（分片文件名 -> 该文件当前**已提交行边界**的字节水位）；文件不存在/不可读的条目跳过；目录不可列时返回 {}。
+    def committed_cursor(directory: str):
+        """各分片**已提交行边界**的字节水位（增量重载的基线游标）。
+
+        只需知道「整行到哪里为止」，不必解析内容。做法：从文件尾回看一个
+        有界窗口找最后一个 `\\n`；窗口内找不到（超长行）则退一个窗口继续，
+        最多回看 `_CURSOR_SCAN_CAP` 字节，仍未找到就记 0——**记 0 是安全方向**：
+        下次增量会重读整片，重放幂等，只是慢一点，不会漏记录。
+
+        调用方的使用约束（**安全方向**）：本函数返回的水位必须在
+        `read_all()` **之前**取。取在前 ⇒ 水位 ⊆ 实际被消费的记录 ⇒ 下次
+        至多重放已应用过的记录（幂等，last-wins）。取在后则可能把「尚未
+        消费的记录」也算进水位，造成**漏重放**（静默丢写入）。
+        """
+        out = {}
+        if not os.path.isdir(directory):
+            return out
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            return out
+        for fn in names:
+            if not fn.endswith(".log"):
+                continue
+            p = os.path.join(directory, fn)
+            try:
+                size = os.stat(p).st_size
+            except OSError:
+                continue
+            if size == 0:
+                out[fn] = 0
+                continue
+            out[fn] = _last_newline_boundary(p, size)
+        return out
+
+    @staticmethod
+# 生效条件：directory 为目录且 cursor 为 dict（分片文件名 -> 已消费字节水位）时，逐分片读**新增尾部**并按 (_t,_s) 排序返回 (记录列表, 新游标)；游标里的分片已消失（被 compact 清走）、或某分片当前大小小于其水位（被截断/重建）时返回 (None, None) 表示**不可增量**，调用方须回退全量重放；directory 不是目录时返回 ([], {})。
+    def read_tails(directory: str, cursor: dict):
+        """读分片日志的**新增尾部**（issue #766 增量化：W3 读侧重载成本）。
+
+        为什么必须有它：`flush()` 只 append 分片、**从不清**；只有
+        `close()`→`compact_index` 才 `ShardedLog.clear`。故长期存活写方
+        （MCP serve 本体即 `autoflush=1 只 flush 不 close`）的分片日志
+        **只增不减**，而 `read_all` 每次都把全部记录重读重解析一遍 ⇒
+        单次重载成本随「该库写入总量」无界增长（实测 300 节点、日志
+        2000→12000 条，单次 `_load_index` 65→258 ms，斜率约 18ms/千条）。
+        增量后该成本降为 O(新增)。
+
+        **正确性边界（诚实声明）**：本函数只负责「读到并排序新增记录」，
+        **不判**这些记录能否安全叠加上已有物化态——排序水位判定、快照
+        是否变过、盘面是否被非合作写者改过，全在调用方（`MdCG._load_index`）。
+        返回 `(None, None)` 的三类情形即「无法证明增量正确」，一律回退。
+
+        `read_jsonl_tail` 只认**完整行**（末行无换行属未提交，留在水位内
+        下次再读），故并发写者正写到一半时不会读到半截 JSON，也不会把
+        水位推过它——与 `append_jsonl` 的 ends_mid_line 同一防线。
+        """
+        if not os.path.isdir(directory):
+            return [], {}
+
+        def _norm(v):
+            return v if (isinstance(v, (int, float)) and v == v) else 0
+
+        try:
+            names = sorted(os.listdir(directory))
+        except OSError:
+            return None, None
+
+        present = set()
+        recs, new_cursor = [], {}
+        for fn in names:
+            if not fn.endswith(".log"):
+                continue
+            present.add(fn)
+            p = os.path.join(directory, fn)
+            try:
+                size = os.stat(p).st_size
+            except OSError:
+                continue            # delete-pending：视同消失，交由下面的校验判
+            off = cursor.get(fn, 0)
+            if size < off:
+                # 分片被截断/重建：水位之后的内容已不可信，全量重放
+                return None, None
+            if size == off:
+                new_cursor[fn] = off
+                continue
+            batch, nxt = read_jsonl_tail(p, off)
+            if nxt is None:
+                return None, None
+            new_cursor[fn] = nxt
+            recs.extend(batch)
+
+        # 游标里记着、盘上已没有的分片：只可能是 compact 清走了（记录已并入
+        # 快照）⇒ 快照必已重写、物化态作废，不可增量。
+        if set(cursor) - present:
+            return None, None
+
+        bad = [r for r in recs if not isinstance(r, dict)]
+        if bad:
+            note_nonobject_rows([(directory, 0, r) for r in bad])
+        recs = [r for r in recs if isinstance(r, dict)]
+        recs.sort(key=lambda r: (_norm(r.get("_t", 0)), _norm(r.get("_s", 0))))
+        return recs, new_cursor
 
     @staticmethod
 # 生效条件：directory 是目录时，遍历 os.listdir(directory)，对以 ".log" 结尾且不满足「keep 为真值且 os.path.abspath(p) == keep」的条目调用 os.remove（keep 为 None/空串等假值时该排除条件恒不成立，所有 ".log" 条目都会被删），删除时的 OSError 被忽略；directory 不是目录时直接返回。

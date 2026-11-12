@@ -40,6 +40,11 @@
 import { delimiter } from 'node:path'
 import { LingshuBridge, type McpCallResult } from '../bridge.js'
 import { pythonPathValue, runRoot } from './datapath.js'
+// 租户单点（#224）：签发侧（token_store）与运行侧（本文件的 mdcgChildEnv）必须
+// 用同一函数算出租户——N62 之后服务端对「令牌记录租户 ≠ 入参租户」fail-closed，
+// 两侧各算一遍就必然分叉（签发按 default、运行按 work ⇒ rc=3 拒启）。
+import { effectiveTenant } from './token_store.js'
+import { stripLoneSurrogates, truncateSafe } from './prompt_safety.js'   // issue #762
 
 /** md_cg 子进程与根目录配置。 */
 export interface MdcgOptions {
@@ -112,7 +117,10 @@ export interface MdcgChildEnvOptions {
  *    而非 `errors="replace"` 那种替换字符）。
  *
  * 确定性对照实验（P1 复现 / P3 消除）见 `test/python-utf8-mode.test.ts`。
- * `opts.env` 最后展开——显式覆盖优先。
+ * `opts.env` 最后展开——显式覆盖优先。**唯一例外是 `MDCG_TENANT`**（#224）：
+ * 它由 `effectiveTenant()` 单点决定（`opts.env.MDCG_TENANT` > `opts.tenant` >
+ * default），放在 `opts.env` 之后写入——否则 `opts.env` 里的空串/其它值会把
+ * 「签发侧算出的租户」再覆盖一次，两侧分叉。其余键的覆盖顺序不变。
  */
 export function mdcgChildEnv(opts: MdcgChildEnvOptions): Record<string, string> {
   return {
@@ -121,12 +129,13 @@ export function mdcgChildEnv(opts: MdcgChildEnvOptions): Record<string, string> 
     MDCG_ROOT: opts.root,
     // 工具面必须是 full：写入通道 mdcg_remember 属细粒度工具（见 MdcgOptions.surface）。
     MDCG_MCP_SURFACE: opts.surface ?? 'full',
-    MDCG_TENANT: opts.tenant ?? 'default',
     MDCG_CLEARANCE: opts.clearance ?? 'private',
     PYTHONPATH: pythonPathValue(),
     ...(opts.actor ? { MDCG_ACTOR: opts.actor } : {}),
     ...(opts.identity ? { MDCG_IDENTITY: opts.identity } : {}),
     ...(opts.env ?? {}),
+    // 租户单点（见 effectiveTenant）：与 token_store 签发/复核同一口径。
+    MDCG_TENANT: effectiveTenant(opts.tenant, opts.env),
   }
 }
 
@@ -340,8 +349,11 @@ export class MdcgClient {
    *  `max(1, recent_limit or 10)` 归一（`mdcos.py:3309`）。
    *
    *  ⚠️ 两条服务端事实（决定注入侧的可达性，勿据本方法名臆测）：
-   *   ① `recent` 段取 `recent_events(limit=recent_limit)` —— **不按 session
-   *      过滤**（近期事件是运行态滚动窗口，会话归属只写在每条事件的 meta 里）；
+   *   ① `recent` 段在 `session` 为真值时由服务端**严格按会话过滤**（`meta.session`
+   *      精确相等；缺 `meta.session` 的事件被丢弃——最坏空窗口，杜绝错块）；
+   *      `session` 显式传 `'*'` 时不过滤（跨会话汇总的合法用法）；仅当 `session`
+   *      为 falsy 时才退回全局窗口，并在 `pack.degraded` 追加
+   *      `recent_global_window`（注入侧据此 fail-closed，见 src/hooks.ts）。
    *   ② budget 是**整包**预算：库内 notes/tasks/self_state 占位越多，同样
    *      budget 下 recent 段被裁得越短（实测：空库 + 10 条窗口条目，
    *      budget_tokens=600 → recent 8 条；1200 → 10 条）。
@@ -414,7 +426,7 @@ export class MdcgClient {
     if (best && best.score > 0 && STRONG_BASIS.has(best.basis)) {
       return {
         judgment: `采纳：认知图已有强依据节点 ${best.id}（basis=${best.basis}）`,
-        best: best.content.slice(0, 200),
+        best: truncateSafe(stripLoneSurrogates(best.content), 200),   // issue #762
         d_norm: Math.min(1, best.score),
         record_id: best.id,
       }
@@ -422,7 +434,7 @@ export class MdcgClient {
     if (best && best.score > 0) {
       return {
         judgment: `待定：命中节点 ${best.id} 但依据不足（basis=${best.basis || 'unknown'}）`,
-        best: best.content.slice(0, 200),
+        best: truncateSafe(stripLoneSurrogates(best.content), 200),   // issue #762
         d_norm: -1,
         record_id: best.id,
       }

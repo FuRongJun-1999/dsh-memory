@@ -4870,7 +4870,7 @@ class SpacetimeMemoryEngine:
                 stale = (last_acc is None or (now - (last_acc or 0)) > stale_days * 86400) \
                     and self.store.get_node(nid) is not None
                 # 访问信号：从未被访问且久远
-                access_stale = (self.store.get_node(nid) or {}).get("access_count") if False else None
+                access_stale = None
                 # 直接查 access_count
                 c2 = self.store.conn.cursor()
                 c2.execute("SELECT access_count FROM nodes WHERE id=?", (nid,))

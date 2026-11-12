@@ -1,0 +1,32 @@
+test_changed_content_invalidates_new_and_already_loaded_engines (__main__.SessionTests.test_changed_content_invalidates_new_and_already_loaded_engines) ... ok
+test_corrupt_archive_fails_closed_and_rebuild_recovers (__main__.SessionTests.test_corrupt_archive_fails_closed_and_rebuild_recovers) ... ok
+test_deletion_and_negative_condition_edits_invalidate_index (__main__.SessionTests.test_deletion_and_negative_condition_edits_invalidate_index) ... ok
+test_empty_or_nonstring_negative_conditions_do_not_reject (__main__.SessionTests.test_empty_or_nonstring_negative_conditions_do_not_reject) ... ok
+test_empty_vocabulary_round_trip_has_consistent_dimensions (__main__.SessionTests.test_empty_vocabulary_round_trip_has_consistent_dimensions) ... ok
+test_explicit_context_terms_take_part_in_negative_gate (__main__.SessionTests.test_explicit_context_terms_take_part_in_negative_gate) ... ok
+test_identical_rows_from_another_database_are_not_accepted (__main__.SessionTests.test_identical_rows_from_another_database_are_not_accepted) ... ok
+test_identifier_boundary_survives_index_reload (__main__.SessionTests.test_identifier_boundary_survives_index_reload) ... ok
+test_index_round_trip_retains_negative_gate_without_pickle (__main__.SessionTests.test_index_round_trip_retains_negative_gate_without_pickle) ... ok
+test_interrupted_save_keeps_previous_archive_and_cleans_own_temporary_file (__main__.SessionTests.test_interrupted_save_keeps_previous_archive_and_cleans_own_temporary_file) ... ok
+test_invalid_shape_and_nonfinite_vectors_are_rejected (__main__.SessionTests.test_invalid_shape_and_nonfinite_vectors_are_rejected) ... ok
+test_legacy_unbound_index_is_rejected_without_writes (__main__.SessionTests.test_legacy_unbound_index_is_rejected_without_writes) ... ok
+test_md_direct_source_is_refreshed_without_manual_reload (__main__.SessionTests.test_md_direct_source_is_refreshed_without_manual_reload) ... ok
+test_missing_database_is_not_created (__main__.SessionTests.test_missing_database_is_not_created) ... ok
+test_navigation_rechecks_cached_engine_and_recovers_after_explicit_rebuild (__main__.SessionTests.test_navigation_rechecks_cached_engine_and_recovers_after_explicit_rebuild) ... ok
+test_negated_environment_keeps_candidates_through_ranking (__main__.SessionTests.test_negated_environment_keeps_candidates_through_ranking) ... ok
+test_negative_gate_filters_before_top_k_and_backfills (__main__.SessionTests.test_negative_gate_filters_before_top_k_and_backfills) ... ok
+test_nonpositive_limit_never_returns_rows (__main__.SessionTests.test_nonpositive_limit_never_returns_rows) ... ok
+test_observer_is_readonly_and_context_exit_closes_it (__main__.SessionTests.test_observer_is_readonly_and_context_exit_closes_it) ... ok
+test_restored_mtime_does_not_hide_sqlite_commit (__main__.SessionTests.test_restored_mtime_does_not_hide_sqlite_commit) ... ok
+test_safe_context_and_disabled_gate_preserve_candidates (__main__.SessionTests.test_safe_context_and_disabled_gate_preserve_candidates) ... ok
+test_same_content_commit_is_safe_and_updates_observer_token (__main__.SessionTests.test_same_content_commit_is_safe_and_updates_observer_token) ... ok
+test_schema_change_invalidates_index (__main__.SessionTests.test_schema_change_invalidates_index) ... ok
+test_stale_index_cannot_be_saved_over_existing_file (__main__.SessionTests.test_stale_index_cannot_be_saved_over_existing_file) ... ok
+test_unstable_source_fails_closed_after_bounded_retries (__main__.SessionTests.test_unstable_source_fails_closed_after_bounded_retries) ... ok
+test_wal_commit_is_detected_without_relying_on_database_mtime (__main__.SessionTests.test_wal_commit_is_detected_without_relying_on_database_mtime) ... ok
+test_warm_checks_reuse_snapshot_but_commit_triggers_full_check (__main__.SessionTests.test_warm_checks_reuse_snapshot_but_commit_triggers_full_check) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.897s
+
+OK

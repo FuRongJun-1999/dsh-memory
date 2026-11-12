@@ -1,0 +1,163 @@
+{
+  "head": "b70e19dcf7059dbc907b9bd454ad5a8c7a667fd4",
+  "passed": 12,
+  "failed": 0,
+  "entries": [
+    {
+      "module": "md_cg.test_chain_read_isolate",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_chain_read_isolate"
+      ],
+      "exit_code": 0,
+      "stdout": "  OK   R0 基线：reader.get(Y秘密) 隔离生效\n  OK   R1a causal_chain(X苹果) 输出不含不可见节点 id\n  OK   R1b causal_chain(X苹果) 输出不含秘密边条件文本\n  OK   R2 causal_chain(Y秘密) 不可见起点返回空链\n  OK   R3 explain_chain(X苹果) 渲染输出零泄漏\n  OK   R4 causal_path(X苹果→Z结论) 不可达且零泄漏\n  OK   R5a search_rrf provenance 链不含不可见节点 id\n  OK   R5b search_rrf provenance 条件不含秘密文本\n  OK   G1a reader 对可见链 A内→B内 照常展开\n  OK   G1b 可见边条件文本照常返回\n  OK   G2a designer causal_chain 照常含 private 节点（admin 可见性不变）\n  OK   G2b designer 照常见到边条件文本\n\n============================================================\n结果：PASS 12 / FAIL 0\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_n123_derive_expiry_chain",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_n123_derive_expiry_chain"
+      ],
+      "exit_code": 0,
+      "stdout": "\n[1] derive 夹紧：子 expires_at = min(请求值, 父 expires_at)\n  [PASS] 子令牌过期时间不超过父令牌  · child-parent=0.0s（旧代码 +999639s）\n  [PASS] 夹紧开口 clamped 标注 expires_at  · clamped=['expires_at']\n\n[2] verify 沿链传播：父记录过期 → 子令牌拒绝\n  [PASS] 父令牌过期被拒（基线，旧代码即拦）  · 令牌已过期\n  [PASS] 父过期后子令牌沿链拒验（N123 核心断言）  · 令牌已失效：派生链祖先 tk_725db803ea96 已过期（过期沿派生链传播）\n\n[3] 端到端：父 ttl=0.4 自然到期 → 长 TTL 子令牌（ttl=999999）失效\n  [PASS] 派生时子界已被父夹紧  · child=1791823021.0 parent=1791823021.0\n  [PASS] 父自然到期被拒  · 令牌已过期\n  [PASS] 子令牌随父到期失效（修复前：verify OK 继续用）  · 令牌已过期\n\n[4] 父无界：子 TTL 取请求值\n  [PASS] 父无界 expires_at=None\n  [PASS] 父无界时子 expires_at=now+60（取请求值）  · delta=60.0s\n  [PASS] 父无界夹紧不开口  · clamped=[]\n  [PASS] 子短于父取请求值\n  [PASS] 子未指定 ttl 沿用父界（无界父→无界子）  · expires_at=None\n\n[5] 子自身过期仍拦截\n  [PASS] 子自身先到期被拒  · 令牌已过期\n\n[6] 存量库三层链传播 + parent 环防护\n  [PASS] 中间层过期 → 孙令牌沿链拒验  · 令牌已失效：派生链祖先 tk_c6a87665aec2 已过期（过期沿派生链传播）\n  [PASS] 沿链校验无死循环（<2s）  · 0.000s\n  [PASS] parent 环不挂死（防环）  · 0.000s\n\n通过 16 / 失败 0\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_p8_subgraph_chain",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_p8_subgraph_chain"
+      ],
+      "exit_code": 0,
+      "stdout": "\n[A] 嵌套子图（结构要素可递归化）\n  [PASS] subgraph 引用式写入并读回\n  [PASS] children 解析（声明式）  · ['a', 'b']\n  [PASS] 索引快照含 subgraph（免读文件）\n  [PASS] 递归展开 5 节点  · ['a', 'a1', 'a1x', 'b', 'r']\n  [PASS] 层级路径正确  · {'r': 'r', 'a': 'r/a', 'a1': 'r/a/a1', 'a1x': 'r/a/a1/a1x', 'b': 'r/b'}\n  [PASS] 父子边 part_of 方向 child→parent\n  [PASS] 自然耗尽不置 truncated\n  [PASS] max_depth=1 硬截断且置 truncated  · ['a', 'b', 'r']\n  [PASS] flatten 生成对称父子边（4 对 → 8 条）  · 8\n  [PASS] flatten 同时含 part_of / parent_of  · {'part_of', 'parent_of'}\n  [PASS] roots 识别根节点  · ['r']\n  [PASS] 检出 multi_parent  · ['cycle', 'dangling_child', 'multi_parent', 'self_loop']\n  [PASS] 检出 cycle  · ['cycle', 'dangling_child', 'multi_parent', 'self_loop']\n  [PASS] 检出 dangling_child  · ['cycle', 'dangling_child', 'multi_parent', 'self_loop']\n  [PASS] 检出 self_loop  · ['cycle', 'dangling_child', 'multi_parent', 'self_loop']\n\n[B] 关系链（causal = 条件依赖因果；链 = 条件序列）\n  [PASS] 多跳展开（db→svc→api 共 2 条链）  · [1, 2]\n  [PASS] 链节点序列正确  · ['db', 'svc', 'api']\n  [PASS] 累积权重 = Π(类型base × 置信度)  · 0.65025\n  [PASS] 条件序列逐跳标注  · ['数据库在运行', '服务在运行']\n  [PASS] 只走 causal（不含 sequential）\n  [PASS] relation_types 过滤生效  · [{'start': 'job', 'nodes': ['job', 'job2'], 'hops': [{'from': 'job', 'to': 'job2', 'relation_type': 'sequential', 'weight': 0.6, 'condition': '顺序执行'}], 'conditions': ['顺序执行'], 'weight': 0.6, 'depth': 1, 'avg_weight': 0.6}]\n  [PASS] causal 过滤下不含 sequential 边\n  [PASS] direction=in 反向可达\n  [PASS] visited 剪枝：环链不无限增长  · [1]\n  [PASS] explain 输出「条件→结果」步骤  · {'条件': '数据库在运行', '关系': 'causal', '置信': 0.765, '结果': 'svc'}\n  [PASS] 边无条件 → 回退节点生效条件  · ['午夜窗口']\n  [PASS] 种子扩散打分 = 种子 × 链权 × decay^跳  · 0.6885\n  [PASS] 层级 part_of 边参与链遍历  · [['r', 'a'], ['r', 'b'], ['r', 'a', 'a1']]\n\n[C] 检索接入（chain 路 + 可审计 provenance）\n  [PASS] chain 路召回链下游节点  · ['api', 'svc', 'db', 'job2', 'job']\n  [PASS] provenance 标注 chain 路  · ['svc', 'api', 'job2']\n  [PASS] provenance 带条件序列（可审计）  · [{'path': 'chain', 'rank': 2, 'chain': ['db', 'svc'], 'conditions': ['数据库在运行']}]\n  [PASS] 默认检索路**含** chain（P3：进缺省集；原断言为「不含」）  · ['chain', 'graph', 'lexical']\n  [PASS] 显式不含 chain 时该路不出现（分路开关保留）  · ['graph', 'lexical']\n  [PASS] 公开 API：subgraph_expand/flatten/validate/roots\n  [PASS] 公开 API：causal_chain/explain_chain\n\n==== P8 结果：35 通过 / 0 失败 ====\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_rrf_graph_seed_cache",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_rrf_graph_seed_cache"
+      ],
+      "exit_code": 0,
+      "stdout": "  OK   S0a 首查正常（40+1 节点池，词法+图路融合）\n  OK   S1a 热缓存后同查询 loads 增量 == 0（旧实现恒 5）\n  OK   S2a 热缓存后同查询 get 调用 == 0（旧实现恒 5，种子改走 _read）\n  OK   S3a 图路功能在位：词法零命中的 ghost 经种子边一跳进入结果\n  OK   S3b meta.paths 四路计数在位（graph 未被静默关掉）\n  OK   S4a 两轮查询结果 ids 逐位一致\n  OK   S5a 读缓存开/关同库同查询 ids 逐位一致\n\n============================================================\n结果：PASS 7 / FAIL 0\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_rrf_candidates",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_rrf_candidates"
+      ],
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": "...............\n----------------------------------------------------------------------\nRan 15 tests in 2.053s\n\nOK\n"
+    },
+    {
+      "module": "md_cg.test_issue130_rrf_rank_credibility",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_issue130_rrf_rank_credibility"
+      ],
+      "exit_code": 0,
+      "stdout": "=== issue #130 名次可信度契约守卫 ===\n\n[1] 单元：_tag_affinity 有判别力（不再是布尔/常量）\n  [PASS] 完全相等 = 1.0  · 1.0\n  [PASS] tag 越长（覆盖越多）分越高  · (0.7083, 0.625)\n  [PASS] 不命中 = 0.0（口径与旧实现一致：词面之外不算）\n\n[2] 集成：常量分路不得冒充名次（40 个同 tag 干扰）\n    读数：rank_on=1 rank_off=1 top1_on=target no_rank_signal=['entity']\n  [PASS] 开 entity 的真命中名次 == 关 entity（旧实现此处 1 vs 41）  · {'rank_on': 1, 'rank_off': 1, 'no_rank_signal': ['entity'], 'top1_on': 'target'}\n  [PASS] meta.no_rank_signal 如实留痕 entity（可审计）  · ['entity']\n  [PASS] top1 仍是真命中（不再被标签干扰顶掉）  · target\n\n[3] 不误伤：tag 有分级（分数异值）时 entity 仍参与打分\n    读数：rank_on=41 rank_off=1 no_rank_signal=[]\n  [PASS] 有判别力的路不被名次可信度门拦下（no_rank_signal 不含 entity）\n\n[3b] 生效条件：**单路**竞争不启用契约（保既有 importance 兜底契约）\n    读数：paths=('entity',) → no_rank_signal=[] top1=noise00\n  [PASS] 单路全同分**不**被契约改写（no_rank_signal 为空）\n  [PASS] 单路仍按路内序（importance/id 兜底）出结果（top1 为标签命中干扰）  · noise00\n\n[4] 定点变异（文本级：只改内存副本，不改盘上文件）\n    M1 关掉名次可信度门 → rank_on=41（修复前形态）no_rank_signal=[]\n  [PASS] M1 判据被打坏 ⇒ 真命中名次从 1 掉到 41（守卫必然察觉）  · fixed=1 mutant=41\n    M2 把 _path_entity 打回常量 1.0 → rank_on=1 no_rank_signal=['entity']\n  [PASS] M2 即使实体路退回常量分，门仍独立兜住（名次不回退、且留痕）  · rank=1 signal=['entity']\n    M3 把判据收窄成「常量且 ==1.0」特判 → rank_on=41 no_rank_signal=[]\n  [PASS] M3 契约是「无判别力」而非「等于 1.0」特判：收窄后 0.7083 常量漏网、名次退回 41  · fixed=1 mutant=41\n    M4 取消「多路」限定（_gate_on 恒 True）→ 单路 no_rank_signal=['entity']\n  [PASS] M4 生效条件被打坏 ⇒ 单路也被契约改写（本应为空，变异后含 entity）  · fixed=[] mutant=['entity']\n\n====================================================================\n通过 13 / 失败 0\n====================================================================\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_c8_search_rrf_gates",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_c8_search_rrf_gates"
+      ],
+      "exit_code": 0,
+      "stdout": "== P1 库面元数据就位（桶 / 域 / 观测位）==\nroot = E:\\lingshu\\work\\bm25-sparse-temp-20261012\\mdcg_c8_6frfpz19\n  OK   P1a 节点数与分组一致\n  OK   P1b A 组桶/域落盘\n  OK   P1c B 组桶/域落盘\n  OK   P1d C 组观测位落盘（S2 靶）\n  OK   P1e D 组域内异桶落盘（S1b 靶）\n== P2 默认零变更（总开关未设 / 总开关开但子门控全关）==\n  OK   P2a search 总开关未设 → meta 无 gates 键\n  OK   P2b search 子门控全关 ≡ 未设（结果逐位一致、无 gates 键）\n  OK   P2a secure_rrf 总开关未设 → meta 无 gates 键\n  OK   P2b secure_rrf 子门控全关 ≡ 未设（结果逐位一致、无 gates 键）\n  OK   P2a os_rrf 总开关未设 → meta 无 gates 键\n  OK   P2b os_rrf 子门控全关 ≡ 未设（结果逐位一致、无 gates 键）\n  OK   P2c 默认态三路候选面 = 全库（不收敛）\n== P3 逐路门控生效（总开关=1，S1 未设=开）==\n  OK   P3a search gates 审计出现（修前 rrf 两路必红：gates=None）\n  OK   P3b search scanned 真实收敛（38 → 23）\n  OK   P3a secure_rrf gates 审计出现（修前 rrf 两路必红：gates=None）\n  OK   P3b secure_rrf scanned 真实收敛（38 → 23）\n  OK   P3a os_rrf gates 审计出现（修前 rrf 两路必红：gates=None）\n  OK   P3b os_rrf scanned 真实收敛（38 → 23）\n  OK   P3c search S1b 显式开门 → 桶收敛（23 → 18、键=认知心理）\n  OK   P3c secure_rrf S1b 显式开门 → 桶收敛（23 → 18、键=认知心理）\n  OK   P3c os_rrf S1b 显式开门 → 桶收敛（23 → 18、键=认知心理）\n  OK   P3d search S2 硬槽门控（观测位不符剔除恰 3 条）\n  OK   P3d secure_rrf S2 硬槽门控（观测位不符剔除恰 3 条）\n  OK   P3d os_rrf S2 硬槽门控（观测位不符剔除恰 3 条）\n  OK   P3e search S4 层级审计（显式 =1 才落键）\n  OK   P3e secure_rrf S4 层级审计（显式 =1 才落键）\n  OK   P3e os_rrf S4 层级审计（显式 =1 才落键）\n== P4 三路审计逐位相同（同一实现 ⇒ 同一审计块）==\n  OK   P4 S1 配置下三路 gates 逐位相同\n  OK   P4 S1b 配置下三路 gates 逐位相同\n  OK   P4 S2 配置下三路 gates 逐位相同\n  OK   P4 S4 配置下三路 gates 逐位相同\n== P5 候选面对照（机械可判定：结果 id 集合逐路比对）==\n  OK   P5a search S1 开门：域外 B 组被剔除、域内保留\n  OK   P5b search S1 开门结果 ⊆ 关门结果（收敛只减不增）\n  OK   P5c search S1b 开门：异桶 D 组再被剔除（保 orphan 兜底语义不变）\n  OK   P5d search S2 开门：观测位不符的 C 组被剔除\n  OK   P5e search 关门态候选面 = 全库（对照基线成立）\n  OK   P5f search 开门/关门对照非空（差异确实发生，不是自证同义）\n  OK   P5a secure_rrf S1 开门：域外 B 组被剔除、域内保留\n  OK   P5b secure_rrf S1 开门结果 ⊆ 关门结果（收敛只减不增）\n  OK   P5c secure_rrf S1b 开门：异桶 D 组再被剔除（保 orphan 兜底语义不变）\n  OK   P5d secure_rrf S2 开门：观测位不符的 C 组被剔除\n  OK   P5e secure_rrf 关门态候选面 = 全库（对照基线成立）\n  OK   P5f secure_rrf 开门/关门对照非空（差异确实发生，不是自证同义）\n  OK   P5a os_rrf S1 开门：域外 B 组被剔除、域内保留\n  OK   P5b os_rrf S1 开门结果 ⊆ 关门结果（收敛只减不增）\n  OK   P5c os_rrf S1b 开门：异桶 D 组再被剔除（保 orphan 兜底语义不变）\n  OK   P5d os_rrf S2 开门：观测位不符的 C 组被剔除\n  OK   P5e os_rrf 关门态候选面 = 全库（对照基线成立）\n  OK   P5f os_rrf 开门/关门对照非空（差异确实发生，不是自证同义）\n== P5-2 三路候选面互相一致（同一库同一开关）==\n  OK   P5-2 默认 三路结果 id 序列逐位一致\n  OK   P5-2 S1 三路结果 id 序列逐位一致\n  OK   P5-2 S1b 三路结果 id 序列逐位一致\n  OK   P5-2 S2 三路结果 id 序列逐位一致\n  OK   P5-2 S4 三路结果 id 序列逐位一致\n== P6 结构守卫（共享实现唯一）==\n  OK   P6a MdCG.search 源码引用共享门控 apply_retrieval_gates\n  OK   P6a MdCGOS.search 源码引用共享门控 apply_retrieval_gates\n  OK   P6a MdCGOS.search_rrf 源码引用共享门控 apply_retrieval_gates\n  OK   P6b MdCGSecure.search_rrf 经 super().search_rrf 委托（不自建门控）\n  OK   P6c 门控实现只有一份（gates[\"s1b\"] 仅出现在 mdcg.py）\n\nALL OK: 59 项（C-8 三路门控守卫全绿）\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_lifecycle",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_lifecycle"
+      ],
+      "exit_code": 0,
+      "stdout": "[ok] ①1 缺字段 / 未知值 / 非 dict → active（存量兼容，不猜测）\n[ok] ①2 状态集内值原样返回\n[ok] ①3 合法迁移对可通行（逐级降级 + 逐级回升）\n[ok] ①4 跳级迁移一律不通\n[ok] ①5 同状态幂等可通行\n[ok] ①6 check 未知状态 → unknown_state\n[ok] ①7 check 同状态 → noop\n[ok] ①8 check 跳级 → illegal_transition\n[ok] ①9 check 受保护降级 → protected；override 放行\n[ok] ①10 is_downgrade 方向正确（回升不算降级）\n[ok] ②1 新节点**显式**落 active（不再依赖缺省约定）\n[ok] ②2 索引快照带状态（内存）\n[ok] ②3 增量日志（_index_log）带状态\n[ok] ②4 磁盘 _index.json 快照带状态（免读文件即可回答「这节点什么状态」）\n[ok] ③1 active→converged 通过且落盘\n[ok] ③2 索引同步到 converged\n[ok] ③3 converged→demoted→archived 逐级通过\n[ok] ③4 迁移历史逐条留痕（from/to/reason/actor）\n[ok] ③5 审计 _lifecycle.jsonl 留痕 3 条\n[ok] ③6 永不删除：archived 后节点文件仍在且可读\n[ok] ④1 跳级 active→archived 被拒（负路由，不抛）\n[ok] ④2 拒绝后 frontmatter 未被改动（不留痕）\n[ok] ④3 拒绝后索引未被改动\n[ok] ④4 未知状态被拒\n[ok] ④5 节点不存在如实上报（不静默创建）\n[ok] ④6 require_transition 硬拒（写路径抛异常）\n[ok] ④7 add 覆写显式非法状态 → 硬拒\n[ok] ④8 硬拒后磁盘内容未被改写（校验先于写盘）\n[ok] ⑤1 同状态幂等（noop / changed=False）\n[ok] ⑤2 幂等不刷历史\n[ok] ⑤3 幂等不写审计\n[ok] ⑥0 新建即自动受保护（importance≥0.7）\n[ok] ⑥1 受保护节点降级被拒 → protected 码\n[ok] ⑥2 拒绝后状态未变（保护 = 不可遗忘）\n[ok] ⑥3 override=True 放行降级\n[ok] ⑥4 回升不受保护限制（无需 override）\n[ok] ⑦1 裸 add 覆写**继承**旧状态（不静默打回 active）\n[ok] ⑦2 继承后索引仍是 converged\n[ok] ⑦3 显式合法迁移放行（converged→active）\n[ok] ⑦4 新节点显式状态从 active 起算（active→converged 合法）\n[ok] ⑧0 旧库形态成立（字段已摘除）\n[ok] ⑧1 dry-run 盘点缺失且不改盘\n[ok] ⑧2 apply 回填为显式 active\n[ok] ⑧3 回填幂等（第二次无缺失）\n[ok] ⑧4 缺字段节点在回填前也按 active 工作（state_of 缺省）\n[ok] ⑨1 tidy 降权 → lifecycle_state=converged\n[ok] ⑨2 兼容别名 tidy:converged tag 保留（历史数据不破）\n[ok] ⑨3 降权后索引同步 converged\n[ok] ⑨4 MERGE 强化 → 逐级回升 active\n[ok] ⑨5 回升与 importance 强化同批落盘（+delta）\n[ok] ⑨6 两处收口共用同一迁移历史（active→converged→active 两条，同一 actor 面）\n[ok] ⑨7 强化 active 节点：状态幂等（不刷历史、不误降）\n[ok] ⑩1 状态字段名与裁决四态 state 不撞名（消歧）\n[ok] ⑩2 set_state 返回体恒带 from/to/code（可审计）\n[ok] ⑩3 迁移历史滚动上限（不无界膨胀）\n==========================================================\ntest_lifecycle: 55 通过 / 0 失败\n",
+      "stderr": "[fsutil] ShardedLog 分片目录缺失，已重建（目录 _index_log，调用点 append）——本进程持有的分片实例不自愈；本次后进程内累计重建 1 次。排查方向：库根 _index_log/ 被外部清理/还原删掉，或库根被换过；正文 .md 未受影响，索引缺口由重放/全库扫描补齐。\n"
+    },
+    {
+      "module": "md_cg.test_lifecycle_retire_leak",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_lifecycle_retire_leak"
+      ],
+      "exit_code": 0,
+      "stdout": "[ok] R1.0 写入后两节点都在读面与时空面（前提成立，非空断言）\n[ok] R1.1 退役走合法迁移表（demoted→archived）且状态落盘为 archived\n[ok] R1.2 退役后 cg 读面 search 不返回 v2、v1 照常返回\n[ok] R1.3 退役后 cg 读面 recall（预算装包，走 RRF）不返回 v2、v1 照常返回\n[ok] R1.4 退役后 cg 读面 search_rrf 不返回 v2、v1 照常返回\n[ok] R1.5 退役后 _candidates 候选池不含 v2（读面单点）、含 v1\n[ok] R1.6 退役后 stg.timeline 不返回 v2、v1 照常返回\n[ok] R1.7 退役后 stg.anchors 不返回 v2、v1 照常返回\n[ok] R1.8 stg 候选遍历读数随退役下降（timeline scanned 少 1）\n[ok] R1.9 consistency 候选面同点覆盖（scanned 少 1——archived 不进候选）\n[ok] R1.10 索引子集分支（_scan(nodes=...) 第 3 层取数面）逐位一致——不因取数面漏过滤\n[ok] R2.1 converged（已定型=降权轴）仍参与默认检索\n[ok] R2.2 demoted（已降权=降权轴）仍参与默认检索\n[ok] R2.3 旧库形态成立（fm 与索引条目均无 lifecycle 键）\n[ok] R2.4 fail-open：缺 lifecycle 键的节点照常参与默认检索（存量零迁移）\n[ok] R2.5 is_archived 判据单点：缺键/非法值/非 dict → False；archived → True\n[ok] R3.1 archived 期间 cg.get 直读可得（frontmatter + 正文 + 文件仍在）\n[ok] R3.2 archived 期间 op=audit 审计面照常可达（不被退役闸拦住）\n[ok] R3.3 显式恢复 archived→active 走合法迁移表且成功\n[ok] R3.4 恢复后读面/时空面重新可见（退役可逆）\n[ok] R4.1 op=read（检索分支）全链：archived 不出现、v1 出现\n[ok] R4.2 op=read（预算召回分支→recall/RRF）全链：archived 不出现、v1 出现\n[ok] R4.3 op=route 全链：archived 不出现、v1 出现\n[ok] R4.4 直读面（read+node_id 分支）不受限：archived 仍可显式取回\n[ok] R4.5 四条读面口径同源（都经 _candidates 单点）\n[ok] R1.11a 前提：graph/chain 扩散确实能到达边目标（非空断言，防本腿空转）\n[ok] R1.11b 目标退役后图扩展路不返回它、种子照常返回（图扩展不绕过 _candidates）\n[ok] R1.12a 前提：会话要点与未解问题都确在续接包里（非空断言，防本腿空转）\n[ok] R1.12b 退役后续接包不再回该要点与未解问题（注入面剔除）；在役对照仍在\n[ok] R3.5 恢复后续接包重新回该要点（退役可逆，同面）\n[ok] R1.13a 前提：活跃目标与任务卡都确在续接包里（非空断言，防本腿空转）\n[ok] R1.13b0 台账两节点退役成功（任务卡默认 protected，降级走 override=True）\n[ok] R1.13b 退役后台账段不再回该目标与任务卡；在役对照仍在；total 取剔除后计数\n[ok] R1.13c 管理面不受限对照：cg(op=goal/task, action=list) 仍可见 archived 台账\n[ok] R3.6 恢复后台账段重新回该目标（退役可逆，同面）\n[ok] R4.6 op=session（action=recall）全链：archived 要点/未解问题不出现、在役对照出现\n[ok] R5.1 基类面：archived（rl_v2）不出现、v1 出现\n[ok] R5.2 基类面不误剔：converged（rl_converged）仍参与（降权轴）\n[ok] R6.0 前提：因果链在役时确实扩散到目标（非空断言，防本腿空转）\n[ok] R6.1 目标退役后因果链不扩散进它（缓存已热时亦生效——set_state 同点失效）\n[ok] R6.2 维护面旁路：adjacency(skip_archived=False) 仍含退役边（scrub 全量口径）\n[ok] R6.3 scrub 面经旁路取数同证（维护写面不受退役过滤约束）\n[ok] R6.4 恢复后因果链重新扩散（退役可逆，同面）\n[ok] R7.0 前提：children_index 含该父→子映射（非空断言，防本腿空转）\n[ok] R7.1 子节点退役后 children_index 映射仍在（裁定：结构面直读不接判据）\n[ok] R7.2 parents_index 反向表同钉（裁定文本两侧对称——仅给一侧接线也会被本腿抓住）\n==========================================================\ntest_lifecycle_retire_leak: 46 通过 / 0 失败\n",
+      "stderr": ""
+    },
+    {
+      "module": "md_cg.test_rank_parity_score_mode",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "md_cg.test_rank_parity_score_mode"
+      ],
+      "exit_code": 0,
+      "stdout": "== G0 隔离与前置自证 ==\n  PASS G0a 辅助根落在守卫临时目录（绝不触真实凭据/密钥面）\n  PASS G0b 口径类 env 干净：本守卫确实在**缺省态**上验证\n  PASS G0c 变异基线源 = 当前工作区源码（非 git HEAD／提交快照）\n      被测面：E:\\lingshu\\work\\bounty68-retrieval-20261012\\scripts\\rank_parity.py\n      对拍另一侧：E:\\lingshu\\work\\bounty68-retrieval-20261012\\rust\\target\\release\\mdcg-eval.exe\n== G1 契约①：缺省态即 10/10/10（守卫自建临时库 + --root）==\n  PASS G1a 临时库建成 30 节点（正对照：夹具不空转）\n  PASS G1b 缺省态退出码 0（口径已接线：两侧同钉 jaccard）\n  PASS G1c 逐位一致 10/10（修前缺省态 7/10）\n  PASS G1d 集合一致 10/10\n  PASS G1e top-1 一致 10/10（修前 7/10）\n  PASS G1f 无 DIFF 行（三条伪差异已消失）\n  PASS G1g 头部行印出两侧实际口径（自描述：score=jaccard=rust jaccard）\n== G1b 契约①：完全缺省调用（harness 自建临时库，编排侧实跑形态）==\n  PASS G1b-1 缺省调用退出码 0\n  PASS G1b-2 缺省调用逐位/集合/top-1 = 10/10/10\n  PASS G1b-3 无 DIFF 行\n== G2 契约②：两侧口径被人为拨散 → 非 0 退出并报口径不一致 ==\n  PASS G2a 非 0 退出（口径不一致不得继续对拍）\n  PASS G2b 退出码 = 3（口径不一致专用码，与逐位劈叉 1 区分）\n  PASS G2c 打印口径不一致判定\n  PASS G2d 打印 Python 侧**实际**口径 = legacy（读回值，非假设）\n  PASS G2e 打印 Rust 侧**实际**口径 = jaccard（回读自被拉起进程）\n  PASS G2f 打印修复提示\n  PASS G2g **不打印逐位读数**（未静默给出低分——修前形态即此处静默）\n== G3 结构面：口径钉住的单点与回读面在位、两侧产品缺省未被改动 ==\n  PASS G3a harness 口径**唯一单点**常量 SCORE_MODE = \"jaccard\" 在位\n  PASS G3b 顶部用法注释写明本 harness 的缺省口径 = jaccard（与 eval 面同判据）\n  PASS G3c Python 侧经**既有** md_cg/eval_common.py::use_jaccard() 注入（非自造开关）\n  PASS G3d 评测面单点 eval_common.use_jaccard 本体仍是 m.SCORE_MODE = \"jaccard\"\n  PASS G3e Rust 侧 argv 显式钉住口径（\"--score\", score），不吃 Config::default()\n  PASS G3f harness 回读 Rust 侧自报口径（rust_reported_score / info.score）\n  PASS G3g rust/src/serve.rs 的 info 面回带 score（回读面的服务端一侧）\n  PASS G3h engine 暴露实际生效口径的访问器（回读面取值处）\n  PASS G3i 口径标签映射单点（main.rs 转调 engine::score_label，与 serve 同源）\n  PASS G3j 负向锚点：Python 产品缺省仍是 legacy（md_cg/mdcg.py:SCORE_MODE 未被本批改）\n  PASS G3k 负向锚点：Rust Cfg 缺省仍是 jaccard: true（Config::default() 未被本批改）\n  PASS G3l 前置：本进程内 mdcg.SCORE_MODE 为产品缺省 legacy（缺省态验证的前提）\n  PASS G3m 行为自证：缺省态下 pin 后读回口径 = jaccard（且无冲突）\n  PASS G3n 行为自证：模块级 SCORE_MODE 实际被拨到 jaccard（mdcos 读同一份）\n  PASS G3o env 声明冲突时返回冲突说明且实际口径仍为 legacy（不静默覆盖）\n  PASS G3p --ab 路径头部自描述口径（不再隐式吃缺省）\n== G4 fail-closed：Rust 侧不报口径（二进制过期）→ 不得继续对拍 ==\n  PASS G4a 退出码 = 4（口径不可读专用码）\n  PASS G4b 打印「口径不可读」判定\n  PASS G4c 给出可执行的重编提示\n  PASS G4d 不给逐位读数（读不到对方口径不得继续对拍）\n\nCH-1 守卫（rank_parity 两侧口径接线）：40 通过，0 失败，0 跳过\n",
+      "stderr": ""
+    },
+    {
+      "module": "scripts.test_judgment_manifest",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "scripts.test_judgment_manifest"
+      ],
+      "exit_code": 0,
+      "stdout": "[1] 覆盖完备性（issue #36 主诉）：跑什么 ⊆ 冻结什么\n  [PASS] run_tests 实际执行清单全部在判据面覆盖域内\n  [PASS] 域外文件（发现规则漂移）必报缺口\n  [PASS] 域内文件正确地不报（collect 会收、digest 自动含）\n  [PASS] 分组计数显式化（digest 构成可读）\n  [PASS] groups 计数总和 == files 数\n  [PASS] #36 缺口已补：hive/test_*.py 在清单内（≥1 文件）\n  [PASS] #36 缺口已补：compiler/tests/*.py 在清单内（≥1 文件）\n  [PASS] #36 缺口已补：swarm/tests/*.py 在清单内（≥1 文件）\n  [PASS] #36 缺口已补：scripts/test_*.py 在清单内（≥1 文件）\n  [PASS] hive 最大判据载荷 test_exec_tools.py 已入判据面\n[2] 弱化必红（issue #36 复现实验固化为断言）\n  [PASS] 判据面已物化为临时实验面（并行安全的前提）\n  [PASS] 实验面清单 == 判据面清单（同路径集，物化无遗漏）\n  [PASS] 实验面目标文件 == 在役目标字节（实验对象即真字节）\n  [PASS] 弱化 hive/test_exec_tools.py 后 digest 必变（#36 前不变）\n  [PASS] 实验面在临时副本上：在役被追踪文件全程零写入（字节/size/mtime 不变）\n  [PASS] 还原后 digest 复原\n[3] run_tests._discover 与 _discovered_files 同源\n  [PASS] 六组齐全（md_cg/compiler|swarm/scripts/hive/test）\n  [PASS] discover 数量 == discovered_files 数量\n[4] --verify 缺参 fail-closed（CI/钩子参数拼空不得假成功）\n  [PASS] --verify 缺参必须非零退出（不得静默回落 exit 0）\n  [PASS] --verify 缺参不得在 stdout 倾倒全量 manifest（比对从未发生）\n[5] A6：test/ 收集面（具名裁决清单）与 PATTERNS 双副本同步\n  [PASS] 收集面含裁决条目 test/chaos_injection/run_all.py\n  [PASS] 收集面含裁决条目 test/hive_exec_test.py\n  [PASS] 收集面含裁决条目 test/hive_wm_test.py\n  [PASS] test/ 组恰收具名裁决清单（无未裁决件被拖入）\n  [PASS] test/ 条目全在判据面冻结域内（跑什么 ⊆ 冻结什么）\n  [PASS] PATTERNS 含 test/ 三条精确名冻结\n  [PASS] PATTERNS 双副本逐字一致（scripts/ 版 == md_cg/ 包内版）\n  [PASS] 两侧分组计数同源（同根同 PATTERNS ⇒ groups 相等）\n\njudgment_manifest 守卫: 28 通过 / 0 失败\n",
+      "stderr": ""
+    },
+    {
+      "module": "hive.test_result_anchor_chain",
+      "command": [
+        "E:\\Codex\\2026-10-08\\referenced-chatgpt-conversation-this-is-an\\work\\venv\\Scripts\\python.exe",
+        "-X",
+        "utf8",
+        "-m",
+        "hive.test_result_anchor_chain"
+      ],
+      "exit_code": 0,
+      "stdout": "[绿态] 源 = 工作区 hive/hive_mcp/mcp_server.py\n  OK   A1\n  OK   A2\n  OK   A3\n  OK   A4\n  OK   B1\n  OK   B2\n  OK   B3\n  OK   C1\n  OK   C2\n  OK   C3\n  OK   C4\n  OK   F1\n  OK   F2\n  OK   F3\n  OK   F4\n  OK   E1\n  OK   E2\n  OK   E3\n  OK   H1\n  OK   H2\n  OK   H3\n  OK   H4\n\n结果：22 pass / 0 fail（红项：无）\nALL OK：锚密钥链两侧同键同序同归一（锚面折小写 / 身份面不折），模型密钥不再作锚\n",
+      "stderr": ""
+    }
+  ]
+}

@@ -175,22 +175,37 @@ class Parser:
         return self.comparison()
 
     def comparison(self):
-        """比较链：== != < <= > >= in / not in（V-P4）双目比较。"""
-        node = self.arith()
+        """比较链：== != < <= > >= in / not in（V-P4）。
+
+        issue #401：按 **CPython 语义** `a < b < c` ≡ `(a < b) and (b < c)`（逐对求值、
+        前一对为假即短路，**中间操作数只求值一次**）。修前每遇一个比较符就把已构造的
+        node 当左操作数再套一层 ⇒ 按**左结合**求值 `(a < b) < c` ⇒ 数值区间判断整类算错
+        （`0 <= 15 < 10` 恒 True）。链长 > 1 时产 `("chain", ops, operands)` 节点。
+        """
+        first = self.arith()
+        ops, operands = [], [first]
         while True:
             t = self.peek()
             if t[1] in ("==", "!=", "<", ">", "<=", ">="):
                 self.advance()
-                node = (t[1], node, self.arith())
+                ops.append(t[1])
+                operands.append(self.arith())
             elif t[1] == "in":  # V-P4：成员运算符（in 为 NAME token）
                 self.advance()
-                node = ("in", node, self.arith())
+                ops.append("in")
+                operands.append(self.arith())
             elif t[1] == "not" and self._peek_is_in():  # not in（KEY token）
                 self.advance()
                 self.advance()  # 消费 in
-                node = ("not in", node, self.arith())
+                ops.append("not in")
+                operands.append(self.arith())
             else:
-                return node
+                break
+        if not ops:
+            return first
+        if len(ops) == 1:
+            return (ops[0], operands[0], operands[1])
+        return ("chain", ops, operands)
 
     def _peek_is_in(self):
         """后视：not 后是否跟 in（not in 运算符，区别于逻辑 not 前缀）。"""
@@ -326,6 +341,17 @@ def eval_node(node, env=None):
         return eval_node(node[2], env) if is_truthy(a) else a
     if kind == "not":
         return not is_truthy(eval_node(node[1], env))
+    if kind == "chain":
+        # issue #401：`a < b < c` ≡ `(a<b) and (b<c)`——逐对求值、前一对假即短路，
+        # 中间操作数**只求值一次**（修前按左结合 `(a<b)<c`）。
+        _ops, _operands = node[1], node[2]
+        _prev = eval_node(_operands[0], env)
+        for _i, _op in enumerate(_ops):
+            _cur = eval_node(_operands[_i + 1], env)
+            if not is_truthy(_compare(_op, _prev, _cur)):
+                return False
+            _prev = _cur
+        return True
     if kind in ("==", "!=", "<", ">", "<=", ">=", "in", "not in"):
         return _compare(kind, eval_node(node[1], env), eval_node(node[2], env))
     if kind in ("-", "+") and len(node) == 2:  # 一元（先于二元判断）
@@ -717,6 +743,16 @@ def compile_expr(node):
         code = compile_expr(node[1]) + compile_expr(node[2])
         code.append((_ARITH_VM[kind], None))
         return code
+    if kind == "chain":
+        # issue #401：字节码面按 `and` 语义展开（逐对求值、前一对假即短路）。
+        # 说明：本面中间操作数会被求值两次（VM 无 DUP），仅对**有副作用**的操作数
+        # 可观测；需要严格单次求值请走树遍历面（eval_expr）。
+        _ops, _operands = node[1], node[2]
+        _acc = (_ops[0], _operands[0], _operands[1])
+        for _i in range(1, len(_ops)):
+            _acc = ("and", _acc,
+                    (_ops[_i], _operands[_i], _operands[_i + 1]))
+        return compile_expr(_acc)
     if kind in ("==", "!=", "<", ">", "<=", ">=", "in", "not in"):
         code = compile_expr(node[1]) + compile_expr(node[2])
         code.append((_CMP_VM[kind], None))
@@ -943,7 +979,8 @@ if __name__ == "__main__":
         ("10//3", 3), ("-7//2", -4), ("-7%2", 1), ("3>2", True),
         ("not 1>2", True), ("0 or 5", 5), ("2 and 3", 3),
         ("True or 1/0", True), ("0 and 1/0", 0), ("2**-1", 0.5),
-        ("1<2<3", True), ("(2+3)*4", 20), ("-5+3", -2),
+        ("1<2<3", True), ("0 <= 15 < 10", False), ("2 == 2 == 2", True),
+        ("3 > 2 > 1", True), ("0 <= 5 <= 10", True), ("(2+3)*4", 20), ("-5+3", -2),
     ]
     ok_n = 0
     for src, expect in cases:

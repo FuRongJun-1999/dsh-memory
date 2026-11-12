@@ -61,6 +61,24 @@ _LOG_DIR = os.environ.get("MDCG_TESTLOG_DIR") or os.path.join(
     tempfile.gettempdir(), "md_cg_testlogs")
 
 
+#: 会话类 env 剔除名单（issue #196 / #198，2026-10-13）。宿主/部署侧注入会话 id 时，
+#: md_cg/stg.py::_view_session 的 env 权威分支会把守卫夹具声明的会话改写成 env 值，
+#: 同一守卫在「有 env 的开发机」上红、在干净 CI 上绿，属假红。上游 scripts/run_tests.py
+#: 已有同口径剔除（同名单同日期），而 README 指定的包内入口 python -m md_cg.run_tests
+#: 跑同一批守卫——本文件补同口径，避免两条入口对同一守卫给出相反结论。
+#: env 权威本身是 issue #128 的刻意设计，本条不改变产品行为，只在测试环境剔除。
+_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION")
+_STRIP_UPPER = frozenset(_k.upper() for _k in _SESSION_ENV_STRIP)
+
+
+def _test_env() -> dict:
+    """子进程环境：UTF-8 自保证 + 剔除宿主会话变量（不修改 os.environ 本身）。"""
+    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    for _k in [k for k in env if k.upper() in _STRIP_UPPER]:
+        env.pop(_k, None)
+    return env
+
+
 def _discover():
     """返回 [(组名, 显示名, argv 候选列表)]；argv 依次尝试直到成功启动。"""
     out = []
@@ -95,7 +113,7 @@ def _discover():
 def _run_one(name, argvs, timeout):
     """跑一个用例；输出**重定向到文件**（不用管道——沙箱禁 CreatePipe）。"""
     os.makedirs(_LOG_DIR, exist_ok=True)
-    env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    env = _test_env()
     last = ""
     for argv in argvs:                    # -m 优先；No module named 时回退直跑
         log = os.path.join(_LOG_DIR, name.replace(".", "_") + ".log")
@@ -185,11 +203,29 @@ def main(argv=None):
     groups = set(args.group or ()) or set(_known)
     targets = [(g, n, a) for g, n, a in _discover()
                if g in groups and (not args.k or args.k in n)]
+    # 零选中判定只算一次：--list 与执行路径都要用，两处各自判空会出现两份判断
+    #（形态漂移风险，也被守卫 E2 钉住）。
+    _no_targets = not targets
     if args.list:
         for g, n, _a in targets:
             print(f"{g:<9}{n}")
         print(f"共 {len(targets)} 个")
+        # --list 是「查看有什么」，零选中给 0，但**必须说明原因**，否则用户看到
+        # 「共 0 个」会以为自己拼对了而仓库里真的没有目标（静默缩面）。
+        if _no_targets:
+            print("无匹配目标：group=%s -k=%r —— 请检查选择器拼写"
+                  % (sorted(groups), args.k), flush=True)
         return 0
+
+    # 零选中不得返回 0（与 scripts/run_tests.py 的 #1910 门同口径，2026-11-08 补齐）：
+    # 本模块是**出货包入口**（安装态没有 scripts/，用户只能 `python -m md_cg.run_tests`），
+    # 此前只有 scripts/ 版修过零选中，包内版漏改 ⇒ 安装态用户拼错选择器会看到
+    # `SUMMARY 0/0 通过` + rc=0 的假绿。rc=2 与 scripts 版语义保持一致。
+    if not targets:
+        print("无匹配目标：group=%s -k=%r —— 拒绝以 0/0「通过」收场"
+              "（1_ai 会话报告的假绿缺陷（跨仓 #1910））" % (sorted(groups), args.k),
+              flush=True)
+        return 0 if args.list else 2
 
     # SKIP 探测：依赖缺失/平台不符的测试不执行（外部复核建议 #3，裸 clone 友好）
     skipped, runnable = [], []
@@ -215,12 +251,23 @@ def main(argv=None):
                 for ln in tail.splitlines()[-6:]:
                     print("      " + ln, flush=True)
 
-    print(f"\n===== SUMMARY {len(runnable) - len(bad)}/{len(runnable)} 通过，"
+    _passed = len(runnable) - len(bad)
+    print(f"\n===== SUMMARY {_passed}/{len(runnable)} 通过，"
           f"{len(skipped)} 跳过（依赖缺失/平台不符） =====")
     print(f"逐用例日志：{_LOG_DIR}")
     if bad:
         print("失败：" + ", ".join(bad))
         return 1
+    # 全跳过不得以「通过」收场（2026-11-08，与 scripts/run_tests.py 同口径）：
+    # 目标选中了却一条都没真跑 ⇒ 没验到任何东西，不能报绿。rc=3 与之保持一致
+    # （rc=2 已被本仓占为「有跳过 / 零选中」语义）。
+    # 注：本模块的 _run_one 不识别模块内 SKIP（无 issue #284 那条路径），故只看 skipped。
+    if _passed == 0 and skipped:
+        print("全部跳过：%d 个目标无一真正执行（%d 依赖/平台跳过）"
+              % (len(skipped), len(skipped)), flush=True)
+        print("拒绝以 0 执行「通过」收场（与 #1910 零选中、#284 SKIP 冒充 PASS 同族）。",
+              flush=True)
+        return 3
     return 0
 
 

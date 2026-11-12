@@ -44,6 +44,14 @@ CI_WORKFLOW = ".github/workflows/workspace-index-check.yml"
 # —— 职责真源（本脚本即真源；新增顶层目录 / 根级文件必须在此登记，否则 --check 亮红）——
 # 值 = (职责一句话, [关键入口，相对本目录；目录名亦可])
 DIR_ROLES = {
+    # 2026-11-13 合并：远端新增的前端增量包目录（与 `ui/` 同族，可选、不随 npm 包）。
+    "web": ("灵枢前端 web 壳（可选，配合 build-ui.mjs 生成 ui/ 产物）", []),
+    "ui": ("灵枢极简前端增量包（可选：给已装插件补可视化侧栏；不随 npm 包分发）",
+           ["minimal/install.ps1", "minimal/payload/web/app.js"]),
+    #: 收据目录（receipt 机制）：`完成` 必须带可复现命令输出（见 docs/state/会话状态.md 顶部用法）。
+    #: 登记于此是按纪律 #18「新增顶层目录须在 DIR_ROLES 登记后重生成」——本条属**机械连带产物**。
+    "receipts": ("收据（可复现命令输出的证据面）—— scripts/receipt.py 的 --write/--check/--list 落盘目录",
+                 [".gitkeep"]),
     "md_cg": ("灵枢大脑——记忆系统本体（纯 md 认知图 + 确定性裁决），即标准 stdio MCP server",
               ["mcp_server.py", "mdcg.py", "mdcos.py"]),
     "rust": ("Rust 检索引擎——只读侧检索内核（零第三方依赖，库内嵌 / --serve / 评测器三形态）",
@@ -75,6 +83,8 @@ DIR_ROLES = {
                 ["render_discipline.py", "verify_discipline.py", "cogmap_sync.py"]),
     "test": ("跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成）",
              ["mock_mcp.py", "hive_exec_test.py"]),
+    "tests": ("悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证）",
+              ["test_chain_best_first.py"]),
     "data": ("公开评测数据与裁决留痕",
              ["memory-bench-1000.jsonl", "policy.json"]),
     "docs": ("文档（按工程域分目录，索引见 docs/README.md）",
@@ -91,8 +101,14 @@ DIR_ROLES = {
 
 # 根级文件（同上：未登记即亮红）
 ROOT_FILES = {
+    # 2026-11-13 合并：远端新增的两个根级件 + 本次合并的临时裁决工具。
+    "build-ui.mjs": "前端构建入口（node 侧薄壳，调用 scripts/build_ui.py）",
+    "_children.json": "编排线派活树快照（工具产物，非手写）",
+    ".resconf.py": "**合并期临时工具**：逐块裁决冲突（见 tmp/wt 的冲突裁决记录），合并提交后删除",
+    ".triage.py": "**合并期临时工具**：diff3 三方分类（同上，合并提交后删除）",
     "README.md": "对外主入口（定位 / 核心亮点 / 平台全景 / 接入 / 评测 / 纪律）",
     "AGENTS.md": "本树地基分册（权威侧裁定 / 部署判据 / 不许项）——2026-11-09 起入库",
+    "README.en.md": "English README（docs/en 翻译入口）",
     "LICENSE": "许可",
     "package.json": "npm 包清单（@furongjun1999/dsh-memory，bin 入口与脚本）",
     "package-lock.json": "npm 锁文件（npm ci 可复现）",
@@ -101,6 +117,8 @@ ROOT_FILES = {
     "discussion-post.md": "对外讨论帖留档",
     ".gitignore": "忽略面（本地数据面 / 实验产物 / 构建产物）",
     ".gitattributes": "换行归一（pre-commit 钩子等须 LF 的文件）",
+    "CHANGELOG.md": "变更日志（自 0.9.15 起维护；与 package.json 的 files 同属登记面——新增根级文件时两处都要登记）",
+    "CHANGELOG.en.md": "English changelog（docs/en 翻译入口）",
     "utf8_boot.py": "入口自保证 UTF-8 的单点助手（纯 stdlib、零 md_cg 依赖；"
                     "七个进程入口在任何 I/O 之前调用）",
 }

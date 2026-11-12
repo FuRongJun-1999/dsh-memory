@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """md_cg · 会话归因口径一致性守卫（三处缺口：②session_note 漏 sens / ③审计面未接三态 / ④review_cli 双副本）
 ⑤（同族补齐，2026-10-07）：`session_note` 漏转发**显式 session** 给 add——显式档下
 返回体 / tag / 审计 = 该显式值，而 fm.session 落单点值（未声明档 'unattributed'、

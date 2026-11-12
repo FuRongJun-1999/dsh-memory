@@ -5,7 +5,7 @@
 背景：`~/.zcode/AGENTS.md` 此前是**手写指针**（矩阵 render:false，判据只有指向 / 陈化 /
 工具名随端三检）——不含条款正文，故「手改正文」对守卫不可见；而它是本仓纪律唯一
 「每会话必在」的注入通道（工作区级发现面自 cwd 向上搜到项目根，到不了子目录 zcode/）。
-裁决①：把纪律**声明出口表**（18 条 response.direct 原文）与执行公约内嵌进本件，整件升级为
+裁决①：把纪律**声明出口表**（19 条 response.direct 原文）与执行公约内嵌进本件，整件升级为
 **可渲染、可机械守卫的产物**：
   · 矩阵 zcode-user：render: true + variant `zcode-user`（模板 zcode-user.md.tmpl）；
   · verify_discipline 指针分支新增**第四检**：extract 文本与 R.render(target, src, repo)
@@ -80,7 +80,7 @@ _OLD_FORM_INLINE = """\
 
 ## 当工作目录是灵枢仓库（`<仓根>` 或其后代）时
 
-**会话起始第一件事——包含上下文压缩 / 长会话续接之后**：用 Read 工具读 `<仓根>/zcode/AGENTS.md`（18 条工作纪律 + 执行公约 + 声明出口表）。
+**会话起始第一件事——包含上下文压缩 / 长会话续接之后**：用 Read 工具读 `<仓根>/zcode/AGENTS.md`（19 条工作纪律 + 执行公约 + 声明出口表）。
 
 为什么需要这一步：`zcode/AGENTS.md` 位于仓库**子目录**，而 ZCode 的指令文件发现面是「用户级 `~/.zcode/AGENTS.md` + 工作区级 `<仓根>/AGENTS.md`，且工作区那份自 cwd **向上**搜到项目根」——向上搜索永远到不了子目录。因此它不会被自动注入；本文件（用户级）就是把它拉进上下文的那个钩子。
 
@@ -200,8 +200,10 @@ def _battery(vd, home, cg, live, old_form):
     _ok(os.path.isfile(tpl), "P0 模板文件在场", tpl)
     _ok(("（SHA256 前16位）：" + sha) in live and live.count("zcode/AGENTS.md") >= 1,
         "P0 渲染件含指纹行 + 指向字面量", "")
-    _ok(len([l for l in live.splitlines() if re.match(r"^\| \d+ \| ", l)]) == 18,
-        "P0 渲染件内嵌声明出口表 18 行", "")
+    # 条数从真源现算（纪律 18 → 19 时不再用硬编码 18 打红；判据是「与真源条数一致」）
+    _expect_rows = len(R.load_source(REPO)["subgraph"]["nodes"])
+    _ok(len([l for l in live.splitlines() if re.match(r"^\| \d+ \| ", l)]) == _expect_rows,
+        "P0 渲染件内嵌声明出口表 %d 行" % _expect_rows, "")
     _ok(not re.search(r"[A-Za-z]:[\\/]", live) and "{{" not in live,
         "P0 渲染件无本机盘符路径、无裸 '{{'", "")
 

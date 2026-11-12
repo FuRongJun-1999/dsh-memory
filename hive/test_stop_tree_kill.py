@@ -216,6 +216,19 @@ try:
         RS = f.read()
     check("C4 rust 先例 kill_tree /T /F 未漂移（同仓口径一致）",
           '"/T", "/F"' in RS, "exec.rs 的 taskkill /T /F 形态丢失")
+    # ---- C5/C6（K 组 · task-49 · #156⑦）：rust 侧 kill_tree 的 **unix 臂**
+    # 此前只 child.kill()（直接子进程），孙进程成孤儿——与 python stop 段 N92 前的
+    # 缺陷同族。修法 = 抄本文件 [C2]/[C3] 的同款前提：start_new_session（py）↔
+    # process_group(0)（rust），killpg（py）↔ `kill -TERM -<pgid>`（rust，std 无
+    # killpg 且 D-005 禁第三方 crate ⇒ 与 nt 臂 taskkill 同形态：调系统自带工具）。
+    # 诚实边界同 C2/C3：win32 本机不能动态验证真实群杀，故以源断言守接线。
+    check("C5 rust unix 臂按**进程组**发 TERM，且 argv 带 `--` 分隔符（旧码只 child.kill）",
+          '"-TERM", "--"' in RS and 'format!("-{pid}")' in RS,
+          "exec.rs 的 kill_tree posix 臂群杀缺失，或缺 `--`（procps 下无 `--` 的 `-<N>` "
+          "被当选项/信号解析，pgid≥20 实测静默 no-op 且 rc=0）")
+    check("C6 rust 群杀前提在位：spawn_executor 以 process_group(0) 立组（=py 侧 start_new_session）",
+          "cmd.process_group(0)" in RS,
+          "exec.rs 缺 process_group(0)：群杀会打空（pgid 非子进程自身）")
 except OSError as e:
     check("C4 rust 先例可读", False, f"{type(e).__name__}: {e}")
 

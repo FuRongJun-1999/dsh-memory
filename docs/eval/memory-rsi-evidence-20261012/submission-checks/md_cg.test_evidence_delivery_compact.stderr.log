@@ -1,0 +1,8 @@
+test_all_rendered_text_fits_and_source_spans_stay_exact (__main__.CompactTests.test_all_rendered_text_fits_and_source_spans_stay_exact) ... ok
+test_empty_output_does_not_spend_budget_on_an_unused_schema (__main__.CompactTests.test_empty_output_does_not_spend_budget_on_an_unused_schema) ... ok
+test_metadata_values_round_trip_with_one_shared_schema (__main__.CompactTests.test_metadata_values_round_trip_with_one_shared_schema) ... ok
+
+----------------------------------------------------------------------
+Ran 3 tests in 0.007s
+
+OK

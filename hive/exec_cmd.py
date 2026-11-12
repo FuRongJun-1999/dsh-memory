@@ -27,6 +27,7 @@ command 只收 argv 数组，字符串形态一律拒绝（不经 shell，规避
 退出码：0 成功 / 2 规格错 / 3 执行错（与 exec.py 同形）。
 """
 from __future__ import annotations
+import re
 
 import json
 import os
@@ -83,10 +84,13 @@ def _write_result(job_dir: str, obj: dict) -> None:
 # 生效条件：job_dir 与 msg 传入时写 job_dir/log.txt 一行带时间戳日志（观测面——open 失败降级 stderr，绝不打断任务，对齐 exec.py log 同族）。
 def _log(job_dir: str, msg: str) -> None:
     line = f"[{time.strftime('%H:%M:%S')}] {msg}\n"
+    # #465：改走跨进程安全追加；**保住 :83 的既有生效条件**——
+    # 失败/超时一律降级 stderr、**绝不打断任务**（不得把「写失败」变成抛出）。
     try:
-        with open(os.path.join(job_dir, "log.txt"), "a", encoding="utf-8") as f:
-            f.write(line)
-    except (OSError, TypeError):
+        from hive._append import append_line as _append_line
+    except ImportError:                                    # 脚本方式直跑（无包上下文）
+        from _append import append_line as _append_line
+    if not _append_line(os.path.join(job_dir, "log.txt"), line, tag="exec_cmd"):
         sys.stderr.write(line)
 
 
@@ -120,6 +124,64 @@ def _fail(job_dir: str, msg: str, code: int = EXIT_SPEC, extra: dict | None = No
 # 字符串 `command` 在 :128-131 的规格错执法不一致。
 def _is_num(v) -> bool:
     return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+
+# ---- issue #464：池内 spec 的两道根闸（本件即其载体）---------------------------------
+# ★单点真源 + 派生视图（照 hive/exec.py 的 PII_FAMILIES -> _PII_PATTERNS 既有形态）：
+#   ENV_SECRET_FAMILIES 是**唯一手写清单**；ENV_SECRET_RES 与 is_secret_env_name 均由它派生。
+#
+# 与既有两族的关系（**本表属第三族**，不合并）：
+#   · hive/exec.py 的 PII_FAMILIES -> _PII_PATTERNS：对象是**内容形态**（文本里长什么样）；
+#   · md_cg/interop.py 的 _FORBIDDEN_RES：对象是**发布闸**（哪些串不许进发布物）；
+#   · 本表：对象是**环境变量名**（哪些名字不得继承给子进程）。对象不同故不合并；
+#     且 hive 不得反向依赖 md_cg（C1 腿所钉的约束）⇒ 不能复用 interop 的清单。
+#   · **已知漂移风险**：_FORBIDDEN_RES 与 _PII_PATTERNS 之间已按站点拆分、分叉点有注释与矩阵腿
+#     （hive/exec.py:1176 + md_cg/test_issue419_pii_redaction.py）。本表同样可能漂 —— 故必须登记在此，
+#     **不登记的副本就是下一例**。
+ENV_SECRET_FAMILIES = (
+    ('key', r'(?:^|_)(?:API_?)?KEY(?:$|_)'),
+    ('token', r'(?:^|_)TOKENS?(?:$|_)'),
+    ('secret', r'(?:^|_)SECRETS?(?:$|_)'),
+    ('password', r'(?:^|_)PASS(?:WORD|WD)?(?:$|_)'),
+    ('credential', r'(?:^|_)CREDENTIALS?(?:$|_)'),
+    ('designer_key', r'^AEIS_DESIGNER_KEY$'),
+)  #: 手写唯一真源；新增族只改这里
+#: _PII_PATTERNS 式派生视图
+ENV_SECRET_RES = tuple((label, re.compile(pat)) for label, pat in ENV_SECRET_FAMILIES)
+
+#: 允许的可执行文件（裸名）白名单
+ALLOWED_EXECUTABLES = ('python', 'python3', 'py', 'node', 'npm', 'npx', 'git')
+
+
+# 生效条件：name 为字符串即成立；大小写归一后任一 ENV_SECRET_RES 命中即 True。
+def is_secret_env_name(name) -> bool:
+    n = str(name).upper()
+    return any(rx.search(n) for _lab, rx in ENV_SECRET_RES)
+
+
+# 生效条件：env 为 dict 或 None 即成立；返回剥离敏感键后的新 dict（不改原 dict）。
+def strip_secret_env(env: dict) -> dict:
+    return {str(k): v for k, v in (env or {}).items() if not is_secret_env_name(k)}
+
+
+# 生效条件：argv 为非空字符串列表即成立；返回 None（放行）或错误字符串（拒）。
+def command_root_gate(argv):
+    if not (isinstance(argv, list) and argv and all(isinstance(x, str) for x in argv)):
+        return 'command 必须是非空字符串数组'
+    exe = argv[0]
+    roots = (os.path.dirname(os.path.realpath(sys.executable)),
+             os.path.realpath(tempfile.gettempdir()))
+    if os.sep in exe or (os.altsep and os.altsep in exe):
+        real = os.path.realpath(exe)
+        if not any(real == r or real.startswith(r + os.sep) for r in roots):
+            return ('可执行文件根闸：%s 不在允许根内（%s）——池内 spec 不得执行任意路径的程序'
+                    % (real, ', '.join(roots)))
+        return None
+    if exe not in ALLOWED_EXECUTABLES:
+        return ('可执行文件根闸：%r 不在白名单内（%s）——需新增请改 ALLOWED_EXECUTABLES'
+                % (exe, ', '.join(ALLOWED_EXECUTABLES)))
+    return None
 
 
 def _spec_gate(spec: dict):
@@ -167,6 +229,10 @@ def _norm_steps(spec: dict):
                           '请改 ["python","scripts/x.py"] 形态')
         if not (isinstance(argv, list) and argv and all(isinstance(x, str) for x in argv)):
             return None, f"第 {i} 步 command 必须是非空字符串数组"
+        _gate = command_root_gate(argv)
+        if _gate:
+            return None, "第 %d 步 %s" % (i, _gate)
+
         cwd = s.get("cwd")
         if cwd is not None and not isinstance(cwd, str):
             return None, f"第 {i} 步 cwd 必须是字符串路径——当前是 {type(cwd).__name__}"
@@ -301,7 +367,10 @@ def run_cmd(job_dir: str) -> int:
         return _delegate(job_dir, spec)
 
     env = {str(k): str(v) for k, v in (spec.get("env") or {}).items()}
-    env = {**os.environ, **env}
+    # issue #464：剥离敏感键后再叠加 —— serve 凭据（*_KEY/TOKEN/SECRET/PASSWORD、
+    # AEIS_DESIGNER_KEY）不得经子任务外带；清单派生自 ENV_SECRET_FAMILIES（单一真源）。
+    env = strip_secret_env(env)
+    env = {**strip_secret_env(dict(os.environ)), **env}
     env.setdefault("PYTHONUTF8", "1")
     default_cwd = spec.get("cwd") or spec.get("workdir") or job_dir
     fail_fast = spec.get("fail_fast", True)

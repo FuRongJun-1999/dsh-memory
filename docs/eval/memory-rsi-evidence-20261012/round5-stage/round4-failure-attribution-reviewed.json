@@ -1,0 +1,2650 @@
+[
+  {
+    "task": "dependency-version-2",
+    "family": "dependency-version",
+    "rep": 1,
+    "arm": "B",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_c032abe9639541945f72f6ec",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "from packaging.version import Version",
+          "",
+          "",
+          "return Version(str(installed)) >= Version(str(minimum))"
+        ]
+      },
+      {
+        "id": "rsi_trace_d22767ad770909580df61574",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "import re",
+          "",
+          "_VERSION_RE = re.compile(",
+          "r\"\"\"^\\s*v?",
+          "(?:(?P<epoch>[0-9]+)!)?",
+          "(?P<release>[0-9]+(?:\\.[0-9]+)*)",
+          "(?P<pre>",
+          "[-_.]?",
+          "(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)",
+          "[-_.]?",
+          "(?P<pre_n>[0-9]+)?",
+          ")?",
+          "(?P<post>",
+          "(?:-(?P<post_n1>[0-9]+))",
+          "|",
+          "(?:",
+          "[-_.]?",
+          "(?P<post_l>post|rev|r)",
+          "[-_.]?",
+          "(?P<post_n2>[0-9]+)?",
+          ")",
+          ")?",
+          "(?P<dev>",
+          "[-_.]?"
+        ]
+      }
+    ],
+    "candidate_pool_count": 20,
+    "query": "select vendor artifact by explicit numeric priority, tags opaque identifiers, keep first on tie, None empty inventory",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "rsi_trace_c032abe9639541945f72f6ec": 8,
+      "rsi_trace_d22767ad770909580df61574": 5
+    },
+    "ranked_top4": [
+      {
+        "id": "rsi_trace_0c987b46a035c98159b87202",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "rsi_trace_71d86c3e1b25812ba650ff2f",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "historical-policy-conflict"
+      },
+      {
+        "id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "rsi_trace_5e5fc7ed4fe48b5c27c3a2c7",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "historical-policy-conflict"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "rsi_trace_0c987b46a035c98159b87202",
+      "rsi_trace_71d86c3e1b25812ba650ff2f",
+      "rsi_trace_ef847fa8cc10ff123083e0b6",
+      "rsi_trace_5e5fc7ed4fe48b5c27c3a2c7"
+    ],
+    "actual_delivered_ids": [
+      "rsi_trace_0c987b46a035c98159b87202",
+      "rsi_trace_71d86c3e1b25812ba650ff2f"
+    ],
+    "actual_rejections": [],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_c032abe9639541945f72f6ec",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      },
+      {
+        "trace_id": "rsi_trace_d22767ad770909580df61574",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 1,
+        "observed_added_lines_total": 23
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "rsi_trace_0c987b46a035c98159b87202",
+            "rsi_trace_71d86c3e1b25812ba650ff2f"
+          ],
+          "decision": "reject",
+          "reason": "Both recalled traces concern Mapping-type validation for a dict-normalization task, unrelated to selecting a record by numeric priority. Conditions do not match this problem, so they are not used."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [
+            "rsi_trace_0c987b46a035c98159b87202",
+            "rsi_trace_71d86c3e1b25812ba650ff2f"
+          ],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.0522000000000844
+      }
+    ],
+    "declaration_errors": 0,
+    "edit_count": 1,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def choose_artifact(records):\n    if not records:\n        return None\n    best = records[0]\n    for record in records[1:]:\n        if float(record['priority']) > float(best['priority']):\n            best = record\n    return best\n",
+    "labels": [
+      "D",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\dependency-version-2\\rep-1\\B",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\dependency-version-2\\rep-1\\B",
+    "manual_code_and_tool_evidence": "最终返回整个 record，而原函数和隐藏检查要求 tag。未交付同家族版本经验；不能证明旧版本排序被错误采用。"
+  },
+  {
+    "task": "dependency-version-2",
+    "family": "dependency-version",
+    "rep": 1,
+    "arm": "C",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_c032abe9639541945f72f6ec",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "from packaging.version import Version",
+          "",
+          "",
+          "return Version(str(installed)) >= Version(str(minimum))"
+        ]
+      },
+      {
+        "id": "rsi_trace_d22767ad770909580df61574",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "import re",
+          "",
+          "_VERSION_RE = re.compile(",
+          "r\"\"\"^\\s*v?",
+          "(?:(?P<epoch>[0-9]+)!)?",
+          "(?P<release>[0-9]+(?:\\.[0-9]+)*)",
+          "(?P<pre>",
+          "[-_.]?",
+          "(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)",
+          "[-_.]?",
+          "(?P<pre_n>[0-9]+)?",
+          ")?",
+          "(?P<post>",
+          "(?:-(?P<post_n1>[0-9]+))",
+          "|",
+          "(?:",
+          "[-_.]?",
+          "(?P<post_l>post|rev|r)",
+          "[-_.]?",
+          "(?P<post_n2>[0-9]+)?",
+          ")",
+          ")?",
+          "(?P<dev>",
+          "[-_.]?"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "select vendor artifact by explicit numeric priority, tie keep first, empty returns None",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_6776a5eaad848c425713ae02": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "api-parameter-migration"
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "historical-policy-conflict"
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "configuration-root"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+      "experience_capsule_9332677254388d0a04ee6b12",
+      "experience_capsule_81cbfd87ebd111d5b052106b"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "api_series",
+          "http_client"
+        ]
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_c032abe9639541945f72f6ec",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      },
+      {
+        "trace_id": "rsi_trace_d22767ad770909580df61574",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 23
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+            "experience_capsule_9332677254388d0a04ee6b12",
+            "experience_capsule_81cbfd87ebd111d5b052106b"
+          ],
+          "decision": "reject",
+          "reason": "All retrieved capsules are outside the recorded scope or lack the required conditions (ordering_contract/version_source mismatch, unknown API series, unknown None semantics, unknown configuration root). None applies to selecting a vendor artifact by explicit numeric priority field."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.06440000000020518
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [],
+          "reason": "Recall delivered no source-supported capsules (delivered_ids empty; retrieved items were rejected/deferred as outside scope or missing required conditions). No prior memory applies, so I rely on the source and public context."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.011300000000119326
+      }
+    ],
+    "declaration_errors": 1,
+    "edit_count": 1,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def choose_artifact(records):\n    if not records:\n        return None\n    best = records[0]\n    for record in records[1:]:\n        if record['priority'] > best['priority']:\n            best = record\n    return best\n",
+    "labels": [
+      "D",
+      "G",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\dependency-version-2\\rep-1\\C",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\dependency-version-2\\rep-1\\C",
+    "manual_code_and_tool_evidence": "条件正确拒绝 PEP440 经验，正文为空；发生一次声明 ID 被拒。最终返回整个 record，返回类型仍错。"
+  },
+  {
+    "task": "api-parameter-migration-2",
+    "family": "api-parameter-migration",
+    "rep": 1,
+    "arm": "D",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_f6c2f50fbef75467ac92d515",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://github.com/encode/httpx/releases/tag/0.28.0",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "api_series",
+            "http_client"
+          ]
+        },
+        "action_lines": [
+          "return {'proxy': proxy_url, 'timeout': 10.0 if timeout is None else timeout}"
+        ]
+      },
+      {
+        "id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://github.com/encode/httpx/releases/tag/0.28.0",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "api_series",
+            "http_client"
+          ]
+        },
+        "action_lines": [
+          "options = {'proxy': proxy_url, 'timeout': 10.0 if timeout is None else timeout}",
+          "return options"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "Requests Session.request keyword construction explicit zero timeout proxy mapping caller data",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "api-parameter-migration"
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "experience_capsule_e9d57eebc9d9160b871c58ed",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "failure-safe-publication"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_308659f17dcbcc87407e2a3b",
+      "experience_capsule_e9d57eebc9d9160b871c58ed"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "api_series",
+          "http_client"
+        ]
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "accepted_input_protocol",
+          "ownership"
+        ]
+      },
+      {
+        "id": "experience_capsule_e9d57eebc9d9160b871c58ed",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "failure_policy",
+          "publication_policy"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_f6c2f50fbef75467ac92d515",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 1
+      },
+      {
+        "trace_id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_308659f17dcbcc87407e2a3b",
+            "experience_capsule_e9d57eebc9d9160b871c58ed"
+          ],
+          "decision": "reject",
+          "reason": "Recall returned no delivered/applicable experiences; the four candidate capsules were rejected or deferred for unknown required conditions (ordering_contract, ownership, accepted_input_protocol, failure_policy) and one was outside recorded scope. None is verified for this Requests-2 contract, so I will not apply them; I rely on the current source and the explicit problem statement about proxies mapping, explicit zero timeout, and caller-owned data."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.06530000000020664
+      }
+    ],
+    "declaration_errors": 1,
+    "edit_count": 1,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def request_options(proxy_by_scheme, timeout=None):\n    return {\n        'proxies': proxy_by_scheme if proxy_by_scheme is not None else {},\n        'timeout': 3.0 if timeout is None else timeout,\n    }\n",
+    "labels": [
+      "D",
+      "G",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\api-parameter-migration-2\\rep-1\\D",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\api-parameter-migration-2\\rep-1\\D",
+    "manual_code_and_tool_evidence": "HTTPX 经验因 Requests 条件不符而拒绝；一次声明错误。proxies 字段和 None 超时判断正确，但借用了调用方 proxy mapping，违反独立所有权。"
+  },
+  {
+    "task": "configuration-root-2",
+    "family": "configuration-root",
+    "rep": 1,
+    "arm": "C",
+    "specification_flag": "Unstated exception-class requirement",
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      },
+      {
+        "id": "rsi_trace_b9518df391b0c4d54f836697",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "YAML sequence of nonempty strings, empty document empty list, reject mappings scalars invalid members",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_81cbfd87ebd111d5b052106b": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "historical-policy-conflict"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_81cbfd87ebd111d5b052106b",
+      "experience_capsule_308659f17dcbcc87407e2a3b",
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_9332677254388d0a04ee6b12"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "accepted_input_protocol",
+          "ownership"
+        ]
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      },
+      {
+        "trace_id": "rsi_trace_b9518df391b0c4d54f836697",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_81cbfd87ebd111d5b052106b",
+            "experience_capsule_308659f17dcbcc87407e2a3b",
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_9332677254388d0a04ee6b12"
+          ],
+          "decision": "reject",
+          "reason": "No delivered capsule matched this task's configuration_root=sequence and empty_document=empty_sequence scope; recall returned insufficient evidence with no source-supported rules, so I implement from the local task source and context."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.07129999999961001
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [],
+          "reason": "Recall returned no delivered capsules (all rejected/deferred as outside the configuration_root=sequence, empty_document=empty_sequence scope), so there is no memory to apply; implement from the local source and context."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.011800000000221189
+      }
+    ],
+    "declaration_errors": 1,
+    "edit_count": 2,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [],
+      "error": "candidate import or checker process error"
+    },
+    "final_code": "import yaml\ndef load_extensions(text):\n    value = yaml.safe_load(text)\n    if value is None:\n        return []\n    if not isinstance(value, list):\n        raise TypeError('must be a sequence')\n    for item in value:\n        if not isinstance(item, str) or not item:\n",
+    "labels": [
+      "D",
+      "G"
+    ],
+    "label_evidence": [
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\configuration-root-2\\rep-1\\C",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\configuration-root-2\\rep-1\\C",
+    "manual_code_and_tool_evidence": "规格不足题；最终编辑停在 if 分支后，无函数体，导致 IndentationError。不能只归因于未声明的异常类型。"
+  },
+  {
+    "task": "configuration-root-2",
+    "family": "configuration-root",
+    "rep": 1,
+    "arm": "D",
+    "specification_flag": "Unstated exception-class requirement",
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      },
+      {
+        "id": "rsi_trace_b9518df391b0c4d54f836697",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "YAML sequence of nonempty strings manifest parse, reject mappings/scalars, empty document empty list",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_81cbfd87ebd111d5b052106b": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "historical-policy-conflict"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_81cbfd87ebd111d5b052106b",
+      "experience_capsule_308659f17dcbcc87407e2a3b",
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_9332677254388d0a04ee6b12"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "accepted_input_protocol",
+          "ownership"
+        ]
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      },
+      {
+        "trace_id": "rsi_trace_b9518df391b0c4d54f836697",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      }
+    ],
+    "declarations": [],
+    "declaration_errors": 0,
+    "edit_count": 2,
+    "check_count": 2,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "ValueError: members must be nonempty strings"
+        }
+      ]
+    },
+    "final_code": "import yaml\ndef load_extensions(text):\n    value = yaml.safe_load(text)\n    if value is None:\n        return []\n    if not isinstance(value, list):\n        raise TypeError('must be a sequence')\n    for item in value:\n        if not isinstance(item, str) or not item.strip():\n            raise ValueError('members must be nonempty strings')\n    return list(value)\n",
+    "labels": [
+      "D"
+    ],
+    "label_evidence": [
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\configuration-root-2\\rep-1\\D",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\configuration-root-2\\rep-1\\D",
+    "manual_code_and_tool_evidence": "规格不足题；拒绝非法成员用 ValueError，而隐藏检查要求未在题面说明的 TypeError。保留原失败成绩。"
+  },
+  {
+    "task": "multi-step-url-encoding-1",
+    "family": "multi-step-url-encoding",
+    "rep": 1,
+    "arm": "D",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_537d9977265d905f6c58d196",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": false,
+        "actual_behavior_passed": true,
+        "source": "https://docs.python.org/3.12/library/urllib.parse.html#urllib.parse.quote",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "ACCEPT",
+          "reason": "all_recorded_conditions_confirmed"
+        },
+        "action_lines": [
+          "return quote(segment, safe=\"\")"
+        ]
+      },
+      {
+        "id": "rsi_trace_ce087a5d971b2296ae6be310",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://docs.python.org/3.12/library/urllib.parse.html#urllib.parse.quote",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "ACCEPT",
+          "reason": "all_recorded_conditions_confirmed"
+        },
+        "action_lines": [
+          "return quote(segment, safe=\"\")"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "URL encoding path segments query values encode once slashes list-valued query omit empty question mark",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {},
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "historical-policy-conflict"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_308659f17dcbcc87407e2a3b",
+      "experience_capsule_81cbfd87ebd111d5b052106b",
+      "experience_capsule_9332677254388d0a04ee6b12"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "accepted_input_protocol",
+          "ownership"
+        ]
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_537d9977265d905f6c58d196",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 1
+      },
+      {
+        "trace_id": "rsi_trace_ce087a5d971b2296ae6be310",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 1
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_308659f17dcbcc87407e2a3b",
+            "experience_capsule_81cbfd87ebd111d5b052106b",
+            "experience_capsule_9332677254388d0a04ee6b12"
+          ],
+          "decision": "reject",
+          "reason": "All four capsules were deferred for unknown required conditions not present in this task (ordering_contract, version_source, ownership, configuration_root, settings_contract). Their conditions do not match this small pure URL-composition function, so I will not apply them."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.08020000000033178
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [],
+          "reason": "Recall delivered no usable memory (empty delivered_ids; all four capsules were DEFER with unknown required conditions such as ordering_contract, ownership, configuration_root, settings_contract that this small pure URL-composition function does not expose). No memory rule is applied; I will reason directly from the task source."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.012600000000020373
+      }
+    ],
+    "declaration_errors": 1,
+    "edit_count": 2,
+    "check_count": 2,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "NameError: name 'urlencode' is not defined"
+        }
+      ]
+    },
+    "final_code": "from urllib.parse import quote\n\n\ndef compose_url(base, segments, query):\n    path = '/'.join(quote(str(x)) for x in segments)\n    sep = '?' if query else ''\n    return base.rstrip('/') + '/' + path + sep + urlencode(query, doseq=True)\n",
+    "labels": [
+      "G",
+      "H",
+      "A"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven.",
+      "No qualified family capsule: one of two source sessions failed its terminal protocol despite passing behavior; no forged receipt or gate relaxation."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\multi-step-url-encoding-1\\rep-1\\D",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\multi-step-url-encoding-1\\rep-1\\D",
+    "manual_code_and_tool_evidence": "没有合格的该家族 capsule（一个 A 会话虽行为通过但最终协议失败）；最后调用 urlencode 却未导入，并遗漏 quote(safe=\"\")。应标记 A 阶段合格来源不足，而非一般条件拒绝。"
+  },
+  {
+    "task": "dependency-version-2",
+    "family": "dependency-version",
+    "rep": 2,
+    "arm": "C",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_c032abe9639541945f72f6ec",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "from packaging.version import Version",
+          "",
+          "",
+          "return Version(str(installed)) >= Version(str(minimum))"
+        ]
+      },
+      {
+        "id": "rsi_trace_d22767ad770909580df61574",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "import re",
+          "",
+          "_VERSION_RE = re.compile(",
+          "r\"\"\"^\\s*v?",
+          "(?:(?P<epoch>[0-9]+)!)?",
+          "(?P<release>[0-9]+(?:\\.[0-9]+)*)",
+          "(?P<pre>",
+          "[-_.]?",
+          "(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)",
+          "[-_.]?",
+          "(?P<pre_n>[0-9]+)?",
+          ")?",
+          "(?P<post>",
+          "(?:-(?P<post_n1>[0-9]+))",
+          "|",
+          "(?:",
+          "[-_.]?",
+          "(?P<post_l>post|rev|r)",
+          "[-_.]?",
+          "(?P<post_n2>[0-9]+)?",
+          ")",
+          ")?",
+          "(?P<dev>",
+          "[-_.]?"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "select vendor artifact by explicit numeric priority tags opaque keep first on tie",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_6776a5eaad848c425713ae02": 3
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "historical-policy-conflict"
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "api-parameter-migration"
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_e9d57eebc9d9160b871c58ed",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "failure-safe-publication"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_9332677254388d0a04ee6b12",
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+      "experience_capsule_6776a5eaad848c425713ae02"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "api_series",
+          "http_client"
+        ]
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_c032abe9639541945f72f6ec",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      },
+      {
+        "trace_id": "rsi_trace_d22767ad770909580df61574",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 23
+      }
+    ],
+    "declarations": [],
+    "declaration_errors": 0,
+    "edit_count": 1,
+    "check_count": 0,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def choose_artifact(records):\n    if not records:\n        return None\n    best = records[0]\n    for record in records[1:]:\n        if record['priority'] > best['priority']:\n            best = record\n    return best\n",
+    "labels": [
+      "D",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\dependency-version-2\\rep-2\\C",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\dependency-version-2\\rep-2\\C",
+    "manual_code_and_tool_evidence": "条件正确拒绝 PEP440 经验，正文为空；13 次搜索占用工具预算，最终返回整个 record，未跑最终修复检查。"
+  },
+  {
+    "task": "dependency-version-2",
+    "family": "dependency-version",
+    "rep": 2,
+    "arm": "D",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_c032abe9639541945f72f6ec",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "from packaging.version import Version",
+          "",
+          "",
+          "return Version(str(installed)) >= Version(str(minimum))"
+        ]
+      },
+      {
+        "id": "rsi_trace_d22767ad770909580df61574",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://packaging.python.org/en/latest/specifications/version-specifiers/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "ordering_contract",
+            "version_source"
+          ]
+        },
+        "action_lines": [
+          "import re",
+          "",
+          "_VERSION_RE = re.compile(",
+          "r\"\"\"^\\s*v?",
+          "(?:(?P<epoch>[0-9]+)!)?",
+          "(?P<release>[0-9]+(?:\\.[0-9]+)*)",
+          "(?P<pre>",
+          "[-_.]?",
+          "(?P<pre_l>alpha|a|beta|b|preview|pre|c|rc)",
+          "[-_.]?",
+          "(?P<pre_n>[0-9]+)?",
+          ")?",
+          "(?P<post>",
+          "(?:-(?P<post_n1>[0-9]+))",
+          "|",
+          "(?:",
+          "[-_.]?",
+          "(?P<post_l>post|rev|r)",
+          "[-_.]?",
+          "(?P<post_n2>[0-9]+)?",
+          ")",
+          ")?",
+          "(?P<dev>",
+          "[-_.]?"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "select vendor artifact by numeric priority, tags opaque, tie keep first, empty returns None",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_6776a5eaad848c425713ae02": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "historical-policy-conflict"
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "api-parameter-migration"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_81cbfd87ebd111d5b052106b",
+      "experience_capsule_9332677254388d0a04ee6b12",
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      },
+      {
+        "id": "experience_capsule_9332677254388d0a04ee6b12",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "None_means",
+          "settings_contract"
+        ]
+      },
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "api_series",
+          "http_client"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_c032abe9639541945f72f6ec",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      },
+      {
+        "trace_id": "rsi_trace_d22767ad770909580df61574",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 23
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_81cbfd87ebd111d5b052106b",
+            "experience_capsule_9332677254388d0a04ee6b12",
+            "experience_capsule_c2fa646ef7fe4ff11c6efc09"
+          ],
+          "decision": "reject",
+          "reason": "Recall returned no source-supported capsules applicable to explicit numeric priority ordering; delivered entries were rejected/deferred for unknown or out-of-scope conditions. Proceeding from the task source and context only."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.07800000000042928
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [],
+          "reason": "Recall delivered no applicable memory (all candidates were rejected/deferred for unknown or out-of-scope conditions), so no memory is used; repair from the task source and public context."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.013199999999415013
+      }
+    ],
+    "declaration_errors": 1,
+    "edit_count": 1,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def choose_artifact(records):\n    if not records:\n        return None\n    best = records[0]\n    for record in records[1:]:\n        if record['priority'] > best['priority']:\n            best = record\n    return best\n",
+    "labels": [
+      "D",
+      "G",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\dependency-version-2\\rep-2\\D",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\dependency-version-2\\rep-2\\D",
+    "manual_code_and_tool_evidence": "条件正确拒绝 PEP440 经验，正文为空；一次声明错误。最终按 priority 选择，却返回整个 record。"
+  },
+  {
+    "task": "api-parameter-migration-2",
+    "family": "api-parameter-migration",
+    "rep": 2,
+    "arm": "D",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_f6c2f50fbef75467ac92d515",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://github.com/encode/httpx/releases/tag/0.28.0",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "api_series",
+            "http_client"
+          ]
+        },
+        "action_lines": [
+          "return {'proxy': proxy_url, 'timeout': 10.0 if timeout is None else timeout}"
+        ]
+      },
+      {
+        "id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://github.com/encode/httpx/releases/tag/0.28.0",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "api_series",
+            "http_client"
+          ]
+        },
+        "action_lines": [
+          "options = {'proxy': proxy_url, 'timeout': 10.0 if timeout is None else timeout}",
+          "return options"
+        ]
+      }
+    ],
+    "candidate_pool_count": 9,
+    "query": "Requests Session.request keyword construction zero timeout proxies mapping",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "api-parameter-migration"
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "dependency-version"
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "configuration-root"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+      "experience_capsule_6776a5eaad848c425713ae02",
+      "experience_capsule_308659f17dcbcc87407e2a3b",
+      "experience_capsule_81cbfd87ebd111d5b052106b"
+    ],
+    "actual_delivered_ids": [],
+    "actual_rejections": [
+      {
+        "id": "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+        "state": "REJECT",
+        "reason": "outside_recorded_scope",
+        "fields": [
+          "api_series",
+          "http_client"
+        ]
+      },
+      {
+        "id": "experience_capsule_6776a5eaad848c425713ae02",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "ordering_contract",
+          "version_source"
+        ]
+      },
+      {
+        "id": "experience_capsule_308659f17dcbcc87407e2a3b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "accepted_input_protocol",
+          "ownership"
+        ]
+      },
+      {
+        "id": "experience_capsule_81cbfd87ebd111d5b052106b",
+        "state": "DEFER",
+        "reason": "unknown_required_conditions",
+        "fields": [
+          "configuration_root",
+          "empty_document"
+        ]
+      }
+    ],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_f6c2f50fbef75467ac92d515",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 1
+      },
+      {
+        "trace_id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 2
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_308659f17dcbcc87407e2a3b",
+            "experience_capsule_81cbfd87ebd111d5b052106b"
+          ],
+          "decision": "reject_all",
+          "reason": "Capsules are out-of-scope or have unknown required conditions; no verified condition matches this Requests proxy/timeout task, so they cannot guide the edit."
+        },
+        "result": {
+          "error": "decision must be use, reject or defer"
+        },
+        "elapsed_ms": 0.07210000000031869
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [
+            "experience_capsule_c2fa646ef7fe4ff11c6efc09",
+            "experience_capsule_6776a5eaad848c425713ae02",
+            "experience_capsule_308659f17dcbcc87407e2a3b",
+            "experience_capsule_81cbfd87ebd111d5b052106b"
+          ],
+          "reason": "Out-of-scope (api_series/http_client mismatch) or unknown required conditions (ordering_contract, ownership, configuration_root); none verifiably matches this Requests proxy/timeout keyword task."
+        },
+        "result": {
+          "error": "Only actually delivered memory IDs may be referenced."
+        },
+        "elapsed_ms": 0.07409999999981665
+      },
+      {
+        "name": "memory_use",
+        "args": {
+          "decision": "reject",
+          "ids": [],
+          "reason": "Recall delivered no usable source-supported capsules (insufficient_evidence=true); all listed candidates were out-of-scope or lacked required conditions, so no memory guides this edit."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.01419999999961874
+      }
+    ],
+    "declaration_errors": 2,
+    "edit_count": 1,
+    "check_count": 1,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def request_options(proxy_by_scheme, timeout=None):\n    if timeout is None:\n        timeout = 3.0\n    kwargs = {'proxies': proxy_by_scheme, 'timeout': timeout}\n    return kwargs\n",
+    "labels": [
+      "D",
+      "G",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error.",
+      "Fixed-budget declaration interface errors are directly observed; attention harm remains unproven."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\api-parameter-migration-2\\rep-2\\D",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\api-parameter-migration-2\\rep-2\\D",
+    "manual_code_and_tool_evidence": "HTTPX 正文未交付；reject_all 枚举错误和不可引用 rejected ID 共两次错误。保留正确 Requests 参数，却未复制 proxy mapping。"
+  },
+  {
+    "task": "configuration-root-2",
+    "family": "configuration-root",
+    "rep": 2,
+    "arm": "B",
+    "specification_flag": "Unstated exception-class requirement",
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      },
+      {
+        "id": "rsi_trace_b9518df391b0c4d54f836697",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://pyyaml.org/wiki/PyYAMLDocumentation",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "REJECT",
+          "reason": "outside_recorded_scope",
+          "fields": [
+            "configuration_root",
+            "empty_document"
+          ]
+        },
+        "action_lines": [
+          "data = yaml.safe_load(text)",
+          "if data is None:",
+          "return {}",
+          "if not isinstance(data, dict):",
+          "raise TypeError(\"configuration root must be a mapping\")",
+          "return data"
+        ]
+      }
+    ],
+    "candidate_pool_count": 20,
+    "query": "YAML sequence manifest nonempty strings reject mappings scalars empty document",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [],
+    "target_ranks": {
+      "rsi_trace_ef847fa8cc10ff123083e0b6": 2,
+      "rsi_trace_b9518df391b0c4d54f836697": 1
+    },
+    "ranked_top4": [
+      {
+        "id": "rsi_trace_b9518df391b0c4d54f836697",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "configuration-root"
+      },
+      {
+        "id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "api-parameter-migration"
+      },
+      {
+        "id": "rsi_trace_e13690f08111ed6301704851",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "failure-safe-publication"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "rsi_trace_b9518df391b0c4d54f836697",
+      "rsi_trace_ef847fa8cc10ff123083e0b6",
+      "rsi_trace_0ca3a921ac0c3db99c7898d7",
+      "rsi_trace_e13690f08111ed6301704851"
+    ],
+    "actual_delivered_ids": [
+      "rsi_trace_b9518df391b0c4d54f836697",
+      "rsi_trace_ef847fa8cc10ff123083e0b6"
+    ],
+    "actual_rejections": [],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_ef847fa8cc10ff123083e0b6",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      },
+      {
+        "trace_id": "rsi_trace_b9518df391b0c4d54f836697",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 6
+      }
+    ],
+    "declarations": [
+      {
+        "name": "memory_use",
+        "args": {
+          "ids": [
+            "rsi_trace_b9518df391b0c4d54f836697",
+            "rsi_trace_ef847fa8cc10ff123083e0b6"
+          ],
+          "decision": "reject",
+          "reason": "Both concern a mapping-typed config root (returning dict / TypeError for non-mapping). This task's configuration_root is \"sequence\": accepted root must be a list of nonempty strings, empty document maps to []. Their negative conditions do not transfer; only the safe_load usage pattern is reused."
+        },
+        "result": {
+          "recorded": true,
+          "decision": "reject",
+          "ids": [
+            "rsi_trace_b9518df391b0c4d54f836697",
+            "rsi_trace_ef847fa8cc10ff123083e0b6"
+          ],
+          "scope": "self-declared intended use, separate from edit and external outcome"
+        },
+        "elapsed_ms": 0.07289999999920838
+      }
+    ],
+    "declaration_errors": 0,
+    "edit_count": 2,
+    "check_count": 2,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "ValueError: members must be nonempty strings"
+        }
+      ]
+    },
+    "final_code": "import yaml\ndef load_extensions(text):\n    value = yaml.safe_load(text)\n    if value is None:\n        return []\n    if not isinstance(value, list):\n        raise TypeError('must be a sequence of nonempty strings')\n    result = []\n    for item in value:\n        if not isinstance(item, str) or item == '':\n            raise ValueError('members must be nonempty strings')\n        result.append(item)\n    return result\n",
+    "labels": [
+      "D"
+    ],
+    "label_evidence": [
+      "No source in this family is both derivation-available and within the recorded conditions; rejection may be correct, not a Memory error."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\configuration-root-2\\rep-2\\B",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\configuration-root-2\\rep-2\\B",
+    "manual_code_and_tool_evidence": "规格不足题；拒绝非法成员用 ValueError，而隐藏检查要求 TypeError。收到 mapping 根经验但显式采用 list 根，未见错误根类型迁移。"
+  },
+  {
+    "task": "stale-event-knowledge-1",
+    "family": "stale-event-knowledge",
+    "rep": 2,
+    "arm": "B",
+    "specification_flag": null,
+    "A_success": true,
+    "memory_arm_success": false,
+    "source_write": [
+      {
+        "id": "rsi_trace_7249432c9210057b56146d99",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://www.mongodb.com/docs/manual/reference/operator/update/max/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "ACCEPT",
+          "reason": "all_recorded_conditions_confirmed"
+        },
+        "action_lines": [
+          "new = dict(event)",
+          "if old is None:",
+          "return new",
+          "old_rev = old.get(\"revision\")",
+          "new_rev = new.get(\"revision\")",
+          "if old_rev is not None and (new_rev is None or old_rev >= new_rev):",
+          "return dict(old)",
+          "return new"
+        ]
+      },
+      {
+        "id": "rsi_trace_b5d143ec795c4ad50dda8bdb",
+        "written": true,
+        "hash_valid": true,
+        "successful_session": true,
+        "actual_behavior_passed": true,
+        "source": "https://www.mongodb.com/docs/manual/reference/operator/update/max/",
+        "timestamp": "2026-10-12",
+        "applicability": {
+          "state": "ACCEPT",
+          "reason": "all_recorded_conditions_confirmed"
+        },
+        "action_lines": [
+          "event_copy = dict(event)",
+          "if old is None:",
+          "return event_copy",
+          "old_rev = old.get(\"revision\")",
+          "new_rev = event_copy.get(\"revision\")",
+          "if old_rev is None or (new_rev is not None and new_rev > old_rev):",
+          "return event_copy",
+          "return dict(old)"
+        ]
+      }
+    ],
+    "candidate_pool_count": 20,
+    "query": "per-key latest-state view out-of-order versioned events ignore older/equal revisions keep first on ties nested state isolation",
+    "active_paths": [
+      "lexical"
+    ],
+    "applicable_target_ids": [
+      "rsi_trace_7249432c9210057b56146d99",
+      "rsi_trace_b5d143ec795c4ad50dda8bdb"
+    ],
+    "target_ranks": {
+      "rsi_trace_7249432c9210057b56146d99": 8,
+      "rsi_trace_b5d143ec795c4ad50dda8bdb": 9
+    },
+    "ranked_top4": [
+      {
+        "id": "rsi_trace_0bb5b71f12024eae813aa9a8",
+        "rank": 1,
+        "score": 0.016393,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 1
+          }
+        ],
+        "family": "permission-conjunction"
+      },
+      {
+        "id": "rsi_trace_716e22fe95ef69ffb4f5239e",
+        "rank": 2,
+        "score": 0.016129,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 2
+          }
+        ],
+        "family": "permission-conjunction"
+      },
+      {
+        "id": "rsi_trace_0c987b46a035c98159b87202",
+        "rank": 3,
+        "score": 0.015873,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 3
+          }
+        ],
+        "family": "data-structure-protocol"
+      },
+      {
+        "id": "rsi_trace_0ca3a921ac0c3db99c7898d7",
+        "rank": 4,
+        "score": 0.015625,
+        "qualification": {
+          "state": null,
+          "reason": "judge_disabled"
+        },
+        "paths": [
+          {
+            "path": "lexical",
+            "rank": 4
+          }
+        ],
+        "family": "api-parameter-migration"
+      }
+    ],
+    "actual_retrieved_ids": [
+      "rsi_trace_0bb5b71f12024eae813aa9a8",
+      "rsi_trace_716e22fe95ef69ffb4f5239e",
+      "rsi_trace_0c987b46a035c98159b87202",
+      "rsi_trace_0ca3a921ac0c3db99c7898d7"
+    ],
+    "actual_delivered_ids": [
+      "rsi_trace_0bb5b71f12024eae813aa9a8",
+      "rsi_trace_716e22fe95ef69ffb4f5239e"
+    ],
+    "actual_rejections": [],
+    "delivery_coverage": [
+      {
+        "trace_id": "rsi_trace_7249432c9210057b56146d99",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 8
+      },
+      {
+        "trace_id": "rsi_trace_b5d143ec795c4ad50dda8bdb",
+        "reference_url_delivered": false,
+        "source_timestamp_delivered": false,
+        "observed_added_lines_delivered": 0,
+        "observed_added_lines_total": 8
+      }
+    ],
+    "declarations": [],
+    "declaration_errors": 0,
+    "edit_count": 0,
+    "check_count": 0,
+    "final_check": {
+      "passed": false,
+      "checks": [
+        {
+          "name": "independent_behavior_suite",
+          "passed": false,
+          "error": "AssertionError: "
+        }
+      ]
+    },
+    "final_code": "def rebuild_view(events):\n    result = {}\n    for event in events:\n        result[event['key']] = event\n    return result\n",
+    "labels": [
+      "C",
+      "H"
+    ],
+    "label_evidence": [
+      "Current task public specification is self-contained; paired no-memory run passes. No A-only fact required.",
+      "Applicable source is in full lexical ranking below the fixed top-4 cutoff."
+    ],
+    "F_wrong_adoption_proven": false,
+    "G_attention_harm_proven": false,
+    "boundary": "Observable stages and final-code defects; no claim that Memory caused every paired loss.",
+    "raw_trial": "E:\\lingshu\\work\\memory-round4-formal-20261012\\runs\\formal\\transfer\\stale-event-knowledge-1\\rep-2\\B",
+    "offline_replay": "E:\\lingshu\\work\\memory-diagnosis-round5-20261012\\offline-replay-v2\\stale-event-knowledge-1\\rep-2\\B",
+    "manual_code_and_tool_evidence": "已写入且适用的两条同家族经验排第 8/9，固定 top-4 未取到；不断查找不存在的 task.md，零编辑零检查。存在排序/检索损失，但任务本身可独立求解，不能证明它独自造成失败。"
+  }
+]

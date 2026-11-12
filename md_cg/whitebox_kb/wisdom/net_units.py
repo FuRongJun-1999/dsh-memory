@@ -58,16 +58,21 @@ NET_UNITS = {
 "    # 子功能：① 条件判定 ② 结果处理\n"
 "    # 执行：循环迭代\n"
 "    # 不适用条件：total 越界（Gt）时\n"
-            "    # UDP 校验和（简化）：16 位和进位折叠 → 取反\n"
+            "    # RFC1071（UDP/IP 校验和）：按 **16 位字**累加 + 进位折叠 → 取反\n"
+            "    # （奇数长度补一个零字节；修前按**字节**累加，与 RFC 不符）\n"
+            "    if len(data) % 2:\n"
+            "        data = data + bytes([0])\n"
             "    total = 0\n"
-            "    for b in data:\n"
-            "        total += b\n"
-            "        if total > 0xFFFF:\n"
-            "            total = (total & 0xFFFF) + 1\n"
+            "    for i in range(0, len(data), 2):\n"
+            "        total += (data[i] << 8) + data[i + 1]\n"
+            "        while total > 0xFFFF:\n"
+            "            total = (total & 0xFFFF) + (total >> 16)\n"
             "    return (~total) & 0xFFFF\n"),
-        "cases": [((bytes([1, 2, 3, 4]),), (~10) & 0xFFFF),
+        # issue #401：期望值**不再由同一处误解推出**，改为 RFC1071 参考实现逐例算出
+        # （1,2,3,4 → 0xFBF9；空 → 0xFFFF；FF,FF → 0x0000）。
+        "cases": [((bytes([1, 2, 3, 4]),), 0xFBF9),
                   ((bytes([]),), 0xFFFF),
-                  ((bytes([0xFF, 0xFF]),), (~510) & 0xFFFF)],
+                  ((bytes([0xFF, 0xFF]),), 0x0000)],
         "params": [],
         "calibration": "对照：网络 UDP——校验和（和取反，接收端校验出错）",
     },

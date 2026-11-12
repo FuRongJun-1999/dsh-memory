@@ -254,31 +254,61 @@ export async function llmReview(claim: string, whitebox: VerifyResult['whitebox'
   }
 }
 
+/** 复核结论归一化（issue #354 [P1-4] ④）：剔除零宽字符与中文间隔号后再做关键词判定。
+ *
+ *  缺陷：`c.includes('质疑')` 是字面匹配，`质\u200b疑` / `不·同意` 被分隔后
+ *  整条逃逸成 pass。零宽（U+200B–U+200D / U+FEFF）与间隔号 `·` 不承载语义，
+ *  归一化只作用于**判据副本**（结论原文仍原样写进 result）。 */
+function normalizeConclusion(raw: string): string {
+  return raw.replace(/[\u200B-\u200D\uFEFF\u00B7]/g, '')
+}
+
+/** 负向/分歧信号（单点）：白箱采纳与否都必须**先**于正向词判定。
+ *
+ *  issue #354 [P1-4] ③：旧实现把 `通过` 判在 `质疑` 之前，「通过？仍有质疑」
+ *  先命中正向词即 return pass，`质疑` 分支沦为不可达死代码。 */
+const NEGATIVE_SIGNALS = ['不同意', '不通过', '质疑'] as const
+
+function hasNegative(c: string): boolean {
+  return NEGATIVE_SIGNALS.some((k) => c.includes(k))
+}
+
 /** 综合 verdict（白箱优先） */
 export function combineVerdict(w: VerifyResult['whitebox'],
                                l: VerifyResult['llm_review']): VerifyResult['verdict'] {
-  const c = l.conclusion || ''
+  const c = normalizeConclusion(l.conclusion || '')
   // P1 修复（GPT 审查）：白箱通道异常 → fail-closed（不因复核「同意」而 pass）
   // N268：**复核通道**异常的标记由 llmReview 写在 `l.conclusion`（`llm_error: …`）——
   // 此前只查 w.judgment（该字段只可能由 whiteboxVerify 写 whitebox_error）⇒ 该分支
   // 是死条件，复核抛异常时白箱「采纳」径直判 pass（复核不可用反成「通过」）。
   // 两字段都查：l 侧是真正的生产者口径，w 侧保留同形防御（防上游把异常塞进白箱字段）。
   if (w.judgment.startsWith('whitebox_error') || w.judgment.startsWith('llm_error')
-      || c.startsWith('llm_error') || w.d_norm < 0) {
+      || c.startsWith('llm_error')) {
     return 'needs_revision'
   }
+  // issue #354 [P1-4] ①：白箱距离必须是**有限数值**。旧判据只有 `d_norm < 0`，
+  // 而 NaN / ±Infinity / 字符串 / undefined 与 0 比较恒为 false ⇒ 全部穿透放行。
+  if (typeof w.d_norm !== 'number' || !Number.isFinite(w.d_norm) || w.d_norm < 0) {
+    return 'needs_revision'
+  }
+  // issue #354 [P1-4] ⑤：记录 id 缺省（空串/非字符串）不得放行——没有记录锚点的
+  // 「采纳」无法复核，按证据不足处理。
+  if (typeof w.record_id !== 'string' || !w.record_id.trim()) {
+    return 'needs_revision'
+  }
+  // 白箱明确否定 → fail（此时复核结论为空也不改变结论方向）
+  if (w.judgment.includes('fail') || w.judgment.includes('不成立')) return 'fail'
+  // issue #354 [P1-4] ②：空结论严禁 pass——旧实现 `c = ''` 时白箱采纳直接 pass。
+  if (!c) return 'needs_revision'
   if (w.judgment.startsWith('采纳')) {
     // 白箱采纳：复核质疑/不同意→needs_revision（白箱优先，记录分歧）；否则 pass
-    return c.includes('质疑') || c.includes('不同意') || c.includes('不通过')
-      ? 'needs_revision' : 'pass'
+    return hasNegative(c) ? 'needs_revision' : 'pass'
   }
-  if (w.judgment.includes('fail') || w.judgment.includes('不成立')) return 'fail'
-  // 证据不足/无法判断 → 白箱不确定，交给复核决定（「不同意」须排除「同意」子串）
-  if (c.includes('不同意') || c.includes('不通过')) return 'needs_revision'
+  // 证据不足/无法判断 → 白箱不确定，交给复核决定。
+  // issue #354 [P1-4] ③：负向/分歧信号**优先**判定，正向词不得短路它
+  //（「通过？仍有质疑」必须 needs_revision；`质疑` 不再是死代码）。
+  if (hasNegative(c)) return 'needs_revision'
   if (c.includes('通过') || c.includes('同意')) return 'pass'
-  // P1 修复（GPT 审查）：「质疑」是分歧信号——白箱不确定 + 复核质疑 → 需要修订，
-  // 此前把「质疑」当 pass 与白箱采纳分支语义矛盾。
-  if (c.includes('质疑')) return 'needs_revision'
   return 'needs_revision'
 }
 
@@ -313,8 +343,27 @@ export async function processTask(task: VerifyTask,
     return null // 已被其他实例 claim，或文件不存在
   }
   try {
-    const w = await whiteboxVerify(task.payload.claim, verifyFn)
-    const l = await llmReview(task.payload.claim, w, reviewFn)
+    // issue #354 [P1-5]：rename 成功后**必须从盘上重读 claim**——内存形参不是真源。
+    // 缺陷：旧实现直接 `task.payload.claim` 送审，盘上真实主张 A 可被内存伪造主张 B
+    // 顶替（B 通过审计、A 被 rename 成 done 消费），且盘上文件即使是坏 JSON 也照常放行。
+    // 现在：盘上文件读不出/非 JSON/缺 payload.claim → 抛错（catch 分支把 claim rename
+    // 回 task，不消费、不写 done），审计对象与最终被消费的文件是**同一份**。
+    let actual: VerifyTask
+    try {
+      actual = JSON.parse(fs.readFileSync(claimPath, 'utf-8')) as VerifyTask
+    }
+    catch (e) {
+      throw new Error(`claim 文件不可读或非合法 JSON（拒绝消费）: ${(e as Error).message}`)
+    }
+    const claim = (actual && typeof actual === 'object' && actual.payload
+      && typeof actual.payload.claim === 'string') ? actual.payload.claim : ''
+    if (!claim.trim()) {
+      throw new Error('claim 文件缺少 payload.claim（拒绝消费）')
+    }
+    const sourceRef = (actual.payload && typeof actual.payload.source_ref === 'string')
+      ? actual.payload.source_ref : ''
+    const w = await whiteboxVerify(claim, verifyFn)
+    const l = await llmReview(claim, w, reviewFn)
     const verdict = combineVerdict(w, l)
     const result: VerifyResult = {
       task_id: task.id,
@@ -325,7 +374,7 @@ export async function processTask(task: VerifyTask,
         `白箱判定：${w.judgment}（best=${w.best}，d_norm=${w.d_norm}）`,
         `复核结论：${l.conclusion}`,
       ],
-      evidence: [task.payload.source_ref || ''].filter(Boolean),
+      evidence: [sourceRef].filter(Boolean),
       verifier: 'B',
       at: Date.now() / 1000,
     }

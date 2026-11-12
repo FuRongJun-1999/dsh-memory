@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """导出 en→zh 扁平映射（en_zh_map.json）——rust/mcdg-eval 统一归一层的词表源。
 

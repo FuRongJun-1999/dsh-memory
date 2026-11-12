@@ -1,0 +1,89 @@
+{
+  "baseline": {
+    "test_ascii_uses_entire_budget_and_keeps_fitting_evidence": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.194s\n\nOK\n"
+    },
+    "test_longest_prefix_matches_exhaustive_oracle": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.294s\n\nOK\n"
+    },
+    "test_empty_nonpositive_and_full_fit_keep_contract": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nOK\n"
+    }
+  },
+  "mutations": [
+    {
+      "failures": [
+        "test_ascii_uses_entire_budget_and_keeps_fitting_evidence"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "F\n======================================================================\nFAIL: test_ascii_uses_entire_budget_and_keeps_fitting_evidence (__main__.ExcerptBudget.test_ascii_uses_entire_budget_and_keeps_fitting_evidence)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_excerpt_budget.py\", line 81, in test_ascii_uses_entire_budget_and_keeps_fitting_evidence\n    self.assertIn(\"evidenceKEEP42\", actual)\nAssertionError: 'evidenceKEEP42' not found in 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa…'\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (failures=1)\n",
+      "mutation": "restore_old_conservative_cut",
+      "expected_test": "test_ascii_uses_entire_budget_and_keeps_fitting_evidence",
+      "killed": true
+    },
+    {
+      "failures": [
+        "test_longest_prefix_matches_exhaustive_oracle"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "F\n======================================================================\nFAIL: test_longest_prefix_matches_exhaustive_oracle (__main__.ExcerptBudget.test_longest_prefix_matches_exhaustive_oracle) (text='aaaaaaaaaaaa', budget=1)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_excerpt_budget.py\", line 96, in test_longest_prefix_matches_exhaustive_oracle\n    self.assertEqual(actual, oracle(text, budget))\nAssertionError: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa[53 chars]aaaa' != 'aa…'\n- aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n+ aa…\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.004s\n\nFAILED (failures=1)\n",
+      "mutation": "ignore_budget",
+      "expected_test": "test_longest_prefix_matches_exhaustive_oracle",
+      "killed": true
+    },
+    {
+      "failures": [
+        "test_ascii_uses_entire_budget_and_keeps_fitting_evidence"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "F\n======================================================================\nFAIL: test_ascii_uses_entire_budget_and_keeps_fitting_evidence (__main__.ExcerptBudget.test_ascii_uses_entire_budget_and_keeps_fitting_evidence)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_excerpt_budget.py\", line 82, in test_ascii_uses_entire_budget_and_keeps_fitting_evidence\n    self.assertEqual(len(actual), 319)\nAssertionError: 318 != 319\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n",
+      "mutation": "drop_ellipsis",
+      "expected_test": "test_ascii_uses_entire_budget_and_keeps_fitting_evidence",
+      "killed": true
+    },
+    {
+      "failures": [
+        "test_empty_nonpositive_and_full_fit_keep_contract"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "F\n======================================================================\nFAIL: test_empty_nonpositive_and_full_fit_keep_contract (__main__.ExcerptBudget.test_empty_nonpositive_and_full_fit_keep_contract)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_excerpt_budget.py\", line 102, in test_empty_nonpositive_and_full_fit_keep_contract\n    self.assertEqual(mdcos.excerpt_tokens(text, budget), \"\")\nAssertionError: None != ''\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n",
+      "mutation": "bypass_nonpositive_budget",
+      "expected_test": "test_empty_nonpositive_and_full_fit_keep_contract",
+      "killed": true
+    }
+  ],
+  "restored": {
+    "test_ascii_uses_entire_budget_and_keeps_fitting_evidence": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.205s\n\nOK\n"
+    },
+    "test_longest_prefix_matches_exhaustive_oracle": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.296s\n\nOK\n"
+    },
+    "test_empty_nonpositive_and_full_fit_keep_contract": {
+      "failures": [],
+      "errors": [],
+      "skips": [],
+      "log": ".\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nOK\n"
+    }
+  },
+  "passed": true
+}

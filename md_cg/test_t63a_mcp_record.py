@@ -13,7 +13,7 @@
   · `op=route` 的 intent 搜索（原 mcp_server.py:2380-2381）
   · `mdcg_reflect`（原 mcp_server.py:24-3803）
 
-而 `op=read` 的 query 分支（mcp_server.py:247-2448）本就没传 `record`，
+而 `op=read` 的 query 分支（mcp_server.py::record-2448）本就没传 `record`，
 走缺省 `True` —— 它一直在记，**本套不许它被改动**。
 
 判据（对应 accept ①②③④⑤）
@@ -35,7 +35,7 @@
      reflect 改动后依赖的那条缺省语义，必须钉住（否则改法一失效就静默回归）。
 
 沙箱注记：全程在 tempfile 临时目录里造库，**绝不碰真实 ~/.mdcg**；
-`_access.log` 路径取 `cg.access_log`（mdcg.py:2097 单点），不自己拼路径。
+`_access.log` 路径取 `cg.access_log`（mdcg.py::access_log 单点），不自己拼路径。
 """
 from __future__ import annotations
 

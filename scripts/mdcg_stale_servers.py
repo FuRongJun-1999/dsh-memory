@@ -52,6 +52,7 @@ import ctypes
 import ctypes.wintypes as wt
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -61,9 +62,20 @@ REPO = os.path.dirname(HERE)
 MDCG_DIR = os.path.join(REPO, "md_cg")
 MARK = "md_cg.mcp_server"
 
+# issue #318（2026-10-15 DSH 端）：字段名表是**单一真源**——查询的 Select-Object 与
+# 解析器的字段白名单同出此处。修前解析器只认「行里有冒号」，而 Format-List 是纯
+# 文本、不做转义：CommandLine 的值里带换行时（最常见形态是 node --eval 的多行
+# 脚本），续行只要含冒号就凭空造出**伪记录**（键 = 冒号前的任意片段），
+# probe_processes 的可用性判据④随即命中 ⇒ list / purge / kill 一律 fail-closed。
+PS_FIELDS = ("ProcessId", "ParentProcessId", "Name",
+             "CreationDate", "CommandLine")
+
 PS_QUERY = ("Get-CimInstance Win32_Process | "
-            "Select-Object ProcessId,ParentProcessId,Name,CreationDate,CommandLine | "
+            "Select-Object " + ",".join(PS_FIELDS) + " | "
             "Format-List")
+
+# 字段行判据：**锚定行首**（Format-List 的字段行自列 0 起）且键须在 PS_FIELDS 内。
+_PS_FIELD_RE = re.compile(r"^([A-Za-z][A-Za-z0-9]*)\s*:\s?(.*)$")
 
 # 污染类合同（须先处置再重建）；repo_direct/unknown 不列入。
 POLLUTING_CONTRACTS = ("stale_contract", "foreign_src", "unverified_foreign")
@@ -149,19 +161,27 @@ def _ps(argv_ps: str, timeout: int = 60):
     return (r.stdout or "") + (r.stderr or ""), r.returncode
 
 
-# 生效条件：text 为 Format-List 形态文本（空行分隔的记录块、每块 "Key : Value" 行）时解析为 dict 列表，键值均 strip；无 ":" 的行与空块被跳过，因此输入为空串时返回空列表而不报错。
+# 生效条件：text 为 Format-List 形态文本（空行分隔的记录块）时解析为 dict 列表。
+# 字段行 = **行首**起 `^[A-Za-z][A-Za-z0-9]*\s*:\s?` 且键在 PS_FIELDS 白名单内
+# （issue #318：修前凡含冒号的行都当字段，多行 CommandLine 的续行会造出伪记录）；
+# 不满足的不丢弃，并入**上一个字段**的值（续行归一化——CommandLine 的完整性另有
+# 用途）。空块被跳过，输入为空串时返回空列表而不报错。
 def _parse_ps(text: str) -> list:
-    procs, cur = [], {}
+    procs, cur, key = [], {}, None
     for ln in text.split("\n"):
         s = ln.rstrip("\r")
         if not s.strip():
             if cur:
                 procs.append(cur)
                 cur = {}
+                key = None
             continue
-        if ":" in s:
-            k, v = s.split(":", 1)
-            cur[k.strip()] = v.strip()
+        m = _PS_FIELD_RE.match(s)
+        if m and m.group(1) in PS_FIELDS:
+            key = m.group(1)
+            cur[key] = m.group(2).strip()
+        elif key is not None:
+            cur[key] = (cur[key] + "\n" + s).strip()
     if cur:
         procs.append(cur)
     return procs

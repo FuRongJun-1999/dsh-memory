@@ -289,7 +289,7 @@ def trace(cg, window: int = 50) -> dict:
 # 观测面 2：自信校准（期望正确率 vs 实际验证通过率）
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 cg 的 index.nodes 中满足 evidence_count>0 且 frontmatter 的正例+负例>0 的节点计数 used，在 used >= int(max_scan)（默认 2000，max_scan 为 0 时立即 break 使 used=0）时截断——used 为 0 返回 ok=False/insufficient_data，否则按 used 与常量 MIN_SAMPLES、期望减实际的 gap 与 GAP_OVERCONFIDENT/GAP_UNDERCONFIDENT 判定 verdict（insufficient_data/overconfident/underconfident/calibrated）；
+# 生效条件：形参 cg 的 index.nodes 中满足 evidence_count>0 且 frontmatter 的正例+负例>0 的节点计数 used，在 used >= int(max_scan)（默认 2000，max_scan 为 0 时立即 break 使 used=0）时截断——used 为 0 返回 ok=False/insufficient_data；used 达标但 **Σ正例==0**（全库无 confirmed，issue #829）时 calibrated/overconfident/underconfident 三值一律不判，verdict 落 insufficient_data 且 calibration_defined=False、reason=no_positive_evidence（此时 actual_accuracy 数学上恒 0、gap 恒等于 expected，三值读数不携带信息）；正例存在时按 used 与常量 MIN_SAMPLES、期望减实际的 gap 与 GAP_OVERCONFIDENT/GAP_UNDERCONFIDENT 判定 verdict（insufficient_data/overconfident/underconfident/calibrated）；两种分支的返回体都带 n_by_layer（逐层 节点/正例/负例 构成）；
 def calibration(cg, max_scan: int = 2000) -> dict:
     """自信校准：我说的可信吗？
 
@@ -297,6 +297,18 @@ def calibration(cg, max_scan: int = 2000) -> dict:
     实际正确率 = Σ正例 / Σ(正例+负例)（来自 evidence_log 的聚合计数）。
     gap > 0 → 过度自信；gap < 0 → 过度保守。
     ECE = Σ(证据占比 × |桶内实际 - 桶内自信|)（期望校准误差）。
+
+    issue #829（2026-11-08）：**分母里没有正例时，本函数不判方向**。
+    修前：判据是 `总正例 / (总正例 + 总负例)`，而本仓没有任何生产路径写
+    `confirmed`（`verify(verdict="confirmed")` 只有测试与外部裁决会发），
+    故活库 Σ正例 恒为 0 ⇒ `actual_accuracy` 数学上恒为 0.0、`gap` 恒等于
+    `expected_accuracy` ⇒ `verdict` **恒为 overconfident**。这不是「读数偏低」，
+    是**该字段不携带信息**；下游 `self_state` / `report` / `scrub.calibrate`
+    把它当真读数消费（scrub 会据此向节点写回 confidence 偏置）。
+    恒红比不报更有害，故：Σ正例==0 时 `verdict="insufficient_data"`、
+    `calibration_defined=False`、`reason="no_positive_evidence"`，
+    **expected/actual/gap/ece 照旧如实算并透出**（不隐藏、不编造），
+    另给 `n_by_layer` 让「人口构成」在读数面可见。
     """
     keys = [f"{lo:g}-{hi:g}" for lo, hi in BINS]
     buckets = {k: {"n": 0, "conf_sum": 0.0, "pos": 0, "neg": 0} for k in keys}
@@ -312,6 +324,10 @@ def calibration(cg, max_scan: int = 2000) -> dict:
     # 只把「没进桶」这件事从静默变成可观测。
     dropped_count = 0
     dropped_ids = []
+    # issue #829：逐层人口构成（节点数 / 正例 / 负例）。修前 `n_by_layer`
+    # 在整个包里零命中（#827 早期正文声称「已提」是误记），故「分母为什么
+    # 没有正例」在读数面不可见。
+    pop_by_layer = {}
     for nid, e in _nodes(cg).items():
         if used >= int(max_scan):
             break
@@ -327,6 +343,11 @@ def calibration(cg, max_scan: int = 2000) -> dict:
         exp_sum += conf
         total_pos += pos
         total_neg += neg
+        _lay = str(fm.get("layer") or "unknown")
+        _b = pop_by_layer.setdefault(_lay, {"n_nodes": 0, "pos": 0, "neg": 0})
+        _b["n_nodes"] += 1
+        _b["pos"] += pos
+        _b["neg"] += neg
         placed = False
         for lo, hi in BINS:
             if lo <= conf < hi:
@@ -347,6 +368,8 @@ def calibration(cg, max_scan: int = 2000) -> dict:
         return {"ok": False, "reason": "insufficient_data", "n_nodes": 0,
                 "dropped": 0, "out_of_range": 0, "dropped_ids": [],
                 "dropped_ids_truncated": False,
+                "n_by_layer": {},
+                "calibration_defined": False,
                 "note": "无带证据的节点：先 verify() 积累验证记录"}
     expected = exp_sum / used
     actual = total_pos / max(1, total_pos + total_neg)
@@ -366,7 +389,18 @@ def calibration(cg, max_scan: int = 2000) -> dict:
                      "accuracy": None if acc_b is None else round(acc_b, 4)})
         if n_ev and total_ev:
             ece += (n_ev / total_ev) * abs(conf_b - acc_b)
-    if used < MIN_SAMPLES:
+    # issue #829：**正例入口缺失 ⇒ 不判方向**。
+    # actual = 0/(0+neg) 恒为 0，gap 恒等于 expected，verdict 必然 overconfident。
+    # 这不是「偏过度自信」，是分母里没有正例。故 calibration_defined=False，
+    # 方向三值一律不判（verdict=insufficient_data），期望/实际/gap/ece 仍如实透出。
+    calibration_defined = used >= MIN_SAMPLES and total_pos > 0
+    if total_pos <= 0:
+        reason = "no_positive_evidence"
+    elif used < MIN_SAMPLES:
+        reason = "insufficient_samples"
+    else:
+        reason = None
+    if not calibration_defined:
         verdict = "insufficient_data"
     elif gap > GAP_OVERCONFIDENT:
         verdict = "overconfident"
@@ -383,11 +417,20 @@ def calibration(cg, max_scan: int = 2000) -> dict:
         "dropped_ids": list(dropped_ids),
         "dropped_ids_truncated": dropped_count > len(dropped_ids),
         "n_evidence": total_ev,
+        # issue #829：人口构成透出（分母为什么长这样，读数面可见）。
+        "n_positive": total_pos,
+        "n_negative": total_neg,
+        "n_by_layer": pop_by_layer,
+        "calibration_defined": calibration_defined,
         "expected_accuracy": round(expected, 4),
         "actual_accuracy": round(actual, 4),
         "gap": round(gap, 4),
         "ece": round(ece, 4),
         "verdict": verdict,
+        **({"reason": reason} if reason else {}),
+        **({"note": "分母无正例（无任何 confirmed 裁决）：actual 恒 0、"
+                    "gap 恒等于 expected，方向不判。先积累 confirmed 证据"}
+           if reason == "no_positive_evidence" else {}),
         "bins": bins,
     }
 
@@ -517,7 +560,7 @@ def trust(cg, window: int = 100, max_scan: int = 2000) -> dict:
 # 自报告：汇总 + 确定性建议
 # --------------------------------------------------------------------------
 
-# 生效条件：形参 tr.get("ok") 为假时产出 no_trace；否则按 tr["d2"] > D2_EMOTION 产出 diverging、state_rates["BLINDSPOT"] >= BLINDSPOT_DENSE 产出 blindspot_dense；再按 cal 的 verdict 为 overconfident/underconfident 与 bs.get("unresolved_count", 0) > 0 各自追加；全部未触发时返回单条 stable（形参 tt 在函数体内未被使用）；
+# 生效条件：形参 tr.get("ok") 为假时产出 no_trace；否则按 tr["d2"] > D2_EMOTION 产出 diverging、state_rates["BLINDSPOT"] >= BLINDSPOT_DENSE 产出 blindspot_dense；再按 cal 的 verdict 为 overconfident/underconfident 各自追加（issue #829：cal.calibration_defined 为假时**不追加方向建议**，改追加一条 no_positive_evidence 提示），并按 bs.get("unresolved_count", 0) > 0 追加 open_questions；全部未触发时返回单条 stable（形参 tt 在函数体内未被使用）；
 def _advise(tr, cal, bs, tt) -> list:
     """确定性建议（非 LLM）：每条都带触发它的证据，可复核。"""
     out = []
@@ -542,16 +585,26 @@ def _advise(tr, cal, bs, tt) -> list:
                         "why": f"BLINDSPOT 占比 {rates.get('BLINDSPOT')} >= {BLINDSPOT_DENSE}",
                         "action": "为高频盲区邻域建 unresolved 节点，驱动补条件"})
     verdict = cal.get("verdict")
-    if verdict == "overconfident":
-        out.append({"code": "overconfident",
-                    "why": (f"期望正确率 {cal['expected_accuracy']} > 实际 "
-                            f"{cal['actual_accuracy']}（gap {cal['gap']}）"),
-                    "action": "对高 confidence 节点抽查复核；verify(weakened) 会触发降级"})
-    elif verdict == "underconfident":
-        out.append({"code": "underconfident",
-                    "why": (f"期望正确率 {cal['expected_accuracy']} < 实际 "
-                            f"{cal['actual_accuracy']}（gap {cal['gap']}）"),
-                    "action": "自信偏低：可适度提升已验证节点的召回权重"})
+    # issue #829：方向不判时不产出方向建议——否则「恒 overconfident」会一路
+    # 变成「恒建议抽查复核」，把退化的读数变成退化的行动。
+    # 缺省视为可判（cal.get 无该键 = 旧调用方/单元夹具，保持既有行为）。
+    if cal.get("calibration_defined", True):
+        if verdict == "overconfident":
+            out.append({"code": "overconfident",
+                        "why": (f"期望正确率 {cal['expected_accuracy']} > 实际 "
+                                f"{cal['actual_accuracy']}（gap {cal['gap']}）"),
+                        "action": "对高 confidence 节点抽查复核；verify(weakened) 会触发降级"})
+        elif verdict == "underconfident":
+            out.append({"code": "underconfident",
+                        "why": (f"期望正确率 {cal['expected_accuracy']} < 实际 "
+                                f"{cal['actual_accuracy']}（gap {cal['gap']}）"),
+                        "action": "自信偏低：可适度提升已验证节点的召回权重"})
+    elif cal.get("reason") == "no_positive_evidence":
+        out.append({"code": "no_positive_evidence",
+                    "why": (f"校准分母里正例为 0（{cal.get('n_negative')} 条负例 / "
+                            f"{cal.get('n_positive')} 条正例）：actual 恒 0，"
+                            f"方向不可判，gap={cal.get('gap')} 不构成过度自信证据"),
+                    "action": "为已成立的结论补 verify(confirmed) 正例入口，再重读校准"})
     if bs.get("unresolved_count", 0) > 0:
         out.append({"code": "open_questions",
                     "why": f"unresolved 层有 {bs['unresolved_count']} 个未解问题",

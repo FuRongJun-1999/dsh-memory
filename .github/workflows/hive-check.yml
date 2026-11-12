@@ -17,14 +17,28 @@ on:
       - hive/**
       - .github/workflows/hive-check.yml
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   entry-guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      - name: 环境读数（procps / kill 版本）——kill_tree 群杀语义的判据前提
+        # 为什么要在日志里留这一行：`exec.rs` 的 posix 臂靠系统 `kill` 发进程组 TERM，
+        # 而该 argv 的解析语义**随 procps 版本变**（Debian 4.0.2 上无 `--` 时小 N 偶通、
+        # 大 N 静默 no-op；Ubuntu 24.04 / procps 4.0.4 上无 `--` 则 10/10 静默 no-op 且
+        # rc=0）。本 job 若红在 kill_channel / timeout_kills 两腿，第一件事就是对照本行
+        # 的版本读数判断「是回归」还是「换了个 procps 家族」——不留这行，读数取不到。
+        # 注：procps 的 `kill` **没有** `--version`（实测报 `invalid signal specification`），
+        # 故版本只能从包管理器读；`kill` 自身只打一行路径，用于确认走的是哪个二进制。
+        run: |
+          ls -l /usr/bin/kill /bin/kill 2>&1 || true
+          (dpkg -l procps || rpm -q procps || true) | tail -n 3
       - name: serve 入口口径守卫（窗口 / 单实例三层判据 / 资格来源 / 假存活端到端复现）
         run: python hive/test_serve_entry.py
       - name: rust 单测（含存活判据身份层：无关进程不得被判成 serve）

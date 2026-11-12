@@ -642,6 +642,55 @@ def _real_root():
     return None
 
 
+#: 基线语料量级下界（issue #301）：基线快照（2026-09-15 审计 node_26b0973a）的
+#: knowledge 存量 11195，取其约 1/10 作「这份真源是否**基线语料**」的判据——远低于
+#: 此即不是基线语料（插件活库一类小库，实测 68 节点 / knowledge 10），
+#: E2/E3/E6b 的前提不成立。阈值是**量级**判据而非精确值，故留足一个数量级余量。
+BASELINE_KNOWLEDGE_MIN = 1000
+
+
+def _baseline_scale(nodes):
+    """解析到的真源是否为**基线语料量级**；返回 (bool, knowledge 存量)。
+
+    issue #301：`_real_root()` 的存在性探测只认 `_index.json`——缺基线语料时它会
+    回退到插件活库（`~/.dsh/.dsh-memory/data/mdcg`，实测 68 节点 / knowledge 10），
+    于是 E2（断言 8000≤欠账≤20000）在活库上恒红（实得 75~79）、E6b（断言三类核心
+    issue 必现）同样恒红。这是**前提不成立**（换了语料），不是偏离——须显式区分。
+    """
+    kn = sum(1 for v in (nodes or {}).values()
+             if (v.get("layer") or "") == "knowledge")
+    return kn >= BASELINE_KNOWLEDGE_MIN, kn
+
+
+def _corpus_judgeable(nodes, shared_writes):
+    """E2/E3/E6b 三条**语料面**判据的判据前提是否成立。
+
+    两条前提缺一不可：
+      · 真源是**基线语料量级**（`_baseline_scale`）——否则断言描述的不是这份库；
+      · 真源无外部写入者（`not shared_writes`）——否则统计量由外部写入推动，
+        区间已不描述本进程可控面（与 E11~E16 同款，见其上方取证注释）。
+
+    两条都不成立时**不判红也不静默通过**：由调用方打印「不适用 + 现场值」。
+    反过来说，冻结的基线语料（量级相符、无外部写入者）上三条照常判红——
+    「基线过期」不豁免（与 E11~E16 的边界如实标注同口径）。
+    """
+    scale_ok, _kn = _baseline_scale(nodes)
+    return bool(scale_ok and not shared_writes)
+
+
+def _judge_corpus(d, bb, asm):
+    """E2/E3/E6b：三条**语料面**判据（阈值与标签与基线逐位一致，本次未动一字）。
+
+    独立成函数是为了让「闸门只是前提判断、判据本身没被阉割」可被守卫直接调用自证——
+    否则「修红」与「删判据」在外部观测上不可区分。
+    """
+    ok(8000 <= d["candidates"]["total"] <= 20000,
+       f"E2 真源欠账规模与基线 11195 同量级（实得 {d['candidates']['total']}）")
+    ok(bb["bundles"] <= 3000, f"E3 包数在可评审规模内（实得 {bb['bundles']}）")
+    ok({"missing_field", "dup_content", "weak_source"} <= set(asm["mechanical_by_kind"]),
+       "E6b 真源三类核心 issue 必现（实得 %s）" % sorted(asm["mechanical_by_kind"]))
+
+
 def phase_e():
     print("[E] 集成（真源存在才跑）")
     root = _real_root()
@@ -656,17 +705,15 @@ def phase_e():
     bb = d["bundle_stats"]
     ok(bb["candidates"] == d["candidates"]["total"] and bb["candidates"] > 0,
        "E1 捆绑条目数与候选同口径")
-    ok(8000 <= d["candidates"]["total"] <= 20000,
-       f"E2 真源欠账规模与基线 11195 同量级（实得 {d['candidates']['total']}）")
-    ok(bb["bundles"] <= 3000, f"E3 包数在可评审规模内（实得 {bb['bundles']}）")
     ok(len(nodes) > 0 and d["candidates"]["total"] <= len(nodes) * 4,
        "E4 候选量级与真源节点数相容")
     asm = d["assemble_stats"]
     ok(asm["mechanical_total"] > 0, "E5 真源机械 issue 非空")
     ok(set(asm["mechanical_by_kind"]) <= declared_kinds(),
        f"E6 机械分类 ⊆ 规则库声明（实得 {sorted(asm['mechanical_by_kind'])}）")
-    ok({"missing_field", "dup_content", "weak_source"} <= set(asm["mechanical_by_kind"]),
-       f"E6b 真源三类核心 issue 必现（实得 {sorted(asm['mechanical_by_kind'])}）")
+    # E2/E3/E6b 是**语料面**判据（真源自身的规模与 issue 构成），前提是「解析到的
+    # 真源就是基线语料，且其统计量由本进程可控面推动」——与 E11~E16 同款，故裁决
+    # 延后到 shared_writes 齐备之后（见本函数末尾），此处只留现场值供打印。
     ok(all(k in d["candidates"]["by_source"] for k in CD.SOURCES), "E7 四源统计齐备")
     rep = d.get("assertions") or {}
     ok(rep.get("verdict") in ("PASS", "WARN", "FAIL"),
@@ -741,6 +788,22 @@ def phase_e():
            f"E15 复现 knowledge 存量 11195 量级（实得 {len(kn)}）")
         ok(cov["reach_ratio"] < 0.15,
            f"E16 复现召回率低（reach_ratio {cov['reach_ratio']:.4f}）")
+    # ---- E2/E3/E6b：语料面判据（前提见上方摘除处注释，issue #301）----
+    # 判据一字未动（阈值 8000/20000/3000 与三类核心 issue 逐位不变），只把前提
+    # 显式化：前提不成立时打印「不适用 + 现场值」，与 E10/E11~E16 同口径——
+    # 不静默通过（现场值全部落屏），也不把「换了语料 / 外部写入推动」判成本进程违规。
+    _scale_ok, _kn = _baseline_scale(nodes)
+    if _corpus_judgeable(nodes, shared_writes):
+        _judge_corpus(d, bb, asm)
+    else:
+        print("  E2/E3/E6b 不适用：判据前提不成立（%s）→ 现场值 候选 %d / 包 %d / "
+              "knowledge %d / 机械 issue %s"
+              % ("真源非基线语料量级（knowledge %d < %d）" % (_kn,
+                                                             BASELINE_KNOWLEDGE_MIN)
+                 if not _scale_ok else "真源被外部写入者并发写入",
+                 d["candidates"]["total"], bb["bundles"], _kn,
+                 sorted(asm["mechanical_by_kind"])))
+
     # 边界如实标注（不猜测、不硬凑）：基线「同模板冗余 233 条」无固化判据函数——实测两候选
     # 口径均不等（writelimit.template_signature 全量分组冗余 1949；本引擎 template_flow
     # 严格「只换数字」口径 13），故不纳入机械断言，留待 M3 定位模块抽样核对后固化。

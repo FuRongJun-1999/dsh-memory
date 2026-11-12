@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """批次 34 守卫：V21 报告八项缺陷的能红断言。
 
 V21-1 editKeyHint 无限自递归（TS 侧静态断言）

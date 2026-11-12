@@ -41,7 +41,7 @@ r"""test_t12a_short_ttl —— design 短 TTL 档（add(ttl_hours=...)）五段�
       传旧参数 `valid_until=` 时照旧落旧键 `valid_until`、`effective_until`
       不落（现行 ttl 档在 `md_cg/mdcg.py:3358` 起的 `add()` 签名里，旧键
       仍原样落盘）；`expired_at` 仍随终点派生落（派生点在
-      `md_cg/mdcg.py:3964`，键名真源 `nodefile.EXPIRED_AT_FIELD`
+      `md_cg/mdcg.py::EXPIRED_AT_FIELD`，键名真源 `nodefile.EXPIRED_AT_FIELD`
       → `md_cg/nodefile.py:214`）。
   [E] 边界 ≥3（3 条）：`ttl_hours=-5` 负值零行为（不落任何 ttl 键、
       不改 `effective_until`）；`ttl_hours=1e-6` 极小正值**要走 ttl 档**

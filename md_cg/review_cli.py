@@ -67,6 +67,9 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from md_cg.mdcos import MdCGSecure        # noqa: E402
+# #69 契约面（本批唯一动作）：正文/摘要的取数**单点**——本 CLI 不再自写一份截断逻辑，
+# 将来契约若从甲改乙/丙，只改 mdcos 里那两个函数，CLI 自动跟随。
+from md_cg.mdcos import pending_digest    # noqa: E402
 from md_cg.security import Principal      # noqa: E402
 
 
@@ -114,13 +117,19 @@ def _cg(args):
     # 链路断，在役旧读面 `_load_index` 盲信既有快照即 read null。逐条落
     # 日志后任意退出形态下写入对其它进程立即可见（review_decide 自身的
     # 显式 flush 只覆盖其目标/审计节点，且与节点文件落盘之间仍有窗口）。
-    return MdCGSecure(_root(args), principal=p, autoflush=1)
+    # 生效条件：以 async_flush=False 构造时，上述「逐条落日志」才是**真的**——
+    # #677 P2（2026-10-26）把阈值触发的 flush 挪到后台线程后，只设 autoflush=1
+    # 已经不够：`_request_flush` 只 set 事件即返回，写入只是**被调度**、未落盘；
+    # 本 CLI 是短命进程，被 kill / 崩溃时后台线程未必跑过 ⇒「任意退出形态可见」
+    # 落空（实测：两个 add 后 os._exit，分片日志 0 条）。同步模式把它兑现。
+    return MdCGSecure(_root(args), principal=p, autoflush=1, async_flush=False)
 
 
 # 生效条件：rec 支持 .get 时，取 rec.get("content") 为假值则取 rec.get("statement")、再为假值则取空串，把其中的换行替换为空格，并按 width（缺省 66）切片后仅当 len(text) > width 才追加 "…"，返回该字符串。
 def _brief(rec, width=66):
-    text = (rec.get("content") or rec.get("statement") or "").replace("\n", " ")
-    return text[:width] + ("…" if len(text) > width else "")
+    # #69 单点委派（2026-10-16）：取正文/statement、换行压平、截断加省略号——实现只在
+    # `mdcos.pending_digest` 一处；本函数保留为既有调用方的兼容入口（输出逐位不变）。
+    return pending_digest(rec, width)
 
 
 # 生效条件：rec 支持 .get 且其 kind 为 "mutation" 时返回「变更单(动作名→目标)」标签，其余（含缺键 = 存量提案）返回「提案」；本函数只读，不产生任何副作用；
@@ -158,16 +167,7 @@ def _index_path(root):
 def _build_index(cg):
     """从 review_list() 派生索引条目（单向、可重建、不含正文）。"""
     items = []
-    _rows = cg.review_list() or []
-    for r in _rows:
-        # M5（2026-10-31）：DEFER 指针行的正文在节点里，摘要需回读节点补上
-        # （索引只放摘要、不放正文的口径不变；读不到就留空，不阻断索引）。
-        if not (r.get("content") or "") and (r.get("extra") or {}).get("defer_ref"):
-            try:
-                _n = cg.get(str(r.get("id") or "")) or {}
-                r = dict(r, content=(_n.get("content") or ""))
-            except Exception:                     # noqa: BLE001 —— 摘要降级
-                pass
+    for r in (cg.review_list() or []):
         items.append({
             "pid": r.get("pid"),
             "kind": _kind_label(r),

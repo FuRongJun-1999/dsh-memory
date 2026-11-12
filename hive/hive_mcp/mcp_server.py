@@ -668,11 +668,38 @@ def _alloc_job_id(jobs: str, identity: str, task: str, unit: str) -> str:
 # 不适用条件：**不再自造 id**（B7/B8：`f"h{毫秒}_{uuid6}"` 已退场，id 一律由
 # Rust 侧分配器独占创建得出）；不做槽合法性校验（那是分配器的判据面，
 # 本面不持第二套——B8 四槽必填由 _t_spawn/orch._spawn 在调用前显式拦）。
+# 生效条件：path 的父目录存在且可写；把 obj 以 UTF-8 JSON 写进同目录临时文件、
+# flush+fsync 后 os.replace 覆盖（同卷原子），异常路径清理临时文件后原样重抛。
+def _atomic_write_json(path: str, obj) -> None:
+    """原子落盘（issue #156④）。
+
+    病象：`_submit` 用 `open(path, "w")` 直写 spec.json / status.json——写盘期间
+    读者（serve 的领取扫描、MCP 的 poll、外部 `jq`）可能读到**半截 JSON**：
+    spec 半截会让 rust `spec::validate` 判非法，status 半截会让 poll 报 corrupt
+    （事故信号）而实为提交方仍在写。原子写让「文件出现」与「内容完整」等时。
+    不适用范围：仅保证单文件原子；跨文件（spec 先 / status 后）的**顺序**语义仍由
+    调用方维持（serve 只领取见到 status.json 的任务，该序不变）。
+    """
+    import contextlib
+    import tempfile
+    d = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".tmp-", suffix=".json", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(tmp)
+        raise
+
+
 def _submit(jobs: str, spec: dict, identity: str, task: str, unit: str) -> str:
     job_id = _alloc_job_id(jobs, identity, task, unit)
     d = os.path.join(jobs, job_id)
-    with open(os.path.join(d, "spec.json"), "w", encoding="utf-8") as f:
-        json.dump(spec, f, ensure_ascii=False)
+    _atomic_write_json(os.path.join(d, "spec.json"), spec)   # issue #156④：原子写
     nonce = uuid.uuid4().hex if _result_anchor_key() is not None else None
     status = {
         "job_id": job_id,
@@ -689,12 +716,7 @@ def _submit(jobs: str, spec: dict, identity: str, task: str, unit: str) -> str:
     if nonce:
         # 秘密性归锚密钥；nonce 只求任务内唯一（防锚跨任务复用）
         status["result_nonce"] = nonce
-    with open(os.path.join(d, "status.json"), "w", encoding="utf-8") as f:
-        json.dump(
-            status,
-            f,
-            ensure_ascii=False,
-        )
+    _atomic_write_json(os.path.join(d, "status.json"), status)   # issue #156④：原子写
     return job_id
 
 
@@ -746,7 +768,10 @@ def _read_status(jobs: str, job_id: str):
         st = _cached_json(p, lambda: _load_json_file(p))
     except (OSError, ValueError):
         return None
-    return dict(st) if isinstance(st, dict) else st
+    # issue #155③：**非 dict 一律返 None**（旧版原样返回 list/str 等非映射值，
+    # 调用方按 dict 用即 AttributeError/TypeError 崩到协议面）。与 _read_status_classified
+    # 的「坏」态同口径：拿不到合法 status 就是读不到，绝不把非映射值当 status 传出去。
+    return dict(st) if isinstance(st, dict) else None
 
 
 # 生效条件：jobs 与 job_id 给定；status.json 不存在 → ("absent", None)（提交竞态窗口的正常
@@ -870,6 +895,28 @@ SPAWN_ALLOWED_KEYS = frozenset({
 # 固定为 os.getcwd()，depends_on 非 None 时原样写入列表）并**调 HIVE_EXE alloc-id
 # 分配 id**（`_submit`：本面不自造 id），分配失败（含 HIVE_EXE 不可用）返回
 # ok: False 与原因；成功返回 ok: True 含 job_id/jobs_dir/serve。
+# 生效条件：a 为 _t_spawn 的入参 dict、key 为整型槽名、default 为缺省值；
+# raw 为 None/空串 → (default, None)；可转 int → (int(raw), None)；否则 → (None, 错误文案)。
+def _coerce_int(a: dict, key: str, default: int):
+    """整型入参容错（issue #155②）。
+
+    病象：`_t_spawn` 三处 `int(...)` 裸转（timeout_s / context_budget_tokens /
+    max_tool_rounds）——入参传字符串（MCP 客户端只保证 JSON，不保证类型）即
+    `ValueError` 抛出，崩到**协议面**（工具调用整体失败、无结构化原因），
+    而同一函数的其它入参缺/错一律返回 `{"ok": False, "error": ...}`。
+    本助手把三处收敛成同一形态：非法值不抛异常，交调用方转 ok:False + 可读原因。
+    不适用条件：只处理整数槽；bool 是 int 子类，此处按 int 正常接受（与 JSON 语义一致）。
+    """
+    raw = a.get(key)
+    if raw is None or raw == "":
+        return default, None
+    try:
+        return int(raw), None
+    except (TypeError, ValueError):
+        return None, (f"参数 {key} 须为整数，收到 {raw!r}——请传整数值"
+                      f"（缺省 {default}）；字符串只接受纯十进制数字。")
+
+
 def _t_spawn(a: dict) -> dict:
     unknown = sorted(k for k in a if k not in SPAWN_ALLOWED_KEYS)
     if unknown:
@@ -900,6 +947,21 @@ def _t_spawn(a: dict) -> dict:
             "identity=\"zcode端\", task=\"灵枢迭代\", unit=\"反思单元\")——"
             "单元槽取蜂巢五单元**闭集**（记录单元/反思单元/验证单元/输出单元/维生系统；"
             "英文键 record/reflect/verify/output/sustain 亦可）。")}
+    # issue #155②：三处整型槽的容错校验**前移**到此处——与其它入参校验同段、
+    # 在 _jobs_dir()/_dep_gate/_ensure_serve **之前**（沿用本函数上方「fail fast 在
+    # 触任何文件机械与 serve 之前」的既有原则；旧版裸 int() 既会抛异常崩到协议面，
+    # 又发生在 _ensure_serve 之后——坏入参本不该拉起 serve）。
+    _timeout_s, _err = _coerce_int(a, "timeout_s", DEFAULT_TIMEOUT_S)
+    if _err:
+        return {"ok": False, "error": _err}
+    _budget, _err = _coerce_int(a, "context_budget_tokens", DEFAULT_CONTEXT_BUDGET_TOKENS)
+    if _err:
+        return {"ok": False, "error": _err}
+    _rounds = None
+    if a.get("max_tool_rounds"):
+        _rounds, _err = _coerce_int(a, "max_tool_rounds", 0)
+        if _err:
+            return {"ok": False, "error": _err}
     jobs = _jobs_dir()
     for rel in a.get("context_files") or []:
         path = rel if os.path.isabs(rel) else os.path.join(os.getcwd(), rel)
@@ -918,10 +980,9 @@ def _t_spawn(a: dict) -> dict:
     if a.get("context_files"):
         spec["context_files"] = a["context_files"]
     # —— 统一子代理执行配置：缺省即注入（显式传值优先）
-    spec["timeout_s"] = int(a.get("timeout_s") or DEFAULT_TIMEOUT_S)
+    spec["timeout_s"] = _timeout_s          # issue #155②：容错校验已前移
     spec["reasoning_effort"] = a.get("reasoning_effort") or DEFAULT_REASONING_EFFORT
-    spec["context_budget_tokens"] = int(
-        a.get("context_budget_tokens") or DEFAULT_CONTEXT_BUDGET_TOKENS)
+    spec["context_budget_tokens"] = _budget   # issue #155②：容错校验已前移
     if a.get("context_strict") is not None:
         # 旧 fail fast 开关（缺省=达预算交回续跑）；显式传值优先。
         spec["context_strict"] = bool(a["context_strict"])
@@ -934,7 +995,7 @@ def _t_spawn(a: dict) -> dict:
     if a.get("tools"):
         spec["tools"] = a["tools"]
     if a.get("max_tool_rounds"):
-        spec["max_tool_rounds"] = int(a["max_tool_rounds"])
+        spec["max_tool_rounds"] = _rounds    # issue #155②：容错校验已前移
     if a.get("mdcg_root"):
         spec["mdcg_root"] = a["mdcg_root"]
     if a.get("web_search_backend"):

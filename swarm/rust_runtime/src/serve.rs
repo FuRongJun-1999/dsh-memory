@@ -78,10 +78,16 @@ mod serde_like {
         }
     }
 
+    /// 嵌套深度上限（#156⑧ · K 组 task-49）：与 swarm.rs 的 serde_json_like::MAX_DEPTH
+    /// **同值同因**——本解析器同样递归下降且无界，深嵌套请求行会让 serve 栈溢出
+    /// abort（不可捕获、整进程死）。两处解析器各自独立实现（各有历史原因：本模块
+    /// 头注「独立小实现避免循环依赖」），故上限必须**两处都补**，只补一处等于没补。
+    const MAX_DEPTH: usize = 256;
+
     pub fn parse(s: &str) -> Result<Value, String> {
         let b: Vec<char> = s.chars().collect();
         let mut i = 0usize;
-        let v = parse_value(&b, &mut i)?;
+        let v = parse_value(&b, &mut i, 0)?;
         skip_ws(&b, &mut i);
         Ok(v)
     }
@@ -92,7 +98,11 @@ mod serde_like {
         }
     }
 
-    fn parse_value(b: &[char], i: &mut usize) -> Result<Value, String> {
+    fn parse_value(b: &[char], i: &mut usize, depth: usize) -> Result<Value, String> {
+        // #156⑧：同 swarm.rs 的深度闸——超限 Err 落「解析失败」面，不放任递归。
+        if depth > MAX_DEPTH {
+            return Err(format!("嵌套过深（>{MAX_DEPTH} 层）——拒绝解析以防栈溢出"));
+        }
         skip_ws(b, i);
         match b.get(*i) {
             Some('{') => {
@@ -116,7 +126,7 @@ mod serde_like {
                                 return Err("对象缺 ':'".into());
                             }
                             *i += 1;
-                            let v = parse_value(b, i)?;
+                            let v = parse_value(b, i, depth + 1)?;
                             m.insert(k, v);
                         }
                         _ => return Err("对象结构非法".into()),
@@ -136,7 +146,7 @@ mod serde_like {
                         Some(',') => {
                             *i += 1;
                         }
-                        _ => items.push(parse_value(b, i)?),
+                        _ => items.push(parse_value(b, i, depth + 1)?),
                     }
                 }
             }
@@ -389,5 +399,19 @@ mod escape_parity_tests {
             }
             assert_eq!(got.as_deref(), Some(s), "往返不等：{s:?} → {line:?}");
         }
+    }
+
+    /// #156⑧ 守卫（K 组 · task-49）：本模块的请求读侧**同样**是递归下降（与 swarm.rs
+    /// 的 serde_json_like 是两份独立实现），故上限必须**两处都补**——只补一处等于没补。
+    /// 深嵌套请求行必须得到 Err 而不是把 serve 的栈吃穿（栈溢出 = 整进程 abort）。
+    #[test]
+    fn deep_nesting_is_rejected_not_aborting() {
+        let deep = format!("{}{}{}", "[".repeat(5000), "1", "]".repeat(5000));
+        match parse(&deep) {
+            Err(e) => assert!(e.contains("嵌套过深"), "拒绝原因须可读（点名嵌套过深）：{e}"),
+            Ok(_) => panic!("深嵌套未被拒绝（递归无上限 ⇒ serve 栈溢出 abort）"),
+        }
+        let shallow = format!("{}{}{}", "[".repeat(100), "1", "]".repeat(100));
+        assert!(parse(&shallow).is_ok(), "上限内结构被误拒（上限过紧）");
     }
 }

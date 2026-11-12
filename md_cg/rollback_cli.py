@@ -4,6 +4,8 @@
 用法（root 须与执行该变更单的部署一致：--root 或环境变量 MDCG_ROOT）：
   python -X utf8 -m md_cg.rollback_cli --root <root> --pid <pid>
   python -X utf8 -m md_cg.rollback_cli --root <root> --pid <pid> --reason "..."
+  python -X utf8 -m md_cg.rollback_cli --root <root> --pid <pid> --dry-run
+  python -X utf8 -m md_cg.rollback_cli --root <root> --pid <pid> --force
 
 本模块是**回滚命令串的载体**：变更单执行时点的 `rollback` 字段即指向本 CLI
 （`md_cg.rollback.command_for` 构造，随执行记录落 decisions.jsonl 的
@@ -18,6 +20,14 @@
        · D 删除 → 既有 restore（trash + 删除清单口径）+ 前像校准；
   3. 输出 JSON（stdout）：`ok` + `bytes_equal_preimage`（逐字节比对前像读数）
      + `residual`（残留核对：边/索引条目/聚合行三面）。
+
+**#352-A（2026-10-15）两个新开关**（缺省行为一字不变）：
+  · `--dry-run`：只回报「将被覆写的差异」与漂移判定，**不落盘**——执行回滚的人
+    在动手前能看到这次回滚会抹掉什么；
+  · `--force`：显式越过**漂移闸**（`drifted_since_execute`）与 `_land` 的
+    保护闸。改前这两道判据都不存在：执行之后的写入被静默覆写、immutable 目标
+    被覆写且标记被清掉，回执仍是 `ok:true`。改后二者都 fail-closed，只有显式
+    `--force` 才放行（并把 force 写进返回体与回滚留痕）。
 
 退出码：0 = 回滚完成（读数照实打印，含校准等如实字段）；1 = 未回滚
 （错误体照实打印——绝不假装成功）。
@@ -77,6 +87,11 @@ def main(argv=None):
     ap.add_argument("--root", help="存储根目录（默认环境变量 MDCG_ROOT）")
     ap.add_argument("--pid", required=True, help="变更单的裁决 pid（accept 记录）")
     ap.add_argument("--reason", default="", help="回滚理由（进返回体）")
+    ap.add_argument("--dry-run", dest="dry_run", action="store_true",
+                    help="只回报将被覆写的差异与漂移判定，不落盘（#352-A）")
+    ap.add_argument("--force", action="store_true",
+                    help="越过漂移闸与保护闸（#352-A；显式承担抹掉执行之后"
+                         "写入的后果）")
     args = ap.parse_args(argv)
 
     cg = MdCGOS(_root(args), autoflush=1)
@@ -90,8 +105,13 @@ def main(argv=None):
             print(json.dumps(out, ensure_ascii=False))
             return 1
         out = _rb.rollback_mutation(cg, rec["mutation"], reason=args.reason,
-                                    actor="rollback-cli")
+                                    actor="rollback-cli", pid=args.pid,
+                                    force=args.force, dry_run=args.dry_run)
         print(json.dumps(out, ensure_ascii=False, default=str))
+        # dry-run 是**只读预演**：即使判定「会拒绝」（漂移）也返回 0——它没有
+        # 拒绝任何东西（什么都没做），把预演结果当退出码会让调用方以为回滚失败。
+        if args.dry_run:
+            return 0
         return 0 if out.get("ok") else 1
     finally:
         # 收尾（与 review_cli 同款）：回滚落盘经 _dirty→flush→_index_log，

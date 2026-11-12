@@ -15,7 +15,7 @@ npm i @furongjun1999/dsh-memory
 cordis.yml:
 
 ```yaml
-- id: lingshu-memory
+- id: furongjun1999-dsh-memory
   name: '@furongjun1999/dsh-memory'
   config:
     serverName: 'lingshu'

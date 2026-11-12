@@ -19,9 +19,38 @@ import hmac as _hmac
 import json
 import os
 import subprocess
+import sys
 from typing import Dict, List, Optional
 
-from .rust_codegen import build_rust_exe
+# issue #125：build_rust_exe 改为**惰性 re-export** —— 原顶层相对导入会把
+# rust_codegen 的 compiler 顶层硬导入**二级传导**到本模块，隔离根下 import 即失败；
+# 但模块属性面必须照旧（swarm/tests/test_swarm_fault.py 有
+# `from swarm.rust_swarm import ... build_rust_exe ...`）。
+
+_LAZY_EXPORTS = {
+    "build_rust_exe": ".rust_codegen",
+}
+
+
+def __getattr__(name):
+    """issue #125 · PEP 562 惰性 re-export。
+
+    导入期**不得**触发 compiler（隔离根下本模块须可导入）；但模块属性面必须照旧：
+    `from X import 名` 与 `mock.patch("X.名")` 都经本函数取真身并**写回 globals 缓存**，
+    语义与顶层 import 等价（第二次起直接命中模块字典，零开销）。
+    """
+    target = _LAZY_EXPORTS.get(name)
+    if target is None:
+        raise AttributeError("module %r has no attribute %r" % (__name__, name))
+    import importlib
+    value = getattr(importlib.import_module(target, __package__), name)
+    globals()[name] = value
+    return value
+
+
+# 模块自引用：模块内使用惰性导出名时走**属性访问**（触发 __getattr__，并命中
+# mock.patch 打在模块属性上的补丁）——裸名查找不会触发模块 __getattr__。
+_me = sys.modules[__name__]
 
 ALGO = "rust_swarm-0.1"
 DEFAULT_SECRET = "蜂群默认密钥"
@@ -112,7 +141,7 @@ def run_swarm(project_dir: str, config: Dict, wal_path: str = "events.jsonl",
     cfg_path = os.path.join(project_dir, "swarm.json")
     with open(cfg_path, "w", encoding="utf-8") as f:
         json.dump(config, f, ensure_ascii=False)
-    exe = exe or build_rust_exe(project_dir)
+    exe = exe or _me.build_rust_exe(project_dir)   # issue #125：惰性解析（不经顶层导入）
     wal_full = os.path.abspath(os.path.join(project_dir, wal_path))
     cmd = [exe, "swarm", "--config", cfg_path, "--wal", wal_full]
     if pbc_path:

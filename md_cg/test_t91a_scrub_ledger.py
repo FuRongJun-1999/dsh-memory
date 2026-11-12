@@ -56,7 +56,7 @@ FAILS = []
 #: 回拨 2h 保证必被判陈旧（确定性，不靠等时间）。
 STALE_BACKDATE_S = 7200.0
 
-#: G4 钉死的既有键（`_tick_scrub` 的**内存账行**形态基线 = 改动前 `sustain.py:1986-1718`）。
+#: G4 钉死的既有键（`_tick_scrub` 的**内存账行**形态基线 = 改动前 `sustain.py::_tick_scrub-1718`）。
 LEGACY_KEYS = ("t", "ok", "n_issues", "n_high_medium", "applied",
                "already_handled", "planned_dry_run", "checked_breakdown",
                "seed", "dry_run")

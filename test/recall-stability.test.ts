@@ -42,6 +42,10 @@ function makeCtx(): {
   installMemoryHooks(ctx, {
     isReady: () => true,
     async timeline() { return payload },
+    // 用户回合会触发自动记忆写入（memorize → remember + 读回），mock 补齐。
+    async remember() { return { ok: true, id: 'n1' } },
+    async read() { return { ok: true, content: 'x', frontmatter: {} } },
+    async write() { return { ok: true } },
   } as never, {
     userMessage: true, assistantMessage: false, toolResult: false,
     importance: 0.6, autoRecall: true, autoRecallLimit: 4, desensitize: true,
@@ -76,7 +80,50 @@ test('① 记忆不变时：注入块每步照旧 push，渲染文本逐字节�
     assert.ok(rendered.includes('【灵枢最近记忆】'), `第 ${step} 步应注入召回块`)
   }
 
-  assert.equal(appends, 1, '12 步内容不变：只应在第一步追加一份快照（旧实现会追加 2 份/8 步）')
+  // 判据重述（2026-10-23，issue #645）：提醒的计轮单位改成**真实用户回合**后，
+  // 没有新用户消息的 12 次 assemble 不会再插提醒 ⇒ 只追加首份快照。
+  // issue #739（2026-11-06）：注入面加了**会话内去重**（同一条最多 2 次），于是第 3 步
+  // 起条目从 2 条收缩到 1 条 —— 那一次收缩**必然**产生一份新快照（文本变了），之后恢复稳定。
+  // 代价是被限界的：每个条目一生只触发**一次**收缩；换来的是旧会话里「18 条被贴 362 次、
+  // 单条 ×62」的复述式退化（实测 --D-6_ai--/session-c28c8589…）。
+  // issue #739：注入面加了会话内去重（同一条最多 2 次）后，本用例不再恒为 1 份快照：
+  // 首份 + 若干次「条目到期收缩」。收缩次数上界 = 条目数（每条一生只掉一次），
+  // 此后文本恒定、宿主不再追加 —— 要钉的是**有界性**，不是某个精确数字（实测在 2~3 间浮动，
+  // 取决于 timeline 每步返回的条目数）。
+  assert.ok(appends >= 1 && appends <= 3, `去重后的追加次数应有界（实测 ${appends}，上界=首份+条目数）`)
+
+  // 正对照：走满 10 个真实用户回合后，**下一次** assemble 会带来一次功能性变化
+  // （提醒块出现），之后不再重复（不 sticky）。
+  const onEvent = listeners.get('session/event') as unknown as
+    (session: unknown, event: unknown) => void
+  assert.ok(onEvent, '应注册 session/event 监听')
+  for (let turn = 1; turn <= 10; turn++) {
+    onEvent({ id: 'sess-1', header: {} }, {
+      type: 'user/message',
+      data: { source: { kind: 'user' }, content: [{ type: 'text', text: '第' + turn + '轮' }] },
+    })
+  }
+  const stepOnce = async (): Promise<void> => {
+    const assembly: Assembly = { contexts: [{ name: 'clock', text: '当前时间 12:00' }], variables: {} }
+    await handler(assembly, { agent: { session: { id: 'sess-1', header: {} } } }, async () => assembly)
+    const rendered = renderContextSnapshot(assembly)
+    if (hostAppends(retained, rendered)) { appends++; retained = rendered }
+  }
+  // issue #739（2026-11-06）：注入去重会让「文本何时变化」不再是固定的步数点（收缩步可能与
+  // 提醒步重合），因此这里**不再断言 appends 的精确增量**，改为直接断言**功能面**：
+  // 提醒块出现一次、下一步消失（不 sticky）。这正是 #645 要保证的性质，且不受注入去重影响。
+  const ctxNames = (a: Assembly): string[] => (a.contexts ?? []).map((c) => c.name)
+  const stepCtx = async (): Promise<string[]> => {
+    const assembly: Assembly = { contexts: [{ name: 'clock', text: '当前时间 12:00' }], variables: {} }
+    await handler(assembly, { agent: { session: { id: 'sess-1', header: {} } } }, async () => assembly)
+    const rendered = renderContextSnapshot(assembly)
+    if (hostAppends(retained, rendered)) { appends++; retained = rendered }
+    return ctxNames(assembly)
+  }
+  const firstTurn = await stepCtx()
+  assert.ok(firstTurn.includes('lingshu:turn-reminder'), '第 10 回合后的首次 assemble 应带提醒块')
+  const secondTurn = await stepCtx()
+  assert.ok(!secondTurn.includes('lingshu:turn-reminder'), '提醒只出现一步（不 sticky）')
 })
 
 test('② 记忆真变了才追加：内容变化 → 恰好多一份；之后再次稳定', async () => {

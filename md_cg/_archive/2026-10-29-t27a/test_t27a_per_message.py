@@ -23,7 +23,17 @@ if HERE not in sys.path:
     sys.path.insert(0, HERE)
 
 from md_cg import judgment_rules as jr                      # noqa: E402
-from md_cg.t27a_per_message import VERDICT_KEYS             # noqa: E402
+
+# 2026-11-12 合并：本件是 2026-10-29 的**归档测试**，被测模块
+# `md_cg/t27a_per_message.py` 在本树与远端**两侧都不存在**（已随批次移除）⇒
+# 无被测面可判。按本仓既有的「依赖缺失 ⇒ SKIP」口径如实报，而不是让
+# ModuleNotFoundError 冒充「测试失败」（那会把真回归信号淹掉）。
+try:
+    from md_cg.t27a_per_message import VERDICT_KEYS         # noqa: E402
+except ImportError:
+    print("SKIP  缺依赖 md_cg.t27a_per_message（该模块已从本树移除，归档件无被测面）")
+    raise SystemExit(0)
+
 from md_cg.t27a_per_message import map_role                 # noqa: E402
 from md_cg.t27a_per_message import per_message_verdicts     # noqa: E402
 

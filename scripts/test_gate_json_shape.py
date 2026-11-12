@@ -138,11 +138,33 @@ def main():
                   "rc=%s out=%s" % (got.returncode, got.stdout[-200:]))
 
         print("[5] 反向腿：合法放行态与拒绝态不受影响")
+        # issue #126 新契约：真放行须有合法冻结凭证（外部锚 A3）。
+        # 用被测代码自己的 freeze() 产出真凭证，再令声明指纹 == digest。
+        from md_cg.interop import freeze as _freeze
+        cred = _freeze("zz-shape-s6", out_dir=tmp)
         _write(vp, json.dumps({"verdict": "pass", "valid": True,
                                "assertions_ok": True, "failure_reason": None,
-                               "passed": 9, "failed": 0}))
+                               "passed": 9, "failed": 0,
+                               "verifier_fingerprint": cred["digest"]}))
         got = _run([_IG, "--path", vp])
-        check("S6 verdict=pass/valid=true → exit 0", got.returncode == 0, got.stdout)
+        check("S6 凭证齐备 + verdict=pass/valid=true → exit 0",
+              got.returncode == 0, got.stdout)
+        # issue #126 A3 阻因：无凭证 / 伪造 / 不可解析 / 缺 digest ⇒ 拒收（非 0）。
+        frz_fp = os.path.join(tmp, "frozen.json")
+        os.remove(frz_fp)
+        got = _run([_IG, "--path", vp])
+        check("S6 无冻结凭证 → 拒收（非 0）", got.returncode != 0, got.stdout)
+        _write(frz_fp, json.dumps({"digest": "0" * 64}))
+        got = _run([_IG, "--path", vp])
+        check("S6 伪造凭证（digest 不符）→ 拒收（非 0）",
+              got.returncode != 0, got.stdout)
+        _write(frz_fp, "{ not json")
+        got = _run([_IG, "--path", vp])
+        check("S6 凭证不可解析 → 拒收（非 0）", got.returncode != 0, got.stdout)
+        _write(frz_fp, json.dumps({"iter_id": "zz", "files": []}))
+        got = _run([_IG, "--path", vp])
+        check("S6 凭证缺 digest → 拒收（非 0）", got.returncode != 0, got.stdout)
+        os.remove(frz_fp)
         _write(vp, json.dumps({"verdict": "fail", "valid": False,
                                "assertions_ok": True,
                                "failure_reason": "suite_failed",

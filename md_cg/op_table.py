@@ -59,6 +59,14 @@ _OP_TABLE = {
             "dedupe",
             "strict_conditions",
     "exclude_doc",
+            # issue #721：检索期按标签过滤（域隔离）。三条判据显式声明，改口径须同步改注释：
+            #   · 多标签 = OR —— 命中**任一**即保留（include）/ 即剔除（exclude）；
+            #   · 匹配 = **全等** —— 不做前缀（否则 dom:work 会误命中 dom:workshop）；
+            #   · 无匹配 = **返回空集，不报错** —— 空集是合法检索答案。
+            # 优先级：exclude 命中先剔除，**优先于** include。
+            # 缺省不传 => 完全跳过过滤分支，既有调用方行为逐位不变（向后兼容）。
+            "include_tags",
+            "exclude_tags",
             "excerpt_strategy",
             "bm25",
             "session",
@@ -580,6 +588,20 @@ _OP_TABLE = {
     ),
         ),
     },
+    "state_view": {
+        "doc_order": 37,
+        "doc": "状态视图：账本回放 + stable 租约（TTL/weak）+ 同主体多槽位联合（终态求解用）。",
+        "impl": "inline",
+        "require": "read",
+        "params": (
+            "subject",
+            "slot",
+            "limit",
+        ),
+        "actions": (),
+        "default_action": None,
+        "sigs": (),
+    },
     "state_event": {
         "doc_order": 36,
         "doc": "状态事件记账（追加一条五元事件subject/slot/old/new/kind；actor 恒取令牌；查询走 stg(op=state_chain)）。",
@@ -600,8 +622,7 @@ _OP_TABLE = {
         "impl": "inline",
         "require": "info",
         # R-523（2026-11-10 审计）：`min_severity` 此前错挂在这里 —— `info` 的 handler
-        # 只读 `full`（mcp_server `if op == "info":` 之后仅 `_as_flag(a.get("full"))`）。
-        # `min_severity` 是 `scrub` 的键（它在 :2019 被真读）。
+        # 只读 `full`；`min_severity` 是 `scrub` 的键（那边在真读）。已在合并时按本仓裁定改回。
         "params": ("full",),
         "actions": (),
         "default_action": None,
@@ -631,13 +652,7 @@ _OP_TABLE = {
         "doc": "按目录索引 md 文档的**章节**（只切 level<=3，只存标题+摘要、不存全文），doc_ref 指回原文行区间；layer 与密级显式声明（默认 knowledge/internal，路径命中私有提示降为 private）；正文里的 --- 与围栏代码块内的 # 不会被误切；",
         "impl": "inline",
         "require": "index_doc",
-        # R-523：此前只登记 `sensitivity` / `allow_nested` 两个，而 handler 实际读
-        # 9 个（`sed -n '3238,3275p' mcp_server.py` 逐个 grep 出来的）：
-        # path / patterns / layer / incremental / max_files / max_items / skip_dirs /
-        # sensitivity / allow_nested。漏登记的直接后果：调用方按 schema 猜不到
-        # `patterns` / `skip_dirs` 这类**能大幅改变行为**的键存在。
-        "params": ("path", "patterns", "layer", "incremental", "max_files",
-                   "max_items", "skip_dirs", "sensitivity", "allow_nested", ),
+        "params": ("sensitivity", "allow_nested", ),
         "actions": (),
         "default_action": None,
         "sigs": (),

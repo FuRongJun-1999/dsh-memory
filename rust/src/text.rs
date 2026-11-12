@@ -106,11 +106,27 @@ pub fn expand_query_terms(query: &str) -> Vec<String> {
 /// 中文连续串 2-gram 召回扩展（对齐 `mdcg.cn_recall_grams`，min_run=4，
 /// cap=16，MDCG_CN_GRAMS=0 关闭；`CN_STOP_GRAMS` 纯语法组合剔除）。
 pub fn cn_recall_grams(query: &str) -> Vec<String> {
+    // #108（2026-10-10）口径对齐 · 与 Python `md_cg/mdcg.py::cn_recall_grams` 同源：
+    // 旧实现是「逐段顺次 append，`len(out) >= cap` 即**整函数返回**」⇒ 多段查询
+    // （题卡式「两段以换行拼接」）只有**开头段**进入召回键（64 字 + 12 字两段查询
+    // 实测末段 gram 覆盖 **0.000**）。现改为**预算分配**：先按段收集（段内保序、
+    // 跨段全局去重）→ 总 gram 数 <= cap 时**段序拼接**（与旧实现逐位相同，短查询
+    // 零差异）→ 预算不足时**跨段轮转**（depth 逐层、各段按比例进入召回面），
+    // 末段不再恒为 0（同例末段覆盖 0.727）。改一侧须同步另一侧，否则口径劈叉。
+    //
+    // 与 Python 的**已知差异**（本函数签名无 cap 参数，故不臆造新参数）：
+    // Python 侧 `cap: Option[int]` 有两档在 Rust 侧**不可达**——`cap=None`（「不限」，
+    // 返回全部 gram）与 `cap<=0`（**不是**「不限」，逐位保留旧行为：返回首段首个
+    // gram）。Rust 侧 cap 硬编码 16（= Python 缺省 cap=16），因此本函数永不返回
+    // 「首段首个 gram」；min_run 两侧同为 4（= max(min_run, 2)）。
     if std::env::var("MDCG_CN_GRAMS").as_deref() == Ok("0") {
-        return Vec::new();
+        return Vec::new();      // A/B 开关：关闭即回退旧行为（与 Python 同）
     }
+    let cap: usize = 16;        // 与 Python 缺省 cap=16 同口径（Rust 侧无 cap 参数）
+    // 先按段收集（段内保序、跨段全局去重）——去重/停用词语义与旧实现逐位一致。
     let chars: Vec<char> = query.chars().collect();
-    let mut out: Vec<String> = Vec::new();
+    let mut runs: Vec<Vec<String>> = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     let mut i = 0;
     while i < chars.len() {
         if !is_zh(chars[i]) {
@@ -123,17 +139,43 @@ pub fn cn_recall_grams(query: &str) -> Vec<String> {
         }
         let run_len = i - start;
         if run_len >= 4 {
+            let mut grams: Vec<String> = Vec::new();
             for k in start..=(start + run_len - 2) {
                 let g: String = [chars[k], chars[k + 1]].iter().collect();
-                if CN_STOP_GRAMS.contains(&g.as_str()) || out.contains(&g) {
+                if CN_STOP_GRAMS.contains(&g.as_str()) || seen.contains(&g) {
                     continue;
                 }
-                out.push(g);
-                if out.len() >= 16 {
-                    return out;
+                seen.push(g.clone());
+                grams.push(g);
+            }
+            if !grams.is_empty() {
+                runs.push(grams);
+            }
+        }
+    }
+    let total: usize = runs.iter().map(|r| r.len()).sum();
+    if total <= cap {
+        // 预算够：段序拼接（与旧实现逐位相同）
+        return runs.into_iter().flatten().collect();
+    }
+    // 预算不足：跨段轮转（depth 逐层、各段按比例进入召回面；取满 cap 即停）
+    let mut out: Vec<String> = Vec::new();
+    let mut depth = 0usize;
+    while out.len() < cap {
+        let mut moved = false;
+        for r in &runs {
+            if depth < r.len() {
+                out.push(r[depth].clone());
+                moved = true;
+                if out.len() >= cap {
+                    break;
                 }
             }
         }
+        if !moved {
+            break;              // 某轮一个都没取到 ⇒ 结束
+        }
+        depth += 1;
     }
     out
 }
@@ -229,6 +271,11 @@ pub fn strip_tense_en(w: &str) -> String {
 ///      （单字母段不处理，保留原样）；
 ///   3. 空白压缩（Unicode 空白 → 单空格）并去首尾。
 pub fn normalize_en(text: &str) -> String {
+    // issue #659 F26-25（2026-10-28）：先做拉丁重音折叠，再走下面的字符过滤。
+    // 原实现把非 ASCII 非中文一律变空格 ⇒ `café` → `caf`，而 Python 侧给 `cafe`，
+    // 两侧互不可命中。折叠口径见 `text_fold` 模块头（零第三方依赖的近似路线）。
+    let folded = super::text_fold::fold_accents(text);
+    let text: &str = &folded;
     let cleaned: String = text
         .chars()
         .map(|c| {
@@ -490,5 +537,32 @@ mod tests {
         let t = expand_query_terms("What did Caroline buy?");
         assert_eq!(t.first().map(String::as_str), Some("caroline buy"));
         assert!(t.contains(&"caroline".to_string()) && t.contains(&"buy".to_string()));
+    }
+
+    /// #108（2026-10-10）口径对齐守卫：长查询（两段、总 gram 数 > cap=16）时
+    /// **末段必须进入召回面**。旧实现「够 cap 即整函数返回」⇒ 16 个键全部来自
+    /// 首段、末段覆盖 0.000 —— 本用例即该病灶的定点打红（**只增不改**：既有断言
+    /// 一条未动）。判据与 `md_cg/test_cn_recall_grams.py` 的 C 判据同源。
+    #[test]
+    fn cn_grams_budget_rotation_covers_tail_segment() {
+        let seg_a = "数据同步检索过滤缓存分层索引快照并发写入容量上限路径解析会话归属"; // 64 字（63 gram）
+        let seg_b = "甲乙丙丁戊己庚辛壬癸子丑"; // 12 字（11 gram）
+        let q = format!("{}\n{}", seg_a, seg_b);
+        let keys = cn_recall_grams(&q);
+        let bchars: Vec<char> = seg_b.chars().collect();
+        let tail: Vec<String> = (0..bchars.len() - 1)
+            .map(|k| [bchars[k], bchars[k + 1]].iter().collect::<String>())
+            .filter(|g| !CN_STOP_GRAMS.contains(&g.as_str()))
+            .collect();
+        let hit = keys.iter().filter(|g| tail.contains(*g)).count();
+        assert!(!keys.is_empty(), "长查询不应返回空召回键");
+        assert_eq!(keys.len(), 16, "预算不足时仍取满 cap=16 个键：{:?}", keys);
+        assert!(
+            hit > 0,
+            "#108 末段覆盖：预算不足时跨段轮转应使末段至少 1 个 gram 进入召回键（实际 {}/{}，keys={:?}）",
+            hit,
+            tail.len(),
+            keys
+        );
     }
 }

@@ -485,6 +485,23 @@ class Parser:
             return self._parse_instruction()
         elif self.current_token and self.current_token.type == TokenType.IDENTIFIER:
             # 可能是单个标识符或合并后的多词短语
+            #
+            # issue #326-②（2026-10-14）：本函数是 compiler/parser.py 的**孪生副本**，
+            # 而该处修复（2026-09-14）长期**未回移**——两条链对同一中文源码产出
+            # **不同字节码**：本副本原先无条件走 _merge_identifiers()（多词短语
+            # 合并），从不探视其后是否紧跟 = 或 （，于是「1。计数 = 0；」只留下裸
+            # 标识符 计数、`= 0` 被丢掉，且**不报错**——只降级为一条 warning
+            # 「L2 未编译语句类型: IDENTIFIER」，即静默错值（比崩溃更危险）。
+            # 实测复现：compiler/ 14 条指令（含 PUSH_CONST 0.0; STORE_NAME 计数），
+            # 本副本 12 条且初始化缺失。
+            # 回移 lookahead（与 compiler/parser.py 同款）：下一个 token 是 = 或 （
+            # 则走 _parse_assign_or_call，否则保持原多词合并行为（「道 新信任路径」
+            # 等短语不受影响）。双链字节码等价性由守卫
+            # md_cg/test_issue326_twin_parser_parity.py 回归守护。
+            _nxt = self._peek_next()
+            if _nxt is not None and _nxt.type in (TokenType.EQUALS,
+                                                  TokenType.LPAREN):
+                return self._parse_assign_or_call()
             merged = self._merge_identifiers()
             return merged
         else:

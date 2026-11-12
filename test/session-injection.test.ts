@@ -95,7 +95,7 @@ function makeHarness(graph: object, overrides: Partial<MemoryHooksOptions> = {})
   const assemble = async (hostCtx: unknown): Promise<Assembly> => {
     assert.ok(assembleHandlers[0], '应注册 system-prompt/assemble 监听')
     const a: Assembly = { contexts: [], variables: {} }
-    await assembleHandlers[0]!(a, hostCtx, async () => a)
+    for (const h of assembleHandlers) await h(a, hostCtx, async () => a)
     return a
   }
   const send = (session: unknown, event: unknown): void => {

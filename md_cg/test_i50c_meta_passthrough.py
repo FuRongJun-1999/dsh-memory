@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """md_cg · issue50-c 守卫：DEFER→accept 的元数据完整性（F1）+ node_id=None 捩点（F2）
 
 缺陷（编排侧复核实测，非推断）

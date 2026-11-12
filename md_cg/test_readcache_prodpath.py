@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """检索读缓存生产路径守卫（批次 21，issue #31 P2）。
 

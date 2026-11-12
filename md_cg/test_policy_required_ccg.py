@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """写入闸门必需要素（CCG 六要素）守卫：policy.required 收窄到 text + 缺失清单可操作。
 
 背景（规格：CCG 六要素强制与缺失报错）：

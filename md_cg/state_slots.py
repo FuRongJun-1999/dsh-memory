@@ -26,8 +26,21 @@
   · `tier` ＝最后有值事件的顶层 `tier` 透传（`append(extra=…)` 会把 extra 并入行
     顶层，故「extra.tier」与「行顶层 tier」是同一处）；缺失（键不在或为 None）→
     `TIER_UNSPECIFIED`——**不编造**。
-  · `alternatives` / `blindspots`：本批**结构在场、恒为空列表**——「同期未决值」与
-    「声明缺口」的判定口径**后置**（P1 事件行尚无该信号），**不得臆造填充**。
+  · `alternatives`（**本批已落地**，判据见下）；`blindspots` 仍**结构在场、恒为空列表**
+    ——「声明缺口」的判定口径**后置**（P1 事件行尚无该信号），**不得臆造填充**。
+
+  `alternatives` 判据（本批，2026-11-02）——**只读面，写侧一字未动**：
+    定义为「该槽位**曾被断言过、且不等于当前值**的去重值集合」（保持首次出现序）。
+    · 明确**不用**「同一时间窗」判「同期」：台账 `t` 是 `time.time()` **记账时刻**，
+      不是事件发生时刻；`seq` 是调用方给的轮/序号且**可缺省为 None**。
+      拿它们做时间窗判据会把「相隔很久的两次记账」误判成同期 ⇒ 违背「不臆造」。
+    · 因此本字段的语义是**历史遗留候选**，比设计稿「同期未决值」弱——已在
+      `docs/eval/` 读数文档中标注定级，不冒充强语义。
+    · retired 态（值已撤回）下，被撤回的值**仍进 alternatives**（可回溯）；
+      复位后当前值不入 alternatives，更旧的遗留值仍在。
+    · `history=False` 的快速路径（`_project_current_page`）**不保留历史**，
+      算不出本字段 ⇒ 恒返回空列表，并在返回值上如实标注 `alternatives_partial=True`
+      （**不静默给一个看起来完整的空**）。
   · `history` ＝该槽位全部事件原样（每条＝事件行的 `t/seq/old/new/kind/evidence/
     actor` 七字段，值不改写；缺键取 None）；`history=False` 时**不带该键**。
 
@@ -47,8 +60,9 @@ CLI（纯只读人工入口，**恒可用、无开关**）：
 CLI 是人工排查入口（只读、不改任何状态）。
 
 不适用条件：本模块**不判语义**——「不是事实」的言语（玩笑/元层/回忆转述）之消歧
-标记（`not_fact` 等）不在本批（P1 事件行无该信号）；`alternatives`/`blindspots` 的
-真值判定亦未落地（见上，恒空列表）。跨库/多租户合并不在此（单库＝单台账）。
+标记（`not_fact` 等）不在本批（P1 事件行无该信号）；`blindspots` 的真值判定亦
+未落地（见上，恒空列表）。`alternatives` **已落地**（历史遗留候选，见上判据段）。
+跨库/多租户合并不在此（单库＝单台账）。
 """
 from __future__ import annotations
 
@@ -82,7 +96,30 @@ def _hist_item(rec) -> dict:
     return {k: rec.get(k) for k in _HIST_FIELDS}
 
 
-# 生效条件：subject/slot 为分组键、recs 为同组记录（**非空**，落盘序）、history 为真值时——按模块头回放规则返回单元 dict（含 history 键）；history 为假值时同一单元但不带 history 键；recs 为空时抛 IndexError（组由记录现场建成，恒非空，不吞错）。
+# 生效条件：recs 为同组台账记录（落盘序）、value 为当前值——返回该槽位**曾被断言过、且不等于当前值**的去重值列表（保持首次出现序）；撤回事件（`_is_void`）不计，当前值不计；去重按相等比较线性进行（**不用 set**：`new` 可以是不可哈希的 dict/list）。
+def _alternatives_of(recs, value) -> list:
+    """该槽位**曾被断言过、且不等于当前值**的去重值（保持首次出现序）。
+
+    判据见模块头：只读历史 `new` 的非空值，剔除当前值；**不用时间窗/seq 判「同期」**
+    （台账 `t` 是记账时刻、`seq` 可缺省），故语义是「历史遗留候选」而非强「同期未决」。
+
+    去重**不用 `set`**：台账是外部可写面，`new` 可以是任意 JSON 值（dict/list），
+    不可哈希 ⇒ `set` 会抛 `TypeError`（本批实测踩到，见
+    `test_state_projection_streaming` 的 dict 值用例）。改用线性「已见列表 + 相等比较」：
+    槽位值个数极小，O(n²) 无实际代价，且对 dict/list/None/数字一律成立。
+    """
+    out = []
+    for rec in recs:
+        if _is_void(rec):
+            continue
+        v = rec.get("new")
+        if v == value:
+            continue
+        if v not in out:
+            out.append(v)
+    return out
+
+
 def _replay(subject, slot, recs, *, history=True) -> dict:
     """单组回放：现值 / 档位 / 区间 / 变迁史（规则逐条见模块头）。"""
     value = None
@@ -99,12 +136,14 @@ def _replay(subject, slot, recs, *, history=True) -> dict:
         # 全程无有值事件（孤立撤回）：起端无可溯源 ⇒ None（不编造）。
         t_from, seq_from = None, None
         tier = TIER_UNSPECIFIED
+        kind, ttl = None, None
     else:
         lv = recs[last_valued]
         t_from, seq_from = lv.get("t"), lv.get("seq")
         tier = lv.get("tier")
         if tier is None:
             tier = TIER_UNSPECIFIED
+        kind, ttl = lv.get("kind"), lv.get("ttl")
     # 覆盖者：retired 态＝撤回事件（最后一条，闭合点＝值作废时刻）；否则＝有值事件的
     # **下一条**事件（存在则闭合，不存在＝None＝未闭合）；两者共用同一取舍。
     nxt = (len(recs) - 1) if retired else (
@@ -118,17 +157,27 @@ def _replay(subject, slot, recs, *, history=True) -> dict:
             "t_from": t_from, "t_to": t_to,
             "seq_from": seq_from, "seq_to": seq_to,
             "tier": tier,
-            # 结构在场、恒空：判定口径后置（模块头，不得臆造填充）。
-            "alternatives": [], "blindspots": [],
+            "kind": kind,
+            "ttl": ttl,
+            # alternatives 本批已落地（判据见模块头）；blindspots 仍后置、恒空。
+            "alternatives": _alternatives_of(recs, value),
+            "blindspots": [],
             "event_count": len(recs)}
     if history:
         unit["history"] = [_hist_item(r) for r in recs]
     return unit
 
 
-# 生效条件：recs 为落盘序记录（可迭代、可空）时——按 (subject, slot) 分组并稳定排序，经共享分页回放单点返回全量单元；history 为假时不带 history 键；不改写入参记录。
+# 生效条件：recs 为落盘序记录（可迭代、可空）时——history=True 经共享分页回放单点返回全量单元；history=False 与 `project_page` 走**同一归约器**（`_project_current_page`），保证两条入口同口径（否则 alternatives 在两条路上一真一空）；include_retired 为假时剔除退役单元；不改写入参记录。
 def _project(recs, *, include_retired=False, history=True) -> list:
-    """落盘序记录 → 全量投影；流式分组后逐组释放原始记录。"""
+    """落盘序记录 → 全量投影；流式分组后逐组释放原始记录。
+
+    history=False 必须与 `project_page(history=False)` 同源：两处若各走一条路，
+    `alternatives` 会出现「一条路径有真值、另一条恒空」的口径分叉
+    （`test_state_projection_streaming` 的 L46/L49 就是钉这条的）。
+    """
+    if not history:
+        return _project_current_page(recs, include_retired=include_retired)[1]
     return _project_history_page(recs, include_retired=include_retired,
                                  history=history)[1]
 
@@ -205,7 +254,10 @@ def _project_current_page(recs, *, include_retired=False, limit=None) -> tuple:
                     "t_from": t_from, "t_to": t_to,
                     "seq_from": seq_from, "seq_to": seq_to,
                     "tier": TIER_UNSPECIFIED if tier is None else tier,
-                    "alternatives": [], "blindspots": [], "event_count": count})
+                    # 单遍路径**不保留历史** ⇒ 算不出 alternatives。
+                    # 不静默给一个看起来完整的空：如实标注该字段不可得。
+                    "alternatives": [], "alternatives_partial": True,
+                    "blindspots": [], "event_count": count})
     return total, out
 
 

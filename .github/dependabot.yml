@@ -1,0 +1,25 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    # 【PR #854 教训】宿主 harness 的 rc 包把这两个依赖钉死在窄区间：
+    #   @deepseek-ai/dsh-*  → @deepseek-ai/schemastery: ~3.18.4（即 <3.19.0）
+    #   另有一处要求 @deepseek-ai/cordis: 4.0.5（精确）
+    # 升到 3.19.0 / 4.1.0 必须**保留嵌套副本**；dependabot 生成的锁会把嵌套压平，
+    # 结果 npm ci 直接 EUSAGE（lock 的 cordis@4.1.0 不满足 cordis@4.0.5），CI 必红。
+    # 结论：宿主放宽约束前，这两个包不参与自动升级（人工评估时再单独试）。
+    ignore:
+      - dependency-name: "@deepseek-ai/cordis"
+      - dependency-name: "@deepseek-ai/schemastery"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3

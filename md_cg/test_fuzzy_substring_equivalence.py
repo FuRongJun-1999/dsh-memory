@@ -1,4 +1,3 @@
-"""Runtime equivalence tests for graded substring retrieval."""
 import itertools
 import random
 import tempfile

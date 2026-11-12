@@ -24,6 +24,8 @@ ingest_transcript 对 dsh-log-<token>-* 的 skip-existing 不核验既有节点
 
 运行：python -X utf8 scripts/test_dsh_log_index_token.py
 依赖：zstandard（缺失 → SKIP 退出 0，对齐 run_tests 裸 clone 不假红口径）
+      MDCG_INGEST_ROOT（夹具自声明为哑环境根，issue #284——未配置时白名单回落
+      cwd=仓检出，而夹具数据在临时目录下 ⇒ 必然 denied、守卫恒红）
 """
 import contextlib
 import io
@@ -201,8 +203,21 @@ def main():
     if _MOD is None:
         globals()["_MOD"] = _MOD = _load_mod()
 
-    sroot = tempfile.mkdtemp(prefix="gt_guard_sessions_")
-    lib_root = tempfile.mkdtemp(prefix="gt_guard_lib_")
+    # 哑环境根：**一个** mkdtemp 之下挂 sessions/ 与 lib/，好让白名单根收紧到
+    # 这个根，而不是放宽到整个系统临时目录（issue #284）。
+    guard_root = tempfile.mkdtemp(prefix="gt_guard_")
+    sroot = os.path.join(guard_root, "sessions")
+    lib_root = os.path.join(guard_root, "lib")
+    os.makedirs(sroot)
+    os.makedirs(lib_root)
+    # issue #284：夹具必须**自声明白名单根**——dsh_log_index.check_path_root 在
+    # MDCG_INGEST_ROOT 未配置时回落到 cwd（= 仓检出），而本夹具的库/转写根都在
+    # 临时目录下 ⇒ 回落路径必然 denied，守卫在开发机上恒红（P1-4 变更 28f4ef26 后）。
+    # 白名单根须是夹具 tempdir 的**祖先**（把根设成 tempdir 的**子目录**无效——
+    # 项目方复核时先踩过这一脚，故写在这里）；同仓 md_cg/test_p26_refindex.py:131、
+    # test_p28_refcheck.py:814、test_p29_session_ingest_export.py:81 已是该形态。
+    old_ingest_root = os.environ.get("MDCG_INGEST_ROOT")
+    os.environ["MDCG_INGEST_ROOT"] = guard_root
     old_key = os.environ.get("MDCG_MASTER_KEY")
     os.environ["MDCG_MASTER_KEY"] = "ab" * 32      # 哑密钥（64 hex）
     # 读缓存 opt-out：哑环境显式关闭（缓存实例句柄常驻进程至退出，
@@ -306,8 +321,11 @@ def main():
             os.environ.pop("MDCG_READ_CACHE", None)
         else:
             os.environ["MDCG_READ_CACHE"] = old_cache
-        _rmtree_retry(sroot)
-        _rmtree_retry(lib_root)
+        if old_ingest_root is None:
+            os.environ.pop("MDCG_INGEST_ROOT", None)
+        else:
+            os.environ["MDCG_INGEST_ROOT"] = old_ingest_root
+        _rmtree_retry(guard_root)
         for ws in _WS_NAMES:                   # 只清守卫专属转写子目录
             shutil.rmtree(os.path.join(_MOD.TRANSCRIPT_ROOT, ws),
                           ignore_errors=True)

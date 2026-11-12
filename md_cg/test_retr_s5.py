@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """S5 负记忆抑制探针（脚本式，exit code 定成败）。
 
 用法：python -X utf8 -m md_cg.test_retr_s5

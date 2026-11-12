@@ -48,6 +48,10 @@ ITEMS = [
                  "--cg-root", ".tmp/discipline-cg"]),
     ("Rust crate 测试", [PY, "scripts/gate_rust_crate_test.py"]),
     ("Rust↔Python 对拍", [PY, "scripts/gate_rust_parity.py"]),
+    # 2026-11-11 合并：远端线新增的发布面输出守卫（gate_output.py）——
+    # 它挂在他们的 gate 链里，本仓的 run_gate.ITEMS 是 gate 的单点真源，
+    # 所以这腿必须登记到这里，否则合并后这条判据静默消失。
+    ("发布面输出", [PY, "scripts/gate_output.py"]),
     ("本机路径", [PY, "scripts/check_local_paths.py"]),
     ("端到端冒烟", [PY, "scripts/body_e2e_smoke.py"]),
     # R-304（2026-11-10）：此前 6 个 workflow **无一**调用 run_tests.py，147 目标的
@@ -56,8 +60,10 @@ ITEMS = [
     # R-304 补正（2026-11-10）：本项实测 **1500s 量级**（4 条已知超时各 300s），
     # 而门禁统一超时是 900s ⇒ 这一项**永远超时**、永远红。给单项超时（第三元），
     # 不给全门禁放水：其余 13 项仍按 900s 判。
+    # 2026-11-12 合并：整套实测 ~1h40（两个 bm25 变异族各约 10 分钟 + 语料类），
+    # 2400s 必超时且会被记成红 —— 那是量具问题。给 5400s 留余量。
     ("Python 全量套件", [PY, "scripts/run_tests.py", "md_cg", "--jobs", "1",
-                    "--timeout", "300"], 2400),
+                    "--timeout", "900"], 9000),
 ]
 
 TIMEOUT = 900

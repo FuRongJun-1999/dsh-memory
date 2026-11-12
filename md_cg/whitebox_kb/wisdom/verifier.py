@@ -181,7 +181,11 @@ class VerifyResult:
 # v6（2026-08-31）：cases 形态修复（list→tuple）后指纹归一化同值，旧 False
 # 条目对修复免疫；bump 版本作废全部旧缓存——长驻进程内存快照复活毒条目的
 # 终局解（版本不符整体清空，任何进程加载即重建）。
-VERIFIER_VERSION = 11  # v11（issue #91 根因③）：L2/L3/集成三处执行一律改走**受控
+VERIFIER_VERSION = 12  # v12（issue #185 附带发现）：白名单补 `__build_class__`、
+                       # 命名空间补模块级 `__name__`（Py3 `class` 语句的两处必需
+                       # 依赖）——L2/L3 的执行环境因此改变，旧缓存（含「__build_class__
+                       # not found」时代的失败条目）不可信，bump 作废（同 v11 口径）。
+                       # v11（issue #91 根因③）：L2/L3/集成三处执行一律改走**受控
                        # 时限子进程**（超时 fail-closed，不再可能永久挂死）；判据面
                        # 变更（执行环境与用例过境编码）故 bump 作废旧缓存。v10：结构规范的字面匹配改大小写不敏感——该表是语言无关的
                        # 任务语义判据（要求去重结构出现），字面取自 Python 命名习惯
@@ -234,6 +238,15 @@ def _table_payload_chars() -> int:
 # 就已执行（实测 open() 载荷：ok=False 但副作用文件已创建）。
 # 本白名单保留常用纯函数与异常类型，**去掉** open / __import__ / eval / exec / compile /
 # globals / locals / vars / dir / input / breakpoint —— 即「能算出答案，但碰不到外面」。
+#
+# issue #185 附带发现（2026-10-09 DSH 端）：上面这份白名单缺 `__build_class__` ⇒ Py3 里
+# 一切含 `class` 的被测代码都在 L2 样例以「__build_class__ not found」判负（本批递归
+# 发现新收进门的三个生态测试，其红由此第一次暴露）。
+# 为何补它：`class` 语句先向 builtins 取 `__build_class__`，再由它执行类体；类体头两条
+# 指令是 `LOAD_NAME __name__` → `STORE_NAME __module__`，故受限命名空间还须给一个
+# 模块级 `__name__`（纯字符串全局；见下方 `_safe_builtins()`/SAFE_NS() 与子进程执行器）。
+# 安全边界：`__build_class__` 只是「定义类」的定义钩子，不提供文件/网络/进程能力；
+# 上面明令去掉的 open / __import__ / eval / exec / compile 等**不得**因此被放开。
 # 无超时（#91 根因③）已由本文件同批的「受控时限子进程」补齐——见下方 EXEC_TIMEOUT_S 段；
 # 该白名单被**父侧 SAFE_NS() 与子进程侧 `_EXEC_RUNNER_SRC` 共用同一份**（单一真源）。
 import builtins as _bi
@@ -244,16 +257,139 @@ _SAFE_BUILTIN_NAMES = (
     "list", "map", "max", "min", "next", "object", "ord",
     "pow", "print", "range", "repr", "reversed", "round",
     "set", "slice", "sorted", "str", "sum", "tuple", "type", "zip",
+    "__build_class__",
     "Exception", "ValueError", "TypeError", "KeyError",
     "IndexError", "ZeroDivisionError", "StopIteration",
     "ArithmeticError", "AttributeError", "AssertionError",
     "NotImplementedError", "RuntimeError", "True", "False", "None")
 
 
+_SAFE_MODULE_NAME = "__mdcg_verify__"
+# ↑ 执行命名空间的**模块级** `__name__`：class 体的 `LOAD_NAME __name__` 需要它。
+#   它是纯字符串全局，**不是** builtin —— builtins 白名单边界不因此放宽。
+
+
+# ============ 纯计算模块白名单 + 受控 __import__（issue #187） ============
+# 背景：白箱单元模板里存在 `import re as _re` 这类**纯计算**标准库导入；#185 把
+# `__import__` 从 builtins 白名单里去掉（当时是正确的加固），于是 import 语句在
+# 受限命名空间里一律 `ImportError: __import__ not found`（实测：
+# "✗ L2样例 样例1 崩溃: … → __import__ not found"）。
+#
+# 本块**不是**放开危险能力——只放行「纯计算模块白名单」：
+#   re（正则）/ math（数学）/ json（内存内序列化）/ itertools / functools /
+#   collections / decimal / fractions / statistics / string / heapq / bisect /
+#   typing / dataclasses / abc
+# 逐项理由：它们都只在**内存里算**，不提供文件（open / os.path / io / shutil /
+# pathlib / tempfile）、网络（socket / http / urllib / ftplib）、进程（subprocess /
+# os.system / ctypes / multiprocessing）、动态导入（importlib / runpy / builtins）
+# 能力——危险能力**仍不可用**。该白名单是既有 L1 静态门 `_STDLIB_OK` 的子集
+# （运行时允许的 ⊂ 静态允许的），不引入 L1 之外的新面。
+#
+# 边界（逐条）：白名单外一律抛 ImportError（**不**静默回落到真 `__import__`）；
+# os / sys / subprocess / builtins / importlib / ctypes / socket / shutil /
+# pathlib / io / pickle 等逃逸路径由 `_SAFE_IMPORT_DENY` 显式拦截，并在守卫里
+# 逐项断言。
+# 取道（`__import__("re").__builtins__`）：**真模块的 globals 里确实带
+# `__builtins__``（那是一条逃逸取道），故这里返回的**不是**裸 module 对象，而是
+# `_SafeModule` 代理——只暴露公开属性，一切 `_` 开头（含 `__builtins__` /
+# `__globals__` / `__dict__`）的名字一律 AttributeError。
+# 残留诚实声明：Python 进程内命名空间无法阻断基于 `object.__subclasses__()` 的
+# 反射取道（`object` / `type` / `getattr` 本就在 #185 白名单内，与本笔无关）；那
+# 一层由「受控时限子进程」（#91）的进程/时间边界负责，不靠本白名单兜底。
+_SAFE_MODULE_WHITELIST = (
+    "re", "math", "json", "itertools", "functools", "collections",
+    "decimal", "fractions", "statistics", "string", "heapq", "bisect",
+    "typing", "dataclasses", "abc")
+
+#: 显式拦截清单（白名单外必然 ImportError；列表化是为了让守卫能逐项断言边界）。
+_SAFE_IMPORT_DENY = (
+    "os", "sys", "subprocess", "builtins", "importlib", "ctypes", "socket",
+    "shutil", "pathlib", "io", "pickle", "marshal", "tempfile", "threading",
+    "multiprocessing", "signal", "gc", "inspect", "code", "codeop", "runpy",
+    "site", "pkgutil", "platform", "posix", "nt", "_thread")
+
+#: 包装对象上**禁止**出现的属性名（逃逸取道：module.__builtins__ 等）。
+_MODULE_BLOCKED_ATTRS = frozenset((
+    "__builtins__", "__loader__", "__spec__", "__dict__", "__globals__",
+    "__class__", "__subclasses__", "__bases__", "__mro__", "__reduce__",
+    "__reduce_ex__", "__getattribute__"))
+
+
+class _SafeModule:
+    """受限模块代理：只暴露（白名单模块的）公开属性。
+
+    `__builtins__` / `__globals__` / `__dict__` 等取道一律 AttributeError——
+    `re.search` 这类**纯计算**用法不受影响，逃逸取道全部堵死。
+    """
+
+    __slots__ = ("_m", "_n")
+
+    def __init__(self, mod, name):
+        object.__setattr__(self, "_m", mod)
+        object.__setattr__(self, "_n", name)
+
+    def __getattribute__(self, attr):
+        if attr.startswith("_") or attr in _MODULE_BLOCKED_ATTRS:
+            raise AttributeError("受限模块代理不暴露 %r" % (attr,))
+        return object.__getattribute__(self, attr)
+
+    def __getattr__(self, attr):
+        if attr.startswith("_") or attr in _MODULE_BLOCKED_ATTRS:
+            raise AttributeError("受限模块代理不暴露 %r" % (attr,))
+        v = getattr(object.__getattribute__(self, "_m"), attr)
+        # issue #187 补漏：子模块属性（`json.decoder` / `json.scanner`）是**普通
+        # module 对象**，它自带真 `__builtins__` —— 必须继续套代理，否则上面那道
+        # 拦截只在**一层**内成立：`proxy.decoder.__builtins__["open"]` 可直达真
+        # open / __import__ / os.system（实测已复现）。递归后 `proxy.decoder` 仍是
+        # `_SafeModule`，其 `__builtins__` 照常 AttributeError；`re.search` 这类
+        # 纯计算用法不受影响。
+        if isinstance(v, types.ModuleType):
+            return _SafeModule(v, object.__getattribute__(self, "_n") + "." + attr)
+        return v
+
+    def __repr__(self):
+        return "<受限模块 %s>" % (object.__getattribute__(self, "_n"),)
+
+
+def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    """受控 `__import__`：仅纯计算模块白名单，其余一律 ImportError。
+
+    签名与内建 `__import__` 一致（import 语句按 5 参调用）。相对导入直接拒——
+    受限命名空间里没有包上下文。
+    """
+    if level:
+        raise ImportError("受限执行环境不支持相对导入（level=%r）" % (level,))
+    top = str(name).split(".")[0]
+    if top in _SAFE_IMPORT_DENY or top not in _SAFE_MODULE_WHITELIST:
+        raise ImportError("受限执行环境禁止导入 %r（仅允许纯计算模块白名单: %s）"
+                          % (name, ", ".join(_SAFE_MODULE_WHITELIST)))
+    return _SafeModule(_bi.__import__(name, globals, locals, fromlist, level), top)
+
+
+def _safe_builtins() -> Dict[str, Any]:
+    """受限 builtins 白名单映射——**单一真源**（父侧 SAFE_NS() 与子进程执行器同用一份）。
+
+    安全边界（issue #185）：本映射只提供「算得出答案」的纯函数与异常类型。
+    `__build_class__` 仅是 `class` 语句的**定义钩子**——CPython 在类体执行前由
+    builtins 查表调用它，它不提供文件/网络/进程能力。危险能力（open /
+    eval / exec / compile / globals / locals / vars / dir / input /
+    breakpoint）**一律不在**本映射内，且不得因本项而放开。
+    issue #187：`__import__` 由本函数**受控**注入（`_guarded_import`）——仅
+    纯计算模块白名单，白名单外一律 ImportError，且返回受限代理而非裸 module；
+    文件/网络/进程/动态导入能力**仍不可用**，真内置 `__import__` 仍不可达。
+    """
+    d = {k: getattr(_bi, k) for k in _SAFE_BUILTIN_NAMES if hasattr(_bi, k)}
+    # issue #187：受控 `__import__`（纯计算模块白名单，见上方 `_guarded_import`）。
+    # 它**不进** `_SAFE_BUILTIN_NAMES`——子进程执行器按该元组逐个 `getattr(_bi, k)`
+    # 重建白名单，把 `__import__` 放进元组会让子进程拿到**真内置**（边界失效）；
+    # 故父侧与子进程侧各自显式注入受控包装。
+    d["__import__"] = _guarded_import
+    return d
+
+
 def SAFE_NS() -> Dict[str, Any]:
-    """被校验代码的执行命名空间：仅暴露 SAFE_BUILTIN_NAMES 内的内建。"""
-    _b = {k: getattr(_bi, k) for k in _SAFE_BUILTIN_NAMES if hasattr(_bi, k)}
-    return {"__builtins__": _b}
+    """被校验代码的执行命名空间：受限 builtins + 模块级 `__name__`（class 体需要）。"""
+    return {"__builtins__": _safe_builtins(), "__name__": _SAFE_MODULE_NAME}
 
 
 # 白箱被校验代码允许导入的标准库（其余一律 L1 拒——见 `_check_l1_syntax`）。
@@ -364,11 +500,61 @@ import sys
 import types
 
 _SAFE_NAMES = __SAFE_BUILTIN_NAMES__
+_SAFE_MODS = __SAFE_MODULE_WHITELIST__
+_DENY_MODS = __SAFE_IMPORT_DENY__
+
+
+class _SafeModule:
+    """受限模块代理：只暴露公开属性；`__builtins__` 等取道一律 AttributeError。"""
+
+    __slots__ = ("_m", "_n")
+
+    def __init__(self, mod, name):
+        object.__setattr__(self, "_m", mod)
+        object.__setattr__(self, "_n", name)
+
+    def __getattribute__(self, attr):
+        if attr.startswith("_") or attr in _BLOCKED_ATTRS:
+            raise AttributeError("受限模块代理不暴露 %r" % (attr,))
+        return object.__getattribute__(self, attr)
+
+    def __getattr__(self, attr):
+        if attr.startswith("_") or attr in _BLOCKED_ATTRS:
+            raise AttributeError("受限模块代理不暴露 %r" % (attr,))
+        v = getattr(object.__getattribute__(self, "_m"), attr)
+        # issue #187 补漏（与父侧同款）：子模块属性是普通 module，自带真
+        # `__builtins__` ⇒ 继续套代理，否则 `proxy.decoder.__builtins__` 可直达
+        # 真 open / __import__。
+        if isinstance(v, types.ModuleType):
+            return _SafeModule(v, object.__getattribute__(self, "_n") + "." + attr)
+        return v
+
+    def __repr__(self):
+        return "<受限模块 %s>" % (object.__getattribute__(self, "_n"),)
+
+
+_BLOCKED_ATTRS = frozenset((
+    "__builtins__", "__loader__", "__spec__", "__dict__", "__globals__",
+    "__class__", "__subclasses__", "__bases__", "__mro__", "__reduce__",
+    "__reduce_ex__", "__getattribute__"))
+
+
+def _guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+    """受控 `__import__`：仅纯计算模块白名单，其余一律 ImportError。"""
+    if level:
+        raise ImportError("受限执行环境不支持相对导入（level=%r）" % (level,))
+    top = str(name).split(".")[0]
+    if top in _DENY_MODS or top not in _SAFE_MODS:
+        raise ImportError("受限执行环境禁止导入 %r（仅纯计算模块白名单）" % (name,))
+    return _SafeModule(_bi.__import__(name, globals, locals, fromlist, level), top)
 
 
 def _safe_builtins():
     # 与父侧 SAFE_NS() 的**同一份**白名单
-    return {k: getattr(_bi, k) for k in _SAFE_NAMES if hasattr(_bi, k)}
+    d = {k: getattr(_bi, k) for k in _SAFE_NAMES if hasattr(_bi, k)}
+    # issue #187：与父侧同款受控 `__import__`（纯计算模块白名单）。
+    d["__import__"] = _guarded_import
+    return d
 
 
 def _dec(n):
@@ -410,6 +596,71 @@ def _match(got, exp):
     return got == exp
 
 
+# 受限名（执行 / 动态求值 / 反射面）——取**逃逸必需**的那几个。
+# 与 scripts/bootstrap_loop.py 的 `_GEN_BANNED_NAMES`（P1-7 批次 26）同源，
+# 但按其自举场景收窄：那边是「LLM 产出代码」的沙箱，可从严；
+# 本处是**白箱单元表**的执行面，表中有合法单元正常使用 getattr / vars
+# （见 _ESCAPE_ATTRS 下方的实测说明），且这两个名字**单独不构成逃逸**
+# （逃逸必需的是 `__subclasses__` + `__globals__` 属性链，已由 _ESCAPE_ATTRS 拦下）。
+_BANNED_NAMES = frozenset({
+    "eval", "exec", "compile", "open", "__import__", "breakpoint", "input",
+    "globals", "locals", "setattr", "delattr",
+    "exit", "quit", "memoryview",
+})
+
+#: 反射逃逸链**专项**属性名（issue #544）——取**最小充分集**，不照搬
+#: bootstrap_loop 的「一切 dunder 皆拒」（`attr.startswith("__")`）。
+#:
+#: 为什么必须收窄（实测数据，Windows/Python 3.11.15，清缓存后）：
+#:   · 基线 `--audit`：675/686 通过（98.4%）
+#:   · 按「一切 dunder」判据：额外拒掉 19 条**正在通过**的单元 ⇒ 不可用
+#:   · 按下方最小集：额外拒掉 **0 条**正在通过的单元（仍 675/686）
+#:
+#: 最小集的推导：PoC 逃逸链只需
+#:   `object.__subclasses__()` → `getattr(_c,'__init__').__globals__` → `['__builtins__']`
+#: 故**必需**的只有 `__subclasses__` / `__globals__` / `__builtins__` 三条；
+#: 其余为**同类旁路**（经类层级上溯 / 直接取代码对象），一并拦以堵等价取道。
+#:
+#: 刻意**不**列入 `getattr` / `vars` / `__class__` / `__bases__` 等**名称**：
+#: 单元表中有 4 条**合法**单元正常使用它们（元编程-动态建类 / 元编程-元类定制 /
+#: 面向对象-运算符重载 / 异常-异常链），拦掉即误伤——而它们**单独不足以**
+#: 构成逃逸（上面的必需集已覆盖组合面）。
+_ESCAPE_ATTRS = frozenset({
+    "__subclasses__", "__globals__", "__builtins__",
+    "__mro__", "__baseclasses__",
+    "__dict__", "__getattribute__", "__reduce__", "__reduce_ex__",
+    "__code__", "__closure__", "__func__", "__loader__", "__spec__",
+})
+
+
+# 生效条件：code 为待校验源码文本；ast.parse 失败抛原语法异常，ast.walk 命中
+# Name.id 属 _BANNED_NAMES、Attribute.attr 属 _ESCAPE_ATTRS 或为 ("system","popen")
+# 任一即抛 ValueError（**不执行**）；全部通过时无返回。
+def _ast_gate(code: str) -> None:
+    """issue #544：受限命名空间之外的第二道门——反射逃逸链 AST 门。
+
+    为什么必须另立此门：builtins 白名单**对反射取道无解**。白名单里
+    `object`/`type` 本就在（#185 的决定），于是
+    `object.__subclasses__()` → `__init__.__globals__['__builtins__']`
+    可取回**真 builtins**，再用它 `open()` 写任意文件 —— 而 L1/L2/L3 三层
+    全部仍报 ok:true（逃逸对校验结论不可见）。本函数在 exec **之前**拦掉该链。
+
+    判据取**最小充分集**（见 `_ESCAPE_ATTRS` 说明），而非「一切 dunder」：
+    后者会误伤单元表里多条合法单元（实测差 19 条），故不用。
+    AST 全遍历，lambda/推导式内的同名调用同样覆盖。
+    """
+    tree = ast.parse(code)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in _BANNED_NAMES:
+            raise ValueError("沙箱拒绝受限名 %s（行 %s）——反射逃逸链入口"
+                             % (node.id, getattr(node, "lineno", "?")))
+        if isinstance(node, ast.Attribute):
+            if node.attr in _ESCAPE_ATTRS or node.attr in ("system", "popen"):
+                raise ValueError(
+                    "沙箱拒绝受限属性 .%s（行 %s）——反射逃逸链入口"
+                    % (node.attr, getattr(node, "lineno", "?")))
+
+
 def main():
     with open(sys.argv[1], "r", encoding="utf-8") as f:
         p = json.load(f)
@@ -429,8 +680,16 @@ def main():
         out["exec_err"] = str(e)
         dump()
         return
-    ns = {"__builtins__": _safe_builtins()}
+    ns = {"__builtins__": _safe_builtins(), "__name__": "__mdcg_verify__"}
     try:
+        # issue #544（P1）：受限命名空间的 builtins 白名单**挡不住反射取道** ——
+        # `object.__subclasses__()` → `__init__.__globals__['__builtins__']`
+        # 可取回**真 builtins**，进而 open/exec 任意代码（实测：逃逸后写出仓库外
+        # 标记文件，且 L1/L2/L3 三层仍报 ok:true —— 逃逸对校验结论不可见）。
+        # 白名单里 type/object/getattr 本就在（#185 决定），故补**AST 门**：
+        # 拒绝 dunder 属性访问与受限名——与 scripts/bootstrap_loop.py 的
+        # `_safe_exec_gen`（P1-7 批次 26）同款判据，那边**已实测守住**同一取道。
+        _ast_gate(p["code"])
         exec(compile(p["code"], "<verify>", "exec"), ns)
     except Exception as e:
         out["exec"] = "error"
@@ -438,6 +697,11 @@ def main():
         dump()
         return
     fn = ns.get(p.get("func")) if p.get("func") else None
+    if fn is None and mode == "compose":
+        # 组合生成面（issue #491）：与 `code_compose.verify_code` 的既有语义一致——
+        # 取命名空间里**第一个可调用**对象（按 exec 后的插入序），不是 AST 首函数。
+        fn = next((v for k, v in ns.items()
+                   if callable(v) and not k.startswith("__")), None)
     if not callable(fn):
         dump()
         return
@@ -449,11 +713,12 @@ def main():
             out["results"].append({"kind": "fail",
                                    "detail": "样例%d 结构非法: %r" % (i, pair)})
             break
-        if mode == "samples" and inp == "call":
+        if mode in ("samples", "compose") and inp == "call":
             continue
         out["ran"] += 1
         try:
-            got = fn(inp) if not isinstance(inp, tuple) else fn(*inp)
+            got = (fn(*inp) if (isinstance(inp, tuple) and p.get("unpack", True))
+                   else fn(inp))
         except Exception as e:
             if mode == "boundary" and exp == "any":
                 continue          # 边界用例允许异常返回
@@ -470,7 +735,10 @@ def main():
             break
         if mode == "boundary" and exp == "any":
             continue
-        if not _match(got, exp):
+        # compose：与 `code_compose.verify_code` 原语义一致——严格相等。
+        # samples/boundary 的 dict 子集匹配**不得**用于组合生成面，否则判据被放宽。
+        ok_match = (got == exp) if mode == "compose" else _match(got, exp)
+        if not ok_match:
             out["results"].append({"kind": "fail",
                                    "detail": "%s%d 失败: %s → %s（期望 %s）"
                                              % (tag, i, inp, got, exp)})
@@ -479,7 +747,9 @@ def main():
 
 
 main()
-'''.replace("__SAFE_BUILTIN_NAMES__", repr(tuple(_SAFE_BUILTIN_NAMES)))
+'''.replace("__SAFE_BUILTIN_NAMES__", repr(tuple(_SAFE_BUILTIN_NAMES))).replace(
+    "__SAFE_MODULE_WHITELIST__", repr(tuple(_SAFE_MODULE_WHITELIST))).replace(
+    "__SAFE_IMPORT_DENY__", repr(tuple(_SAFE_IMPORT_DENY)))
 
 
 def _first_func_info(code: str) -> Tuple[Optional[str], Optional[int],
@@ -519,7 +789,7 @@ def _guard_fail(res: Dict[str, Any], level: str) -> Optional[Dict[str, Any]]:
 
 
 def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
-                 mode: str, timeout: float) -> Dict[str, Any]:
+                 mode: str, timeout: float, unpack: bool = True) -> Dict[str, Any]:
     """在**受控时限**内于子进程执行 `code`（并按 mode 跑用例），返回结果 dict。
 
     `exec` ∈ {ok, error, timeout, unencodable, runner_error}：
@@ -528,13 +798,15 @@ def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
       · timeout       —— 超时被强制终止（fail-closed）；
       · unencodable   —— 用例元素无法跨进程承载（fail-closed）；
       · runner_error  —— 执行器起不来/未产出结果（fail-closed）。
+    `unpack`：tuple 入参是否展开为多参调用。verifier 六层恒为 True；组合生成面
+    （`code_compose.verify_code`）按原语义分派——Python 模板 True、py_ref False。
     超时路径：`proc.kill()` 后**必须再 wait/communicate 回收**——只 kill 不 wait 会
     留僵尸；返回值里的 `pid`/`reaped` 是该路径的**可断言残留**（守卫据此判不泄漏）。
     """
     try:
         payload = {"code": code,
                    "cases": [_enc_value(c) for c in cases],
-                   "func": func_name, "mode": mode}
+                   "func": func_name, "mode": mode, "unpack": bool(unpack)}
     except _UnencodableCase as e:
         return {"exec": "unencodable", "exec_err": str(e), "found": False,
                 "results": [], "ran": 0}
@@ -584,6 +856,17 @@ def _run_guarded(code: str, cases: List[Any], func_name: Optional[str],
     except Exception as e:                           # noqa: BLE001
         return {"exec": "runner_error", "exec_err": str(e), "found": False,
                 "results": [], "ran": 0}
+
+
+def run_guarded(code: str, cases: List[Any], func_name: Optional[str],
+                mode: str, timeout: float, unpack: bool = True) -> Dict[str, Any]:
+    """公开执行入口——**委托** `_run_guarded`（同一份沙箱/超时实现，非第二套）。
+
+    供同族生成面复用（`code_compose.verify_code` 的 L2，issue #491）：受限内建
+    白名单（`SAFE_NS`）+ 子进程 + `subprocess` 超时全部由 `_run_guarded` 提供，
+    调用方不得自行 `exec`/自建进程。`mode="compose"` 的语义见 `_EXEC_RUNNER_SRC`。
+    """
+    return _run_guarded(code, cases, func_name, mode, timeout, unpack)
 
 
 class VerifyCache:

@@ -1,0 +1,997 @@
+{
+  "head": "b70e19dcf7059dbc907b9bd454ad5a8c7a667fd4",
+  "source_sha256": {
+    "md_cg/chain.py": "f376e566b6735aee8d589e6a6a2a91162023c8cfda0309d7efe8ba13f9199a85",
+    "md_cg/mdcos.py": "427855a38f635ead7048c4df349b4fd8390b217ec24acdd0c3a2c5e287afab98"
+  },
+  "harness_sha256": "6abdb101687358998d9cd1034e97a0b7048d4c3ded8d54650f97013b46c2b844",
+  "helper_sha256": "d27aa0b0cefb8a47fad031956f568cb2d0e16b423ec0ef8676277e80e683d0bd",
+  "source_dirty": "",
+  "python": "3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]",
+  "platform": "win32",
+  "repeats": 60,
+  "guards_expected_baseline_failure": false,
+  "guards_valid": true,
+  "guards_log": "..\n----------------------------------------------------------------------\nRan 2 tests in 0.449s\n\nOK\n",
+  "cases": [
+    {
+      "width": 3,
+      "nodes": 16,
+      "edges": 33,
+      "edge_order": "strong_first",
+      "fixture_sha256": "fe8f99f4b1cf553d2c4ad3f18c97fb67a66639efba18f0921564aa211f275753",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 15,
+      "edge_weight_calls": 33,
+      "expansion_ms": {
+        "p50": 0.1199,
+        "p95": 0.13685499999999995
+      },
+      "expansion_samples_ms": [
+        0.1581,
+        0.2094,
+        0.1359,
+        0.1279,
+        0.1262,
+        0.1239,
+        0.1219,
+        0.1222,
+        0.1218,
+        0.1274,
+        0.1212,
+        0.1287,
+        0.1206,
+        0.1196,
+        0.1203,
+        0.1192,
+        0.1193,
+        0.1226,
+        0.1242,
+        0.1215,
+        0.1231,
+        0.1205,
+        0.1207,
+        0.1195,
+        0.1192,
+        0.1185,
+        0.1183,
+        0.1177,
+        0.1234,
+        0.1186,
+        0.1181,
+        0.1195,
+        0.1251,
+        0.1214,
+        0.1222,
+        0.1201,
+        0.1193,
+        0.12,
+        0.1204,
+        0.1189,
+        0.119,
+        0.1182,
+        0.1183,
+        0.1184,
+        0.1222,
+        0.1187,
+        0.1181,
+        0.1176,
+        0.1198,
+        0.1193,
+        0.1191,
+        0.119,
+        0.1187,
+        0.1186,
+        0.1185,
+        0.155,
+        0.1191,
+        0.1191,
+        0.1177,
+        0.1223
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_2",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_2",
+        "weak_2_0",
+        "weak_2_1",
+        "weak_2_2",
+        "weak_3_0",
+        "weak_3_1",
+        "weak_3_2"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 15,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 0.69825,
+        "p95": 4.960824999999992
+      }
+    },
+    {
+      "width": 3,
+      "nodes": 16,
+      "edges": 33,
+      "edge_order": "weak_first",
+      "fixture_sha256": "f91c0d5187ef28cec7e70859433d3b96ddaf8526297976289569f40061fe77e2",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 15,
+      "edge_weight_calls": 33,
+      "expansion_ms": {
+        "p50": 0.1192,
+        "p95": 0.12981
+      },
+      "expansion_samples_ms": [
+        0.1491,
+        0.132,
+        0.1297,
+        0.1259,
+        0.124,
+        0.1266,
+        0.1249,
+        0.124,
+        0.1319,
+        0.1228,
+        0.1214,
+        0.1201,
+        0.1196,
+        0.119,
+        0.118,
+        0.1192,
+        0.1189,
+        0.1186,
+        0.1199,
+        0.1206,
+        0.1226,
+        0.1215,
+        0.1205,
+        0.1188,
+        0.119,
+        0.1236,
+        0.1188,
+        0.1188,
+        0.1191,
+        0.1196,
+        0.1204,
+        0.1195,
+        0.1189,
+        0.12,
+        0.1196,
+        0.119,
+        0.1198,
+        0.1192,
+        0.1184,
+        0.1202,
+        0.1182,
+        0.1173,
+        0.1212,
+        0.1183,
+        0.1203,
+        0.1192,
+        0.1183,
+        0.1183,
+        0.1182,
+        0.119,
+        0.1179,
+        0.119,
+        0.1184,
+        0.1179,
+        0.117,
+        0.1182,
+        0.1222,
+        0.1178,
+        0.1178,
+        0.118
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_2",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_2",
+        "weak_2_0",
+        "weak_2_1",
+        "weak_2_2",
+        "weak_3_0",
+        "weak_3_1",
+        "weak_3_2"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 15,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 0.704,
+        "p95": 5.052444999999992
+      }
+    },
+    {
+      "width": 6,
+      "nodes": 28,
+      "edges": 117,
+      "edge_order": "strong_first",
+      "fixture_sha256": "5f3d783699d0d1d646f092930a73eddd0d8d32c5d1b54f37aa58a1dc74c34bb6",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 27,
+      "edge_weight_calls": 117,
+      "expansion_ms": {
+        "p50": 0.3213,
+        "p95": 0.3645
+      },
+      "expansion_samples_ms": [
+        0.3639,
+        0.3385,
+        0.3437,
+        0.3759,
+        0.3285,
+        0.3251,
+        0.3264,
+        0.3268,
+        0.3317,
+        0.3254,
+        0.3241,
+        0.3246,
+        0.3243,
+        0.3213,
+        0.3236,
+        0.3221,
+        0.3213,
+        0.3233,
+        0.322,
+        0.3193,
+        0.39,
+        0.3211,
+        0.3179,
+        0.3192,
+        0.3179,
+        0.319,
+        0.3247,
+        0.3198,
+        0.3182,
+        0.3178,
+        0.3186,
+        0.3205,
+        0.3237,
+        0.3194,
+        0.3199,
+        0.3208,
+        0.3194,
+        0.3198,
+        0.3186,
+        0.3224,
+        0.3189,
+        0.3206,
+        0.3187,
+        0.3203,
+        0.3206,
+        0.3305,
+        0.3229,
+        0.3189,
+        0.3179,
+        0.3186,
+        0.3193,
+        0.3951,
+        0.3487,
+        0.3322,
+        0.3274,
+        0.3203,
+        0.3213,
+        0.3239,
+        0.321,
+        0.3193
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_2",
+        "weak_0_3",
+        "weak_0_4",
+        "weak_0_5",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_2",
+        "weak_1_3",
+        "weak_1_4",
+        "weak_1_5",
+        "weak_2_0",
+        "weak_2_1",
+        "weak_2_2",
+        "weak_2_3"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 27,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 1.0509499999999998,
+        "p95": 8.049444999999986
+      }
+    },
+    {
+      "width": 6,
+      "nodes": 28,
+      "edges": 117,
+      "edge_order": "weak_first",
+      "fixture_sha256": "28f43a46f1da74c3cc3c9d564858a3828be5c774adf010e0e470acc7aa68ab2a",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 27,
+      "edge_weight_calls": 117,
+      "expansion_ms": {
+        "p50": 0.32245,
+        "p95": 0.3420599999999999
+      },
+      "expansion_samples_ms": [
+        0.3546,
+        0.3414,
+        0.3356,
+        0.3284,
+        0.3265,
+        0.3287,
+        0.3202,
+        0.3289,
+        0.3269,
+        0.3225,
+        0.3276,
+        0.3283,
+        0.3216,
+        0.4219,
+        0.3288,
+        0.3216,
+        0.3247,
+        0.3254,
+        0.3199,
+        0.3245,
+        0.3222,
+        0.3199,
+        0.3225,
+        0.3255,
+        0.3198,
+        0.3212,
+        0.3221,
+        0.3247,
+        0.3257,
+        0.3231,
+        0.3207,
+        0.3653,
+        0.3238,
+        0.3198,
+        0.3219,
+        0.3191,
+        0.3224,
+        0.3239,
+        0.3199,
+        0.3259,
+        0.3181,
+        0.3187,
+        0.3289,
+        0.3214,
+        0.3189,
+        0.3212,
+        0.3211,
+        0.3193,
+        0.3213,
+        0.3169,
+        0.3218,
+        0.3222,
+        0.3186,
+        0.3226,
+        0.3219,
+        0.3188,
+        0.3276,
+        0.3226,
+        0.3203,
+        0.3237
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_2",
+        "weak_0_3",
+        "weak_0_4",
+        "weak_0_5",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_2",
+        "weak_1_3",
+        "weak_1_4",
+        "weak_1_5",
+        "weak_2_0",
+        "weak_2_1",
+        "weak_2_2",
+        "weak_2_3"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 27,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 1.04595,
+        "p95": 8.296974999999986
+      }
+    },
+    {
+      "width": 12,
+      "nodes": 52,
+      "edges": 447,
+      "edge_order": "strong_first",
+      "fixture_sha256": "d1b8ca8597ec009a38b18bcc6a141033567d423a33f7e730d1529d4c90bcce5f",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 51,
+      "edge_weight_calls": 447,
+      "expansion_ms": {
+        "p50": 1.0664500000000001,
+        "p95": 1.1404100000000001
+      },
+      "expansion_samples_ms": [
+        1.1169,
+        1.0744,
+        1.0601,
+        1.0558,
+        1.0526,
+        1.0531,
+        1.0585,
+        1.053,
+        1.0538,
+        1.0501,
+        1.0904,
+        1.0556,
+        1.2683,
+        1.1043,
+        1.0788,
+        1.1183,
+        1.1138,
+        1.0684,
+        1.0593,
+        1.0518,
+        1.1042,
+        1.0643,
+        1.0585,
+        1.1089,
+        1.1431,
+        1.0637,
+        1.1425,
+        1.0999,
+        1.1084,
+        1.0676,
+        1.0752,
+        1.0663,
+        1.0648,
+        1.0608,
+        1.0522,
+        1.0518,
+        1.0527,
+        1.0499,
+        1.0834,
+        1.0522,
+        1.0551,
+        1.1324,
+        1.0642,
+        1.0701,
+        1.0651,
+        1.067,
+        1.0574,
+        1.0655,
+        1.07,
+        1.0484,
+        1.0512,
+        1.0666,
+        1.0893,
+        1.0602,
+        1.0667,
+        1.1403,
+        1.0837,
+        1.0678,
+        1.0728,
+        1.0695
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_10",
+        "weak_0_11",
+        "weak_0_2",
+        "weak_0_3",
+        "weak_0_4",
+        "weak_0_5",
+        "weak_0_6",
+        "weak_0_7",
+        "weak_0_8",
+        "weak_0_9",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_10",
+        "weak_1_11"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 51,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 1.9935,
+        "p95": 15.624529999999972
+      }
+    },
+    {
+      "width": 12,
+      "nodes": 52,
+      "edges": 447,
+      "edge_order": "weak_first",
+      "fixture_sha256": "ed2c878b55a5a44e15daebfc1aebb281eaff18dfa5e8096b3e52b95d55d11d9a",
+      "expansion_target": {
+        "score": 0.585225,
+        "chain": {
+          "start": "seed",
+          "nodes": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "hops": [
+            {
+              "from": "seed",
+              "to": "strong_a",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            },
+            {
+              "from": "strong_a",
+              "to": "strong_target",
+              "relation_type": "causal",
+              "weight": 0.85,
+              "condition": "fixture condition"
+            }
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ],
+          "weight": 0.7225,
+          "depth": 2,
+          "avg_weight": 0.85
+        },
+        "depth": 2,
+        "conditions": [
+          "fixture condition",
+          "fixture condition"
+        ]
+      },
+      "returned_expansion_nodes": 51,
+      "edge_weight_calls": 447,
+      "expansion_ms": {
+        "p50": 1.3662999999999998,
+        "p95": 1.688415
+      },
+      "expansion_samples_ms": [
+        1.1356,
+        1.1285,
+        1.1393,
+        1.085,
+        1.2006,
+        1.1171,
+        1.07,
+        1.0705,
+        1.1671,
+        1.0718,
+        1.0804,
+        1.1308,
+        1.1918,
+        1.2504,
+        1.5515,
+        1.7063,
+        1.7039,
+        1.7097,
+        1.676,
+        1.4095,
+        1.2184,
+        1.1846,
+        1.1577,
+        1.4705,
+        1.4329,
+        1.5587,
+        1.3384,
+        1.4952,
+        1.3613,
+        1.6876,
+        1.4279,
+        1.273,
+        1.3713,
+        1.2568,
+        1.507,
+        1.5313,
+        1.1897,
+        1.1414,
+        1.4073,
+        1.6416,
+        1.5823,
+        1.2452,
+        1.6083,
+        1.3934,
+        1.2895,
+        1.2665,
+        1.4887,
+        1.5706,
+        1.3401,
+        1.2916,
+        1.4301,
+        1.4381,
+        1.4617,
+        1.2925,
+        1.3865,
+        1.1546,
+        1.4801,
+        1.5055,
+        1.6736,
+        1.4189
+      ],
+      "rrf_target": true,
+      "rrf_ids": [
+        "seed",
+        "strong_a",
+        "strong_target",
+        "weak_root",
+        "weak_0_0",
+        "weak_0_1",
+        "weak_0_10",
+        "weak_0_11",
+        "weak_0_2",
+        "weak_0_3",
+        "weak_0_4",
+        "weak_0_5",
+        "weak_0_6",
+        "weak_0_7",
+        "weak_0_8",
+        "weak_0_9",
+        "weak_1_0",
+        "weak_1_1",
+        "weak_1_10",
+        "weak_1_11"
+      ],
+      "rrf_paths": {
+        "lexical": 1,
+        "bucket": 0,
+        "entity": 0,
+        "graph": 2,
+        "chain": 51,
+        "temporal": 0
+      },
+      "rrf_target_provenance": [
+        {
+          "path": "chain",
+          "rank": 2,
+          "chain": [
+            "seed",
+            "strong_a",
+            "strong_target"
+          ],
+          "conditions": [
+            "fixture condition",
+            "fixture condition"
+          ]
+        }
+      ],
+      "rrf_ms": {
+        "p50": 2.5027,
+        "p95": 19.279889999999966
+      }
+    }
+  ],
+  "scope": "Synthetic strong-target recall; warm adjacency; not a leaderboard or million-node/concurrency test",
+  "expansion_target_hits": 6,
+  "rrf_target_hits": 6
+}

@@ -25,6 +25,11 @@ name: publish-artifact-check
 # 背景（2026-09-20 取证）：0.4.9 / 0.4.10 发布件实测夹带非追踪件（docs/experiments 2434 件、
 # whitebox_kb 运行时数据、md_cg/knowledge/orphan）；本 workflow 把「发版前机械核验」从人工
 # 记忆变为门禁。已发布版本按使用者裁定不回溯处置，红着即拦下一次发布。
+# 触发面（2026-10-23 修）：本检查是 main 分支保护的**必需检查**，
+# 此前按 paths 过滤 ⇒ 不触碰所列路径的 PR 永不触发 ⇒ 必需检查「从未出现」
+# ⇒ GitHub 判 mergeState=BLOCKED，只能管理员绕过（已复现 PR #577 / #593 / #661）。
+# 同一缺陷在本仓**三处**必需检查上存在：discipline-check / cogmap-check / publish-artifact-check。
+# 现一律删除 paths 过滤：**必需检查必须总跑**。判据内容一字未改，只是让它真的跑。
 on:
   # 定时触发（E62）：本门原先只有 push/pull_request/workflow_dispatch，不推 PR 就永
   # 远不跑；而「本机每日回归面」在编排侧（orchestrator/gates-regress.json），不覆盖本门。
@@ -33,52 +38,28 @@ on:
   schedule:
     - cron: '20 19 * * *'
   push:
-    paths:
-      - 'package.json'
-      - '.npmignore'
-      - '.gitignore'
-      - 'README.md'
-      - 'scripts/check_publish_artifact.py'
-      - 'scripts/check_local_paths.py'
-      - '.github/workflows/publish-artifact-check.yml'
-      - 'lib/**'
-      - 'src/**'
-      - 'md_cg/**'
-      - 'skills/**'
-      - 'dsh/**'
-      - 'hive/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'docs/**'
   pull_request:
-    paths:
-      - 'package.json'
-      - '.npmignore'
-      - '.gitignore'
-      - 'README.md'
-      - 'scripts/check_publish_artifact.py'
-      - 'scripts/check_local_paths.py'
-      - '.github/workflows/publish-artifact-check.yml'
-      - 'lib/**'
-      - 'src/**'
-      - 'md_cg/**'
-      - 'skills/**'
-      - 'dsh/**'
-      - 'hive/**'
-      - 'codebuddy/**'
-      - 'zcode/**'
-      - 'docs/**'
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
-  check:
+  publish-artifact:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
-      # npm 由 runner 自带（node 预装）——`npm pack --dry-run` 不需要安装依赖
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: 构建插件入口（生命周期清单验收前置）
+        run: |
+          npm ci --ignore-scripts --include=dev
+          npm run build
+      # 保留 prepare 生命周期与完整清单交叉核验；先构建其需要的插件入口。
       - name: 门禁脚本自检（内置断言：四类规则的正负例 + 不命中自身源码）
         run: python scripts/check_publish_artifact.py --selftest
       - name: 产物面政策检查（npm pack --dry-run 清单 × git ls-files 追踪集合）
@@ -89,3 +70,10 @@ jobs:
         run: python scripts/check_local_paths.py --selftest
       - name: 追踪面本机路径扫描（git ls-files 全量）
         run: python scripts/check_local_paths.py
+      # 【issue #807】行为面判据必须进 CI：check_publish_smoke.py 早先只在本地 `npm run gate` 生效，
+      # 8 个 workflow 无一调用 ⇒ #792 想消灭的「静态面全绿、链路实际断开」在门禁上等于不存在
+      # （与本判据当初要消灭的缺陷同型）。脚本已绿（本地 32s / 7 条判据全过），接线纯增益、零风险。
+      # 它做的是「真装一遍再握手」：utf8_boot 在包内 → 装好的目录结构 → 字符集表解析 →
+      # initialize/tools/list 真握手 → tools 面 == 缺省面 → 策略来源。
+      - name: 发布件行为面冒烟（真装一遍 + MCP 握手，issue #807）
+        run: python scripts/check_publish_smoke.py

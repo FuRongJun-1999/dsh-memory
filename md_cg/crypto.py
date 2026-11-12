@@ -59,7 +59,7 @@ import sys
 import time
 
 from .datapath import aux_root
-from .fsutil import FileLock, chmod_owned
+from .fsutil import FileLock, chown_like_dir
 from .rotate import Rotator
 
 # ---- 常量 ----------------------------------------------------------------
@@ -290,13 +290,28 @@ _PERM_WARN_LIMIT = 8
 # 0600 语义——调用方不得据它宣称「已隔离」。修前是 `except OSError: pass`（**静默**），
 # 那正是「声明（0600）与实现（在 Windows 上不生效）不符」长期未被发现的原因。
 def _tighten_perms(path):
+    """把密钥文件的权限位收到 0600，并把属主对齐到所在目录（回流补丁，2026-11-05）。
+
+    两件事分开做，**因为报错口径不同**：
+      · `os.chmod` 失败必须**留痕**（issue #326-⑤：静默 chmod 等于没有保护）——
+        进 `PERM_WARNINGS`，调用方据此告警；
+      · 属主随目录（`chown_like_dir`）只在以 root 执行且属主与目录不同时生效，
+        失败不阻断（非 root 环境下它本就该返回 False，那是正常态，不是缺陷）。
+    2026-11-12 合并：此前这里直接调 `fsutil.chmod_owned`，而它把 `os.chmod` 的
+    `OSError` 吞掉了（`except OSError: pass`）⇒ 告警面形同虚设、判据也抓不到。
+    拆开后两条性质同时成立：失败可观测 + 属主仍随目录。
+    """
     try:
-        chmod_owned(path, 0o600)
-        return True
+        os.chmod(path, 0o600)
     except OSError as e:
         if len(PERM_WARNINGS) < _PERM_WARN_LIMIT:
             PERM_WARNINGS.append((path, type(e).__name__, str(e)[:120]))
         return False
+    try:
+        chown_like_dir(path)
+    except OSError:
+        pass
+    return True
 
 
 # 生效条件：master_file=None、env_var=MASTER_ENV、create=None、allow_create=None 为可选入参；

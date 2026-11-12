@@ -1,4 +1,3 @@
-<div align="center">
 
 # 灵枢 LINGSHU
 
@@ -239,7 +238,7 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 | 🧠 **灵枢大脑**      | [`md_cg/`](md_cg/)       | **元认知**     | 记忆系统本体：对话沉淀为 md 认知图，记什么 / 取什么 / 能否写入全由确定性规则裁决，四层证据防火墙白箱剔除弱证据干扰                                                                                                                                                                               | [README 详细版](docs/mdcg/README详细版_v0.4.10.md) |
 | ⚙️ **Rust 检索引擎** | [`rust/`](rust/)         | 检索内核        | 只读侧检索核心：零第三方依赖三形态（库内嵌大批量 / `--serve` 多智能体进程实例 / 评测器），与 Python 口径对齐由 rank 逐位对拍 harness 守卫（lexical 主因已收敛，graph/entity 尾差排期中）                                                                                                                   | [rust/README.md](rust/README.md)             |
 | 🐝 **蜂群运行时**（实验件·未接主链） | [`swarm/`](swarm/)       | **自维持**     | 多进程蜂群执行层（靠轮次心跳存续）：.pbc 确定性实例 + Gossip 拓扑 / 水位信箱 / WAL-HMAC / 信任聚合 / 健康评分，实例管道断裂即同轮重建（Rust 纯 std 零依赖）                                                                                                                                         | [功能说明 v0.6](docs/swarm/蜂群多智能体_功能说明_v0.6.md)  |
-| 📜 **中文编译器**（实验件·未接主链） | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱                                                                                                                                                                                  | `python -m compiler.cli`（模块内文档）              |
+| 📜 **中文编译器**（实验件·未接主链） | [`compiler/`](compiler/) | **验证 · 审计** | 术数编译器：词法 → 语法 → 名实校验 → 白名单代码生成 → 验证终裁，五环确定性编译链 + 封闭指令集结构性沙箱                                                                                                                                                                                  | `python -m compiler.cli`（入口 `compiler/cli/__main__.py`）              |
 | ⬢ **蜂巢并发引擎**     | [`hive/`](hive/)         | **自我改进**    | 蜂群多智能体并发调度：Rust 纯 std 零依赖 worker 池（原子领取 / 心跳 / 超时强杀 / kill / 崩溃恢复），文件协议即接口，LLM 调用委托零依赖 Python 执行器子进程，MCP 五工具接入（spawn / poll / kill / restart / doctor）—— **0.5.0 起进入稳定形态**（9·12 多写者防线：flush 临界区互斥；I-1 依赖门禁：spec.depends_on 任务 DAG；真实负载反馈仍欢迎） | [hive/README.md](hive/README.md)             |
 
 **系统功能 → 工程能力**（四类工程能力分别落在哪一层）：
@@ -251,7 +250,7 @@ DSH 采用 Cordis bundle 机制，新增或更新插件后必须**重启 DSH 进
 | **自我改进**——系统改自身源码而**不丧失验证资格** | ⬢ 蜂巢     | **任务调度**（spec 进 / result 出）· **蜂巢并发**（worker 池原子领取，多智能体真并行）· **双实例验证**（互验机制：判据冻结，候选须过对端断言才可入主线） |
 | **验证 · 审计**——改动的可裁决性与全程留痕     | 📜 中文编译器 | 名实校验 → 白名单代码生成 → 验证终裁的确定性链路；每个写入值必须是原文子串（不当场放行）                                                 |
 
-三件套（主链）与两件实验件共享同一套 18 条工作纪律与记忆闭环（见文末[工程纪律](#-工程纪律与设计者视角可选推荐)），接入方式互不牵动——只用记忆就只接大脑，不必理解蜂群与编译器。
+三件套（主链）与两件实验件共享同一套 19 条工作纪律与记忆闭环（见文末[工程纪律](#-工程纪律与设计者视角可选推荐)），接入方式互不牵动——只用记忆就只接大脑，不必理解蜂群与编译器。
 
 > **🧬 完整身体库**：平台的「身」面——世界模型七层／3D 场景与角色／白箱生成／自研蜂窝神经网络／记忆可视化——已作为对外完整版独立公开：[**FuRongJun-1999/lingshu**](https://github.com/FuRongJun-1999/lingshu)（与本大脑经 MCP 组合；能力面一览见下文架构节）。
 
@@ -492,7 +491,7 @@ DeepSeek Harness (cordis)
 
 ```bash
 pip install -e ".[full]"                     # 轻核零依赖可裸跑；full 含 numpy / Pillow
-python -X utf8 tests/test_brain_store.py     # 身体×脑端到端（MDCG_BRAIN_PYTHONPATH 指向本大脑包目录）
+python -X utf8 scripts/body_e2e_smoke.py      # 身体×脑端到端冒烟（门禁第 14 项同一件）
 ```
 
 ---
@@ -524,7 +523,7 @@ python -X utf8 tests/test_brain_store.py     # 身体×脑端到端（MDCG_BRAIN
 | [功能调用映射表](docs/mdcg/功能调用映射表_v0.1.md) | 任何功能 → 调用哪段代码（含行号、MCP op） |
 | [护栏宪章 v2.0](docs/mdcg/guardrail-charter.md) | 对外部智能体与人类使用者的行为边界 |
 | 教学四篇 | [白箱智能是什么？](docs/theory/白箱智能是什么？.md) · [智能的认知过程](docs/theory/智能的认知过程.md) · [智能的公理化基石](docs/theory/智能的公理化基石.md) · [信息差为什么必然存在](docs/theory/信息差为什么必然存在且自然扩大.md) |
-| [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 18 条工作纪律（嵌套认知图条目 `work_discipline`） |
+| [工作纪律·认知图条目 v1.1](docs/工作纪律_认知图条目_v1.1.json) | 自我约束的 19 条工作纪律（嵌套认知图条目 `work_discipline`） |
 | [hive-memory-bench（公开基准 · 权威对照）](https://github.com/FuRongJun-1999/hive-memory-bench) | 184 题 · 23 章 · 六家记忆系统同口径对照（机械层读数 · 判分器 · 机器可读台账） |
 | [六家记忆系统横评 v1.0（历史口径 · 上界对照集）](docs/eval/横评_六家100题中英双查_v1.0.md) | 100 题 · **中英双查** · 六家同口径对照；含判定单 / 条件层归因 / 诚实边界（题集 → [data/benchmarks/bench6-100-zh-en/](data/benchmarks/bench6-100-zh-en/README.md)） |
 | [端到端干扰池评测 v1.1](docs/eval/端到端干扰池评测_确定性裁决vsLLM_judge_v1.1.md) | **带干扰池端到端**：确定性裁决层 vs LLM-as-judge 正面对比（四族干扰×浓度梯度）· LoCoMo 上游 gold 端到端 QA **43.3%/40.0%** · 防火墙与 LLM 裁决对无标记干扰均无增益（REJECT 恒 0）· **统一归一层 A/B：CCG+RRF 形态 −11.7pp（批次 15 边界反馈）** |

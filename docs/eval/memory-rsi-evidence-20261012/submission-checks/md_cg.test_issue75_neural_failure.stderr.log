@@ -1,0 +1,73 @@
+[neural_retrieve] 降级 stage=load_index exc=FileNotFoundError: [Errno 2] No such file or directory: 'E:\\lingshu\\work\\r5-tmp\\991ac3be6d\\i75_no_such_index.npz'
+[neural_retrieve] 降级 stage=embed exc=RuntimeError: encode boom
+[neural_retrieve] 降级 stage=ensure_model exc=RuntimeError: model dir missing
+[neural_retrieve] 降级 stage=cspmn_backend exc=ModuleNotFoundError: import of cspmn halted; None in sys.modules
+[neural_retrieve] 降级 stage=cspmn_backend exc=RuntimeError: GPU lost
+[neural_retrieve] 降级 stage=search_index exc=KeyError: 'vectors_normed'
+[neural_retrieve] 降级 stage=probe exc=ValueError: 结构检查
+[neural_retrieve] 降级 stage=probe exc=ValueError: e0
+[neural_retrieve] 降级 stage=probe exc=ValueError: e1
+[neural_retrieve] 降级 stage=probe exc=ValueError: e2
+[neural_retrieve] 降级 stage=probe exc=ValueError: e3
+[neural_retrieve] 降级 stage=probe exc=ValueError: e4
+[neural_retrieve] 降级 stage=probe exc=ValueError: e5
+[neural_retrieve] 降级 stage=probe exc=ValueError: e6
+[neural_retrieve] 降级 stage=probe exc=ValueError: e7
+[neural_retrieve] 降级 stage=probe exc=ValueError: e8
+[neural_retrieve] 降级 stage=probe exc=ValueError: e9
+[neural_retrieve] 降级 stage=probe exc=ValueError: e10
+[neural_retrieve] 降级 stage=probe exc=ValueError: e11
+[neural_retrieve] 降级 stage=probe exc=ValueError: e12
+[neural_retrieve] 降级 stage=probe exc=ValueError: e13
+[neural_retrieve] 降级 stage=probe exc=ValueError: e14
+[neural_retrieve] 降级 stage=probe exc=ValueError: e15
+[neural_retrieve] 降级 stage=probe exc=ValueError: e16
+[neural_retrieve] 降级 stage=probe exc=ValueError: e17
+[neural_retrieve] 降级 stage=probe exc=ValueError: e18
+[neural_retrieve] 降级 stage=probe exc=ValueError: e19
+[neural_retrieve] 降级 stage=probe exc=ValueError: e20
+[neural_retrieve] 降级 stage=probe exc=ValueError: e21
+[neural_retrieve] 降级 stage=probe exc=ValueError: e22
+[neural_retrieve] 降级 stage=probe exc=ValueError: e23
+[neural_retrieve] 降级 stage=probe exc=ValueError: e24
+[neural_retrieve] 降级 stage=probe exc=ValueError: e25
+[neural_retrieve] 降级 stage=probe exc=ValueError: e26
+[neural_retrieve] 降级 stage=probe exc=ValueError: e27
+[neural_retrieve] 降级 stage=probe exc=ValueError: e28
+[neural_retrieve] 降级 stage=probe exc=ValueError: e29
+[neural_retrieve] 降级 stage=probe exc=ValueError: e30
+[neural_retrieve] 降级 stage=probe exc=ValueError: e31
+[neural_retrieve] 降级 stage=probe exc=ValueError: e32
+[neural_retrieve] 降级 stage=probe exc=ValueError: e33
+[neural_retrieve] 降级 stage=probe exc=ValueError: e34
+[neural_retrieve] 降级 stage=probe exc=ValueError: e35
+[neural_retrieve] 降级 stage=probe exc=ValueError: e36
+[neural_retrieve] 降级 stage=probe exc=ValueError: e37
+[neural_retrieve] 降级 stage=probe exc=ValueError: e38
+[neural_retrieve] 降级 stage=probe exc=ValueError: e39
+[neural_retrieve] 降级 stage=probe exc=ValueError: e40
+[neural_retrieve] 降级 stage=probe exc=ValueError: e41
+[neural_retrieve] 降级 stage=probe exc=ValueError: e42
+[neural_retrieve] 降级 stage=probe exc=ValueError: e43
+[neural_retrieve] 降级 stage=probe exc=ValueError: e44
+[neural_retrieve] 降级 stage=probe exc=ValueError: e45
+[neural_retrieve] 降级 stage=probe exc=ValueError: e46
+[neural_retrieve] 降级 stage=probe exc=ValueError: e47
+[neural_retrieve] 降级 stage=probe exc=ValueError: e48
+[neural_retrieve] 降级 stage=probe exc=ValueError: e49
+[neural_retrieve] 降级 stage=probe exc=ValueError: e50
+[neural_retrieve] 降级 stage=probe exc=ValueError: e51
+[neural_retrieve] 降级 stage=probe exc=ValueError: e52
+[neural_retrieve] 降级 stage=probe exc=ValueError: e53
+[neural_retrieve] 降级 stage=probe exc=ValueError: e54
+[neural_retrieve] 降级 stage=probe exc=ValueError: e55
+[neural_retrieve] 降级 stage=probe exc=ValueError: e56
+[neural_retrieve] 降级 stage=probe exc=ValueError: e57
+[neural_retrieve] 降级 stage=probe exc=ValueError: e58
+[neural_retrieve] 降级 stage=probe exc=ValueError: e59
+[neural_retrieve] 降级 stage=probe exc=ValueError: 副本
+[neural_retrieve] 降级 stage=embed exc=RuntimeError: boom
+[neural_retrieve] 降级 stage=search_index exc=KeyError: 'vectors_normed'
+[neural_retrieve] 降级 stage=cosine exc=ValueError: could not convert string to float: np.str_('a')
+[neural_retrieve] 降级 stage=cosine exc=ValueError: could not convert string to float: np.str_('a')
+[neural_retrieve] 降级 stage=cspmn_backend exc=RuntimeError: GPU lost

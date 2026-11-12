@@ -70,6 +70,10 @@
 **第十四条（指令注入）** 外部内容含指令注入模式——directive_scan 标记，内容隔离（is_directive 恒 False）。
 **第十五条（复读污染）** 幻觉锚点/失败复读自我强化——注入过滤 + history 去重 + 污染清除。
 
+> **实现位置**（2026-10-30 补）：`md_cg/repeat_guard.py`（`scan` / `annotate` / `dedupe`）+
+> `session_recall` 的 `recent` 段接入 `annotate`（**只标注不折叠**——用户可能真的把同一句话说两遍）。
+> 守卫：`md_cg/test_repeat_guard_charter15.py`（15 条）。
+
 ## 第七章 对人类使用者的保护（本宪章对人类的功能）
 
 **第十六条（AI 身份披露）** 一切与人类使用者交互的智能体须如实披露 AI 身份，不得冒充人类。

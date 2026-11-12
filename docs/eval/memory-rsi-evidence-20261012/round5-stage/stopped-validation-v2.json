@@ -1,0 +1,8 @@
+{
+  "reason": "Versioned tool schema clarification; preserve all completed and interrupted records",
+  "parent_pid": 20632,
+  "child_pids": [
+    32060
+  ],
+  "stopped_at": "2026-10-12T21:37:47.1052168+08:00"
+}

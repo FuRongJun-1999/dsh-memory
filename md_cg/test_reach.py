@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """test_reach.py · 检索候选收敛层（reach）验收。
 
 覆盖（对应 A2/A3 判据的可证形式）：

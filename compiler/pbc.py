@@ -7,13 +7,29 @@ pbc.py · 原生编译产物（第六阶段 C3）：.pbc 字节码文件
            6=(int8B + str列表 len2B+各 len2B+utf8)[CALL 签名,v0.4 扩展——向后兼容,旧 tag 不变]
 """
 
+import os
 import struct
+import tempfile
 
 
 # 生效条件：op 具有 name 属性时返回 op.name，否则返回 str(op)。
 def _op_name(op):
     """Opcode 枚举 → 字符串名（compiler.py 生成枚举，白箱单元生成字符串——统一）"""
     return op.name if hasattr(op, "name") else str(op)
+
+
+# 生效条件：i + n 超出 len(data) 时抛 ValueError（结构化「pbc 截断」报文，点名缺失字段与偏移）；未越界时返回 None（调用方随后可安全读取 data[i:i+n]）。
+def _need(data, i, n, what):
+    """长度判据单点（issue #402）：任何「需要 n 字节而剩余不足」一律结构化拒绝。
+
+    修复前 deserialize 全程无边界检查——`data[i:i+n]` 的切片语义使长度前缀串
+    被**静默截短**（cut=26 时条件空间名变成 '新'，rc=0 且无任何错误信号），
+    其余形态则以裸 IndexError/struct.error/UnicodeDecodeError 穿透 CLI。
+    """
+    if i + n > len(data):
+        raise ValueError(
+            f"pbc 截断：{what} 需要 {n} 字节，偏移 {i} 处仅剩 "
+            f"{max(len(data) - i, 0)} 字节（共 {len(data)} 字节）")
 
 
 # 生效条件：对 code 中每个 (op,arg)，arg 为 None/bool/int/float/str 时分别写标签 0/1/2/3/4（bool 先于 int 命中），arg 为二元组且 arg[1] 是元素全为 str 的 list/tuple 时写标签 6，arg 为其他 tuple 时按 arg[0]、arg[1] 写标签 5，其余类型抛 ValueError，全部编码后返回 bytes(out)。
@@ -59,48 +75,77 @@ def serialize(code):
     return bytes(out)
 
 
-# 生效条件：i<len(data) 时按 H 长度前缀读 op 名、再按 tag 分支还原 0→None、1→bool、2→int(q)、3→float(d)、4→str、5→(float, int)、6→(入口 int, 参数名 list)，其他 tag 抛 ValueError，逐条 append 后返回 code 列表（data 为空则返回空列表）。
+# 生效条件：i<len(data) 时按 H 长度前缀读 op 名、再按 tag 分支还原 0→None、1→bool、2→int(q)、3→float(d)、4→str、5→(float, int)、6→(入口 int, 参数名 list)，其他 tag 抛 ValueError；每一处「读 N 字节」前先过 _need 长度判据，不足即抛结构化 ValueError（不静默截短、不裸 IndexError/struct.error），逐条 append 后返回 code 列表（data 为空则返回空列表＝合法空程序）。
 def deserialize(data):
-    """.pbc 字节串 → 指令列表"""
+    """.pbc 字节串 → 指令列表
+
+    issue #402：输入必须**完整**——任何越界读取都是结构化 ValueError，
+    绝不把半截串/半截指令表当合法结果返回。"""
     code, i = [], 0
     while i < len(data):
+        _need(data, i, 2, "op 名长度前缀")
         n = struct.unpack_from("H", data, i)[0]
         i += 2
-        op = data[i:i + n].decode("utf-8")
+        _need(data, i, n, "op 名")
+        try:
+            op = data[i:i + n].decode("utf-8")
+        except UnicodeDecodeError as exc:
+            raise ValueError(
+                f"pbc 损坏：偏移 {i} 处 op 名不是合法 UTF-8（{exc}）")
         i += n
+        _need(data, i, 1, "参数标签")
         tag = data[i]
         i += 1
         if tag == 0:
             arg = None
         elif tag == 1:
+            _need(data, i, 1, "bool 参数")
             arg = data[i] == 1
             i += 1
         elif tag == 2:
+            _need(data, i, 8, "int 参数")
             arg = struct.unpack_from("q", data, i)[0]
             i += 8
         elif tag == 3:
+            _need(data, i, 8, "float 参数")
             arg = struct.unpack_from("d", data, i)[0]
             i += 8
         elif tag == 4:
+            _need(data, i, 2, "字符串长度前缀")
             m = struct.unpack_from("H", data, i)[0]
             i += 2
-            arg = data[i:i + m].decode("utf-8")
+            _need(data, i, m, "字符串参数")
+            try:
+                arg = data[i:i + m].decode("utf-8")
+            except UnicodeDecodeError as exc:
+                raise ValueError(
+                    f"pbc 损坏：偏移 {i} 处字符串参数不是合法 UTF-8（{exc}）")
             i += m
         elif tag == 5:
+            _need(data, i, 16, "tuple(float,int) 参数")
             t = struct.unpack_from("d", data, i)[0]
             a = struct.unpack_from("q", data, i + 8)[0]
             arg = (t, a)
             i += 16
         elif tag == 6:
+            _need(data, i, 8, "CALL 入口地址")
             entry = struct.unpack_from("q", data, i)[0]
             i += 8
+            _need(data, i, 2, "CALL 参数个数前缀")
             n_params = struct.unpack_from("H", data, i)[0]
             i += 2
             params = []
             for _ in range(n_params):
+                _need(data, i, 2, "CALL 参数名长度前缀")
                 m = struct.unpack_from("H", data, i)[0]
                 i += 2
-                params.append(data[i:i + m].decode("utf-8"))
+                _need(data, i, m, "CALL 参数名")
+                try:
+                    params.append(data[i:i + m].decode("utf-8"))
+                except UnicodeDecodeError as exc:
+                    raise ValueError(
+                        f"pbc 损坏：偏移 {i} 处 CALL 参数名不是合法 UTF-8"
+                        f"（{exc}）")
                 i += m
             arg = (entry, params)
         else:
@@ -109,15 +154,28 @@ def deserialize(data):
     return code
 
 
-# 生效条件：调用即以 "wb" 打开 path 写入 serialize(code)（无类型/存在性校验），随后返回 path。
+# 生效条件：调用即以 "wb" 原子写 path——先写同目录临时文件、fsync 后 os.replace 覆盖目标（中断只会留下临时件，不会产出半截 .pbc），随后返回 path；字节内容与 serialize(code) 逐字节相同（.pbc 载荷格式不变——Rust 运行时与白箱孪生同契约）。
 def save_pbc(code, path):
-    """字节码 → .pbc 文件"""
-    with open(path, "wb") as f:
-        f.write(serialize(code))
+    """字节码 → .pbc 文件（issue #402：原子写，杜绝中断产出截断件）"""
+    payload = serialize(code)
+    directory = os.path.dirname(os.path.abspath(path))
+    fd, tmp = tempfile.mkstemp(prefix=".pbc-", suffix=".tmp", dir=directory)
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(payload)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
     return path
 
 
-# 生效条件：调用即以 "rb" 打开 path 读取全部字节并交给 deserialize，直接返回其结果。
+# 生效条件：调用即以 "rb" 打开 path 读取全部字节并交给 deserialize，直接返回其结果（读取面不加容器/魔数——格式与 Rust 运行时、白箱孪生同一契约；完整性判据在 deserialize 的 _need 单点）。
 def load_pbc(path):
     """.pbc 文件 → 字节码"""
     with open(path, "rb") as f:

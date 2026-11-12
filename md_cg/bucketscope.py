@@ -1,0 +1,357 @@
+# -*- coding: utf-8 -*-
+"""桶作用域召回（bucketscope）——日桶 / 会话桶的**召回侧**落地。
+
+两类桶的定死口径（实测主库 34,218 节点，2026-11-09）：
+  · **日桶** = `created_at` 的本地日期，`day:YYYY-MM-DD`。83 个桶；查询 5ms（索引）vs 2–17s（全扫）。
+  · **会话桶** = `frontmatter.session`，`session:<sid>`。631 个桶；**72% 是 `unattributed`**——
+    这类节点的会话身份不可知，**只按日桶走**，绝不与他人合并（合并会把无关内容塞进同一上下文）。
+
+两条边界（都是实测教训）：
+  1. **日桶不能当「那天只写了这些」**：主库 2026-11-08 有 14,217 条（多日批量写入挤到同一天），
+     所以日桶召回必须**再按查询词过滤**，不能整桶直接塞给模型。
+  2. 会话桶同理：最大真实会话 3,026 条，整桶塞不进去。
+
+故本模块只做**受控召回**：桶内按查询词面筛选 → 取前 cap 条 → 以 0 分追加（不抢名次）。
+"""
+from __future__ import annotations
+
+import os
+import re
+import time
+
+from . import bucketindex as _bi
+
+#: 单次桶召回上限（与 recent_tail 同一量级，避免撑爆预算）。
+CAP = 8
+
+
+def _terms(q):
+    """查询切词：先按标点/空白切段，再对**中文长段补 2 元**。
+
+    为什么要补二元：中文查询通常没有空格（「江北回声那回到了哪里」是**一个**段），
+    整段做子串匹配几乎不可能命中任何节点 ⇒ 桶内 `_pick` 恒返回空 ⇒ 上层回落
+    「最近 14 天」。补 2 元后「江北」「回声」都能匹配；排序仍按命中数降序，
+    长段本身也算一个词，故整段命中者权重更高。
+    """
+    out, seen = [], set()
+    for seg in re.split(r"[\s,，、;；。！？:：()（）\[\]【】]+", q or ""):
+        seg = seg.lower()
+        if len(seg) < 2:
+            continue
+        if seg not in seen:
+            seen.add(seg)
+            out.append(seg)
+        if len(seg) >= 4 and re.search(r"[\u4e00-\u9fff]", seg):
+            for i in range(len(seg) - 1):
+                bg = seg[i:i + 2]
+                if bg not in seen:
+                    seen.add(bg)
+                    out.append(bg)
+    return out
+
+
+#: 桶内扫描预算：桶可能上万条（主库 2026-11-08 有 14,217 条），逐条读盘会拖到秒级；
+#: 实测 14k 桶全扫 2.9s、预算 800 条约 0.2s。故按**id 序**取前 MAX_SCAN 条（确定性、可复算），
+#: 代价是桶内覆盖不全——这是「快」与「全」的显式取舍，不是静默降级。
+MAX_SCAN = 800
+
+
+def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=False,
+          fill_rest=False):
+    """桶内按词面命中筛选（确定性）：命中词数降序 → **时间降序** → id；取前 cap。
+
+    【#842】排序键必须**在截断之前**含时间：早先只按 (-hits, nid) 排再截 cap，
+    9 条同等命中 + cap=8 时被 id 序丢掉的那条可能正是最新的（后置的时间排序
+    已经拿不回来）。现在把 created_at 提到截断前，截断即保留「同分里最新的」。
+
+    【#843】validity=True 时必须在此处就过滤过期节点：桶补召回是**在候选检索
+    之后**追加的，若不在源头过滤，调用方显式要求的「排除过期」会被补召回推翻。
+    """
+    scored = []
+    for nid in list(ids)[:MAX_SCAN]:
+        node = store.get(nid)
+        if not node:
+            continue
+        if validity and _is_expired(node, now):
+            continue
+        text = str(node.get("content") or "").lower()
+        hits = sum(1 for t in terms if t in text)
+        if hits:
+            scored.append((-hits, _recency_key(node), nid, node))
+    scored.sort()
+    out = [(node, 0.0, {"reason": "bucket_scope"}, [])
+           for _h, _r, _nid, node in scored[:cap]]
+    # 【外测 2026-11-11 卡点 1】命中抑制：只要有一条命中，早先就把**同桶其余节点全丢**，
+    # 于是「锚点在桶里但没命中 query 词」的条目直接消失（P16/d03：桶 [114,115,116]，
+    # 只命中 114 ⇒ 116 被丢）。现改为：命中优先，**按时间序补足到 cap**。
+    if fill_rest and len(out) < cap:
+        chosen = {n.get("id") for n, _s, _q, _p in out}
+        # 补足路径同样要过 validity 闸（#856 守卫抓到的漏洞：
+        # 早先只对「词面命中」的节点做了过期过滤，`fill_rest` 会把过期节点补进来，
+        # 等于把 #843 的修复在另一条分支上绕过了）。
+        rest = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN])
+                if n and n.get("id") not in chosen
+                and not (validity and _is_expired(n, now))]
+        rest.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
+        for n in rest[:cap - len(out)]:
+            out.append((n, 0.0, {"reason": "bucket_scope",
+                        "fallback": ("recency" if not scored else "fill")}, []))
+    return out
+
+
+def day_scope(store, query, day, cap=CAP, validity=False, now=None):
+    """日桶召回：day 桶内按查询词筛选。索引缺失返回 None（调用方据此区分「无桶」与「空桶」）。"""
+    ids = _bi.day_ids(store, day)
+    if not ids:
+        return None
+    return _pick(store, ids, _terms(query), cap, validity=validity, now=now)
+
+
+def session_scope(store, query, session, cap=CAP, validity=False, now=None):
+    """会话桶召回；`unattributed` 明确拒绝（会话身份不可知，不冒充）。"""
+    sid = str(session or "")
+    if not sid or sid == _bi.UNATTRIBUTED:
+        return None
+    ids = _bi.session_ids(store, sid)
+    if not ids:
+        return None
+    return _pick(store, ids, _terms(query), cap, validity=validity, now=now)
+
+
+#: 通用默认：桶作用域**默认开启**（日期 + 会话是记忆的基本坐标，不是可选优化）。
+DEFAULT_ON = True
+#: 桶召回默认条数（会话桶 + 日桶合计）。
+DEFAULT_CAP = 8
+
+#: **会话桶独占条数**（2026-11-10 外测 v2.1）：早先会话桶与日桶共享 cap=8，
+#: 会话桶先取满 ⇒ 日桶一条都挤不进去（P17 的锚点日已被选中却 0 条进 pack）。
+#: 现按会话 4 + 日 4 分配：日桶保证拿到 DEFAULT_CAP - SESSION_QUOTA 个名额。
+SESSION_QUOTA = 4
+#: 早段意图下的会话配额（把名额让给日桶）
+SESSION_QUOTA_EARLY = 2
+#: 日桶回溯天数上限（从最近一天往回数，够覆盖「前几天说的」）。
+DAY_LOOKBACK = 14
+
+#: 「早段意图」标记：问的是很早以前的事，回落「最近优先」必然错过。
+#: 依据（2026-11-10 外测）：10 个稳定失败全是这类——「江北回声那回」「我最早说…」「我最初说…」。
+_EARLY_RE = re.compile(r"最早|最初|第一次|头一次|头回|初次|当初|以前|从前|很久以前|"
+                       r"上次|上一回|上回|那回|那次|当年|那时候")
+
+#: 早段意图下向前扫多少个日桶（成本上界：每桶 ≤ MAX_SCAN 条读盘）。
+EARLY_SCAN_DAYS = 16
+
+#: 早段意图的日桶集合：**最早几天 + 全时段均匀采样**。
+#: 教训（2026-11-10 外测 v2.0）：只扫「最早 12 天」会漏掉「库内最后一天」这种锚点
+#: （P16 锚点 2026-05-03 恰是最后一天、P20 锚点在第 18 天），故改为全时段覆盖。
+def _early_days(all_days, limit=EARLY_SCAN_DAYS, head=4, tail=4):
+    """两端交替有序池（兼容入口；新代码请用 `_early_candidates`，它把证据也纳入池生成）。"""
+    n = len(all_days)
+    if n <= limit:
+        return list(all_days)
+    ends = _two_ended(all_days, head=head, tail=tail)
+    chosen = set(ends)
+    rest = max(0, limit - len(ends))
+    step = max(1, n // max(1, rest)) if rest else n
+    uniform = [d for d in all_days[::step] if d not in chosen][:rest]
+    return ends + uniform
+
+
+def _evidence_scores(store, terms):
+    """全库每个日桶的**证据分**（= 查询词在该桶词表里出现的个数），毫秒级不读正文。"""
+    table = _bi._load(store, _bi.TERMS_FILE) or {}
+    scores = {}
+    for bucket, bag in table.items():
+        key = str(bucket)
+        if not key.startswith("day:"):
+            continue
+        d = key[4:]
+        scores[d] = sum(1 for t in terms if t in bag)
+    return scores
+
+
+def _order_by_evidence(store, days, terms):
+    """把给定候选日按证据强弱排序（同分保持入参顺序）。"""
+    scores = _evidence_scores(store, terms)
+    pos = {d: i for i, d in enumerate(days)}
+    return sorted(days, key=lambda d: (-scores.get(d, 0), pos[d]))
+
+
+def _early_candidates(store, all_days, terms, limit=EARLY_SCAN_DAYS, head=4, tail=4):
+    """早段意图的**候选池生成**：证据优先，两端兜底，均匀补齐。
+
+    三条并列病因（外测 2026-11-11 #858 判别）：
+      ① 名额：锚点日在池内排第 5，而日名额只有 4；
+      ② 桶内闸：该日词表与 query 无交集 ⇒ `_pick` 不补足（该桶是两端交替选进来的）；
+      ③ 池生成：均匀采样漏掉**有强证据**的那天（P20:04-30）⇒ 证据排序在池外无从发力。
+    本函数治第 ③ 条：**先在全库按证据挑**，再补两端，最后均匀补齐。
+    """
+    n = len(all_days)
+    if n <= limit:
+        return list(all_days)
+    scores = _evidence_scores(store, terms)
+    ends = _two_ended(all_days, head=head, tail=tail)
+    end_rank = {d: i for i, d in enumerate(ends)}
+    # 证据优先；同分时按「两端交替」序（末端与首端先占位），其余按日期
+    ordered = sorted(all_days, key=lambda d: (-scores.get(d, 0),
+                                              end_rank.get(d, 10 ** 6), d))
+    out = ordered[:limit]
+    # 两端必须仍在池里（证据为 0 的末端日靠这条兜底）
+    for d in ends:
+        if d not in out:
+            out.append(d)
+    return out[:limit + len(ends)]
+
+
+def _two_ended(all_days, head=4, tail=4):
+    """两端交替有序列表：[末1,首1,末2,首2,…,末k,首k]。"""
+    heads = list(all_days[:head])
+    tails = list(all_days[-tail:])
+    order = []
+    for i in range(max(len(heads), len(tails))):
+        if i < len(tails):
+            order.append(tails[-1 - i])
+        if i < len(heads):
+            order.append(heads[i])
+    return order
+
+
+def _early_intent(query):
+    """query 是否表达了「早段意图」（要很早的记忆，而不是最近的）。"""
+    return bool(_EARLY_RE.search(str(query or "")))
+
+
+def _is_expired(node, now=None):
+    """节点是否已过期（valid_until 早于 now）。
+
+    判据与检索面一致：只认 frontmatter.valid_until（ISO 日期/时间），解析失败不算过期
+    （宁放过不错杀——过期是显式字段，不是推断）。
+    """
+    fm = node.get("frontmatter") or {}
+    until = fm.get("valid_until") or fm.get("validUntil")
+    if not until:
+        return False
+    t = now if now is not None else time.time()
+    raw = str(until).strip()
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return time.mktime(time.strptime(raw[:19], fmt)) < float(t)
+        except ValueError:
+            continue
+    return False
+
+
+def _recency_key(node):
+    """桶内排序键：created_at 降序（最近的在前）。"""
+    fm = node.get("frontmatter") or {}
+    try:
+        return -float(fm.get("created_at") or fm.get("valid_from") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
+    """**默认口径**的桶作用域召回：会话桶优先 → 日桶按日期倒排 → 都按时间降序。
+
+    使用者口径（2026-11-09）：
+      「日期、会话是默认就应该开启的；会话优先使用会话桶，然后按日期倒排，
+        优先取自己最近的。条件才是筛选方式。」
+
+    故本函数与「重排」无关——它只**补召回**：返回的每条 score=0.0，
+    不抢正排名次，但一定进入候选（调用方可按预算追加）。
+    """
+    terms = _terms(query)
+    # 【外测 v2.0 建议 3】把解析出的**绝对日期**回吐给调用方（metadata.resolved_dates）：
+    # 作答侧据此直接引用日期，不必自己把「上周五」换算成具体日子（B 类 7 题的根因之一）。
+    resolved_dates = []
+    try:
+        from . import timeboost as _tbd      # noqa: PLC0415
+        resolved_dates = sorted(_tbd.query_dates(query, now))
+    except Exception:            # noqa: BLE001 —— 解析失败不影响召回
+        resolved_dates = []
+    out = []
+    seen = set()
+    # ① 会话桶优先（自己的最近记录）
+    sid = str(session or "")
+    if sid and sid != _bi.UNATTRIBUTED:
+        ids = _bi.session_ids(store, sid)
+        # 【外测 #858 病因①】早段意图问的是「很久以前」，本会话桶的相关性天然更低：
+        # 会话配额从 4 降到 2，把 6 个名额留给日桶（P16 的锚点日在池内排第 5，4 个名额挤不进）。
+        _sess_quota = SESSION_QUOTA_EARLY if _early_intent(query) else SESSION_QUOTA
+        picked = _pick(store, ids, terms, min(cap, _sess_quota), validity=validity, now=now)
+        for node, score, qual, prov in picked:
+            qual = dict(qual)
+            qual["bucket"] = "session"
+            out.append((node, score, qual, prov))
+            seen.add(node.get("id"))
+    # ② 桶顺序：**范围选择优先**（状态追踪式共现推断），否则按日期倒排。
+    #    MDCG_SCOPE_SELECT=1（缺省）→ 用 scopeselect 排序；=0 回落「最近优先」。
+    #    依据：bench 实测共现推断时间桶 94.20%（字面无关），词面消融仅 90.76%。
+    _ordered_days = None
+    _declared_days = False      # 这些日桶是否来自「声明日期 / 共现推断」
+    _early_hit = False
+    try:
+        if os.environ.get("MDCG_SCOPE_SELECT", "1") != "0":
+            from . import scopeselect as _ss      # noqa: PLC0415
+            _picked = _ss.pick_scopes(store, query, session=session,
+                                      limit=DAY_LOOKBACK, now=now)
+            _ordered_days = [key for kind, key, _s in _picked if kind == "day"]
+            _declared_days = bool(_ordered_days)
+    except Exception:          # noqa: BLE001 —— 推断失败回落最近优先
+        _ordered_days = None
+    if not _ordered_days:
+        # 【2026-11-10 外测反馈】「最早 / 最初 / 上次 / 那回」这类**时间副词**查询，
+        # query 里没有可解析的绝对日期 ⇒ 选桶为空 ⇒ 若一路回落「最近 14 天」，
+        # 3–5 个月前的锚点必然被排除（实测 10/17 稳定失败属此类）。
+        # 故：早段意图优先扫**最早的日子**，其余仍回落最近优先。
+        _all_days = sorted(_bi.all_days(store))
+        _early_hit = bool(_early_intent(query) and _all_days)
+        if _early_hit:
+            _ordered_days = _early_candidates(store, _all_days, terms)
+        else:
+            _ordered_days = _all_days[::-1][:DAY_LOOKBACK]
+    # ② 日桶按上述顺序取
+    if len(out) < cap:
+        days = list(_ordered_days or [])
+        # 【外测 2026-11-11】跨日桶**轮转分配**：早先每天拿走「剩余全部名额」，
+        # 第一个桶条目够多就把 cap 吃光（实测 8 桶 cap=4 只覆盖到 2 桶，末日永不入选）。
+        # 现每轮每天最多取 per_day 条，保证「任何一天拿第 2 条之前，所有天都先拿到第 1 条」。
+        # 判据：桶是**按理由选进来**的（声明日期 / 早段意图 / 共现）⇒ 桶内补足；
+        # 若只是「最近 N 天」兜底，桶本身不携带查询证据，仍严格按词面筛选（避免塞无关条目）。
+        _fill = bool(_declared_days or _early_hit)
+        # 先各桶取一批（保证覆盖），必要时**再跑下一轮**取第二批。
+        # 【#857】早先只跑一轮：9 条匹配 + cap=8 时，若某些日桶只出 0–1 条就永远补不满（实测只回 6 条）。
+        _taken = {d: 0 for d in days}
+        _round = 0
+        while len(out) < cap and _round < 3:
+            _round += 1
+            _per = max(1, (cap - len(out)) // max(1, len(days))) if _round == 1 else 2
+            _progress = False
+            for day in days:
+                if len(out) >= cap:
+                    break
+                picked = _pick(store, _bi.day_ids(store, day), terms,
+                               _per + _taken[day],
+                               validity=validity, now=now, fallback_recency=True,
+                               fill_rest=_fill)
+                for node, score, qual, prov in picked:
+                    if len(out) >= cap:
+                        break
+                    if node.get("id") in seen:
+                        continue
+                    qual = dict(qual)
+                    qual["bucket"] = "day:%s" % day
+                    if resolved_dates:
+                        qual["resolved_dates"] = resolved_dates
+                    out.append((node, score, qual, prov))
+                    seen.add(node.get("id"))
+                    _taken[day] += 1
+                    _progress = True
+            if not _progress:
+                break           # 所有桶都取不出新条目 ⇒ 提前结束，不空转
+    # ③ 排序：**会话桶整体优先**，再按时间降序；日桶同样按时间降序。
+    # 使用者口径「会话优先使用会话桶，然后按日期倒排」——只按时间排会让日桶插到会话前面（实测发生过）。
+    def _key(it):
+        bucket = ((it[2] or {}).get("bucket") or "")
+        return (0 if bucket == "session" else 1, _recency_key(it[0]))
+    out.sort(key=_key)
+    return out[:cap]

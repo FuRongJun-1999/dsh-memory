@@ -32,12 +32,16 @@ def main() -> int:
         from md_cg.mdcos import MdCGSecure
         from md_cg.security import Principal
 
+        # 2026-10-28（issue #708/#709）：锚点从 `require_layer_write(layer, sens)` 放宽为
+        # `require_layer_write(layer, sens`——调用点现在多了 `reviewers=` 实参（把第 4 参
+        # 换成 pop 出来的复核单元），精确串失配。**强度不变**：仍要求「layer, sens 两参
+        # 在位」+「security.py 里有 def」，只放开右括号后的扩展实参。
         case.check("读码：写闸在位（MdCGSecure.add 先 principal.require_layer_"
                    "write 再落盘；require_layer_write 双闸=can_write+层白名单）",
-                   "self.principal.require_layer_write(layer, sens)"
+                   "self.principal.require_layer_write(layer, sens"
                    in harness.src("md_cg/mdcos.py")
                    and "def require_layer_write" in harness.src("md_cg/security.py"),
-                   "md_cg/mdcos.py:3786 + md_cg/security.py:217-224")
+                   "md_cg/mdcos.py 的 MdCGSecure.add + md_cg/security.py 的 require_layer_write")
 
         root9 = os.path.join(d, "m09root")
         guest = Principal(tenant="default", actor="fi_guest", clearance="internal",
@@ -83,7 +87,7 @@ def main() -> int:
                 err_designer_secret = (type(e).__name__, str(e))
             case.note(f"诚实注记：layer='secret' 非合法层名（LAYERS 八层）——"
                       f"designer 撞层名校验得 {err_designer_secret}；guest 场中"
-                      f"权限闸先于层名校验生效（mdcos.py:3786 在 super().add 之"
+                      f"权限闸先于层名校验生效（require_layer_write 在 super().add 之"
                       f"前），两道校验正交不互替")
         finally:
             cg10.close()

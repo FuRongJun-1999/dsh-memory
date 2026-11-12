@@ -51,7 +51,8 @@ def _ensure_repo(repo_path: str | None = None):
 
 #: verification_basis 合法值（实测：写别的会直接抛异常）
 VALID_BASIS = ("compiler", "test", "measurement", "formal_proof",
-               "data", "textbook", "public_kb", "other")
+               "data", "textbook", "public_kb", "other",
+               "untrusted")   # #466：外部 ingest 缺省基底（与库层闭集同步）
 
 CARD_TEMPLATE = """# 功能名：{feature}
 # 子功能：{subfeature}

@@ -1,0 +1,8 @@
+{
+  "version": "r5-v1.1",
+  "paid_B_trials_before_change": 0,
+  "old_fixture_values_untouched": true,
+  "change": "Explicit date-key insertion-order check; original Python dict equality did not test order.",
+  "source_contracts_unchanged": true,
+  "original_source_freeze": "6b580d27940e6da2958d9b9b1ff76b88f609da50825e4d7619516e40199491db"
+}

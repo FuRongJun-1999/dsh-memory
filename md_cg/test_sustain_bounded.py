@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """常驻循环卡死防护与观测守卫（issue #63）。
 
 背景（外部 issue #63 三条根因，全部本文件钉死）：
@@ -311,8 +310,15 @@ def t3():
        and "RuntimeError: t3-fail-once" in lp.last_tick_error.get("error", ""),
        "T3c  异常**不再全静默**：last_tick_error 记 {档名, 类名+摘要}",
        lp.last_tick_error)
-    ok(lp.last_tick_done is not None and lp.last_tick_done.get("ok") is False,
-       "T3d  last_tick_done 记 ok=False（失败档）", lp.last_tick_done)
+    # 2026-11-12 合并：R-545 之后「某档失败」记在**逐档**账上（last_ok_ts /
+    # tick_ledger），而 last_tick_done 仍是「最后一档执行记录」——heal 失败后
+    # scrub 照常成功，last_tick_done 就是 scrub/ok=True。判据钉到逐档账，
+    # 才真正反映「这一档没有成功过」。
+    _ticks = (lp.status() or {}).get("ticks") or {}
+    _h = _ticks.get("heal") or {}
+    ok(_h.get("last_ok_ts") is None,
+       "T3d 失败档在逐档台账里没有成功记录（R-545：last_ok_ts 仍为空）",
+       _ticks)
 
 
 # ---------------------------------------------------------------- T4

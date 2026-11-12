@@ -1,0 +1,106 @@
+{
+  "baseline": {
+    "run": 6,
+    "failures": [],
+    "errors": [],
+    "skips": [],
+    "log": "test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) ... ok\ntest_warm_scoring_normalizes_only_query_once (md_cg.test_exact_text_cache.ExactTextCache.test_warm_scoring_normalizes_only_query_once) ... ok\ntest_one_write_invalidates_only_changed_document (md_cg.test_exact_text_cache.ExactTextCache.test_one_write_invalidates_only_changed_document) ... ok\ntest_lowercase_warm_reuse_and_single_write_invalidation (md_cg.test_exact_text_cache.ExactTextCache.test_lowercase_warm_reuse_and_single_write_invalidation) ... ok\ntest_clear_removes_projection_without_changing_legacy_count (md_cg.test_exact_text_cache.ExactTextCache.test_clear_removes_projection_without_changing_legacy_count) ... ok\ntest_reinstall_does_not_keep_hidden_projection_cache (md_cg.test_exact_text_cache.ExactTextCache.test_reinstall_does_not_keep_hidden_projection_cache) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.350s\n\nOK\n"
+  },
+  "mutations": [
+    {
+      "mutation": "no_whitespace_removal",
+      "expected_test": "test_raw_and_prepared_predicates_preserve_whitespace_and_case",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_raw_and_prepared_predicates_preserve_whitespace_and_case",
+        "test_raw_and_prepared_predicates_preserve_whitespace_and_case",
+        "test_raw_and_prepared_predicates_preserve_whitespace_and_case",
+        "test_raw_and_prepared_predicates_preserve_whitespace_and_case"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) ... \n  test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='ABC', body='A B\\u2003C') ... FAIL\n  test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='A\\tB C', body='ABC') ... FAIL\n  test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='甲\\n乙', body='甲\\xa0乙') ... FAIL\n  test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='甲乙', body='甲\\u3000乙') ... FAIL\n\n======================================================================\nFAIL: test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='ABC', body='A B\\u2003C')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 53, in test_raw_and_prepared_predicates_preserve_whitespace_and_case\n    self.assertEqual(mdcg.exact_hit_of(query, body), expected)\nAssertionError: 0 != 1\n\n======================================================================\nFAIL: test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='A\\tB C', body='ABC')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 53, in test_raw_and_prepared_predicates_preserve_whitespace_and_case\n    self.assertEqual(mdcg.exact_hit_of(query, body), expected)\nAssertionError: 0 != 1\n\n======================================================================\nFAIL: test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='甲\\n乙', body='甲\\xa0乙')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 53, in test_raw_and_prepared_predicates_preserve_whitespace_and_case\n    self.assertEqual(mdcg.exact_hit_of(query, body), expected)\nAssertionError: 0 != 1\n\n======================================================================\nFAIL: test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='甲乙', body='甲\\u3000乙')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 53, in test_raw_and_prepared_predicates_preserve_whitespace_and_case\n    self.assertEqual(mdcg.exact_hit_of(query, body), expected)\nAssertionError: 0 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 0.003s\n\nFAILED (failures=4)\n"
+    },
+    {
+      "mutation": "casefold_exact",
+      "expected_test": "test_raw_and_prepared_predicates_preserve_whitespace_and_case",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_raw_and_prepared_predicates_preserve_whitespace_and_case"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) ... \n  test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='ABC', body='abc') ... FAIL\n\n======================================================================\nFAIL: test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) (query='ABC', body='abc')\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 53, in test_raw_and_prepared_predicates_preserve_whitespace_and_case\n    self.assertEqual(mdcg.exact_hit_of(query, body), expected)\nAssertionError: 1 != 0\n\n----------------------------------------------------------------------\nRan 1 test in 0.002s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "uncached_exact",
+      "expected_test": "test_warm_scoring_normalizes_only_query_once",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_warm_scoring_normalizes_only_query_once"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_warm_scoring_normalizes_only_query_once (md_cg.test_exact_text_cache.ExactTextCache.test_warm_scoring_normalizes_only_query_once) ... FAIL\n\n======================================================================\nFAIL: test_warm_scoring_normalizes_only_query_once (md_cg.test_exact_text_cache.ExactTextCache.test_warm_scoring_normalizes_only_query_once)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 75, in test_warm_scoring_normalizes_only_query_once\n    self.assertEqual(normalize.call_args_list, [call(\"A B C\")])\nAssertionError: [call('A B C'), call('AB 与 BC 分开\\n'), call('A B\\u2003C\\n'), call('abc\\n')] != [call('A B C')]\n\n----------------------------------------------------------------------\nRan 1 test in 0.062s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "stale_exact",
+      "expected_test": "test_one_write_invalidates_only_changed_document",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_one_write_invalidates_only_changed_document"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_one_write_invalidates_only_changed_document (md_cg.test_exact_text_cache.ExactTextCache.test_one_write_invalidates_only_changed_document) ... FAIL\n\n======================================================================\nFAIL: test_one_write_invalidates_only_changed_document (md_cg.test_exact_text_cache.ExactTextCache.test_one_write_invalidates_only_changed_document)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 85, in test_one_write_invalidates_only_changed_document\n    self.assertEqual(normalize.call_count, 2)  # one query, one changed document\n    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nAssertionError: 1 != 2\n\n----------------------------------------------------------------------\nRan 1 test in 0.087s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "stale_lower",
+      "expected_test": "test_lowercase_warm_reuse_and_single_write_invalidation",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_lowercase_warm_reuse_and_single_write_invalidation"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_lowercase_warm_reuse_and_single_write_invalidation (md_cg.test_exact_text_cache.ExactTextCache.test_lowercase_warm_reuse_and_single_write_invalidation) ... FAIL\n\n======================================================================\nFAIL: test_lowercase_warm_reuse_and_single_write_invalidation (md_cg.test_exact_text_cache.ExactTextCache.test_lowercase_warm_reuse_and_single_write_invalidation)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 166, in test_lowercase_warm_reuse_and_single_write_invalidation\n    self.assertEqual(project.call_count, 1)\nAssertionError: 0 != 1\n\n----------------------------------------------------------------------\nRan 1 test in 0.062s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "missing_clear",
+      "expected_test": "test_clear_removes_projection_without_changing_legacy_count",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_clear_removes_projection_without_changing_legacy_count"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_clear_removes_projection_without_changing_legacy_count (md_cg.test_exact_text_cache.ExactTextCache.test_clear_removes_projection_without_changing_legacy_count) ... FAIL\n\n======================================================================\nFAIL: test_clear_removes_projection_without_changing_legacy_count (md_cg.test_exact_text_cache.ExactTextCache.test_clear_removes_projection_without_changing_legacy_count)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 100, in test_clear_removes_projection_without_changing_legacy_count\n    self.assertFalse(cg._exact_text_cache)\nAssertionError: {'knowledge/orphan/case.md': (4, 'abc')} is not false\n\n----------------------------------------------------------------------\nRan 1 test in 0.059s\n\nFAILED (failures=1)\n"
+    },
+    {
+      "mutation": "hidden_nested_cache",
+      "expected_test": "test_reinstall_does_not_keep_hidden_projection_cache",
+      "killed": true,
+      "run": 1,
+      "failures": [
+        "test_reinstall_does_not_keep_hidden_projection_cache"
+      ],
+      "errors": [],
+      "skips": [],
+      "log": "test_reinstall_does_not_keep_hidden_projection_cache (md_cg.test_exact_text_cache.ExactTextCache.test_reinstall_does_not_keep_hidden_projection_cache) ... FAIL\n\n======================================================================\nFAIL: test_reinstall_does_not_keep_hidden_projection_cache (md_cg.test_exact_text_cache.ExactTextCache.test_reinstall_does_not_keep_hidden_projection_cache)\n----------------------------------------------------------------------\nTraceback (most recent call last):\n  File \"<checkout>\\md_cg\\test_exact_text_cache.py\", line 135, in test_reinstall_does_not_keep_hidden_projection_cache\n    self.assertEqual(cg._like_body_lower(entry, \"DIFFERENT\"), \"different\")\nAssertionError: 'a b c' != 'different'\n- a b c\n+ different\n\n\n----------------------------------------------------------------------\nRan 1 test in 0.056s\n\nFAILED (failures=1)\n"
+    }
+  ],
+  "restored": {
+    "run": 6,
+    "failures": [],
+    "errors": [],
+    "skips": [],
+    "log": "test_raw_and_prepared_predicates_preserve_whitespace_and_case (md_cg.test_exact_text_cache.ExactTextCache.test_raw_and_prepared_predicates_preserve_whitespace_and_case) ... ok\ntest_warm_scoring_normalizes_only_query_once (md_cg.test_exact_text_cache.ExactTextCache.test_warm_scoring_normalizes_only_query_once) ... ok\ntest_one_write_invalidates_only_changed_document (md_cg.test_exact_text_cache.ExactTextCache.test_one_write_invalidates_only_changed_document) ... ok\ntest_lowercase_warm_reuse_and_single_write_invalidation (md_cg.test_exact_text_cache.ExactTextCache.test_lowercase_warm_reuse_and_single_write_invalidation) ... ok\ntest_clear_removes_projection_without_changing_legacy_count (md_cg.test_exact_text_cache.ExactTextCache.test_clear_removes_projection_without_changing_legacy_count) ... ok\ntest_reinstall_does_not_keep_hidden_projection_cache (md_cg.test_exact_text_cache.ExactTextCache.test_reinstall_does_not_keep_hidden_projection_cache) ... ok\n\n----------------------------------------------------------------------\nRan 6 tests in 0.323s\n\nOK\n"
+  },
+  "passed": true
+}

@@ -420,6 +420,22 @@ pub fn serve(cfg: &ServeCfg, stop: Arc<AtomicBool>) -> i32 {
                 Ok(false) => continue, // 有依赖未终态 → 等待
                 Ok(true) => {}
             }
+            // #155①（K 组 · task-49）：**领取前**查 kill 标志。
+            // 旧路径只在 worker 轮询循环里查（run_job 的 Ok(None) 分支）：「提交后、
+            // 被领取前」就已 kill 的任务照常 claim → patch_status("claimed") → 投递 →
+            // run_job 拉起 Python 执行器，直到第一拍（poll 1s）才发现标志、再
+            // kill_tree 回收——白拉起一个进程，且该进程在 1s 窗口内可产生任意副作用
+            // （写收件箱 / 发起 LLM 外呼 / 落半截产物）。
+            // 判据与 worker 侧**同一单点** job::kill_requested（不另造第二套口径）；
+            // 终态落盘走**同一** land_final_status（与 worker 侧 killed 逐字同值）；
+            // 优先级也与 worker 侧一致：kill 先于产物（worker 的 kill 分支同样不查
+            // result.json）。
+            // 位置在名额闸**之前**：被 kill 的任务不占名额、不 claim、不投递——
+            // 名额未被消耗，故此处 continue 无需 inflight.release()。
+            if job::kill_requested(&dir) {
+                land_final_status(&dir, &id, "killed", None, 0.0);
+                continue;
+            }
             // H-7 有界闸：**先占名额再 claim**。满员即本拍不再领取（at_capacity
             // 置位，后续任务走同一 continue 路径），但扫描继续——名额闸只关领取，
             // 不关观测（见循环头注）。顺序不可颠倒：claim 后再发现没空位，就得
@@ -913,6 +929,8 @@ fn land_final_status(
         },
         thread::sleep,
     );
+    // #156⑥（K 组 · task-49）：终态是否**真的落盘**——决定 kill 标志删不删（见下）。
+    let landed = res.is_ok();
     match res {
         Ok(((), 1)) => {}
         Ok(((), n)) => eprintln!(
@@ -930,6 +948,28 @@ fn land_final_status(
             if let Err(me) = job::write_status_writefail_mark(dir, id, state, &e) {
                 eprintln!(
                     "[hive] 告警：任务 {id} 的失败标记亦未能落盘（盘面只读/盘满？）：{me}"
+                );
+            }
+        }
+    }
+
+    // #156⑥（K 组 · task-49）：终态**已落盘** ⇒ kill 标志完成使命，删除它。
+    // 为什么必须删：kill 标志是**一次性意图通道**，其语义在本次终态落盘时即被消费。
+    // 残留会让 `job::kill_requested(dir) == true` **永久**成立——任何未来的恢复/
+    // 重投路径（recover_orphans 的删锁重投 pending、spec 显式 rerun_on_recover）
+    // 都会把它误读为**新的** kill 请求；#155① 的「领取前闸」落位后，该误读直接
+    // 变成「重投即秒杀」（本项因此是 #155① 的必要配套，不是可有可无的清理）。
+    // 只在**落盘成功**时删：终态写入失败时该标志是「曾被 kill」的唯一盘面证据，
+    // 恢复面按产物/状态收敛时仍需据此区分 killed 与 error（宁可留证据，不可丢意图）。
+    // 未请求过 kill 的任务走 remove_file 得 NotFound——那是绝大多数任务的常态，
+    // **不告警**；真失败（句柄被占/盘只读）且文件仍在 ⇒ 告警，不静默吞掉。
+    if landed {
+        let kill = dir.join("kill");
+        if let Err(e) = std::fs::remove_file(&kill) {
+            if kill.exists() {
+                eprintln!(
+                    "[hive] 告警：任务 {id} 终态（{state}）已落盘，但 kill 标志删除失败：{e} \
+                     ——标志残留会被后续恢复/重投路径误读为新的 kill 请求"
                 );
             }
         }

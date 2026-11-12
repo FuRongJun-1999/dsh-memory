@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """W7·v1.1 第一组守卫：§1.6.3 五条红线的**独立反面证明**（反退化探针）。
 
 真源：`docs/theory/智能论3.4.md` §1.6.3「智能系统退化为机器的条件」`:996-1006`。
@@ -329,8 +328,12 @@ _TERM_CALL_PATTERNS = ("os._exit(", "os.abort(", "os.kill(os.getpid(",
 #:    （2026-10-07 实测：提交前未跟踪时 E1 绿、提交后 514→515 文件立刻转红）。扫描器不扫自己。
 #:    残留风险与兜底：E1b 的扫描面下限断言防「扫描面塌缩成假绿」；变异①经 `_SCAN_EXTRA`
 #:    注入合成自裁调用点，仍保证 E1 有判别力。
+#: 白名单＝**测试夹具**里「自裁一次以模拟崩溃窗口」的合法用法（判据针对的是
+#: 产品代码里的自动终止，不是夹具的受控自杀）。2026-11-12 合并补入 #498 的崩溃夹具：
+#: 它用 `os._exit(7)` 造「不 flush / 不 close」的索引侧落盘态，是**被测件**不是产品路径。
 _TERM_WHITELIST = {"md_cg/test_review_cli_visibility.py",
-                   "md_cg/test_w7_redlines.py"}
+                   "md_cg/test_w7_redlines.py",
+                   "md_cg/test_issue498_merge_trace_stale_index.py"}
 #: 变异注入点（--mutate E 往扫描面塞一个合成自裁调用点）。
 _SCAN_EXTRA: dict[str, str] = {}
 #: 扫描面下限（低于它说明扫描范围失效 = 假绿）。

@@ -1,0 +1,98 @@
+[
+  {
+    "task": "development-routing-registry-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "development-retention-policy-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "development-interval-ledger-1",
+    "manual_interval_witnesses": 6
+  },
+  {
+    "task": "development-ownership-tree-1",
+    "manual_recursive_state_witnesses": 4
+  },
+  {
+    "task": "development-timestamp-contract-1",
+    "manual_walltime_and_tie_witnesses": 3
+  },
+  {
+    "task": "development-sentinel-contract-1",
+    "manual_falsey_witnesses": 8
+  },
+  {
+    "task": "validation-routing-registry-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "validation-retention-policy-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "validation-interval-ledger-1",
+    "manual_interval_witnesses": 6
+  },
+  {
+    "task": "validation-ownership-tree-1",
+    "manual_recursive_state_witnesses": 4
+  },
+  {
+    "task": "validation-timestamp-contract-1",
+    "manual_walltime_and_tie_witnesses": 3
+  },
+  {
+    "task": "validation-sentinel-contract-1",
+    "manual_falsey_witnesses": 8
+  },
+  {
+    "task": "holdout-routing-registry-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "holdout-routing-registry-2",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "holdout-retention-policy-1",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "holdout-retention-policy-2",
+    "A_only_fact_boundary": true
+  },
+  {
+    "task": "holdout-interval-ledger-1",
+    "manual_interval_witnesses": 6
+  },
+  {
+    "task": "holdout-interval-ledger-2",
+    "manual_interval_witnesses": 6
+  },
+  {
+    "task": "holdout-ownership-tree-1",
+    "manual_recursive_state_witnesses": 4
+  },
+  {
+    "task": "holdout-ownership-tree-2",
+    "manual_recursive_state_witnesses": 4
+  },
+  {
+    "task": "holdout-timestamp-contract-1",
+    "manual_walltime_and_tie_witnesses": 3
+  },
+  {
+    "task": "holdout-timestamp-contract-2",
+    "manual_walltime_and_tie_witnesses": 3
+  },
+  {
+    "task": "holdout-sentinel-contract-1",
+    "manual_falsey_witnesses": 8
+  },
+  {
+    "task": "holdout-sentinel-contract-2",
+    "manual_falsey_witnesses": 8
+  }
+]

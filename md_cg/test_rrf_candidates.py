@@ -1,4 +1,3 @@
-"""Runtime candidate containment, RRF equivalence and write visibility tests."""
 import os
 from pathlib import Path
 import random
