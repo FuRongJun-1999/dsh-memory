@@ -271,6 +271,13 @@ def logic_flow(segments):
 
     **不要把它的 ok/verdict 当作连贯性判据。** 保留它只因为文风本身有参考价值。
 
+    ——以下关于 signal_ratio 的补充（2026-10-24 第五十八轮）——
+
+    **ratio 已归一化，不要再用它除以字符数做「每千字信噪比」**：
+    那等于除了两次规模，会放大短文本（实测：去冗余后 per1k +211%，
+    而 ratio 只 +4%——升幅几乎全是规模效应的假象）。
+    比较不同规模的方案时，**用 ratio 本身**；规模效应另议。
+
     返回 dict：
         ok        True=不低于 LOGIC_OK；False=低于 LOGIC_LOW；None=之间
         rate      句首连接词占比
