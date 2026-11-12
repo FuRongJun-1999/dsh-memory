@@ -10,6 +10,16 @@
     "架构": "v0.9.14",
     "本投影": "v0.9.14"
    }
+  },
+  {
+   "id": "context-cohesion",
+   "source": "md_cg/cohesion.py",
+   "echo": "docs/output/echo/context-cohesion.md",
+   "anchors": {
+    "理论": "v3.4",
+    "架构": "上下文管理研究v2",
+    "本投影": "v1"
+   }
   }
  ]
 }

@@ -2023,7 +2023,23 @@ class SustainLoop:
         from . import scrub
         self.scrub_round += 1
         seed = f"sustain:{self.scrub_round}"
-        rep = scrub.sweep(self.cg, dry_run=not self.auto_scrub, seed=seed)
+        # issue #804：崩溃轮也要在治理台账留痕。
+        # 病灶：sweep 是同步调用，异常直接穿出 ⇒ 既没有 rec、也没有 _scrub.jsonl 行，
+        # 台账 32 条全是 ok:true，无法看出「这一轮自净发生过但没完成」。
+        # 取向：补一行 op="sweep" ok=False（与成功轮同 op，用 ok 区分——下游按 op 统计不用改），
+        # 然后**照旧向上抛**：台账补账不等于掩盖失败，心跳面仍记 tick 失败。
+        # 幂等账不受影响：_handled 只认 op=="decontaminate" and ok。
+        try:
+            rep = scrub.sweep(self.cg, dry_run=not self.auto_scrub, seed=seed)
+        except Exception as _e:
+            try:
+                scrub.record_event(self.cg, "sweep", ok=False,
+                             error=_tick_error_summary(_e),
+                             phase="sweep", round=self.scrub_round,
+                             seed=seed, dry_run=not self.auto_scrub)
+            except Exception:     # noqa: BLE001 —— 补账失败不得盖掉原始异常
+                pass
+            raise
         dec = rep["decontaminate"]
         rec = {"t": rep["t"], "ok": rep["ok"],
                "n_issues": rep["audit"]["n_issues"],

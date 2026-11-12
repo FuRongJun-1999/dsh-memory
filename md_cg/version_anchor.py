@@ -26,7 +26,8 @@
 
 import re
 
-__all__ = ["FIELDS", "parse_anchor", "check_anchor", "ANCHOR_LINE_RE"]
+__all__ = ["FIELDS", "parse_anchor", "check_anchor", "check_staleness",
+           "scan_dir", "ANCHOR_LINE_RE"]
 
 #: 三元字段（键名 → 中文别名，都接受）
 FIELDS = ("theory", "architecture", "projection")
@@ -99,6 +100,88 @@ def check_anchor(text):
     legacy = LEGACY_MARK in str(text or "")
     return ok, {"anchor": rep["anchor"], "missing": rep["missing"],
                 "found": rep["found"], "legacy": legacy}
+
+
+def _norm(v):
+    """归一化版本串：去空白与全角空格，便于比较「智能论 3.4」与「智能论3.4」。"""
+    import re as _re
+    return _re.sub(r"\s+", "", str(v or ""))
+
+
+#: 架构名与版本的分隔约定（2026-10-24 第五十三轮）：
+#: 规范写法是「架构名 v版本」，如「上下文管理研究 v6」。
+#: 若写成「上下文管理研究（四十九轮）」这类不带 v 的形式，会被判为 nonstandard——
+#: **不猜它的版本**（第五十二轮实测：把轮次当版本会让检查变成噪声源）。
+_ARCH_VER_RE = re.compile(r"^(.*?)\s+v(\d+(?:\.\d+)*)\s*$")
+
+
+def split_arch(arch_field):
+    """把「架构名 v版本」拆成 (名字, 版本)。不规范返回 (原文, None)。"""
+    m = _ARCH_VER_RE.match(str(arch_field or "").strip())
+    if not m:
+        return str(arch_field or "").strip(), None
+    return m.group(1).strip(), "v" + m.group(2)
+
+
+def check_staleness(text, current):
+    """陈化检查——判断锚里的理论/架构版本是否还是当前版本。
+
+    为什么需要（2026-10-24 第五十一、五十二轮）：
+        第五十一轮发现「过期」是三种不可测失效之一，对策是「版本锚」。
+        但实测发现：56 份文档 100% 都有锚，**却没有工具核对锚是否过期**——
+        写上 ≠ 核对。本函数补上核对这一步。
+
+    参数：
+        current  当前版本，形如 {"theory": "智能论 3.4", "architecture": "..."}。
+                 **必须由调用方提供**——本模块不知道「现在是什么版本」，
+                 那是外部事实，不能猜。
+
+    返回 dict：
+        ok          True=锚与当前一致；False=**过期**；None=无锚或无法判定
+        stale       [{field, found, current}] 过期的字段
+        anchor      解析出的锚
+
+    **「本投影」版本不参与比较**——它是本文档自己的版本，无所谓过期。
+    """
+    rep = parse_anchor(text)
+    # legacy 材料：已显式标注为历史（I18 的 legacy_no_anchor）。
+    # 它「没有三元锚」是**明示的选择**，不是遗漏——故与「忘了标」区分开。
+    legacy = LEGACY_MARK in str(text or "")
+    if not rep.get("found"):
+        return {"ok": None, "stale": [], "anchor": {}, "legacy": legacy,
+                "reason": ("已标 legacy（历史材料），不参与陈化检查" if legacy
+                           else "没有版本锚，无从判断是否过期")}
+    stale = []
+    notes = []
+
+    # theory：直接比较
+    want_t = (current or {}).get("theory")
+    got_t = rep["anchor"].get("theory")
+    if want_t and got_t and _norm(got_t) != _norm(want_t):
+        stale.append({"field": "theory", "found": got_t, "current": want_t})
+
+    # architecture：**按架构名分组比较**（2026-10-24 第五十三轮修正）
+    # 一个 current 比所有文档会让「不同架构」被判过期——实测 13 份里 5 份是别的架构。
+    got_a = rep["anchor"].get("architecture")
+    want_a = (current or {}).get("architecture")
+    arch_map = want_a if isinstance(want_a, dict) else None
+    if got_a:
+        name, ver = split_arch(got_a)
+        if arch_map is not None:
+            if name not in arch_map:
+                notes.append("架构「%s」不在当前版本表中，不判过期（可能是另一份架构或历史材料）" % name)
+            elif ver is None:
+                notes.append("架构字段「%s」不含 v 版本号，格式不规范，不判过期也不判通过" % got_a)
+            elif _norm(ver) != _norm(arch_map.get(name)):
+                stale.append({"field": "architecture", "found": got_a,
+                              "current": "%s %s" % (name, arch_map.get(name))})
+        elif want_a:
+            if _norm(got_a) != _norm(want_a):
+                stale.append({"field": "architecture", "found": got_a, "current": want_a})
+
+    return {"ok": (None if notes else not stale), "stale": stale, "anchor": rep["anchor"],
+            "notes": notes,
+            "note": "本投影版本不参与比较；架构按名分组比较"}
 
 
 def scan_dir(directory, suffix=".md"):

@@ -28,8 +28,13 @@ def main():
             bad += 1
             print("  FAIL", label)
 
-    chk(refindex._domain_of({"path": "default-kb/shorinwiki/a.md"}) == "default-kb/shorinwiki/a.md",
-        "D1 域键取整条相对路径")
+    # issue #867：契约从「整条相对路径（含扩展名）」改为「保留路径结构 + 中间粒度收拢」。
+    # D1 守的仍是不变量——**不回退到取首段**（那条 2026-10-21 的修复不能被推翻）；
+    # 另加 D1c 钉住扩展名剥除（一文件一桶的直接成因）。
+    chk(refindex._domain_of({"path": "default-kb/shorinwiki/a.md"}) == "default-kb/shorinwiki/a",
+        "D1 域键保留整条子路径（不回退取首段）")
+    chk(refindex._domain_of({"path": "diary_2026-10-09_d81bf3e9.md"}) == "diary_2026-10",
+        "D1c 日频文件收成月粒度（#867）")
     chk(refindex._domain_of({"path": ""}) == "orphan", "D1b 空路径回落 orphan")
 
     # D2：域键与节点 id 无关（node_id 只吃 heading 结构，不吃域键）——

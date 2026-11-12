@@ -138,13 +138,148 @@ def _run_diary_checks():
     n_prof = sum(1 for i in ids if str(i).startswith("profile-"))
     ok(n_prof <= 3, "D10 资料卡配额生效（≤3）", (n_prof, ids[:6]))
     ok(rid in ids, "D11 正确的角色卡仍在 pack 里（没被配额误杀）", ids[:6])
+    return cg, rid
 
 
 def main2():
     print("=" * 70)
     print("情景层 v0.1：diary 声明 / 角色卡 / 人名闸 / 配额")
     print("=" * 70)
-    _run_diary_checks()
+    cg, rid = _run_diary_checks()
+    # ---- D12/D13（外测请求 #2 + 候选注入）----
+    _fm2 = (cg.get(rid) or {}).get("frontmatter") or {}
+    _d = _fm2.get("created_at")
+    _day = time.strftime("%Y-%m-%d", time.localtime(float(_d))) if _d else None
+    ok(_day == "2026-04-26", "D12 卡 created_at 取最早事实日（非建卡时刻）", _day)
+    _cand = cg._profile_candidates("沈知夏 姓名 年龄")
+    _cids = [n.get("id") for n, _a, _b, _c in _cand]
+    ok(rid in _cids, "D13 实体标签直取资料卡（候选注入可用）", _cids[:4])
+
+    # ---- D14/D15：人物档案（属性区必须在卡正文里）----
+    import os as _os2
+    _os2.environ["MDCG_ROLE_USER"] = "沈知夏"
+    _root2 = tempfile.mkdtemp(prefix="dos_")
+    _cg2 = MdCGOS(_root2, actor="test")
+    _cg2.add("x1", "我叫沈知夏，知了的知，夏天的夏，24", created_at=ts("2026-04-26 10:00:00"),
+             role="user", tags=["domain:d"], consistency=False)
+    _cg2.add("x2", "我在江北咖啡店做结构设计，我住在江北市，本科", created_at=ts("2026-05-03 10:00:00"),
+             role="user", tags=["domain:d"], consistency=False)
+    profiles.build(_cg2, dry_run=False)
+    _body = (_cg2.get("profile-role-沈知夏") or {}).get("content") or ""
+    ok("【档案】" in _body, "D14 角色卡含【档案】区（属性题落点）", _body[:60])
+    ok(("姓名：沈知夏" in _body) and ("年龄：24" in _body),
+       "D15 档案含姓名与年龄（自我介绍抽取）", _body[:200])
+    ok(("职业：结构设计" in _body) and ("单位：江北咖啡店" in _body), "D16 档案含职业与单位")
+    ok("身份证" not in _body, "D17 敏感字段不入档（隐私边界）")
+
+    # ---- N：早期自我介绍不被事实窗口截断 + 合并期过地名闸 ----
+    _root3 = tempfile.mkdtemp(prefix="win_")
+    _cg3 = MdCGOS(_root3, actor="test")
+    _cg3.add("t0015", "我叫沈知夏，知了的知，夏天的夏，24", created_at=ts("2026-01-01 10:00:00"),
+             role="user", tags=["domain:d"],
+             extra={"dossier": {"姓名": {"value": "沈知夏", "w": 3},
+                             "年龄": {"value": 24, "w": 3}}}, consistency=False)
+    for _i in range(60):
+        _cg3.add("t%04d" % (100 + _i), "今天店里做了第%d批贝果" % _i,
+                  created_at=ts("2026-03-01 10:00:00"), role="user",
+                  tags=["domain:d"], consistency=False)
+    _cg3.add("t0163", "我把饭盒落在地铁站长椅了，在包里翻了半天",
+             created_at=ts("2026-05-12 10:00:00"), role="user", tags=["domain:d"],
+             extra={"dossier": {"城市": {"value": "外出包里", "w": 1}}}, consistency=False)
+    profiles.build(_cg3, dry_run=False)
+    _b3 = (_cg3.get("profile-role-沈知夏") or {}).get("content") or ""
+    ok("姓名：沈知夏" in _b3 and "年龄：24" in _b3,
+       "N1 早期自我介绍不被事实窗口截断（dossier 扫全量 facts）", _b3[:160])
+    ok("外出包里" not in _b3, "N2 合并期同样过地名闸（旧节点绕过写入复核也拦）")
+
+    # ---- S：dossier 形态容错（外部脚手架的裸 list / 裸值也要渲染）----
+    _root4 = tempfile.mkdtemp(prefix="shape_")
+    _cg4 = MdCGOS(_root4, actor="test")
+    _T4 = "我叫祁野，25，在渝中区半坡酒馆做晚班调酒师。曾在江北那家咖啡店做过一年学徒"
+    import os as _os4
+    _os4.environ["MDCG_ROLE_USER"] = "祁野"
+    _cg4.add("n1", _T4, role="user", consistency=False)
+    _cg4.add("n1", _T4, role="user", extra={"dossier": {
+        "姓名": "祁野",
+        "年龄": {"value": 25},
+        "经历": [{"单位": "江北咖啡店", "职位": "学徒", "_raw": "江北那家咖啡店做过一年学徒"}],
+        "家庭": {"value": [{"关系": "父", "职业": "钳工"}]},
+    }}, consistency=False)
+    profiles.build(_cg4, dry_run=False)
+    _b4 = (_cg4.get("profile-role-祁野") or {}).get("content") or ""
+    ok("【经历】" in _b4 and "【家庭】" in _b4,
+       "S1 裸 list / {value:list} 两种形态都渲染成区块", _b4[:200])
+    ok("姓名：祁野" in _b4 and "年龄：25" in _b4, "S2 标量为裸值时也能渲染")
+    ok("江北那家咖啡店做过一年学徒" not in _b4.split("【经历】")[1].split("【")[0],
+       "S3 _raw 证据键不进渲染值")
+
+    # ---- T：资料卡的源轮次注入（卡给属性、源轮次给原句）----
+    import os as _os5
+    _os5.environ["MDCG_ROLE_USER"] = "祁野"
+    _root5 = tempfile.mkdtemp(prefix="src_")
+    _cg5 = MdCGOS(_root5, actor="test")
+    _cg5.add("n2", "曾在江北那家咖啡店做过一年学徒，后来转到半坡调酒",
+             role="user", tags=["domain:d"], consistency=False)
+    _cg5.add("n1", "我叫祁野，25", role="user", tags=["domain:d"], consistency=False)
+    for _i in range(20):
+        _cg5.add("m%d" % _i, "今天店里做了第%d批贝果" % _i,
+                  role="user", tags=["domain:d"], consistency=False)
+    profiles.build(_cg5, dry_run=False)
+    bi.build(_cg5, write=True, with_content=True)
+    _out5 = _cg5.recall("我之前在哪儿做过学徒", budget_tokens=4000, k=20)
+    _ids5 = [x.get("id") for x in (_out5.get("pack") or [])]
+    ok("n2" in _ids5, "T1 资料卡事实行的源轮次被注入候选（原句进 pack）", _ids5[:6])
+    ok((_out5.get("meta") or {}).get("profile_injected", 0) >= 1,
+       "T2 meta 透出 profile_injected 计数（可审计）")
+
+    # ---- V：自述轮次召回（零模型、与题目无关）----
+    from md_cg import selfstmt as _ss2
+    _root6 = tempfile.mkdtemp(prefix="ss_")
+    _cg6 = MdCGOS(_root6, actor="test")
+    _cg6.add("a1", "我叫沈知夏，知了的知，夏天的夏，24", tags=["domain:d"], consistency=False)
+    _cg6.add("a2", "我大学读的是土木工程", tags=["domain:d"], consistency=False)
+    for _i in range(20):
+        _cg6.add("z%d" % _i, "今天天气不错第%d次" % _i, tags=["domain:d"], consistency=False)
+    ok(set(_ss2.load(_root6)) == {"a1", "a2"},
+       "V1 写时登记自述轮次（非自述不入表）", _ss2.load(_root6))
+    bi.build(_cg6, write=True, with_content=True)
+    _o6 = _cg6.recall("帮我看看这个", budget_tokens=600, k=10)
+    _i6 = [x.get("id") for x in (_o6.get("pack") or [])]
+    ok(any(x in _i6 for x in ("a1", "a2")),
+       "V2 词法打不中时自述轮次仍被注入", _i6)
+
+    # ---- W：selfstmt API 容错 + maintain 补登入口 ----
+    _root7 = tempfile.mkdtemp(prefix="ss2_")
+    _cg7 = MdCGOS(_root7, actor="test")
+    _cg7.add("s1", "我叫沈知夏，24", tags=["domain:d"], consistency=False)
+    ok(_ss2.load(_cg7) == _ss2.load(_root7) == ["s1"],
+       "W1 load() 传 cg 或 root 等价（API 容错）", _ss2.load(_cg7))
+    import os as _os7
+    _os7.remove(_os7.path.join(_root7, "_selfstmt.json"))
+    _o7 = _cg7.maintain(action="selfstmt", apply=True)
+    ok(_o7.get("recorded") == 1 and _ss2.load(_cg7) == ["s1"],
+       "W2 maintain action=selfstmt 可补登存量库", _o7)
+
+    # ---- X：自述注入按信息密度排序（不能因「最新优先」漏掉早期答案句）----
+    _root8 = tempfile.mkdtemp(prefix="rk_")
+    _cg8 = MdCGOS(_root8, actor="test")
+    _cg8.add("t0013", "我叫谈书宁，谈是谈话的谈", tags=["domain:d"], consistency=False)
+    for _i, _m in enumerate(["今天做了点吃的", "我在店里忙了一天", "我妈打电话来问我"]):
+        _cg8.add("m%d" % _i, _m, tags=["domain:d"], consistency=False)
+    ok(_ss2.density("我叫谈书宁") > _ss2.density("我在店里忙了一天"),
+       "X1 密度分能把「我叫…」排到「我在…」之前")
+    _top1 = _cg8._selfstmt_nodes(limit=1)
+    ok(bool(_top1) and (_top1[0][0] or {}).get("id") == "t0013",
+       "X2 限 1 条时也选到早期高密度轮次（不是最新那条）",
+       [((x[0] or {}).get("id")) for x in _top1])
+
+    # ---- Y：SELF_RX 覆盖「我有 + 身体状况」，但排除第三人陈述 ----
+    ok(_ss2.matches("刚找了半天眼镜。我有近视，看书时要戴眼镜"),
+       "Y1 我有近视 ⇒ 命中（原句来自外测 P20-034）")
+    ok(not _ss2.matches("我有个朋友近视得厉害"),
+       "Y2 我有个朋友近视 ⇒ 不命中（负向约束挡第三人）")
+    ok(not _ss2.matches("我同事有鼻炎"), "Y3 我同事有鼻炎 ⇒ 不命中")
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

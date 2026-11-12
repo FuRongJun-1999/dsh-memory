@@ -509,6 +509,21 @@ def stop(jobs=None):
 
 
 # 生效条件：load_config(config_path) 报错时原样返回该 error；配置通过则先 C5 启动前置校验——model_key_ready(合并环境) 为假且 llm_disabled(合并环境) 为假时返回 ok:False 的「启动前置校验未通过——<缺模型密钥文案>」；校验通过后再判 serve_alive() 为真时返回 ok:False 的「已在运行（pid=hb.get('pid')）」；否则按合并环境延迟解析 jobs（config/env 的 HIVE_JOBS_DIR > 模块级默认，见 _jobs_from）并建目录、以合并环境 Popen([EXE, "serve", "--jobs", <延迟 jobs>])，Popen 抛 OSError 返回「拉起失败」，否则最多 20 次 ×0.5s 轮询 serve_alive(jobs)，出现心跳即返回 ok:True（含 pid/workers/jobs_dir=<实际生效目录>/env_keys/config=config_path；HIVE_LLM_DISABLED 真值时多带 llm_disabled=True 与 note），20 轮仍无则返回该目录日志末尾 400 字符的「心跳未出现」。
+# 生效条件：merged 为合并后的环境字典；无可用模型密钥且未声明 HIVE_LLM_DISABLED 时返回错误文案，否则 None
+def preflight_error(merged):
+    """启动前置校验的**单点**（issue #808：restart 与 start 必须同一口径）。
+
+    为什么抽成单点：restart 先 stop 再 start，若前置校验只在 start 里做，
+    一份已知无效的配置（如 HIVE_API_KEY 为空）会先被停掉旧服务、再被拒绝拉起
+    ⇒ 原本正常工作的服务只因一次 restart 而下线。校验必须前移到 stop **之前**，
+    且判据/文案与 start 完全同源（不复制第二份）。
+    """
+    problem = _model_key_problem(merged)
+    if problem and not llm_disabled(merged):
+        return f"启动前置校验未通过——{problem}"
+    return None
+
+
 def start(config_path):
     """拉起 serve（已在跑则拒绝）。返回 dict；调用方决定是否打印。"""
     env, err = load_config(config_path)
@@ -521,10 +536,10 @@ def start(config_path):
     # 运维看到的是「任务全失败」而不是「配置缺一键」。判据/文案单点 = _model_key_problem
     # （--show-config 的 problems 同源，两处不复制）。逃生门：声明 HIVE_LLM_DISABLED
     # 真值（只跑确定性任务的部署）→ 放行，且在结果里回带提示。
-    problem = _model_key_problem(merged)
+    _err = preflight_error(merged)
     llm_off = llm_disabled(merged)
-    if problem and not llm_off:
-        return {"ok": False, "error": f"启动前置校验未通过——{problem}"}
+    if _err:
+        return {"ok": False, "error": _err}
     # D-1 修复（v18 外评，2026-09-23）：jobs 延迟到合并环境求值——config 里的
     # HIVE_JOBS_DIR 由此真正参与决策。此前模块级 JOBS 在 import 时固化并被
     # `--jobs` 显式钉死，config 键被静默丢弃（fail-silent，违背 fail-fast）。
@@ -596,7 +611,16 @@ def restart(config_path):
     env, err = load_config(config_path)
     if err:
         return {"ok": False, "stage": "stop", "error": err}
-    jobs = _jobs_from({**os.environ, **(env or {})})
+    # issue #808：**先校验、后停服务**。此前 restart 只查 load_config 的解析错误，
+    # 模型密钥这类「解析成功但不可用」的配置要等到 start 才被拒——旧服务已被停掉，
+    # 一份已知无效的配置于是让原本正常的服务下线。前置校验与 start 同源（preflight_error），
+    # 不通过则**根本不碰**在跑实例，并按 stage=preflight 如实上报。
+    _merged = {**os.environ, **(env or {})}
+    _pre = preflight_error(_merged)
+    if _pre:
+        return {"ok": False, "stage": "preflight", "error": _pre,
+                "stopped": False, "note": "配置未通过前置校验，已保留在跑实例"}
+    jobs = _jobs_from(_merged)
     stop_res = stop(jobs)
     if not stop_res.get("ok"):
         return {"ok": False, "stage": "stop",

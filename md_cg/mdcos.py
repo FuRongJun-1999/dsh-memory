@@ -1385,6 +1385,14 @@ class MdCGOS(MdCG):
             self._audit("add", nid, layer=layer, role=role,
                         payload_hash=_sig(content), sens=kw.get("sensitivity"),
                         session=kw.get("session"))
+            # 【自述轮次登记】写时判一次（与查询无关），供 recall 读时注入；
+            # 登记只是加速索引，失败不得影响写入成败（故整段吞异常）。
+            try:
+                from . import selfstmt as _ss
+                if _ss.matches(content):
+                    _ss.record(getattr(self, "root", ""), nid)
+            except Exception:
+                pass
             return nid
 
 # 生效条件：在已用 root 构造的实例上遍历 index["nodes"]，恒剔除 layer 为 rejected/unresolved/goals 的节点，恒剔除 lifecycle.is_retired(e) 为真（archived ∪ superseded，#562）的节点（退役不参与默认检索；缺 lifecycle 键=active 照常，converged/demoted 仍参与），session 为真值而 e["session"] 不等于它时剔除，e["branch_id"] 不在 (None, branch) 时剔除（branch=None 时只留 branch_id 为 None 者），validity 为真值而 trust.is_expired(e) 为真时剔除（**只排已过期，not_yet 保留**），layer 为真值而 layer 不等时剔除，roles 不为 None 时仅留 role 落在 roles 内的节点；view 为真值时 role 维度裁决权移交 roleviews.matches（receipt=工作角色白名单须绕过默认剔除才可达，非法 view ValueError），view 为假值且 include_work 为假时剔除 WORK_ROLES 角色，时间算子启用时按 time_axis 轴过滤（效力轴不可判定 fail-open、观察轴不可判定 fail-closed 并入 self._time_filter_stat），其余收集进 out 返回。
@@ -1981,6 +1989,40 @@ class MdCGOS(MdCG):
         if b == routing.ORPHAN:
             return []
         inb = [e for e in entries if e.get("bucket") == b]
+        if not inb:
+            # issue #871 断点 1/2：精确键失配时回落 scopeselect 的桶评分。
+            # 原实现只做精确键路由（query 措辞一变就 0 命中）；而 scopeselect
+            # 已按 bm25 + 汉字 2/3-gram 给桶打分。此处取最高分的 kind==bucket
+            # （排除 day/session）再过滤，仍按 _(score) 排序。
+            try:
+                from . import scopeselect as _ss
+                _picked = _ss.score_buckets(self, query)
+            except Exception:
+                _picked = []
+            _bkeys = [k for kind, k, _s in _picked if kind == "bucket"]
+            if not _bkeys:
+                # 词表未必收录 bucket:* 词条（_bucketterms 由构建决定）；此处在
+                # **条目自带的桶键**上做确定性词面匹配，避免整条路径依赖词表是否建全。
+                try:
+                    _toks = [t for t in _ss.terms(query) if len(t) >= 2]
+                except Exception:
+                    _toks = []
+                _rank = []
+                for _k in {e.get("bucket") for e in entries}:
+                    if not isinstance(_k, str) or not _k:
+                        continue
+                    _parts = _k.split("_")
+                    _zh = _parts[1] if len(_parts) >= 3 else _k
+                    _hit = sum(1 for t in _toks if t in _zh)
+                    if _hit:
+                        _rank.append((-_hit, _k))
+                _bkeys = [k for _h, k in sorted(_rank)]
+            for _k in _bkeys:
+                _cand = [e for e in entries if e.get("bucket") == _k]
+                if _cand:
+                    inb = _cand
+                    b = _k
+                    break
         if not inb:
             return []
         stat = {"scanned": 0}
@@ -3229,6 +3271,26 @@ class MdCGOS(MdCG):
                 if _v is not None:        # 时间算子透传（None = 未启用，不入参）
                     kw[_k] = _v
             results, meta = self.search_rrf(query, **kw)
+            # 【外测诊断 2026-11-12】实测「同一 query：search 把资料卡排第 1（0.564），
+            # recall 的候选集里却 0 条（paths.lexical=1）」——断点在**候选生成**，不在过滤。
+            # 故按**实体标签直取**资料卡并入候选：确定性、与词法切词无关，卡不再依赖 lexical 命中。
+            try:
+                _extra = self._profile_candidates(query)
+                # 【外测 2026-11-12】34/39 个值「原轮次没进 pack」；而资料卡每条事实带「来源 <id>」
+                # ⇒ 把**被注入卡的源轮次**一并拉进候选：卡给属性、源轮次给原句。
+                _extra += self._profile_source_nodes(_extra, limit=4)
+                # 【外测 2026-11-12 实验】自述轮次通例召回：值覆盖 12.8%→35.9%、题级全命中 1/19→6/19。
+                # 零模型、与题目无关；读时只 load 小索引（写时登记），不扫全库。
+                _extra += self._selfstmt_nodes(limit=6)
+                if _extra:
+                    _seen = {r[0].get("id") for r in results if r and r[0]}
+                    for _n, _sc, _q, _p in _extra:
+                        if _n.get("id") not in _seen:
+                            results.append((_n, _sc, _q, _p))
+                    if isinstance(meta, dict):
+                        meta["profile_injected"] = len(results) - len(_seen)
+            except Exception:            # noqa: BLE001 —— 注入面不拖崩召回
+                pass
             items = [(r[0], r[1], r[2], r[3]) for r in results]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
@@ -3467,8 +3529,22 @@ class MdCGOS(MdCG):
         _profs = [(i, e) for i, e in enumerate(pack or [])
                   if str(e.get("id") or "").startswith("profile-")]
         if _prof_cap >= 0 and len(_profs) > _prof_cap:
-            _keep = {i for i, _ in sorted(
-                _profs, key=lambda x: -(float(x[1].get("score") or 0.0)))[:_prof_cap]}
+            # 配额内**优先保留非 event 卡**：event 卡一天一张、数量最多，按纯 score 排会把
+            # role/person 卡挤掉（外测实证 ②=0 的直接成因）。
+            def _rank(it):
+                _nid = str(it[1].get("id") or "")
+                _is_ev = 1 if _nid.startswith("profile-event-") else 0
+                return (_is_ev, -(float(it[1].get("score") or 0.0)))
+            _keep = set()
+            # 【外测 ③ 回退 4→2】配额不能把「score 最高的那张」也按类型筛掉：
+            # 给 1 个豁免位，其余再按类型优先补足。
+            _by_score = sorted(_profs, key=lambda x: -(float(x[1].get("score") or 0.0)))
+            if _by_score:
+                _keep.add(_by_score[0][0])
+            for _i, _e in sorted(_profs, key=_rank):
+                if len(_keep) >= _prof_cap:
+                    break
+                _keep.add(_i)
             pack = [e for i, e in enumerate(pack)
                     if i in _keep or not str(e.get("id") or "").startswith("profile-")]
         timeline = self._pack_timeline(pack)
@@ -3530,6 +3606,121 @@ class MdCGOS(MdCG):
         out.sort(key=lambda g: (-len(g["items"]), g["topic"]))
         return out
 
+
+    #: 注入分类型配额（外测实证：event 卡一天一张、天数多、分高，会把 role/person 卡挤光，
+    #: 而 event 卡对「姓名/年龄/职业」这类属性题没有帮助）。
+    _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
+
+    # 生效条件：无参；返回自述轮次节点（写时登记的小索引，limit 控制注入量）
+    def _selfstmt_nodes(self, limit=None):
+        """自述轮次注入：零模型、与题目无关（外测实证 12.8%→35.9% 的那条规则）。
+
+        写时登记、读时 load 小索引 —— 不做每查询全库扫（2k 节点 ≈ 2s 不可接受）。
+        只注入**已存在**的节点；去重；受 limit 约束防淹没。
+        """
+        if limit is None:
+            try:
+                limit = int(os.environ.get("MDCG_SELFSTMT_LIMIT", "20"))
+            except ValueError:
+                limit = 20
+        try:
+            from . import selfstmt as _ss
+            ids = _ss.load(getattr(self, "root", ""))
+        except Exception:
+            return []
+        # 【外测 2026-11-12】原实现 `reversed(ids)` + limit=6（最新优先）把**早期自述轮次**全滤掉：
+        # P16 的「我最早在江北…学徒」、P17 的「我叫谈书宁…」都排不进最近 6 ⇒ 收益被吃掉
+        # （实验全量注入 35.9%，实现 12.8%）。改为：**按信息密度降序**，限量放宽到 20（登记总量 3–16/库）。
+        scored = []
+        for _pos, nid in enumerate(ids):
+            node = self.get(nid)
+            if not node:
+                continue
+            scored.append((-_ss.density(node.get("content") or ""), -_pos, node))
+        scored.sort(key=lambda x: (x[0], x[1]))
+        out, seen = [], set()
+        for _d, _p, node in scored:
+            nid = str(node.get("id") or "")
+            if len(out) >= limit:
+                break
+            if nid in seen:
+                continue
+            seen.add(nid)
+            out.append((node, 0.85, {"path": "self_stmt", "density": -_d}, "self_stmt"))
+        return out
+
+    # 生效条件：cards 为已注入的资料卡候选；返回其事实行里「来源 <id>」指向的源节点
+    def _profile_source_nodes(self, cards, limit=4):
+        """资料卡的**源轮次**注入：卡给属性、源轮次给原句（外测：34/39 值缺的是原句轮次）。
+
+        卡正文事实行形如 `- 2026-05-12 | 文本（来源 n1）`；抽出 n1 即源节点 id。
+        只注入已存在的节点；去重；受 limit 约束（防淹没）。
+        """
+        if not cards:
+            return []
+        import re as _re
+        out, seen = [], set()
+        for node, *_rest in cards:
+            body = (node or {}).get("content") or ""
+            for nid in _re.findall(r"（来源\s*([^）\s]+)\s*）", body):
+                if nid in seen or len(out) >= limit:
+                    continue
+                seen.add(nid)
+                src = self.get(nid)
+                if src:
+                    out.append((src, 0.9, {"path": "profile_source"}, "profile_source"))
+        return out
+
+    # 生效条件：query 非空；返回按实体标签命中的资料卡候选 [(node, score, qual, prov)]
+    def _profile_candidates(self, query, limit=6):
+        """按**实体标签**直取资料卡（外测实证：search 能排第 1，recall 候选集却没有）。
+
+        判据：卡的 tags 含 `person:` / `role:` / `place:` 前缀，且该实体名出现在 query 里。
+        不走词法切词——长句在 lexical 里可能只剩 1 个词，卡就进不来。
+        """
+        q = str(query or "")
+        if not q:
+            return []
+        out = []
+        # 【外测 2026-11-12】16/19 题是**第一人称提问**（「我全名咋写 / 多大来着 / 我住哪个城市」），
+        # query 里没有实体名 ⇒ 按字面匹配永远命中不了。语言上「我」就指向 speaker，
+        # 故：query 含自指且配置了 MDCG_ROLE_USER 时，优先注入该角色卡（确定性，不猜）。
+        import os as _os
+        _me = (_os.environ.get("MDCG_ROLE_USER") or "").strip()
+        if _me and any(w in q for w in ("我", "咱", "本人")):
+            _self_node = self.get("profile-role-" + _me)
+            if _self_node:
+                out.append((_self_node, 1.0, {"path": "profile_self"}, "profile_self"))
+        _quota = dict(self._PROFILE_INJECT_QUOTA)
+        _taken = {k: 0 for k in _quota}
+        # G1a：从 cg.index 取回的 nodes 必须**先取快照**（并发写会 dictionary changed size）。
+        for nid, rec in list(((self.index or {}).get("nodes") or {}).items()):
+            if not str(nid).startswith("profile-"):
+                continue
+            _parts = str(nid).split("-", 2)
+            _kind = _parts[1] if len(_parts) >= 3 else ""
+            if _kind not in _taken:
+                continue          # 非 role/person/place（含 event）**不参与注入**
+            if _taken[_kind] >= _quota[_kind]:
+                continue
+            tags = (rec or {}).get("tags") or []
+            hit = False
+            for t in tags:
+                for pre in ("person:", "role:", "place:"):
+                    if str(t).startswith(pre) and str(t)[len(pre):] in q:
+                        hit = True
+                        break
+                if hit:
+                    break
+            if not hit:
+                continue
+            node = self.get(nid)
+            if node:
+                out.append((node, 1.0, {"path": "profile_entity"}, "profile_entity"))
+                _taken[_kind] += 1
+            if len(out) >= limit:
+                break
+        return out
 
     # 生效条件：pack 为 recall 装好的条目列表；返回按 created_at **升序**的时间线 [{"date","id","head"}]
     def _pack_timeline(self, pack):
@@ -5673,6 +5864,16 @@ class MdCGOS(MdCG):
             _st = _prof.build(self, dry_run=_dry_p, limit=limit)
             _st.update({"ok": True, "op": "maintain", "action": "profiles"})
             return _st
+        if act == "selfstmt":
+            # 【自述轮次登记，2026-11-12 外测实证】存量库补登入口。
+            # 写时钩子已在 add() 里自动登记；此处用于「已有图、未重写节点」的库。
+            # dry_run 口径同 maintain 其余动作：apply=True 才落盘。
+            from . import selfstmt as _ss
+            _dry_s = (not apply) if dry_run is None else (bool(dry_run) or not apply)
+            _st = _ss.rebuild(self, dry_run=_dry_s, limit=limit or 100000)
+            _st.update({"ok": True, "op": "maintain", "action": "selfstmt",
+                        "ids_sample": _ss.load(self)[:5]})
+            return _st
         if act == "importance":
             return weights.recalc(self, layer=layer, limit=limit, apply=apply,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
@@ -7741,6 +7942,14 @@ class MdCGSecure(MdCGOS):
             nid = super().add(node_id, content, layer=layer, sensitivity=sens,
                               declared_sensitivity=sensitivity, **kw)
             self._index_sensitivity(nid, sens)
+            # 【自述轮次登记】写时判一次（与查询无关），供 recall 读时注入。
+            # 失败一律吞掉：登记只是加速索引，不能影响写入成败。
+            try:
+                from . import selfstmt as _ss
+                if _ss.matches(content):
+                    _ss.record(self.root, nid)
+            except Exception:
+                pass
             return nid
 
 # 生效条件：sens 经 _write_sensitivity（id 走基类单点 _rejected_nid）解析——#439：未声明且有既有节点 ⇒ 继承其密级、显式声明原样优先、既有密级判不了则 fail-closed 抛 AccessDenied；先 principal.require_layer_write("rejected", sens) 与 _attribution(kw, sens)（会话归因走三态解析）后转 super().add_rejected，最后按下发的 nid 调 _index_sensitivity 并返回 nid。
