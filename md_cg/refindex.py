@@ -48,6 +48,7 @@ import os
 import time
 
 from .fsutil import atomic_write
+import re
 
 SCHEMA = 2                # v2：水位以「源文件绝对路径」为键（v1 按 rel 会跨大域撞名）
 # #157（2026-10-12）：水位条目**加法式**新增 sha256 列（补 is_fresh 的「等长改写 +
@@ -414,7 +415,44 @@ def index_dir(root: str, *, kind: str, patterns=None, max_files: int = 500,
     return items, errors, stats
 
 
-# 生效条件：it['path'] 非空时返回其首段 path.split('/')[0] 作为 domain 键，path 为空返回 'orphan'。
+# 生效条件：raw 为条目相对路径；返回**中间粒度**域键（剥扩展名 / 日期收月 / UUID 原样）
+def _collapse_domain(raw: str) -> str:
+    """路径 → 域键的**中间粒度**（issue #867）。
+
+    病象：doc 摄取时把**整条相对路径**当域键（2026-10-21 的修复一，用于救「少数顶层 +
+    大量子树」形态的巨桶）。但扁平文件名 + 每日新增文件的形态下，同一设计把 97.2% 的
+    巨桶换成了 68.8% 的单例桶——`bucket_health` 判它碎片化，与路由设计自相矛盾。
+
+    本函数只做三件**确定性**收拢，不改变原「整路径」粒度对真实知识树的效果：
+      ① 剥文件扩展名（.md/.markdown/.txt/.json/.jsonl）——扩展名不是域；
+      ② 形如 `<stem>_YYYY-MM-DD[_<hash8>]` 的机器命名 ⇒ 收成 `<stem>_YYYY-MM`（按月）。
+         只认**末尾**的日期+短哈希，路径中间出现的日期不动；
+      ③ 纯 UUID 文件名原样保留（它天然是单例域，收拢只会造巨桶）。
+    """
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    s = re.sub(r"\.(?:md|markdown|txt|jsonl|json)$", "", s, flags=re.I)
+    base = s.rsplit("/", 1)[-1]
+    if _UUID_ONLY.match(base):
+        return s
+    m = _DATED_TAIL.match(s)
+    if m:
+        return "%s_%s-%s" % (m.group(1), m.group(2), m.group(3))
+    return s
+
+
+_UUID_ONLY = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+#: 末尾 `<stem>_YYYY-MM-DD[_<hash8>]`；group1=stem 含目录前缀，group2=年-月
+_DATED_TAIL = re.compile(r"^(.*)_(\d{4})-(\d{2})-\d{2}(?:_[0-9a-f]{6,12})?$", re.I)
+
+
+# 生效条件：path 非空时返回其首段 path.split('/')[0] 作为 domain 键（历史口径，仅供对照）
+def _domain_head(path: str) -> str:
+    return (str(path or "").split("/")[0] or "orphan")
+
+
+# 生效条件：it 提供 path；返回 `_collapse_domain` 收拢后的域键（空则 orphan）
 def _domain_of(it: dict) -> str:
     """条目 → 路由域键（供 `tags` 的 `domain:` 显式声明）。
 
@@ -434,7 +472,7 @@ def _domain_of(it: dict) -> str:
     故改域只换桶、节点 id 完全不变，不产生重复节点。
     """
     path = it.get("path") or ""
-    return path or "orphan"
+    return _collapse_domain(path) or "orphan"
 
 
 

@@ -348,7 +348,9 @@ def main():
               str(g_fm.get("condition_space")))
         check("路由域由 domain: 标签显式承担（分桶结果与改造前逐字相同）",
               routing.route_key(g_fm.get("condition_space"), g_fm.get("tags"))
-              == routing.normalize_domain("guide.md"),
+              # issue #867：域键粒度改了（剥扩展名/收月），故不锁死字面，
+              # 改为断言**口径同源**：route_key 与 refindex 的域键归一化结果一致。
+              == routing.normalize_domain(refindex._domain_of({"path": "guide.md"})),
               str(routing.route_key(g_fm.get("condition_space"), g_fm.get("tags"))))
         sec = docindex.extract(SECRET, "private/secret.md")[0]
         s_fm = (cg.get(docindex.node_id(sec)) or {}).get("frontmatter") or {}
