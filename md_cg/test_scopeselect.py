@@ -30,8 +30,14 @@ def main():
     print("=" * 66)
     print("范围选择（scopeselect）")
     print("=" * 66)
-    ok(ss.terms("分桶 日桶，会话桶") == ["分桶", "日桶", "会话桶"],
-       "S1 查询词切分", ss.terms("分桶 日桶，会话桶"))
+    # issue #871 断点 2 后：terms() = 原标点切分 + **汉字 2/3-gram**（中文整串不在
+    # 桶 bag（bm25 口径）里 ⇒ 条件桶面恒 0 命中）。故断言改为：原切分按序在**前缀**，
+    # 其后只能是对原串的汉字 n-gram（不得混入无关词）。
+    _t = ss.terms("分桶 日桶，会话桶")
+    ok(_t[:3] == ["分桶", "日桶", "会话桶"], "S1a 原标点切分按序保留在前", _t[:4])
+    _q = "分桶日桶会话桶"
+    ok(all((x in _q) and len(x) >= 2 for x in _t[3:]), "S1b 追加项均为原串子串", _t[3:])
+    ok(all(len(x) in (2, 3) for x in _t[3:]), "S1c 追加项长度只 2/3（不膨胀）", _t[3:])
 
     root = tempfile.mkdtemp(prefix="scs_")
     g = MdCGOS(root, actor="test")

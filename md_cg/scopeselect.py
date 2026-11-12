@@ -24,8 +24,26 @@ from . import bucketindex as _bi
 _SPLIT = re.compile(r"[\s,，、;；。！？:：()（）\[\]【】]+")
 
 
+#: 汉字串（连续 CJK）：用于追加 2/3-gram（issue #871 断点 2）
+_CJK = re.compile(r"[\u4e00-\u9fff]+")
+
+
 def terms(query):
-    return [t.lower() for t in _SPLIT.split(str(query or "")) if len(t) >= 2]
+    """查询词切分 + **汉字 2/3-gram**。
+
+    issue #871：原实现只按空白/标点切，中文「桩基承载力」整串一个词；
+    而桶 bag 是 bm25 口径（单字+相邻二元组）——整串不在任何 bag 里 ⇒
+    score_buckets 恒空、条件桶面恒 0 命中。故在整串之外追加汉字 2/3-gram
+    （保留整串：精确命中仍应优先）。
+    """
+    out = [t.lower() for t in _SPLIT.split(str(query or "")) if len(t) >= 2]
+    for run in _CJK.findall(str(query or "")):
+        for n in (2, 3):
+            for i in range(len(run) - n + 1):
+                g = run[i:i + n]
+                if g not in out:
+                    out.append(g)
+    return out
 
 
 def _meta_blob(store, nid):
