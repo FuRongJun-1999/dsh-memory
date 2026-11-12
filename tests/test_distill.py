@@ -131,6 +131,15 @@ def main():
     ok(bool(_items) and _items[0].get("职位") == "理货员",
        "U3 序列项嵌套值被扁平化（{\"value\":..} ⇒ 值本身）", _items[:1])
 
+    # ---- Z：issue #893 时间可变字段按陈述时刻取新（补录更早的不得回退）----
+    _m4 = _d2.merge({}, {"年龄": {"value": 30, "t": 200.0, "w": 2}})
+    _m4 = _d2.merge(_m4, {"年龄": {"value": 29, "t": 100.0, "w": 2}})
+    ok(_m4["年龄"]["value"] == 30, "Z1 补录更早陈述不回退（30 不变）", _m4["年龄"])
+    ok(any(x.get("value") == 29 for x in (_m4.get("_history") or {}).get("年龄", [])),
+       "Z2 被拒的旧值进 _history（不丢证据）")
+    _m5 = _d2.merge(_m4, {"年龄": {"value": 31, "t": 300.0, "w": 2}})
+    ok(_m5["年龄"]["value"] == 31, "Z3 陈述更晚则正常更新（30→31）", _m5["年龄"])
+
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0

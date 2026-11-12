@@ -151,6 +151,10 @@ export class LingshuBridge {
   /** 关闭进程并释放资源（写 stdin EOF 优雅退出，超时兜底 kill）。 */
   dispose(): void {
     this.disposed = true
+    // issue #899：exit 分支有 if (!this.disposed) 守卫，处置后永不结算 readyState ⇒
+    // 状态面停在 ok。此处显式结算，让 isReady()/waitReady() 立刻转 false。
+    this.readyState = 'failed'
+    this.flushBootQueue(false)
     if (this.retryTimer) clearTimeout(this.retryTimer)
     const proc = this.proc
     if (!proc || proc.exitCode !== null) return
@@ -170,7 +174,12 @@ export class LingshuBridge {
 
   /** 桥是否已握手就绪（工具注册用；防止轮询访问 private readyState）。 */
   isReady(): boolean {
-    return this.readyState === 'ok'
+    // issue #899（2026-11-12）：此前只读 readyState，不看 disposed 与子进程存活——
+    // dispose() 后 readyState 仍是 ok（exit 分支被 if (!this.disposed) 挡住，永不结算成
+    // failed），于是 isReady() 恒 true、宿主门控放行、callTool 立即抛「灵枢进程不可写」并被
+    // .catch 记成 failed ⇒ 自动记忆 100% 失败但状态面显示正常。
+    // 就绪 = 未处置 ∧ 已握手 ∧ 子进程仍活；三者缺一都是「不就绪」。
+    return !this.disposed && this.readyState === 'ok' && this.alive
   }
 
   /** 是否已达放弃终态（连续启动失败超上限，不再自动重启）。 */
@@ -180,8 +189,9 @@ export class LingshuBridge {
 
   /** 等待握手完成（用于 apply 阶段同步就绪）。 */
   waitReady(): Promise<boolean> {
-    if (this.readyState === 'ok') return Promise.resolve(true)
-    if (this.readyState === 'failed') return Promise.resolve(false)
+    // issue #899：处置后不得再 resolve(true)（子进程已不可写；假就绪会放行写入路径）
+    if (this.disposed || this.readyState === 'failed') return Promise.resolve(false)
+    if (this.readyState === 'ok') return Promise.resolve(this.alive)
     return new Promise((resolve) => this.bootQueue.push(resolve))
   }
 
@@ -410,7 +420,14 @@ export class LingshuBridge {
 
   private writeRaw(msg: Record<string, unknown>): void {
     const proc = this.proc
-    if (!proc || !proc.stdin?.writable) {
+    if (!proc || proc.exitCode !== null || !proc.stdin?.writable) {
+      // issue #899 自愈：子进程已死/不可写而状态面仍 ok 时，写路径是唯一真实现场。
+      // 在此结算状态并触发一次重启，避免「每次都失败、直到宿主重启」的死循环。
+      if (!this.disposed && this.readyState === 'ok') {
+        this.readyState = 'failed'
+        this.flushBootQueue(false)
+        this.scheduleRetry()
+      }
       throw new Error('灵枢进程不可写')
     }
     proc.stdin.write(JSON.stringify(msg) + '\n')

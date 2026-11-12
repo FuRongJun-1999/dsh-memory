@@ -144,6 +144,13 @@ def merge(old, new):
             if _nw == _pw and k not in TIME_VARYING:
                 hist.setdefault(k, []).append(v)
                 continue
+            # issue #893：时间可变字段（年龄）同权重下也要看**陈述时刻**，
+            # 不能「后写者胜」——补录一条更早的陈述（t 更小）会把 30 回退成 29。
+            if _nw == _pw and k in TIME_VARYING:
+                _pt, _nt = prev.get("t"), v.get("t")
+                if _pt is not None and _nt is not None and float(_nt) <= float(_pt):
+                    hist.setdefault(k, []).append(v)
+                    continue
             hist.setdefault(k, []).append(prev)
         out[k] = v
     if hist:
