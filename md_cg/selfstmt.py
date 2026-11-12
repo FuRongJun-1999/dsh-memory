@@ -47,6 +47,28 @@ def _root_of(x):
     return str(x or "")
 
 
+#: 信息密度权重（用于注入排序：先给最可能是「答案句」的轮次，而不是最新的）
+DENSITY_PATTERNS = (
+    (3, ("我叫", "我的名字", "我大学", "我最早", "我今年")),
+    (2, ("我住", "我妈", "我爸", "母亲", "父亲", "岁")),
+    (1, ("学徒", "退休", "理货员", "钳工", "调酒", "结构设计", "兼职",
+         "念", "读", "做")),
+)
+
+
+# 生效条件：text 为节点正文；返回信息密度分（越高越像「答案句」）
+def density(text):
+    """自述轮次的信息密度分（确定性；用于注入排序）。"""
+    body = str(text or "")
+    score = 0
+    for w, pats in DENSITY_PATTERNS:
+        for p in pats:
+            if p in body:
+                score += w
+                break
+    return score
+
+
 # 生效条件：text 为节点正文；命中自述句式返回 True
 def matches(text):
     """是否自述轮次（确定性正则，与查询/题目无关）。"""
