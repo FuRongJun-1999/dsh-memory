@@ -79,6 +79,22 @@ def main():
     rep = co.check([])
     check("空输入 ok=None", rep["ok"] is None, rep)
 
+    # ⑧ 信噪比读数（2026-10-24 第三十六轮补，对应「稀释」这一损失）
+    TGT = "平均段长是 5.79 句每段，摘要保留率等于 1 除以平均段长。"
+    r = co.signal_ratio(TGT, TGT + "无关内容" * 3)
+    check("信噪比 clear", r["verdict"] == "clear" and r["ok"] is True, r)
+    r = co.signal_ratio(TGT, TGT + "无关内容段落。" * 400)
+    check("信噪比 drowned", r["verdict"] == "drowned" and r["ok"] is False, r)
+    check("信噪比 drowned 给出比例", (r["ratio"] or 1) < co.SIGNAL_LOW, r)
+    # thin 必须返回 None，不得默认通过、也不得判坏
+    r = co.signal_ratio(TGT, TGT + "无关内容段落。" * 140)
+    check("信噪比 thin ok=None", r["ok"] is None, r)
+    check("信噪比 thin 标记为 thin", r["verdict"] == "thin", r)
+    r = co.signal_ratio("", "一些上下文")
+    check("信噪比空目标 ok=None", r["ok"] is None, r)
+    r = co.signal_ratio(TGT, "")
+    check("信噪比空上下文 ok=None", r["ok"] is None, r)
+
     print("")
     if FAILS:
         print("失败 %d 项：%s" % (len(FAILS), FAILS))

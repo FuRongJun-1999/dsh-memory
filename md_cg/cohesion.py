@@ -1,5 +1,14 @@
 # -*- coding: utf-8 -*-
-"""拼装接缝检测（cohesion）——判断一段上下文是「可闭合」还是「散段拼装」。
+"""上下文质量读数（cohesion）——接缝 + 信噪比两个读数。
+
+本模块提供上下文失效三种形态中的两种的读数：
+    * **断裂** → seam_ratio（接缝/块内）
+    * **稀释** → signal_ratio（目标词占全部实词的比例）
+第三种（丢弃）由 constraint_watch 覆盖。三者合起来对应框架 v5 第二节。
+
+——以下为原始说明（接缝部分）——
+
+判断一段上下文是「可闭合」还是「散段拼装」。
 
 为什么需要（2026-10-24 实测，见 docs/dsh设计/上下文管理研究_第十六轮）：
     检索结果的全局词汇重叠 ratio 会骗人（中位 2.61，比连续文本还高）——
@@ -42,6 +51,7 @@ import re
 __all__ = [
     "split_sentences", "inner_adjacency", "cross_boundary",
     "seam_ratio", "check", "DEFAULT_THRESHOLD",
+    "signal_ratio", "SIGNAL_LOW", "SIGNAL_OK",
 ]
 
 #: 接缝比阈值：低于此值判为「拼装断裂」。初设 0.5（4 样本，待更多验证）。
@@ -77,6 +87,15 @@ def _tokens(sentence):
     bigrams = {"".join(zh[i:i + 2]) for i in range(len(zh) - 1)}
     words = {w.lower() for w in re.findall(r"[A-Za-z_]{2,}", s)}
     return bigrams | words
+
+
+def _token_list(text):
+    """实词**列表**（不去重，保留词次）。用于稀释度量。"""
+    s = str(text or "")
+    zh = re.findall(r"[\u4e00-\u9fa5]", s)
+    bigrams = ["".join(zh[i:i + 2]) for i in range(len(zh) - 1)]
+    words = [w.lower() for w in re.findall(r"[A-Za-z_]{2,}", s)]
+    return bigrams + words
 
 
 def _overlap(a, b):
@@ -165,6 +184,55 @@ def check(segments, threshold=DEFAULT_THRESHOLD):
                            "不低于" if detail["ok"] else "**低于**",
                            threshold))
     return detail
+
+
+#: 信噪比参考线（2026-10-24 第三十四轮实测）：
+#: 233 字上下文目标占 16.5%，1 万字上下文仅 0.45%。
+#: 低于 1% 视为「严重稀释」——目标事实被淹没。
+SIGNAL_LOW = 0.01
+SIGNAL_OK = 0.05
+
+
+def signal_ratio(target_text, context_text):
+    """信噪比：目标文本的实词占上下文全部实词的比例。
+
+    这是「稀释」这一种损失的读数（框架 v5 第二节）。
+    回答的不是「目标在不在」，而是「**目标有多显眼**」——
+    在不在由 constraint_watch 判，显不显眼由本函数判。
+
+    返回 dict：
+        ok       True=占比不低于 SIGNAL_OK；
+                 False=低于 SIGNAL_LOW（严重稀释）；
+                 None=**介于两者之间**（说不清，不给默认通过）
+        ratio    目标词占全部实词的比例
+        verdict  'clear' / 'thin' / 'drowned' / 'unknown'
+    """
+    # 按**词次**而非词种：稀释的本质是「占用空间」，
+    # 若用 set 去重，重复内容不占空间，稀释就测不出来
+    # （2026-10-24 守卫抓到：'无关内容。'×400 用去重法得 70.8% clear，实为严重稀释）。
+    tgt_list = _token_list(target_text)
+    if not tgt_list:
+        return {"ok": None, "ratio": None, "verdict": "unknown",
+                "reason": "目标文本没有实词"}
+    ctx_list = _token_list(context_text)
+    if not ctx_list:
+        return {"ok": None, "ratio": None, "verdict": "unknown",
+                "reason": "上下文为空"}
+    tgt_set = set(tgt_list)
+    hit = sum(1 for w in ctx_list if w in tgt_set)
+    ratio = hit / float(len(ctx_list))
+    tgt = tgt_set
+    ctx = ctx_list
+    if ratio >= SIGNAL_OK:
+        ok, verdict = True, "clear"
+    elif ratio < SIGNAL_LOW:
+        ok, verdict = False, "drowned"
+    else:
+        ok, verdict = None, "thin"
+    return {"ok": ok, "ratio": round(ratio, 4), "verdict": verdict,
+            "target_words": len(tgt), "hit_words": hit,
+            "context_words": len(ctx),
+            "note": "占比 %.2f%%（%d/%d 实词）" % (ratio * 100, hit, len(ctx))}
 
 
 def main(argv=None):
