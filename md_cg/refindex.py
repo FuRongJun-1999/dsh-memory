@@ -1129,6 +1129,115 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
             "reason": why}
 
 
+
+
+# ============ issue #770：存量嵌套根重复（检测 + 清退） ============
+
+
+def _is_under(child: str, parent: str) -> bool:
+    """child 是否在 parent 之下（路径感知，不是字符串前缀）。"""
+    try:
+        c = os.path.realpath(child or "")
+        p = os.path.realpath(parent or "")
+    except Exception:
+        return False
+    if not c or not p or c == p:
+        return False
+    return c.startswith(p.rstrip(os.sep) + os.sep)
+
+
+# 生效条件：cg 传入；只读遍历 code/doc 节点的 ref，按 (kind, realpath) 分组找「内层 root ⊂ 外层 root」的双写
+def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
+    """扫描存量嵌套根重复。返回 (plan, stats)。
+
+    issue #770：`#769` 只防**新增**（入口按 realpath 拒绝互相嵌套），存量已双写的
+    `doc_*` / `code_*` 仍在库里 —— 检索会重复返回同一份内容。
+
+    判据（三条同时成立才进 plan）：
+      ① 同 kind（code_ref 与 doc_ref 后缀面不相交，是两种域，不能互判）；
+      ② 两个节点的 ref 指向**同一 realpath 文件**；
+      ③ 两节点的 root 互相嵌套（一内一外）⇒ 判**内层那套**为重复（外层已覆盖同一物理文件）。
+
+    不改变 node_id 键（#352-E：改键会动存量 id 稳定性）；不碰多源根合法多域。
+    """
+    nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    scanned = 0
+    truncated = False
+    by_kind = {}   # kind -> {realpath: [ {nid, root, path} ]}
+    for nid in list(nodes):
+        e = nodes.get(nid) or {}
+        tags = e.get("tags") or []
+        if not any(t in ("code", "doc") for t in tags):
+            continue
+        if scanned >= max_nodes:
+            truncated = True
+            break
+        scanned += 1
+        try:
+            node = cg.get(nid)
+        except Exception:
+            continue
+        if not node:
+            continue
+        kind, ref = ref_of(node)
+        if not ref or not ref.get("root") or not ref.get("path"):
+            continue
+        try:
+            rp = os.path.realpath(ref["path"])
+        except Exception:
+            continue
+        by_kind.setdefault(kind or "", {}).setdefault(rp, []).append(
+            {"node_id": nid, "root": os.path.realpath(ref["root"]), "path": rp})
+    plan = []
+    groups = 0
+    for kind, per_file in by_kind.items():
+        for rp, entries in per_file.items():
+            roots = {e["root"] for e in entries}
+            if len(roots) < 2:
+                continue
+            inner = []
+            for e in entries:
+                outer_has = any(
+                    o["root"] != e["root"] and _is_under(e["root"], o["root"])
+                    for o in entries)
+                if outer_has:
+                    inner.append(e)
+            if inner:
+                groups += 1
+                for e in inner:
+                    plan.append({"node_id": e["node_id"], "kind": kind,
+                                 "root": e["root"], "path": rp,
+                                 "reason": "内层根与外层根指向同一物理文件（#770）"})
+    return plan, {"scanned": scanned, "truncated": truncated, "groups": groups,
+                  "files": len(by_kind.get("code_ref", {})) + len(by_kind.get("doc_ref", {}))}
+
+
+# 生效条件：cg 传入；dry_run=true 只列清单，apply 才删；只删内层根那套且外层已有同 realpath 节点
+def prune_nested(cg, *, dry_run: bool = True, max_nodes: int = MAX_CHECK,
+                 display: int = 50, reason: str = "") -> dict:
+    """清退存量嵌套根重复（issue #770）。
+
+    **同一次遍历出清单**：dry-run 与 apply 的 plan 由同一次 `_nested_dup_scan` 产出，
+    所以两者清单逐字节一致（判据要求）。
+
+    安全：只删**内层 root** 那套，且外层 root 已有同 realpath 文件的节点（删完不丢内容）；
+    删除走既有 `_forget_many`（软删 + 审计 + 保护闸；importance≥0.7 需 override）。
+    """
+    plan, stats = _nested_dup_scan(cg, max_nodes=max_nodes)
+    plan = sorted(plan, key=lambda r: r["node_id"])[:max_nodes]
+    why = reason or ("存量嵌套根重复：内层根与外层根索引了同一物理文件（#770），"
+                     "外层已有同文件节点，清退内层这套以消除检索重复")
+    base = {"ok": True, "found": len(plan), "dry_run": bool(dry_run),
+            "scanned": stats["scanned"], "truncated": stats["truncated"],
+            "groups": stats["groups"], "max_nodes": max_nodes}
+    if dry_run:
+        return {**base, "deleted": 0, "skipped_protected": [],
+                "plan": plan[:display], "reason": why}
+    done, blocked = _forget_many(cg, [r["node_id"] for r in plan], why)
+    return {**base, "deleted": len(done), "skipped_protected": blocked[:20],
+            "plan": plan[:display], "deleted_ids": sorted(done)[:display],
+            "reason": why}
+
 # 生效条件：cg 节点按 ref['root'] 与 kind 分组后逐组以 index_dir(incremental=False, ledger=ledger) 重切、再以 add_items(layer_of=原 layer) 重建，返回 {'ok','roots','groups','indexed','errors','truncated','roots_missing','rebuilt'}；root 已不是目录的组不调 index_dir（记 roots_missing 并置 ok=False）；本次 0 文件（stats.empty_scan）或 files 为 0 的组同样置 ok=False 并记错误；only_roots 非 None 时只处理其中列出的 root。
 def rebuild(cg, *, ledger: "Ledger" = None, only_roots=None, max_files: int = 500,
             max_items: int = 2000) -> dict:
