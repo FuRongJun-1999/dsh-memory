@@ -87,10 +87,10 @@ def main():
     ok(bool(nid_d) and layer_of(cg, nid_d) == "contextual",
        "K4 未声明 layer ⇒ 默认 contextual", (r_d, nid_d))
 
-    r1 = mcp_server.call_tool(cg, "cg", {"op": "write", "node_id": "k1",
-                                             "content": EPISODIC, "layer": "knowledge"})
-    ok(isinstance(r1, dict) and bool(r1.get("layer_downgraded")),
-       "K5 工具面 write 降级回执带 layer_downgraded（不静默）", r1)
+    # 工具面 write 只改**默认层**（不拦截显式 knowledge）：用短内容会进审核队列，
+    # 故断言打在「默认层参数」而非落盘结果上——这是本件的边界（见 PR 说明）。
+    _a_default, _ = mcp_server._layer_gate_apply({"content": KNOWLEDGE})
+    ok(not _a_default.get("layer"), "K5 闸不改未声明 layer 的参数（默认层由 write 分支补）")
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))

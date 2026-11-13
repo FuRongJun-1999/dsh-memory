@@ -2577,21 +2577,13 @@ def _cg_dispatch(cg, a):
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
-        # issue #749（使用者裁定 2026-11-13）：**默认写情景层**，知识层要显式且过闸。
-        # 病象：LLM 默认把情景内容写进知识层，知识层被日常流水稀释。
-        # 判据见 md_cg/layer_gate.py（CCG 六要素 + 无相对时间指代 + 非即时状态句）；
-        # 不通过 => 降级 contextual 并在回执里写明原因（不静默、不丢弃）；force_layer 可越过。
-        _a749 = dict(a)
-        if not _a749.get("layer"):
-            _a749["layer"] = "contextual"
-        _a749, _note749 = _layer_gate_apply(_a749)
-        cg = cg
-        a = _a749
-        if _note749:
-            _nid749 = cg.add(a.get("node_id") or a.get("id") or "", a.get("content") or "",
-                            layer=a.get("layer"), tags=a.get("tags"))
-            return {"ok": True, "id": _nid749, "layer": a.get("layer"),
-                    "layer_downgraded": _note749}
+        # issue #749（使用者裁定 2026-11-13）：**默认写情景层**（知识层要显式声明）。
+        # 边界（如实）：本分支只改**默认层**，不拦截显式 layer="knowledge" 的写入——
+        # 那是 agent 直调的专家面（write 走审核队列，成败由 writepipe/verdict 决定）；
+        # 「降级 + 不静默」的准入闸落在 LLM 主路径 mdcg_remember（见 _remember_call）。
+        if not a.get("layer"):
+            a = dict(a, layer="contextual")
+
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
