@@ -1,41 +1,41 @@
 {
-    "version":  "1.0.0",
-    "files":  [
-                  {
-                      "path":  "web/index.html",
-                      "sha256":  "9F056DD4769EFFD75F98A9121CBEFBB3704A430FCCF0D656B75FD4BC12114DA4"
-                  },
-                  {
-                      "path":  "web/app.js",
-                      "sha256":  "A49B152F6B28A6A5123AFCABA273AE4F775F2EAAB496A57BCAF9AB4CC4A86C05"
-                  },
-                  {
-                      "path":  "web/style.css",
-                      "sha256":  "58B2F345B3975EADF66ED030F7E9AA6047F7C225E0FAD94F6AF3843DB934EDA4"
-                  },
-                  {
-                      "path":  "web/entry.js",
-                      "sha256":  "E5B602282EABCDFFE207065B113AC148E96DCF799D09009871C475546A7663A6"
-                  },
-                  {
-                      "path":  "web/client.js",
-                      "sha256":  "FEA2F301980D2CF5CD67A66E2A12F21A69F255E512F56D34A80EC86634DE560C"
-                  },
-                  {
-                      "path":  "build-ui.mjs",
-                      "sha256":  "893E304FBB82810478041F30AC4A7C32CDB42A6C63A238F051A044370A38E103"
-                  },
-                  {
-                      "path":  "src/lib/console_web.mjs",
-                      "sha256":  "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
-                  },
-                  {
-                      "path":  "lib/lib/console_web.mjs",
-                      "sha256":  "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
-                  },
-                  {
-                      "path":  "lib/client.js",
-                      "sha256":  "89B4FE09B105A378B1404ED13C06F9416E12F234E64DB6C2A529B6196675AA20"
-                  }
-              ]
+    "version": "1.0.0",
+    "files": [
+        {
+            "path": "web/index.html",
+            "sha256": "F590DD7F091353E69CC388BB97430664DC152DB68D37B2CB188B743F17A61EFE"
+        },
+        {
+            "path": "web/app.js",
+            "sha256": "88D19C9DC96BCBD98346469FC8792807BE460C60E863FC2261FFA2042039B8C2"
+        },
+        {
+            "path": "web/style.css",
+            "sha256": "DE22E504DEE4732EC12BA68DE3A59A4E45A6484EA61131E4C6CEE277F91BD37D"
+        },
+        {
+            "path": "web/entry.js",
+            "sha256": "E5B602282EABCDFFE207065B113AC148E96DCF799D09009871C475546A7663A6"
+        },
+        {
+            "path": "web/client.js",
+            "sha256": "D34CA36120E4DFB233590560DBFB94A78646C6DC9F3BBC6E046E9983D86F836D"
+        },
+        {
+            "path": "build-ui.mjs",
+            "sha256": "E44E39D18AC240A9B24CF732EA3AADC5CDE9D3425DD5FFCB639EE93605BE0CD8"
+        },
+        {
+            "path": "src/lib/console_web.mjs",
+            "sha256": "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
+        },
+        {
+            "path": "lib/lib/console_web.mjs",
+            "sha256": "457944C22DBE21B0ABF385D469CFBEF14BE5CFFE9D42B96734E20ADF2B439447"
+        },
+        {
+            "path": "lib/client.js",
+            "sha256": "D629A096ABFD29183761935B2F5C2307F064741EC386BD045BC5CAA4A761B4C3"
+        }
+    ]
 }
