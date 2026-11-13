@@ -7424,6 +7424,17 @@ class MdCGSecure(MdCGOS):
         if not exists:
             _q = (getattr(self, "_quarantined", None) or {}).get(node_id)
             if not _q:
+                # issue #694（使用者裁定）：**默认公开**，会话可选私有。
+                # 新写入且未显式声明密级时，若当前会话在会话账本里被标为 private，
+                # 则落 private（会话绑定档：仅本会话可见，见 _readable）；否则维持缺省档。
+                # 只作用于**新节点**——既有节点走上面的继承分支，历史密级不被静默改写。
+                try:
+                    from .sustain import SessionLedger as _SL
+                    _sess = getattr(self, "session", None)
+                    if _sess and _SL(self.root).is_private(_sess):
+                        return "private"
+                except Exception:      # noqa: BLE001 —— 账本不可读时按缺省档（不阻断写入）
+                    pass
                 return DEFAULT_SENSITIVITY
             raise AccessDenied(
                 "写入 %r 未声明 sensitivity，而该 id 已被判为坏节点隔离"

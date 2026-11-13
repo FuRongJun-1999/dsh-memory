@@ -1351,6 +1351,29 @@ class SessionLedger:
                 pass
         return {"schema": 1, "sessions": {}}
 
+# 生效条件：session 非空时返回该会话是否被标记为 private（缺省 False＝公开）
+    def is_private(self, session) -> bool:
+        """该会话是否「内容私有」（issue #694：默认公开，可逐会话自选私有）。
+
+        缺省 False：既有行为不变（DEFAULT_SENSITIVITY=internal，跨会话共享）。
+        """
+        if not session:
+            return False
+        rec = (self._load().get("sessions") or {}).get(str(session)) or {}
+        return bool(rec.get("private"))
+
+# 生效条件：session 非空时把该会话的 private 标志置为 private 并落盘，返回新状态 dict
+    def set_private(self, session, private):
+        """切换会话的内容私有档（只影响**后续写入**；已写节点不改，避免静默改写历史）。"""
+        if not session:
+            raise ValueError("须指定 session")
+        d = self._load()
+        sess = d.setdefault("sessions", {}).setdefault(str(session), {})
+        sess["private"] = bool(private)
+        self._save(d)
+        return {"session": str(session), "private": bool(private),
+                "note": "仅影响后续写入；已写节点密级不变"}
+
 # 生效条件：传入 d 时执行 atomic_write(self.path, json.dumps(d, ensure_ascii=False, indent=1))，自身无返回值；
     def _save(self, d):
         atomic_write(self.path, json.dumps(d, ensure_ascii=False, indent=1))
