@@ -14,6 +14,8 @@
 因此路由键 = 归一化提取的「域」，而非四元组哈希。写入侧与查询侧共用本模块，
 保证两侧同构（风险2 的前提：查询构造的键必须与写入键落在同一空间）。
 """
+import json
+import os
 import math
 import re
 import hashlib
@@ -42,19 +44,59 @@ def nfkc_text(text) -> str:
     return unicodedata.normalize("NFKC", "" if text is None else str(text))
 
 
-#: 繁→简折叠表（#362c：**机制在位、数据待补**）。
+#: 繁→简折叠表（#362c 机制 · #607 接真表）。
 #:
-#: 为什么是空表：仓内**没有**既有的繁简映射表（证据与检索口径见
-#: `md_cg/test_issue362_neg_condition.py` 的 C 组注释）。而「只覆盖本 issue 语料的
-#: 最小表」会在守卫里全绿、在真实流量上静默漏拒——那是**假绿**，比没有表更坏。
-#: 故按 Lead 裁定（2026-10-14）：**c 项本轮挂起**，只落机制单点；表默认空 ⇒
-#: 生产行为一字不动。注入点见 `trad_to_simp()` / `set_trad_to_simp()`。
+#: issue #607 的「四件齐备」已落：
+#:   ① 真实表：OpenCC `TSCharacters.txt`（Apache-2.0），vendored 在 `md_cg/data/opencc/`，
+#:      来源/许可/sha256 见同目录 `PROVENANCE.json`；
+#:   ② 许可：Apache-2.0（表头自带声明）；
+#:   ③ 覆盖声明：产物 `md_cg/data/trad_to_simp.json` 的 coverage 字段逐项写清收哪些
+#:      （单字符键 + 单目标）、排除哪些（多目标歧义 / 多字符键）；
+#:   ④ 反向腿：**不生成** 简→繁 猜测表——未覆盖字符原样返回（不猜）。
+#:
+#: 懒加载：文件缺失/损坏 ⇒ 空表（诚实跳过，行为与 #362c 时期一致），不抛错。
 TRAD_TO_SIMP = {}
+_TABLE_LOADED = False
+_TABLE_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "data", "trad_to_simp.json")
+
+
+# 生效条件：表尚未加载且数据文件存在时读入一次；文件缺失/损坏则保持空表（不抛错、不猜）
+def _load_table_once() -> None:
+    global TRAD_TO_SIMP, _TABLE_LOADED
+    if _TABLE_LOADED:
+        return
+    _TABLE_LOADED = True
+    try:
+        with open(_TABLE_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+        table = data.get("table") or {}
+        TRAD_TO_SIMP = {str(k): str(v) for k, v in table.items()
+                        if len(str(k)) == 1 and len(str(v)) == 1}
+    except Exception:
+        TRAD_TO_SIMP = {}   # 诚实跳过：没有表就没有折叠
+
+
+# 生效条件：无参时返回覆盖声明（哪些进表 / 哪些被排除）；表文件缺失返回 available=False
+def table_coverage() -> dict:
+    """覆盖声明（issue #607 第③件）：哪些进表、哪些被排除，逐项可复核。"""
+    _load_table_once()
+    try:
+        with open(_TABLE_PATH, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except Exception:
+        return {"available": False, "path": _TABLE_PATH,
+                "note": "表文件缺失/损坏：折叠为空表（不猜）"}
+    out = {k: v for k, v in data.items() if k != "table"}
+    out["available"] = bool(data.get("table"))
+    out["path"] = _TABLE_PATH
+    return out
 
 
 # 生效条件：无参时返回当前生效的繁→简折叠表（{单字符 str: 单字符 str}）；默认即模块级 `TRAD_TO_SIMP`（空表）。
 def trad_to_simp() -> dict:
-    """繁简折叠表的**读取单点**（#362c 注入点之一）。"""
+    """繁简折叠表的**读取单点**（#362c 注入点之一；#607 起懒加载真表）。"""
+    _load_table_once()
     return TRAD_TO_SIMP
 
 

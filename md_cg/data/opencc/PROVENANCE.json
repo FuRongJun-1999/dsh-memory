@@ -1,0 +1,12 @@
+{
+  "source": "OpenCC (BYVoid/OpenCC) data/dictionary/TSCharacters.txt",
+  "url": "https://raw.githubusercontent.com/BYVoid/OpenCC/master/data/dictionary/TSCharacters.txt",
+  "license": "Apache-2.0",
+  "license_note": "OpenCC 字典文件随仓库分发，LICENSE 为 Apache-2.0；本文件按原样保留表头（含许可声明）",
+  "fetched_at": "2026-11-13T13:10:21.992Z",
+  "bytes": 83830,
+  "sha256": "9ff46a7d30e5765375eb13d33f2b03a34d298913caf2b120380679f33ae1642d",
+  "rows_total": 4148,
+  "rows_single_target": 3151,
+  "coverage_policy": "只收单目标条目（多目标=歧义，不猜）；键为单字符的条目进折叠表，多字符键另行声明"
+}
