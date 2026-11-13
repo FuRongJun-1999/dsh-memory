@@ -896,6 +896,20 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
   // **实例级**（不是模块级）：一个插件实例=一份状态，测试/多实例天然隔离；
   // 进程重启后首轮必为 full（保守），不落盘。
   const lastInjected = new Map<string, Map<string, string>>()
+  // issue #749（跨会话 knowledge 浮现）：把「最近一条真实用户消息」按会话记住，
+  // 供 assemble 侧做**查询式检索**（注入面此前只拉 timeline，knowledge 层永不浮现）。
+  // 只存文本、不落盘；会话数上限 64（防长跑进程无限增长）。
+  const lastUserText = new Map<string, string>()
+  const rememberUserText = (sid: string, text: string): void => {
+    if (!sid || !text) return
+    lastUserText.delete(sid)
+    lastUserText.set(sid, text)
+    while (lastUserText.size > 64) {
+      const k = lastUserText.keys().next().value
+      if (k === undefined) break
+      lastUserText.delete(k)
+    }
+  }
   const prevInjected = (sid: string, block: string): string | undefined =>
     lastInjected.get(sid)?.get(block)
   const noteInjected = (sid: string, block: string, text: string): void => {
@@ -1033,6 +1047,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           const timelinePayload = await graph.timeline(
             recallLimit,
             sid ? { session: sid } : {})
+          // issue #749：**跨会话 knowledge 浮现**。
+          // 病象：注入面只拉 timeline（按本会话过滤）⇒ knowledge 层永不自动浮现，跨会话等于「完全记不住」。
+          // 实测 0.9.22：注入块 4/4 条 contextual、64 个 knowledge 零浮现；同一 query 显式 read 能 rank 命中
+          // ⇒ 是**注入面未接线**，不是检索失效。
+          // 取向：拿最近一条用户消息做一次查询式检索，且**不带 session 过滤**——不走会话过滤才可能跨会话；
+          // private/secret 属会话绑定档，服务端 _readable 会挡住，故不带 session 等于「只取共享档 public/internal」。
+          let knowItems: Array<Record<string, unknown>> = []
+          try {
+            const q749 = sid ? lastUserText.get(sid) : undefined
+            if (q749) {
+              const kr = await graph.read(q749.slice(0, 200), { k: recallLimit })
+              const rawItems = ((kr as { items?: unknown })?.items ?? kr) as unknown
+              if (Array.isArray(rawItems)) {
+                // 只取非 contextual 层：contextual 由 timeline 块负责，避免同一批裸消息被两条通路各贴一遍。
+                knowItems = (rawItems as Array<Record<string, unknown>>)
+                  .filter((it) => String((it || {})['layer'] ?? '') !== 'contextual')
+              }
+            }
+          } catch (err) {
+            ctx.logger.info(`dsh-memory: 跨会话知识检索未生效（已跳过）: ${redactForLog(err)}`)
+          }
           // issue #715（2026-10-30 外部报告，逐行复现）：**身份块必须单独取数**。
           //
           // 病灶：此前身份块复用上面这份**带会话过滤**的 payload（还把 limit 加 3 试图
@@ -1054,7 +1089,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           const seenKey = sid || '__no_sid__'
           let seenMap = injectSeen.get(seenKey)
           if (!seenMap) { seenMap = new Map<string, number>(); injectSeen.set(seenKey, seenMap) }
-          const text = formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2))
+          // issue #749：把查询式检索到的 knowledge 条目并入「最近记忆」块（在时间线之前），
+          // 让跨会话知识能自动浮现；条目带 [layer] 前缀（与时间线渲染同格式），并按 id 去重。
+          let knowText = ''
+          if (knowItems.length) {
+            const seenIds = new Set<string>()
+            const lines749: string[] = []
+            for (const it of knowItems) {
+              const id749 = String((it || {})['id'] ?? '')
+              if (!id749 || seenIds.has(id749)) continue
+              seenIds.add(id749)
+              const layer749 = String((it || {})['layer'] ?? '')
+              const prev749 = String((it || {})['preview'] ?? '').replace(/\s+/g, ' ').trim()
+              if (!prev749) continue
+              lines749.push(`- [${layer749 || 'knowledge'}] ${prev749}`)
+              if (lines749.length >= recallLimit) break
+            }
+            if (lines749.length) knowText = lines749.join('\n')
+          }
+          const timelineText = formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2))
+          // issue #749：knowledge 条目在前（跨会话知识），时间线在后（本会话工作记忆）
+          const text = [knowText, timelineText].filter(Boolean).join('\n')
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文
@@ -1281,6 +1336,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (!text) return
       const safe = sanitize(text)  // 脱敏：纯凭据消息 → null → 跳过写入
       if (safe === null) { audit.skipped('sanitized', 'user'); return }
+      // issue #749：留一份最近用户文本，供 assemble 侧做查询式检索
+      rememberUserText(String(sid || ''), safe)
       memorize('user', 'user', (g) => g.remember(safe, {
         condition_space: condSpace('user'),
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
