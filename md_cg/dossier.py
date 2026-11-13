@@ -121,8 +121,13 @@ def merge(old, new):
             _old = list(prev.get("value") or [])
             _new = list(v.get("value") or [])
             def _key(it):
+                # issue #909：去重键只比**业务字段**，必须排除 `_raw` 这类证据键——
+                # 否则「同一段经历、只有原文摘录不同」会被拆成两项，而渲染端又跳过下划线键，
+                # 于是资料卡里出现两行完全相同的内容（实测：示例工坊 | 学徒 ×2）。
+                # 证据仍可回查：保留首条的 `_raw`，来源节点另在事实行（来源 <id>）里。
                 return tuple(sorted((str(a), str(b)) for a, b in (it or {}).items()
-                                    if b not in (None, "")))
+                                    if not str(a).startswith("_")
+                                    and b not in (None, "")))
             _seen = {_key(x) for x in _old}
             for _it in _new:
                 if _key(_it) not in _seen:
