@@ -2577,13 +2577,6 @@ def _cg_dispatch(cg, a):
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
-        # issue #749（使用者裁定 2026-11-13）：**默认写情景层**（知识层要显式声明）。
-        # 边界（如实）：本分支只改**默认层**，不拦截显式 layer="knowledge" 的写入——
-        # 那是 agent 直调的专家面（write 走审核队列，成败由 writepipe/verdict 决定）；
-        # 「降级 + 不静默」的准入闸落在 LLM 主路径 mdcg_remember（见 _remember_call）。
-        if not a.get("layer"):
-            a = dict(a, layer="contextual")
-
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
@@ -3132,6 +3125,11 @@ def _cg_dispatch(cg, a):
         # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于
         # 本文件；新增闸门 = register_before 一行，即插即拔。
         # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
+        # issue #749（使用者裁定 2026-11-13）：知识层准入闸。
+        # 位置选在**真实写链**这一处：只改 a["layer"]（不改提交语义/三键形状），
+        # 执行后再把降级说明挂到回执上（不静默）。
+        _a749, _note749 = _layer_gate_apply(dict(a))
+        a = _a749
         from .writepipe import default_pipeline
         # **元数据补丁**（issue #732 的实用形态）：只给 node_id + tags /
         # condition_space / depends_on 而不给 content ⇒ 视为「改元数据、不动
