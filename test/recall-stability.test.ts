@@ -90,7 +90,11 @@ test('① 记忆不变时：注入块每步照旧 push，渲染文本逐字节�
   // 首份 + 若干次「条目到期收缩」。收缩次数上界 = 条目数（每条一生只掉一次），
   // 此后文本恒定、宿主不再追加 —— 要钉的是**有界性**，不是某个精确数字（实测在 2~3 间浮动，
   // 取决于 timeline 每步返回的条目数）。
-  assert.ok(appends >= 1 && appends <= 3, `去重后的追加次数应有界（实测 ${appends}，上界=首份+条目数）`)
+  // issue #739（2026-11-12）块级去重：同一批每轮原样重贴会诱发整段复述，故第二轮起改贴
+  // **占位**（正文不再重复）。这引入一次额外快照（full → stub 的文本变化，+1），
+  // 之后占位恒定不再追加。故上界 = 首份 + 条目收缩次数 + 1（stub 切换）。
+  assert.ok(appends >= 1 && appends <= 5,
+    `去重后的追加次数应有界（实测 ${appends}，上界=首份+条目数+1(stub切换)）`)
 
   // 正对照：走满 10 个真实用户回合后，**下一次** assemble 会带来一次功能性变化
   // （提醒块出现），之后不再重复（不 sticky）。
@@ -147,20 +151,23 @@ test('② 记忆真变了才追加：内容变化 → 恰好多一份；之后�
   const step = (text: string): void => { if (hostAppends(retained, text)) { appends++; retained = text } }
 
   step(await run())                      // 首份
-  step(await run())                      // 不变
-  assert.equal(appends, 1, '内容未变不应追加')
+  step(await run())                      // 第二遍：同一批 => 占位（文本变了，+1）
+  // issue #739：首轮 full、次轮 stub —— 这一次文本变化是**设计内**的（去掉复述原料），
+  // 之后占位恒定不再追加。故此处为 2 而非 1。
+  assert.equal(appends, 2, '首轮 full + 次轮 stub 各一份；之后不应再追加')
 
   payload = {
     count: 1, limit: 4,
     items: [{ id: 'n3', layer: 'knowledge', start: 9, end: 9, preview: '记忆3：新写入的知识节点' }],
   }
   step(await run())                      // 变了
-  assert.equal(appends, 2, '记忆变化应恰好多一份快照')
+  assert.equal(appends, 3, '记忆变化应恰好多一份快照（在 full+stub 之后 +1）')
   assert.ok(retained?.includes('记忆3'), '新快照应含最新记忆')
 
   step(await run())                      // 再次稳定
   step(await run())
-  assert.equal(appends, 2, '稳定后不应继续追加')
+  // 变化后的第一次 full（+1）+ 紧接的 stub 切换（+1）= 共 4；此后占位恒定。
+  assert.equal(appends, 4, '稳定后不应继续追加（full + 一次 stub 切换后恒定）')
 })
 
 test('③ 对照：跳过 push 的旧策略会把快照数翻倍（证明「照旧 push」是必需的而非装饰）', async () => {

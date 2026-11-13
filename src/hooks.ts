@@ -457,6 +457,45 @@ const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
  * 超过 cap 的条目本轮丢弃；**不丢完**——若全被滤掉则保留第一条，避免整块消失导致
  * 宿主再追加一份「没有本块」的快照（#657 的代价）。
  */
+/** issue #739（2026-11-12）：注入块的逐轮去重/增量判定（纯函数，便于守卫）。
+ *
+ * 实测（五臂对照）：同一批记忆每轮原样重贴 => 第 2 轮起整段复述（LCS 36/54 字），
+ * 而「每轮换一批」不累积（25 字只重现一轮）。故处置是去重优先于降权。
+ *
+ * 三种返回：
+ *   full  -- 首轮或内容不可比较（不以上一轮为前缀）：原样注入；
+ *   delta -- 新一轮是上一轮的追加（窗口类常见）：只注入新增部分；
+ *   stub  -- 与上一轮逐字相同：注入一行占位（保留「有这块、但未变」的信号，
+ *            不再重贴正文，重贴正文正是诱发复述的原料）。
+ *
+ * 保守边界：delta 只在「前缀关系成立」时启用（内容被改写/删减一律回 full）。
+ */
+
+
+// issue #739：注入块的逐轮去重状态（按会话 + 块名记上一轮正文）。
+// 只在本进程内有效：插件重启后首轮必为 full（保守），不落盘。
+
+export function deltaBlock(
+  prev: string | undefined,
+  next: string,
+  label: string,
+): { text: string; mode: 'full' | 'delta' | 'stub' } {
+  if (!next) return { text: '', mode: 'full' }
+  // full 也要带标题：调用方直接用 deltaBlock().text 作为块正文（不再各自拼前缀）。
+  if (!prev) return { text: label + '\n' + next, mode: 'full' }
+  const unchanged = label + '（与上一轮相同，略：' + String(next.length) + ' 字未变）'
+  if (next === prev) return { text: unchanged, mode: 'stub' }
+  if (next.startsWith(prev)) {
+    const tail = next.slice(prev.length)
+    if (!tail.trim()) return { text: unchanged, mode: 'stub' }
+    return {
+      text: label + '（增量：上一轮之后的 ' + String(tail.length) + ' 字）\n' + tail,
+      mode: 'delta',
+    }
+  }
+  return { text: label + '\n' + next, mode: 'full' }
+}
+
 export function dedupeRepeatedItems(
   payload: unknown,
   seen: Map<string, number>,
@@ -853,6 +892,17 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *  HMR 重载时新实例回落 '' 属更保守行为）。 */
   let observedSession = false
   let warnedEmptySid = false
+  // issue #739：注入块的逐轮去重状态（按会话 + 块名记上一轮正文）。
+  // **实例级**（不是模块级）：一个插件实例=一份状态，测试/多实例天然隔离；
+  // 进程重启后首轮必为 full（保守），不落盘。
+  const lastInjected = new Map<string, Map<string, string>>()
+  const prevInjected = (sid: string, block: string): string | undefined =>
+    lastInjected.get(sid)?.get(block)
+  const noteInjected = (sid: string, block: string, text: string): void => {
+    let m = lastInjected.get(sid)
+    if (!m) { m = new Map<string, string>(); lastInjected.set(sid, m) }
+    m.set(block, text)
+  }
 
   /** 记忆沉淀（fire-and-forget）。认知图未就绪则跳过并告警（不退回 AEIS）。
    *  `role`=null 表示**读预热**（user-recall）——审计只统计写入路径，
@@ -1029,11 +1079,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             // （一定被替换成占位），而不是「不注入」；`if (recallBody)` 只是兜底，
             // 覆盖渲染文本本身即纯凭据（无前缀）的形态。
             const recallBody = desensitize(truncateSafe(text, RECALL_MAX_CHARS))   // issue #762
-            if (recallBody) {
+            // issue #739：同一批记忆每轮原样重贴会诱发整段复述 => 块级去重/增量。
+            const _rb = deltaBlock(prevInjected(sid, 'auto-recall'), recallBody || '', '【灵枢最近记忆】')
+            if (_rb.mode !== 'stub') noteInjected(sid, 'auto-recall', recallBody || '')
+            const recallOut = _rb.text
+            if (recallOut) {
               assembly.contexts.push({
                 name: 'lingshu:auto-recall',
-                text: escapePromptBraces(renderUntrustedMemoryBlock(
-                  `【灵枢最近记忆】\n${recallBody}`)),
+                text: escapePromptBraces(renderUntrustedMemoryBlock(recallOut)),
               })
             }
           }
@@ -1042,10 +1095,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
               // issue #715：用**独立取数**的 payload（不带会话过滤），不再复用已滤会话的那份。
               const idText = renderIdentityAnchors(identityPayload)
               if (idText) {
+                // issue #739：身份锚点天然每轮相同（实测属「稳定核心+每轮重贴」形态）
+                // => 逐轮相同就只贴占位，保留「有这块」的信号，去掉复述原料。
+                const _ib = deltaBlock(prevInjected(sid, 'identity'), idText, '【灵枢身份锚点】（self/anchor 层，独立预算）')
+                if (_ib.mode !== 'stub') noteInjected(sid, 'identity', idText)
                 assembly.contexts.push({
                   name: 'lingshu:identity-anchor',
-                  text: escapePromptBraces(renderUntrustedMemoryBlock(
-                    '【灵枢身份锚点】（self/anchor 层，独立预算）\n' + idText)),
+                  text: escapePromptBraces(renderUntrustedMemoryBlock(_ib.text)),
                 })
               } else {
                 // issue #715（静默失效）：此前「开关开了但块从不出现」与「库里确实没有
@@ -1096,11 +1152,15 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
                   // 诚实边界见上方 auto-recall 块）——渲染文本自带 `[role] ` 前缀，
                   // 故「整条皆凭据」时该块仍会注入，但凭据原文一定被替换成占位。
                   const winSafe = desensitize(winText)
-                  if (winSafe) {
+                  // issue #739：窗口每轮都是「最近 N 轮」，轮间大量重叠 => 只贴增量。
+                  // 前缀关系成立时只注入新增部分；不成立（被改写/截断）回 full；
+                  // 逐字相同则贴一行占位，不再重贴正文。
+                  const _wb = deltaBlock(prevInjected(sid, 'window'), winSafe || '', '【本会话近期对话】')
+                  if (_wb.mode !== 'stub') noteInjected(sid, 'window', winSafe || '')
+                  if (_wb.text) {
                     assembly.contexts.push({
                       name: 'lingshu:session-window',
-                      text: escapePromptBraces(renderUntrustedMemoryBlock(
-                        `【本会话近期对话】\n${winSafe}`)),
+                      text: escapePromptBraces(renderUntrustedMemoryBlock(_wb.text)),
                     })
                   }
                 }

@@ -343,18 +343,24 @@ test('W5b fail-soft：recentAdd 抛错 / 缺席 → session/event 处理不抛�
 
 // ---------------------------------------------------------------- W6 每步 push
 
-test('W6 每步 push：同会话连续两步两块逐字节相同（与既有 ⑤ 同型）', async () => {
+test('W6 每步 push（issue #739 改造后）：首步 full、次步占位、换会话回 full', async () => {
   const { graph } = makeGraph()
   const { assemble } = makeHarness(graph)
 
   const first = await assemble({ agent: { session: { id: 'sess_A' } } })
   const second = await assemble({ agent: { session: { id: 'sess_A' } } })
+  const other = await assemble({ agent: { session: { id: 'sess_B' } } })
 
   assert.equal(first.contexts.length, 2, '第一步两块齐')
   assert.equal(second.contexts.length, 2, '第二步仍须 push 两块（不许跳过 push）')
-  assert.equal(first.contexts[0]!.text, second.contexts[0]!.text, '既有块逐字节相同')
-  assert.equal(first.contexts[1]!.text, second.contexts[1]!.text,
-    '窗口块逐字节相同 → 宿主不追加新快照')
+  // issue #739：同一批每轮原样重贴会诱发整段复述，故第二步**只贴占位**。
+  // 保留「有这块」的信号（块名/标题不变），去掉复述原料（正文不再重复）。
+  assert.ok(second.contexts[0]!.text.includes('与上一轮相同'), '既有块第二步为占位')
+  assert.ok(second.contexts[1]!.text.includes('与上一轮相同'), '窗口块第二步为占位')
+  assert.ok(!second.contexts[1]!.text.includes('第2条窗口内容'),
+    '占位不含正文（否则复述原料仍在）')
+  // 换会话 = 新状态：必须回到 full，不能把占位串到别的会话。
+  assert.ok(other.contexts[1]!.text.includes('【本会话近期对话】'), '换会话回 full')
 })
 
 // ---------------------------------------------------------------- W715 身份块取数（issue #715）
