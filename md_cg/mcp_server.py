@@ -4149,6 +4149,16 @@ def _ref_call(cg, a):
             cg, ledger=refindex.Ledger(cg.root),
             max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
         res["action"] = "check"
+        # issue #770：存量嵌套根重复读数（只报告，不落删除）
+        try:
+            _np, _ns = refindex._nested_dup_scan(
+                cg, max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
+            res["nested_duplicate"] = {
+                "found": len(_np), "groups": _ns["groups"],
+                "truncated": _ns["truncated"], "plan": _np[:50],
+                "hint": "存量嵌套根重复（内层根与外层根索引同一物理文件）；"                        "清退走 op=ref action=prune_nested（dry_run=true 先看清单）"}
+        except Exception as _e770:
+            res["nested_duplicate"] = {"found": None, "error": str(_e770)[:160]}
         res["note"] = ("stale=源已改动（区间哈希不匹配）→ 重跑 op=index_code / "
                        "op=index_doc 重建；dangling=源已删除 → 走 op=ref action=prune "
                        "（软删，可 restore）或恢复真源后重建。巡检只读、不改源文件；"
@@ -4165,6 +4175,21 @@ def _ref_call(cg, a):
                        "importance≥0.7）会被拦下并列入 skipped_protected，"
                        "不越权强删；删除可经 op=restore 回滚。")
         return res
+    if action in ("prune_nested", "prune-nested"):
+        # issue #770：存量嵌套根重复的清退出口（dry_run 默认 True——不预演不删）
+        _dr = a.get("dry_run")
+        _dry = True if _dr is None else bool(_dr)
+        if not _dry and a.get("apply") is False:
+            _dry = True
+        out770 = refindex.prune_nested(
+            cg, dry_run=_dry,
+            max_nodes=int(a.get("max_nodes") or refindex.MAX_CHECK))
+        out770["action"] = "prune_nested"
+        out770["note"] = ("只删**内层根**那套，且外层根已有同 realpath 文件的节点（删完不丢内容）；"
+                          "删除走软删+审计，受保护节点（self/anchor、importance≥0.7）列入 "
+                          "skipped_protected 不越权；可经 op=restore 回滚。"
+                          "dry_run 默认 true：先看清单再 apply。")
+        return out770
     if action not in ("read", "get"):
         raise ValueError(f"ref 未知 action：{action}（支持 read|check|stat|prune）")
     nid = (a.get("node_id") or "").strip()
