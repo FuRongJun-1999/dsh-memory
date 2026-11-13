@@ -1,14 +1,12 @@
 # -*- coding: utf-8 -*-
-"""守卫 · issue #749 知识层准入（默认情景层；知识层要过闸）。
+"""守卫 · issue #749 知识层准入（默认情景层 + 知识层劝告/可升级为强制降级）。
 
-使用者裁定（2026-11-13）：LLM 默认把该写情景层的内容写进知识层；知识层必须是
-重要的/结论性的/理论的/可验证的/通用的内容。
+设计（两档，默认劝告）：
+  · 劝告（默认）：显式 knowledge 但看起来不像知识 ⇒ 不改变写入，回执带 layer_warning（不静默）；
+  · 强制（MDCG_KNOWLEDGE_GATE=enforce）：降级 contextual 并带 layer_downgraded；
+  · LLM 主路径 mdcg_remember 的默认层本来就是 contextual（未声明时）。
 
-判据（确定性）：① CCG 六要素齐备；② 无相对时间指代；③ 非即时状态句。
-不通过 ⇒ 降级 contextual 并在回执带 layer_downgraded（不静默）；force_layer=true 越过。
-
-注意：cg(op=write) 走审核队列（节点不立即落盘），故落盘断言走 mdcg_remember；
-「默认层/降级」的判据面用闸函数本身（_layer_gate_apply）的单点测试。
+为什么默认不改写：cg(op=write)/显式 knowledge 是专家面；默认篡改会改变冲突检测语义（#294 实测）。
 """
 from __future__ import annotations
 
@@ -48,49 +46,54 @@ def layer_of(cg, nid):
 
 def main():
     print("=" * 70)
-    print("issue #749：知识层准入闸")
+    print("issue #749：知识层准入")
     print("=" * 70)
 
+    os.environ.pop("MDCG_KNOWLEDGE_GATE", None)
     ok(bool(layer_gate.judge(EPISODIC)[1]), "G1 情景句被判不入知识层（含原因）",
        layer_gate.judge(EPISODIC))
     ok(layer_gate.judge(KNOWLEDGE) == (True, []), "G2 合规知识放行",
        layer_gate.judge(KNOWLEDGE))
 
     g1, n1 = mcp_server._layer_gate_apply({"layer": "knowledge", "content": EPISODIC})
-    ok(g1.get("layer") == "contextual" and bool(n1),
-       "L1 闸：情景句+knowledge ⇒ 降级并给原因", (g1.get("layer"), n1))
+    ok(g1.get("layer") == "knowledge" and (n1 or {}).get("mode") == "advisory",
+       "L1 默认劝告：不改 layer，只给 advisory 理由", (g1.get("layer"), n1))
     g2, n2 = mcp_server._layer_gate_apply({"layer": "knowledge", "content": KNOWLEDGE})
-    ok(g2.get("layer") == "knowledge" and n2 is None,
-       "L2 闸：合规知识放行（不改层）", (g2.get("layer"), n2))
+    ok(g2.get("layer") == "knowledge" and n2 is None, "L2 合规知识：无提示", (g2.get("layer"), n2))
     g3, n3 = mcp_server._layer_gate_apply({"layer": "contextual", "content": EPISODIC})
-    ok(g3.get("layer") == "contextual" and n3 is None, "L3 闸：情景层原样放行（不干预）")
-    g4, n4 = mcp_server._layer_gate_apply({"layer": "knowledge", "content": EPISODIC,
-                                           "force_layer": True})
-    ok(g4.get("layer") == "knowledge" and n4 is None, "L4 闸：force_layer 越过（显式）")
+    ok(n3 is None, "L3 情景层：不干预")
+
+    os.environ["MDCG_KNOWLEDGE_GATE"] = "enforce"
+    g4, n4 = mcp_server._layer_gate_apply({"layer": "knowledge", "content": EPISODIC})
+    ok(g4.get("layer") == "contextual" and (n4 or {}).get("mode") == "enforce",
+       "L4 enforce 档：强制降级 contextual", (g4.get("layer"), n4))
+    os.environ.pop("MDCG_KNOWLEDGE_GATE", None)
 
     cg = MdCGOS(tempfile.mkdtemp(prefix="i749_"), actor="test")
-
     r_k = mcp_server.call_tool(cg, "mdcg_remember",
                                {"content": KNOWLEDGE, "layer": "knowledge"})
     nid_k = (r_k or {}).get("node_id") or (r_k or {}).get("id")
     ok(bool(nid_k) and layer_of(cg, nid_k) == "knowledge",
        "K2 remember 合规知识落 knowledge", (r_k, nid_k))
+    ok(not (r_k or {}).get("layer_warning"), "K2b 合规知识回执无 layer_warning")
 
     r_e = mcp_server.call_tool(cg, "mdcg_remember",
                                {"content": EPISODIC, "layer": "knowledge"})
-    nid_e = (r_e or {}).get("node_id") or (r_e or {}).get("id")
-    ok(bool(nid_e) and layer_of(cg, nid_e) == "contextual",
-       "K3 remember 情景句 + knowledge ⇒ 降级 contextual", (r_e, nid_e))
+    ok((r_e or {}).get("layer_warning", {}).get("mode") == "advisory",
+       "K3 情景句 + knowledge ⇒ 回执带 layer_warning（不静默）", r_e)
 
     r_d = mcp_server.call_tool(cg, "mdcg_remember", {"content": KNOWLEDGE})
     nid_d = (r_d or {}).get("node_id") or (r_d or {}).get("id")
     ok(bool(nid_d) and layer_of(cg, nid_d) == "contextual",
-       "K4 未声明 layer ⇒ 默认 contextual", (r_d, nid_d))
+       "K4 未声明 layer ⇒ 默认 contextual（LLM 主路径默认情景层）", (r_d, nid_d))
 
-    # 工具面 write 只改**默认层**（不拦截显式 knowledge）：用短内容会进审核队列，
-    # 故断言打在「默认层参数」而非落盘结果上——这是本件的边界（见 PR 说明）。
-    _a_default, _ = mcp_server._layer_gate_apply({"content": KNOWLEDGE})
-    ok(not _a_default.get("layer"), "K5 闸不改未声明 layer 的参数（默认层由 write 分支补）")
+    os.environ["MDCG_KNOWLEDGE_GATE"] = "enforce"
+    r_f = mcp_server.call_tool(cg, "mdcg_remember",
+                               {"content": EPISODIC, "layer": "knowledge"})
+    nid_f = (r_f or {}).get("node_id") or (r_f or {}).get("id")
+    ok(bool(nid_f) and layer_of(cg, nid_f) == "contextual",
+       "K5 enforce 档：情景句降到 contextual", (r_f, nid_f))
+    os.environ.pop("MDCG_KNOWLEDGE_GATE", None)
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))

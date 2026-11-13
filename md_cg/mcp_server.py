@@ -2550,9 +2550,16 @@ def _layer_gate_apply(a):
     _ok, _why = _lg.judge(a.get("content") or "")
     if _ok:
         return a, None
+    # 默认**劝告模式**：不改变写入结果（显式 knowledge 是调用方意图，专家面不篡改），
+    # 只把「这看起来不像知识」的判据与理由带回执（不静默）。
+    # MDCG_KNOWLEDGE_GATE=enforce 时升级为**强制降级**（需要硬约束的部署自行打开）。
+    if (os.environ.get("MDCG_KNOWLEDGE_GATE") or "").strip().lower() != "enforce":
+        return a, {"from": "knowledge", "to": "knowledge", "mode": "advisory",
+                     "reasons": _why,
+                     "hint": "这看起来不像知识（缺要素或含会话语境）；默认只劝告不改写。"                             "确需入知识层请补齐 CCG 六要素并去掉相对时间指代；"                             "要硬拒/强制降级可设 MDCG_KNOWLEDGE_GATE=enforce"}
     _b = dict(a)
     _b["layer"] = "contextual"
-    return _b, {"from": "knowledge", "to": "contextual", "reasons": _why,
+    return _b, {"from": "knowledge", "to": "contextual", "mode": "enforce", "reasons": _why,
                  "hint": "知识层只收重要的/结论性的/理论的/可验证的/通用的内容；若确属知识，"                         "请补齐 CCG 六要素并去掉相对时间指代，或用 force_layer=true 显式越过"}
 
 def _cg_dispatch(cg, a):
@@ -4629,6 +4636,9 @@ def _dispatch(cg, name, args):
         from .writepipe import _gate_dedupe as _dedupe677
         _a749r, _note749r = _layer_gate_apply(dict(a, layer=a.get("layer") or "contextual"))
         a = _a749r
+        # 劝告模式：不改写入结果，但把「看起来不像知识」的理由带回执（不静默）。
+        if _note749r:
+            _warn749 = _note749r
         _dup677 = _dedupe677({"a": {**a, "layer": a.get("layer") or "contextual"}, "cg": cg})
         if _dup677 is not None:
             return _dup677
@@ -4691,6 +4701,9 @@ def _dispatch(cg, name, args):
                 derived_from=_split_ids(a.get("derived_from")),
                 relation=a.get("relation"))
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
+            _w = locals().get("_warn749")
+            if _w and isinstance(res, dict):
+                res.setdefault("layer_warning", _w)
             return res
         # ⑥（P-9b）：直写**不去重**是文档化现状（writelimit.py 模块头注 :9-12：
         # 限流/同构聚合只作用 contextual 层，knowledge 等手动纪律写入不受限）
@@ -4814,6 +4827,10 @@ def _dispatch(cg, name, args):
         # 三键铁律（protocol.WRITE_TRIO / 协议文档 :28「任一形态必含 ok/id/committed」）
         # 在此补齐：不改写入语义，只补判据键。
         out = {"ok": True, "id": nid, "committed": True}
+        _w = locals().get("_warn749")
+        if _w:
+            out["layer_warning"] = _w   # issue #749：劝告模式不改写入，只把理由带回执
+
         if _prior is not None:
             out["overwrite_of"] = _prior
             out["overwrite_ratio"] = _prior_cov
