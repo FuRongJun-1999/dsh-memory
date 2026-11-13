@@ -3125,11 +3125,6 @@ def _cg_dispatch(cg, a):
         # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于
         # 本文件；新增闸门 = register_before 一行，即插即拔。
         # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
-        # issue #749（使用者裁定 2026-11-13）：知识层准入闸。
-        # 位置选在**真实写链**这一处：只改 a["layer"]（不改提交语义/三键形状），
-        # 执行后再把降级说明挂到回执上（不静默）。
-        _a749, _note749 = _layer_gate_apply(dict(a))
-        a = _a749
         from .writepipe import default_pipeline
         # **元数据补丁**（issue #732 的实用形态）：只给 node_id + tags /
         # condition_space / depends_on 而不给 content ⇒ 视为「改元数据、不动
