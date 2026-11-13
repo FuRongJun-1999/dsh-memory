@@ -29,14 +29,20 @@
     const dialog = $('confirm'); dialog.returnValue = ''; dialog.showModal();
     return new Promise(resolve => dialog.addEventListener('close', () => resolve(dialog.returnValue === 'confirm'), { once:true }));
   }
-  async function call(tool, args, interactive = false) {
+  async function call(tool, args, options = {}) {
+    const interactive = options.interactive === true
     if (!meta?.csrf) throw new Error('灵枢未连接，请刷新后重试。');
     const mutating = needsConfirm(tool,args);
     if (mutating && (!interactive || !await confirm(tool,args))) throw new Error('已取消操作');
-    const response = await fetchJSON('/plugins/lingshu/call', { method:'POST', headers:{'Content-Type':'application/json','X-Lingshu-CSRF':meta.csrf}, body:JSON.stringify({tool,args,confirm:mutating}) });
+    const response = await fetchJSON('/plugins/lingshu/call', { method:'POST', signal:options.signal, headers:{'Content-Type':'application/json','X-Lingshu-CSRF':meta.csrf}, body:JSON.stringify({tool,args,confirm:mutating}) });
     return response.result;
   }
   function toast(text) { $('toast').textContent=text; $('toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').hidden=true,4000); }
+  // ---- 客户端缓存（issue #UI-PERF）：同参数 60s 内复用，切页/来回切换不再重复取数 ----
+  const CACHE_TTL=60000, cacheMap=new Map()
+  function cacheGet(key){ const hit=cacheMap.get(key); if(!hit)return null; if(Date.now()-hit.t>CACHE_TTL){cacheMap.delete(key);return null} return hit.v }
+  function cacheSet(key,value){ cacheMap.set(key,{t:Date.now(),v:value}); if(cacheMap.size>120){ const first=cacheMap.keys().next().value; cacheMap.delete(first) } }
+
   function time(ts) { if (!ts) return '—'; const d = new Date(typeof ts==='number'?ts*1000:ts); return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); }
   function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${name}</h1><p class="subtitle">${subtitle}</p></div>${action}</div>`; }
   function loading() { return '<div class="loading">正在读取认知图</div>'; }
@@ -64,36 +70,94 @@
     // e.submitter 在键盘提交/程序化提交时可能为 null —— 旧实现直接取 .disabled 抛错，
     // 表现为「点了没反应」。按钮缺席时照常执行，只是不做执行中反馈。
     const btn = button || null; if (btn) { btn.disabled=true; btn.dataset.label=btn.textContent; btn.textContent='执行中…'; }
-    try { renderResult(await call(tool,args,true)); } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
+    try { renderResult(await call(tool,args,{interactive:true})); } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
     finally { if (btn) { btn.disabled=false; btn.textContent=btn.dataset.label||''; } }
   }
   function permissionNote(op) { const allowed=info?.whoami?.principal?.ops_allow; return allowed && !allowed.includes('*') && !allowed.includes(op) ? `<div class="notice">当前令牌未声明 ${esc(op)} 权限。入口保留，调用仍由灵枢权限系统裁定；本界面不会自动扩权。</div>`:''; }
+  // issue #UI-PERF：概览页曾用 info(full=true) —— 实测 3.5 万节点库 **13.94s**（health_os 全库扫描）。
+  // 改法：只取快照面 info（0.09s），四张统计卡各用**各自最便宜的 op** 并行取（0.02–0.03s/个），
+  // 谁先回来先渲染（渐进），慢的那个不再阻塞首屏。
   async function overview(token) {
-    $('main').innerHTML=title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')+loading();
-    $('new-memory').onclick=()=>navigate('memory',true);
-    // issue #801（#677 B 的契约变更后续）：面板要读 os.goals / os.review_pending / os.protection，
-  // 而 info 缺省**不再返回** os（仅 full=true 才回）⇒ 面板取数必须显式带 full:true，否则整片显示「—」。
-  const results=await Promise.allSettled([call('cg',{op:'info',full:true}),call('stg',{op:'timeline',limit:5,desc:true})]);
-    if(token!==generation)return;
-    if(results[0].status==='rejected') throw results[0].reason;
-    info=results[0].value; const os=info.os||{}, who=info.whoami?.principal||{}; const timeline=results[1].status==='fulfilled'?results[1].value:null;
-    $('main').innerHTML=title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')+
-      `<div class="stats">${[['记忆节点',info.total_nodes??info.whoami?.nodes_visible??'—','认知图中的真实记录'],['活跃目标',os.goals?.active??'—','持续追踪的行动方向'],['待审核',os.review_pending??'—','等待裁决的候选'],['受保护',os.protection?.protected_count??'—','需要保留的认知锚点']].map(([name,count,note])=>`<div class="stat"><div class="stat-label">${name}</div><div class="stat-value">${esc(count)}</div><div class="stat-note">${note}</div></div>`).join('')}</div>`+
-      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>最近记忆</h3><button class="button text" id="all-memory">查看全部 ↗</button></div>${timeline?nodeRows(timeline.items):errorHTML(results[1].reason)}</section><div><section class="panel"><div class="panel-head"><h3>运行状态</h3><span class="badge">真实连接</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">工具可见不等于全部有权限。保留现有令牌与护栏。</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${meta.tools.length} 个真实工具 ↗</span></button></div></div></div>`+
-      `<div class="panel section-gap"><div class="panel-body"><h3>认知图健康</h3><p class="hint" style="margin-top:10px">${info.problems?.length?esc(info.problems.join('；')):'暂无健康诊断问题。'}</p><div class="path muted">${esc(info.whoami?.root||'')}</div></div></div>`;
-    $('new-memory').onclick=()=>navigate('memory',true); $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page)); bindNodes();
+    const head=()=>title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')
+    $('main').innerHTML=head()+loading()
+    const cards=[['记忆节点','—','认知图中的真实记录'],['活跃目标','—','持续追踪的行动方向'],['待审核','—','等待裁决的候选'],['受保护','—','需要保留的认知锚点']]
+    const shell=()=>head()+`<div class="stats">${cards.map(([name,count,note])=>`<div class="stat"><div class="stat-label">${name}</div><div class="stat-value">${esc(count)}</div><div class="stat-note">${note}</div></div>`).join('')}</div><div id="ov-rest">${loading()}</div>`
+    // 1) 先拿快照（便宜）：info 不带 full
+    let info0
+    try { info0 = await call('cg',{op:'info'}) } catch(e) { if(token===generation)$('main').innerHTML=head()+errorHTML(e); return }
+    if(token!==generation)return
+    info=info0; meta=meta||{}
+    cards[0][1]=info0.node_count??info0.total_nodes??'—'
+    $('main').innerHTML=shell()
+    $('new-memory').onclick=()=>navigate('memory',true)
+    $('ov-rest').innerHTML=loading()
+    // 2) 三张统计卡各走最便宜的 op（并行、容错；单个失败只影响自己那张卡）
+    const [g,p,pr]=await Promise.allSettled([
+      call('cg',{op:'goal',action:'list',limit:1}),
+      call('cg',{op:'review',action:'list'}),
+      call('cg',{op:'protect',action:'stats'})
+    ])
+    if(token!==generation)return
+    cards[1][1]=g.status==='fulfilled'?((g.value?.active&&g.value.active.length)??'—'):'—'
+    cards[2][1]=p.status==='fulfilled'?((p.value?.pending||[]).length):'—'
+    cards[3][1]=pr.status==='fulfilled'?(pr.value?.protected_count??'—'):'—'
+    $('main').innerHTML=shell()
+    $('new-memory').onclick=()=>navigate('memory',true)
+    // 3) 时间线与运行状态（timeline 5 实测 0.5s；失败不拖垮整页）
+    const tl=await call('stg',{op:'timeline',limit:5,desc:true}).catch(e=>e)
+    if(token!==generation)return
+    const who=info0.whoami?.principal||{}
+    $('ov-rest').outerHTML='<div id="ov-rest">'+
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>最近记忆</h3><button class="button text" id="all-memory">查看全部 ↗</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>运行状态</h3><span class="badge">真实连接</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">工具可见不等于全部有权限。保留现有令牌与护栏。</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${(meta.tools||[]).length} 个真实工具 ↗</span></button></div></div></div>`+
+      `<div class="panel section-gap"><div class="panel-body"><h3>认知图健康</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
+    $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page)); bindNodes()
   }
+  // issue #UI-PERF：记忆页首屏曾直接 await read(query)（实测 3.5 万节点库 **24s**）。
+  // 改法：① 首屏只走 recent/timeline（0.0–0.6s）；② 检索**显式触发/防抖 350ms** 才发；
+  // ③ 分页「加载更多」按 20 递增（不全量）；④ 同参数结果进客户端缓存（60s TTL）；
+  // ⑤ 新请求先 abort 旧的，避免慢请求占住单进程 bridge 拖累会话界面。
   async function memory(token, compose) {
     $('main').innerHTML=title('记忆','MEMORY','检索已有认知，或将一条有价值的信息交给记忆闸门。','<button id="compose-toggle" class="button primary">＋ 记录记忆</button>')+
-      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。不会指定节点 ID 或覆盖已有记录。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section><form id="search-form" class="toolbar ${compose?'section-gap':''}"><input id="search-query" class="search" placeholder="搜索记忆中的关键词或问题…" aria-label="搜索记忆"><select id="search-layer" aria-label="记忆层"><option value="">所有层</option>${Object.entries(layers).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><button class="button" type="submit">检索 ↗</button></form><section class="panel"><div class="panel-head"><h3 id="memory-list-title">最近写入的记忆</h3><span class="count" id="memory-count"></span></div><div id="memory-list">${loading()}</div></section><div id="result"></div>`;
-    $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();};
-    $('memory-form').onsubmit=async e=> { e.preventDefault(); const args={content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'}; await execute(e.submitter,'mdcg_remember',args); };
-    async function loadList(search=false) {
-      const query=$('search-query').value.trim(), layer=$('search-layer').value;
-      const list=$('memory-list'), count=$('memory-count'); list.innerHTML=loading();
-      try { const result=query?await call('cg',{op:'read',query,k:30,...(layer?{layer}:{})}):await call('stg',{op:'timeline',limit:30,desc:true,...(layer?{layer}:{})}); if(token!==generation)return; const items=rowsOf(result); list.innerHTML=result?.error?errorHTML(result.error):nodeRows(items); count.textContent=`${items.length} 条${result.truncated?' · 已截断':''}`; $('memory-list-title').textContent=query?'检索结果':'最近写入的记忆'; bindNodes(list); if(search&&result?.meta)renderResult(result); } catch(e) { if(token===generation)list.innerHTML=errorHTML(e); }
+      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。不会指定节点 ID 或覆盖已有记录。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section><form id="search-form" class="toolbar ${compose?'section-gap':''}"><input id="search-query" class="search" placeholder="搜索记忆中的关键词或问题…（回车检索）" aria-label="搜索记忆"><select id="search-layer" aria-label="记忆层"><option value="">所有层</option>${Object.entries(layers).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><button class="button" type="submit">检索 ↗</button></form><section class="panel"><div class="panel-head"><h3 id="memory-list-title">最近写入的记忆</h3><span class="count" id="memory-count"></span></div><div id="memory-list">${loading()}</div><div class="panel-body"><button id="more" class="button" hidden>加载更多</button></div></section><div id="result"></div>`
+    $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();}
+    $('memory-form').onsubmit=async e=> { e.preventDefault(); const args={content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'}; await execute(e.submitter,'mdcg_remember',args); }
+    let limit=20, inflight=null, shown=[]
+    const cacheKey=(q,l)=>`${q}|${l}|${limit}`
+    async function loadList(reset=true) {
+      const query=$('search-query').value.trim(), layer=$('search-layer').value
+      const list=$('memory-list'), count=$('memory-count'), more=$('more')
+      if(reset){limit=20;shown=[];list.innerHTML=loading()}
+      const key=cacheKey(query,layer)
+      const hit=cacheGet(key)
+      if(hit){ if(token!==generation)return; shown=hit.items; render() ; if(hit.truncated)more.hidden=false; return }
+      if(inflight)try{inflight.abort()}catch{}
+      const ctrl=new AbortController()
+      inflight=ctrl
+      try {
+        const result=query?await call('cg',{op:'read',query,k:limit,...(layer?{layer}:{})},{signal:ctrl.signal})
+                       :await call('stg',{op:'timeline',limit,...(layer?{layer}:{})},{signal:ctrl.signal})
+        if(token!==generation)return
+        if(result?.error){ list.innerHTML=errorHTML(result.error); return }
+        const items=rowsOf(result)
+        shown=reset?items:shown.concat(items)
+        cacheSet(key,{items:shown,truncated:!!result?.truncated})
+        render()
+        more.hidden=!(result?.truncated||items.length>=limit)
+        if(!query&&!reset&&items.length>=limit)more.hidden=false
+      } catch(e) { if(e.name!=='AbortError'&&token===generation)list.innerHTML=errorHTML(e) }
+      finally { inflight=null }
+      function render(){
+        list.innerHTML=nodeRows(shown); bindNodes(list)
+        count.textContent=`${shown.length} 条`+(limit>20?` · 已取 ${limit}`:'')
+        $('memory-list-title').textContent=query?'检索结果':'最近写入的记忆'
+      }
     }
-    $('search-form').onsubmit=e=>{e.preventDefault();void loadList(true);}; $('search-layer').onchange=()=>void loadList(); await loadList();
+    let timer=null
+    $('search-query').oninput=()=>{ clearTimeout(timer); timer=setTimeout(()=>{void loadList(true)},350) }
+    $('search-form').onsubmit=e=>{e.preventDefault(); clearTimeout(timer); void loadList(true)}
+    $('search-layer').onchange=()=>void loadList(true)
+    $('more').onclick=()=>{ limit+=20; void loadList(false) }
+    await loadList(true)
   }
   const presets = {
     goals: {title:'目标与任务',en:'GOALS & TASKS',description:'把目标变成可追踪的行动。查询和新增，都保留真实回执。',items:[['目标列表','cg',{op:'goal',action:'list',limit:20}],['任务列表','cg',{op:'task',action:'list',limit:20}],['新增目标','cg',{op:'goal',action:'add',goal:'',priority:1}],['开启任务','cg',{op:'task',action:'open',goal:'',plan:'',acceptance:''}]]},

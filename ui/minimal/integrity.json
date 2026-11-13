@@ -7,7 +7,7 @@
         },
         {
             "path": "web/app.js",
-            "sha256": "88D19C9DC96BCBD98346469FC8792807BE460C60E863FC2261FFA2042039B8C2"
+            "sha256": "FA87488CF5001E03B80D3E7CCD3579D56FD75104AD8BCDAEEF9A66634603616B"
         },
         {
             "path": "web/style.css",
@@ -35,7 +35,7 @@
         },
         {
             "path": "lib/client.js",
-            "sha256": "D629A096ABFD29183761935B2F5C2307F064741EC386BD045BC5CAA4A761B4C3"
+            "sha256": "55B629DF9A13BF0A4C78408F908C5D1736680ECAD0F6CBB5D314F99343C5D795"
         }
     ]
 }
