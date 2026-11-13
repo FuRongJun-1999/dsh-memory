@@ -48,7 +48,12 @@
     }).join('');
   }
   function bindNodes(root=$('main')) { root.querySelectorAll('[data-node]').forEach(button=>button.addEventListener('click',async()=> { $('detail-body').textContent='正在读取…'; $('detail').showModal(); try { const r=await call('cg',{op:'read',node_id:button.dataset.node}); $('detail-body').textContent=r===null?'节点不存在、不可见或已删除。':json(r); } catch(e) { $('detail-body').textContent=e.message; } })); }
-  function rowsOf(value) { if (Array.isArray(value)) return value; for(const key of ['items','results','goals','tasks','records','events','nodes','pack']) if(Array.isArray(value?.[key])) return value[key]; return []; }
+  const ROW_KEYS = ['items','results','goals','tasks','records','events','nodes','pack','subjects','pending','hits','issues','by_layer','entries','protected_ids']
+  function rowsOf(value) { if (Array.isArray(value)) return value; if (!value || typeof value!=='object') return [];
+    for(const key of ROW_KEYS) if(Array.isArray(value[key])) return value[key];
+    // 兜底：形状未登记的新 op 也尽量出列表（取第一个数组值），避免「有数据却显示空」
+    for(const key of Object.keys(value)) if(Array.isArray(value[key])) return value[key];
+    return []; }
   function renderResult(value, target='result') {
     const el=$(target); if(!el)return;
     el.innerHTML=`<div class="panel"><div class="panel-body"><div class="result-head"><h3>调用结果</h3><button id="copy-result" class="button">复制 JSON</button></div>${value?.error?`<div class="notice error">${esc(value.error)}</div>`:''}${value?.verdict||value?.moved_to||value?.committed===false?`<div class="notice">${esc(value.verdict||'未直接提交')}${value.moved_to?' · '+esc(value.moved_to):''}${value.pid?' · 审核 '+esc(value.pid):''}。以下为真实回执，不代表全部已落盘。</div>`:''}<pre id="result-json"></pre></div></div>`;
@@ -56,9 +61,11 @@
     $('copy-result').onclick=async()=> { try { await navigator.clipboard.writeText($('result-json').textContent); toast('已复制'); } catch { toast('无法访问剪贴板，可直接选中结果复制。'); } };
   }
   async function execute(button, tool, args) {
-    button.disabled=true; const original=button.textContent; button.textContent='执行中…';
+    // e.submitter 在键盘提交/程序化提交时可能为 null —— 旧实现直接取 .disabled 抛错，
+    // 表现为「点了没反应」。按钮缺席时照常执行，只是不做执行中反馈。
+    const btn = button || null; if (btn) { btn.disabled=true; btn.dataset.label=btn.textContent; btn.textContent='执行中…'; }
     try { renderResult(await call(tool,args,true)); } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
-    finally { button.disabled=false; button.textContent=original; }
+    finally { if (btn) { btn.disabled=false; btn.textContent=btn.dataset.label||''; } }
   }
   function permissionNote(op) { const allowed=info?.whoami?.principal?.ops_allow; return allowed && !allowed.includes('*') && !allowed.includes(op) ? `<div class="notice">当前令牌未声明 ${esc(op)} 权限。入口保留，调用仍由灵枢权限系统裁定；本界面不会自动扩权。</div>`:''; }
   async function overview(token) {
@@ -91,17 +98,19 @@
   const presets = {
     goals: {title:'目标与任务',en:'GOALS & TASKS',description:'把目标变成可追踪的行动。查询和新增，都保留真实回执。',items:[['目标列表','cg',{op:'goal',action:'list',limit:20}],['任务列表','cg',{op:'task',action:'list',limit:20}],['新增目标','cg',{op:'goal',action:'add',goal:'',priority:1}],['开启任务','cg',{op:'task',action:'open',goal:'',plan:'',acceptance:''}]]},
     self: {title:'自我认知',en:'SELF & IDENTITY',description:'身份、状态与反思，分别读取，不把生成的文字当作认知事实。',items:[['身份档案','cg',{op:'identity',action:'profile'}],['状态快照','cg',{op:'self_state',action:'snapshot'}],['元认知报告','cg',{op:'metacognition',action:'report'}],['白箱连通','cg',{op:'whitebox',action:'ping'}]]},
-    space: {title:'时空关系',en:'SPACE & TIME',description:'沿时间寻找记忆，或比较两个节点的时空关系。',items:[['记忆时间线','stg',{op:'timeline',limit:20,desc:true}],['近期事件','cg',{op:'recent',action:'list',limit:20}],['节点关系','stg',{op:'relation',a:'',b:''}],['时空一致性','stg',{op:'consistency',limit:20}],['锚点查询','stg',{op:'anchors',time_window:[0,Math.floor(Date.now()/1000)],limit:20}],['状态链','stg',{op:'state_chain',subject:'self:lingshu',limit:20}]]},
+    space: {title:'时空关系',en:'SPACE & TIME',description:'沿时间寻找记忆，或比较两个节点的时空关系。',items:[['记忆时间线','stg',{op:'timeline',limit:20,desc:true}],['近期事件','cg',{op:'recent',action:'list',limit:20}],['节点关系','stg',{op:'relation',a:'',b:''}],['时空一致性','stg',{op:'consistency',limit:20}],['锚点查询','stg',{op:'anchors',time_window:[0,Math.floor(Date.now()/1000)],limit:20}],['状态链','stg',{op:'state_chain',subject:'self:lingshu',limit:20},'本面默认关：需在灵枢进程设 MDCG_STG_STATE=1 才启用（返回 error=disabled 属如实拒绝，不是界面故障）。']]},
     review: {title:'审核与维护',en:'REVIEW & CARE',description:'先查看，再裁决。不会在打开页面时启动维护、遗忘或自动演化。',items:[['待审核候选','cg',{op:'review',action:'list'}],['审核记录','cg',{op:'review',action:'records'}],['保护统计','cg',{op:'protect',action:'stats'}],['演化摘要','cg',{op:'evolution',action:'summary'}],['维护状态','cg',{op:'sustain',action:'status'}],['审核裁决','cg',{op:'review',action:'decide',pid:'',decision:'reject'}],['节点核验','cg',{op:'verify',node_id:'',evidence:'',verdict:'confirmed'}]]}
   };
+  // 生效条件：预设项带 note 时，在执行区顶部如实显示前置开关（如 MDCG_STG_STATE=1）
+  function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(item[3])}</div>` : ''; }
   function grouped(name) {
     const group=presets[name]; let active=0;
     $('main').innerHTML=title(group.title,group.en,group.description)+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${label}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
     function select(i) {
-      active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=label; $('command-tool').textContent=tool+' · '+args.op;
+      active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=label; $('command-tool').textContent=tool+' · '+args.op; const _note=noteOf(group.items[i]); const _pf=$('preset-fields');
       document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',Number(b.dataset.preset)===i)); $('permission').innerHTML=tool==='cg'?permissionNote(args.op):''; $('preset-json').value=json(args); $('result').innerHTML='';
       $('preset-run').textContent=needsConfirm(tool,args)?'检查并执行':'执行查询';
-      $('preset-fields').innerHTML=Object.entries(args).filter(([k])=>!['op','action','limit','desc'].includes(k)).map(([k,v])=>`<label>${esc(fieldLabel(k))}<${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'} data-preset-field="${esc(k)}" ${typeof v==='number'?'type="number" step="any"':''} ${Array.isArray(v)?'placeholder="JSON 数组"':''} ${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'':`value="${esc(typeof v==='object'?json(v):v)}"`}>${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?esc(v):''}</${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'}></label>`).join('') || '<p class="hint">无需额外参数。点击执行，读取真实数据。</p>';
+      $('preset-fields').innerHTML=_note+Object.entries(args).filter(([k])=>!['op','action','limit','desc'].includes(k)).map(([k,v])=>`<label>${esc(fieldLabel(k))}<${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'} data-preset-field="${esc(k)}" ${typeof v==='number'?'type="number" step="any"':''} ${Array.isArray(v)?'placeholder="JSON 数组"':''} ${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'':`value="${esc(typeof v==='object'?json(v):v)}"`}>${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?esc(v):''}</${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'}></label>`).join('') || '<p class="hint">无需额外参数。点击执行，读取真实数据。</p>';
       document.querySelectorAll('[data-preset-field]').forEach(input=>input.oninput=()=>{try{const next=JSON.parse($('preset-json').value),key=input.dataset.presetField,old=args[key];next[key]=typeof old==='number'?Number(input.value):typeof old==='object'?JSON.parse(input.value):input.value;$('preset-json').value=json(next);}catch{/* 继续保留用户编辑 */}});
     }
     document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>select(Number(b.dataset.preset)));
@@ -144,7 +153,8 @@
   }
   async function boot() {
     $('refresh').disabled=true;
-    try { meta=await fetchJSON('/plugins/lingshu/meta');$('connection').textContent=meta.ready?'大脑已连接':'大脑未就绪';$('connection').classList.toggle('online',meta.ready);$('identity').textContent=meta.identity+' · '+meta.tools.length+' 个工具'; await navigate(location.hash.slice(1)||page); }
+    try { meta=await fetchJSON('/plugins/lingshu/meta');$('connection').textContent=meta.ready?'大脑已连接':'大脑未就绪';$('connection').classList.toggle('online',meta.ready);$('identity').textContent=meta.identity+' · '+meta.tools.length+' 个工具';
+      if (meta.version) { const v=$('version'); if (v) v.textContent='LINGSHU / '+meta.version; } await navigate(location.hash.slice(1)||page); }
     catch(e){meta=null;$('connection').textContent='连接失败';$('connection').classList.remove('online');$('main').innerHTML=errorHTML(e);}
     finally{$('refresh').disabled=false;}
   }
