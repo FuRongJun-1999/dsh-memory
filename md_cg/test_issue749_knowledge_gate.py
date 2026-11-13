@@ -57,9 +57,17 @@ def main():
     _wb_en = "Load 条件下材料会变形"
     ok(any("英文" in x for x in layer_gate.whitebox_reasons(_wb_en)),
        "W2 含英文词 ⇒ 拒（并指明词）", layer_gate.whitebox_reasons(_wb_en))
+    # 使用者 2026-11-13 更正：**阿拉伯数字不拦**（数字可放宽），拦的是**复杂数学符号**。
     _wb_num = "在受力条件下材料会发生 3 类塑性变形"
-    ok(any("数字" in x for x in layer_gate.whitebox_reasons(_wb_num)),
-       "W3 含阿拉伯数字 ⇒ 拒（具体数值属情景）", layer_gate.whitebox_reasons(_wb_num))
+    ok(layer_gate.whitebox_reasons(_wb_num) == [],
+       "W3 含阿拉伯数字 ⇒ 通过（数字已放宽）", layer_gate.whitebox_reasons(_wb_num))
+    _wb_math = "在受力条件下，应力∑F/A 会超过限值"
+    ok(any("数学符号" in x for x in layer_gate.whitebox_reasons(_wb_math)),
+       "W3b 含复杂数学符号 ⇒ 拒（应改为自然语言规则句）",
+       layer_gate.whitebox_reasons(_wb_math))
+    _wb_latex = "在受力条件下，$\\sigma = F/A$ 会超限"
+    ok(any("数学符号" in x for x in layer_gate.whitebox_reasons(_wb_latex)),
+       "W3c LaTeX 片段 ⇒ 拒", layer_gate.whitebox_reasons(_wb_latex))
     _wb_cmp = "道歉=认错+悔意+改正行动"
     ok(layer_gate.whitebox_reasons(_wb_cmp) == [],
        "W4 A=B+C 压缩句 ⇒ 视为规则语法（白箱知识综述的既有形态）",
