@@ -25,7 +25,7 @@ FAILS = []
 EPISODIC = "今天加班到十点，路上还下雨，累"
 KNOWLEDGE = ("# 功能名：降熵定理\n# 生效条件：系统引入新结构时\n# 子功能：判定新结构是否降低熵\n"
              "# 执行：比较结构引入前后的熵\n# 验证方式：可复算的熵差\n# 不适用条件：无结构变更\n\n"
-             "结论：新结构必须自证降熵，否则不应引入。\n")
+             "结论：在引入新结构时，若不能自证降熵，则不应引入。\n")
 
 
 def ok(cond, name, detail=""):
@@ -50,6 +50,24 @@ def main():
     print("=" * 70)
 
     os.environ.pop("MDCG_KNOWLEDGE_GATE", None)
+    # 白箱口径三条硬判据（使用者 2026-11-13 口述：无英文 / 无数字 / 规则语法）
+    _wb_ok = "在受力条件下，材料会发生塑性变形"
+    ok(layer_gate.whitebox_reasons(_wb_ok) == [], "W1 纯中文 + 规则句 ⇒ 通过",
+       layer_gate.whitebox_reasons(_wb_ok))
+    _wb_en = "Load 条件下材料会变形"
+    ok(any("英文" in x for x in layer_gate.whitebox_reasons(_wb_en)),
+       "W2 含英文词 ⇒ 拒（并指明词）", layer_gate.whitebox_reasons(_wb_en))
+    _wb_num = "在受力条件下材料会发生 3 类塑性变形"
+    ok(any("数字" in x for x in layer_gate.whitebox_reasons(_wb_num)),
+       "W3 含阿拉伯数字 ⇒ 拒（具体数值属情景）", layer_gate.whitebox_reasons(_wb_num))
+    _wb_cmp = "道歉=认错+悔意+改正行动"
+    ok(layer_gate.whitebox_reasons(_wb_cmp) == [],
+       "W4 A=B+C 压缩句 ⇒ 视为规则语法（白箱知识综述的既有形态）",
+       layer_gate.whitebox_reasons(_wb_cmp))
+    _wb_plain = "他昨天买了本书"
+    ok(any("规则语法" in x for x in layer_gate.whitebox_reasons(_wb_plain)),
+       "W5 无规则句 ⇒ 拒（非学科通用内容）", layer_gate.whitebox_reasons(_wb_plain))
+
     ok(bool(layer_gate.judge(EPISODIC)[1]), "G1 情景句被判不入知识层（含原因）",
        layer_gate.judge(EPISODIC))
     ok(layer_gate.judge(KNOWLEDGE) == (True, []), "G2 合规知识放行",
