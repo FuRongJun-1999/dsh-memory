@@ -48,7 +48,24 @@ INSTANT_STATE = re.compile(
 #   ③ 规则语法（在什么情况下/条件下、某种事物是怎样的、会发生哪种变化，或 A=B+C 式压缩句）
 
 WHITEBOX_ASCII = re.compile(r'[A-Za-z]{2,}')
-WHITEBOX_DIGIT = re.compile(r'[0-9]')
+WHITEBOX_DIGIT = re.compile(r'[0-9]')          # 保留常量：数字本身**不拦**（使用者 2026-11-13 更正）
+#: 复杂数学符号（拒）：Unicode 数学运算符 + LaTeX 片段。
+#: 注意 **不含** `+ - =` —— 白箱规则句 `A=B+C` 依赖它们。
+MATH_SYMBOLS = re.compile(
+    r"[∑∏∮∫√∞∂∇∆≈≠≤≥±×÷≡∈∉⊂⊆∪∩∴∵⇒⇔∝∅]"
+    r"|\$[^\$]{0,40}\$"
+    r"|\\(|\\)|\\frac|\\sqrt|\\sum|\\int"
+    r"|[\^_][A-Za-z0-9{]"
+)
+
+
+# 生效条件：text 为待判内容；命中复杂数学符号返回该片段，否则 None
+def _math_symbol_hit(text):
+    m = MATH_SYMBOLS.search(str(text or ""))
+    return m.group(0) if m else None
+
+
+
 #: 规则句标记（任一命中即视为「规则语法」成立）
 RULE_GRAMMAR = re.compile(
     r'(在.{0,12}?(?:情况|条件|前提|场景)下|(?:当|若|如果|只要|一旦).{0,20}?(?:则|就|便)'
@@ -65,9 +82,9 @@ def whitebox_reasons(text):
     m = WHITEBOX_ASCII.search(body)
     if m:
         reasons.append('含英文词：%s（学科通用内容应为纯中文）' % m.group(0)[:20])
-    m = WHITEBOX_DIGIT.search(body)
-    if m:
-        reasons.append('含阿拉伯数字：%s（具体数值属情景参数，应抽象为关系/规律）' % m.group(0))
+    _ms = _math_symbol_hit(body)
+    if _ms:
+        reasons.append('含复杂数学符号：%s（应改为自然语言规则句）' % _ms)
     if not RULE_GRAMMAR.search(body):
         reasons.append('非规则语法（缺「在…情况下/条件下」「若…则…」「某种变化会发生」或 A=B+C 式压缩句）')
     return reasons
