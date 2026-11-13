@@ -2538,6 +2538,23 @@ def _disk_index_count(path: str) -> int:
     return n
 
 
+# 生效条件：a 为写参数 dict；返回 (新参数字典, 降级说明 or None)
+def _layer_gate_apply(a):
+    """知识层准入闸单点（issue #749）：不通过则降级 contextual，并把原因带回执。
+
+    只在 layer=="knowledge" 且未 force_layer 时动作；其余一律原样返回。
+    """
+    if str(a.get("layer") or "") != "knowledge" or a.get("force_layer"):
+        return a, None
+    from . import layer_gate as _lg
+    _ok, _why = _lg.judge(a.get("content") or "")
+    if _ok:
+        return a, None
+    _b = dict(a)
+    _b["layer"] = "contextual"
+    return _b, {"from": "knowledge", "to": "contextual", "reasons": _why,
+                 "hint": "知识层只收重要的/结论性的/理论的/可验证的/通用的内容；若确属知识，"                         "请补齐 CCG 六要素并去掉相对时间指代，或用 force_layer=true 显式越过"}
+
 def _cg_dispatch(cg, a):
     # issue #722（Q1=A）：**工具面 read/route 缺省放宽**——在派发入口补默认，
     # 而不是在每个调用点编造参数：读面「不编造默认」约束的是**参数推导/回显**，
@@ -2560,6 +2577,21 @@ def _cg_dispatch(cg, a):
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
+        # issue #749（使用者裁定 2026-11-13）：**默认写情景层**，知识层要显式且过闸。
+        # 病象：LLM 默认把情景内容写进知识层，知识层被日常流水稀释。
+        # 判据见 md_cg/layer_gate.py（CCG 六要素 + 无相对时间指代 + 非即时状态句）；
+        # 不通过 => 降级 contextual 并在回执里写明原因（不静默、不丢弃）；force_layer 可越过。
+        _a749 = dict(a)
+        if not _a749.get("layer"):
+            _a749["layer"] = "contextual"
+        _a749, _note749 = _layer_gate_apply(_a749)
+        cg = cg
+        a = _a749
+        if _note749:
+            _nid749 = cg.add(a.get("node_id") or a.get("id") or "", a.get("content") or "",
+                            layer=a.get("layer"), tags=a.get("tags"))
+            return {"ok": True, "id": _nid749, "layer": a.get("layer"),
+                    "layer_downgraded": _note749}
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
@@ -4610,6 +4642,8 @@ def _dispatch(cg, name, args):
         # 位置也在链首（未落盘、未建边、不过闸审计）。
         # layer 缺省按本通路口径（contextual）代入——否则闸会去 knowledge 层找而永不命中。
         from .writepipe import _gate_dedupe as _dedupe677
+        _a749r, _note749r = _layer_gate_apply(dict(a, layer=a.get("layer") or "contextual"))
+        a = _a749r
         _dup677 = _dedupe677({"a": {**a, "layer": a.get("layer") or "contextual"}, "cg": cg})
         if _dup677 is not None:
             return _dup677
