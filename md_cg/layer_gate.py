@@ -37,6 +37,41 @@ INSTANT_STATE = re.compile(
 )
 
 
+
+
+# ============ 白箱判据（使用者 2026-11-13 口述，智慧之书口径） ============
+# 白箱知识综述的既有形态（md_cg/whitebox_kb/knowledge/*.md）是：
+#   生效条件 / 不适用条件 + **压缩规则句**（形如「A=B+C+D」「忌…胜…」）。
+# 使用者补的三条硬判据（学科通用内容的必要条件）：
+#   ① 无英文（正文不含拉丁字母词——具体术语/品牌属情景参数）
+#   ② 无数字描述（阿拉伯数字＝具体数值，属情景参数；中文数词不在此限）
+#   ③ 规则语法（在什么情况下/条件下、某种事物是怎样的、会发生哪种变化，或 A=B+C 式压缩句）
+
+WHITEBOX_ASCII = re.compile(r'[A-Za-z]{2,}')
+WHITEBOX_DIGIT = re.compile(r'[0-9]')
+#: 规则句标记（任一命中即视为「规则语法」成立）
+RULE_GRAMMAR = re.compile(
+    r'(在.{0,12}?(?:情况|条件|前提|场景)下|(?:当|若|如果|只要|一旦).{0,20}?(?:则|就|便)'
+    r'|(?:会|将|必然|往往|通常).{0,6}?(?:发生|变成|导致|引起|出现)'
+    r'|[\u4e00-\u9fa5]{1,12}=[^。；\n]{1,60})'
+)
+
+
+# 生效条件：text 为待判内容；返回白箱判据的不通过原因列表（空＝通过）
+def whitebox_reasons(text):
+    """白箱口径的三条硬判据（issue #749 追加，按使用者 2026-11-13 口述）。"""
+    body = str(text or '')
+    reasons = []
+    m = WHITEBOX_ASCII.search(body)
+    if m:
+        reasons.append('含英文词：%s（学科通用内容应为纯中文）' % m.group(0)[:20])
+    m = WHITEBOX_DIGIT.search(body)
+    if m:
+        reasons.append('含阿拉伯数字：%s（具体数值属情景参数，应抽象为关系/规律）' % m.group(0))
+    if not RULE_GRAMMAR.search(body):
+        reasons.append('非规则语法（缺「在…情况下/条件下」「若…则…」「某种变化会发生」或 A=B+C 式压缩句）')
+    return reasons
+
 # 生效条件：text 为待判内容；返回 (是否可入知识层, 原因列表)
 def judge(text):
     """知识层准入判定。返回 (ok, reasons)；reasons 为空表示放行。"""
@@ -51,4 +86,6 @@ def judge(text):
         reasons.append("含会话语境时间指代：%s" % m.group(1))
     if INSTANT_STATE.match(body.strip()):
         reasons.append("即时状态句（非结论性）")
+    # 白箱口径三条硬判据（纯中文 / 无具体数值 / 规则语法）
+    reasons.extend(whitebox_reasons(body))
     return (not reasons), reasons
