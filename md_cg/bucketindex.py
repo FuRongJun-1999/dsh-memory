@@ -189,6 +189,11 @@ def _write_meta(store, stats, ts):
         pass
 
 
+def _age_round(age_h):
+    """age_h is None when the index has never been built -- round(None, 2) raises."""
+    return None if age_h is None else round(age_h, 2)
+
+
 def maybe_auto_rebuild(store, interval_h=None, background=True):
     """每日收尾式自动重建：距上次重建超过 interval 小时才重建。
 
@@ -207,11 +212,19 @@ def maybe_auto_rebuild(store, interval_h=None, background=True):
             interval = float(os.environ.get("MDCG_BUCKET_INTERVAL_H", "20"))
         except ValueError:
             interval = DEFAULT_INTERVAL_H
-    age_h = (time.time() - last_build_ts(store)) / 3600.0
-    if last_build_ts(store) > 0 and age_h < interval:
-        return {"rebuilt": False, "reason": "fresh", "age_h": round(age_h, 2)}
+    # Single read of ts: the original read last_build_ts twice here, so a rebuild
+    # thread writing the meta between the two reads made age_h disagree with the
+    # value the staleness decision used.
+    last_ts = last_build_ts(store)
+    # When never rebuilt, last_ts == 0 and (now - 0) / 3600 yields the number of
+    # hours since the Unix epoch (measured: 1794589724 / 3600 = 498497.05 h, i.e.
+    # ~56.7 years). That reports "never rebuilt" as "rebuilt very long ago".
+    # Semantically this is "no history", so report None instead of a bogus number.
+    age_h = None if last_ts <= 0 else (time.time() - last_ts) / 3600.0
+    if last_ts > 0 and age_h < interval:
+        return {"rebuilt": False, "reason": "fresh", "age_h": _age_round(age_h)}
     if _RUNNING["on"]:
-        return {"rebuilt": False, "reason": "running", "age_h": round(age_h, 2)}
+        return {"rebuilt": False, "reason": "running", "age_h": _age_round(age_h)}
 
     def _job():
         _RUNNING["on"] = True
@@ -226,6 +239,6 @@ def maybe_auto_rebuild(store, interval_h=None, background=True):
     if background:
         import threading
         threading.Thread(target=_job, daemon=True).start()
-        return {"rebuilt": True, "reason": "stale", "age_h": round(age_h, 2), "async": True}
+        return {"rebuilt": True, "reason": "stale", "age_h": _age_round(age_h), "async": True}
     _job()
-    return {"rebuilt": True, "reason": "stale", "age_h": round(age_h, 2), "async": False}
+    return {"rebuilt": True, "reason": "stale", "age_h": _age_round(age_h), "async": False}
