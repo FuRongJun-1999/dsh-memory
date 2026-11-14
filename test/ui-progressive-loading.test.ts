@@ -42,8 +42,12 @@ test('P4 同参数结果进客户端缓存（60s TTL）', () => {
   assert.ok(app.includes('cacheSet(key'), '列表要写缓存')
 })
 
-test('P5 慢请求必须可中止（否则占住单进程 bridge 拖累会话）', () => {
+test('P5 慢请求可中止且**不覆盖调用方信号**（issue #925）', () => {
   assert.ok(app.includes('AbortController'), '需要 AbortController')
+  assert.ok(app.includes('AbortSignal.any([controller.signal, options.signal])'),
+    '调用方 signal 必须与内部超时 signal **合并**（覆盖 → 取消无效）')
+  assert.ok(!/signal:controller\.signal \}/.test(app),
+    '不得再出现「展开 options 后直接赋 signal」的覆盖写法')
   assert.ok(app.includes('signal:histCtrl.signal'), '历史/检索请求需把 signal 传下去')
   assert.ok(app.includes('histCtrl.abort()'), '新请求要先中止旧的')
 })
