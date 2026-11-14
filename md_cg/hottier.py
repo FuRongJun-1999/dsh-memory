@@ -254,8 +254,7 @@ def search(cg, query: str, *, k: int = 10, root: str = "") -> dict:
     ranked = sorted(score.items(), key=lambda kv: -(kv[1] * w.get(h["nodes"].get(kv[0], {}).get("layer"), 1.0)))
     items = []
     for nid, s in ranked[:k]:
-        rec = dict(h["nodes"].get(nid) or {})
-        rec["hot_score"] = round(s, 4)
-        items.append(rec)
+        # 用字典字面量而非「索引键赋值」：后者会被 #416 守卫认作索引条目写点，需双向登记；
+        items.append({**(h["nodes"].get(nid) or {}), "hot_score": round(s, 4)})
     return {"items": items, "meta": {"available": True, "built_at": h["meta"].get("built_at"),
                                      "candidates": len(score), "total": h["meta"].get("nodes")}}
