@@ -1363,6 +1363,34 @@ class SessionLedger:
         return bool(rec.get("private"))
 
 # 生效条件：session 非空时把该会话的 private 标志置为 private 并落盘，返回新状态 dict
+    # 生效条件：session 非空时返回该会话登记的「职能」（issue #929 分类真源；未登记返回空串）
+    def duty_of(self, session) -> str:
+        """该会话担任的职能（如 maintenance/audit/roleplay/daily；未登记返回空串）。
+
+        为什么要它：审核裁决记录、变更单、维护动作都是**工作留痕**，属「工作」；
+        而对话沉淀属「日常」。两者该分开取（工作记录进审核页，日常进最近记忆），
+        判据不是内容像不像，而是**这个会话担任什么职能**——同一份自我认知，不同会话不同职责。
+        """
+        if not session:
+            return ""
+        rec = (self._load().get("sessions") or {}).get(str(session)) or {}
+        return str(rec.get("duty") or "")
+
+    # 生效条件：session 非空时把该会话的职能登记为 duty（空串=撤销登记）并落盘，返回新状态
+    def set_duty(self, session, duty):
+        """登记/撤销会话职能（只影响**后续写入的打标**；已写节点不改写历史）。"""
+        if not session:
+            raise ValueError("须指定 session")
+        d = self._load()
+        sess = d.setdefault("sessions", {}).setdefault(str(session), {})
+        val = str(duty or "").strip().lower()
+        if val:
+            sess["duty"] = val
+        else:
+            sess.pop("duty", None)
+        self._save(d)
+        return {"session": str(session), "duty": val}
+
     def set_private(self, session, private):
         """切换会话的内容私有档（只影响**后续写入**；已写节点不改，避免静默改写历史）。"""
         if not session:
