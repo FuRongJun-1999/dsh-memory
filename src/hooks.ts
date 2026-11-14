@@ -443,6 +443,19 @@ const RECALL_MAX_CHARS = 1400
 // 注入处二次过滤（见 renderTimelineDecayed 的调用点），防止未来新层再次挤入。
 const RECALL_SKIP_LAYERS = new Set(['anchor', 'self', 'structural', 'rejected'])
 
+// issue #929（第二层）：只按层拦不够——审计件本身带 `audit_trace` / `audit` 标签（mdcos._write_review_record
+// 写入时打的判据单点）。将来审计件若落到别的层，按层黑名单仍会漏；故再按**标签**拦一次。
+// 判据来源：md_cg/mdcos.py `_write_review_record` 的 tags=["audit", "audit_trace", ...]。
+const RECALL_SKIP_TAGS = new Set(['audit_trace', 'audit'])
+
+// 生效条件：item 为 timeline 条目（含 layer/tags）时，判它是否不得进「最近记忆」块
+function recallSkipItem(item: { layer?: unknown; tags?: unknown } | null | undefined): boolean {
+  const layer = String((item && item.layer) || '')
+  if (RECALL_SKIP_LAYERS.has(layer)) return true
+  const tags = Array.isArray((item as { tags?: unknown })?.tags) ? ((item as { tags: unknown[] }).tags as unknown[]) : []
+  return tags.some((t) => RECALL_SKIP_TAGS.has(String(t)))
+}
+
 /** 分级递减渲染：按距当前的次序逐档收窄，早期条目信息量更大。
  *
  *  动机：注入块总长受限，而"最近 N 条"里越靠前的越可能被用到；线性等宽分配
@@ -536,8 +549,8 @@ export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity
     const layer = String(it['layer'] ?? '')
     // issue #635：includeIdentity=true 时，永久层**在本块仍不渲染**（它们走独立块），
     // 这里只放宽"跳过"以便调用方取到它们——真正的分流在 renderIdentityAnchors。
-    if (RECALL_SKIP_LAYERS.has(layer) && !opts?.includeIdentity) continue
-    if (RECALL_SKIP_LAYERS.has(layer)) continue
+    if (recallSkipItem(it) && !opts?.includeIdentity) continue
+    if (recallSkipItem(it)) continue
     const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     const tier = Math.floor(rank / RECALL_DECAY_EVERY)
