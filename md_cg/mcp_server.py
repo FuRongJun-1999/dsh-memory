@@ -2562,6 +2562,46 @@ def _layer_gate_apply(a):
     return _b, {"from": "knowledge", "to": "contextual", "mode": "enforce", "reasons": _why,
                  "hint": "知识层只收重要的/结论性的/理论的/可验证的/通用的内容；若确属知识，"                         "请补齐 CCG 六要素并去掉相对时间指代，或用 force_layer=true 显式越过"}
 
+#: 热层直答门槛：最强命中得分（层加权后）低于此值则宁可查主库。
+_HOT_MIN_SCORE = 2.0
+
+
+# 生效条件：cg 与 read 参数 a、query q 传入；返回 dict（热层直答）或 None（回落主库）
+def _try_hot_first(cg, a, q):
+    """本地热层优先（2026-11-14 使用者裁定）：够不着才查主库。
+
+    主库一次查询实测 ≈24s；热层 ≈0.15s。agent 每轮要的多是「自我 + 近期 + 高重要度」，
+    正是热层收的三类（self/anchor/近 7 天 contextual/importance≥0.7）。
+    判据宁严勿错：至少一命中且最强分 ≥ _HOT_MIN_SCORE 才直答，否则返回 None 让主库作答。
+    开关：per-call `hot_first=false` 强制主库；`MDCG_HOT_FIRST=0` 全局关。
+    """
+    try:
+        if "hot_first" in a:
+            on = _as_flag(a.get("hot_first"))
+        else:
+            on = os.environ.get("MDCG_HOT_FIRST", "1") not in ("0", "false", "")
+        if not on:
+            return None
+        from . import hottier as _ht
+        k = _int_arg(a, "k", 20)
+        res = _ht.search(cg, q, k=k)
+        items = res.get("items") or []
+        meta = res.get("meta") or {}
+        top = max([float(i.get("hot_score") or 0) for i in items] or [0.0])
+        if not (meta.get("available") and items and top >= _HOT_MIN_SCORE):
+            return None
+        return {"ok": True, "query": q, "k": k, "count": len(items),
+                "items": [{"id": i.get("id"), "layer": i.get("layer"),
+                            "preview": i.get("preview"), "score": i.get("hot_score"),
+                            "source": "hot"} for i in items],
+                "source": "hot",
+                "meta": {"hot_first": {"used": True, "hits": len(items), "top": top,
+                                       "candidates": meta.get("candidates"),
+                                       "built_at": meta.get("built_at")}},
+                "hint": "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库"}
+    except Exception:
+        return None   # 热层任何异常都回落主库，不影响读路径
+
 def _cg_dispatch(cg, a):
     # issue #722（Q1=A）：**工具面 read/route 缺省放宽**——在派发入口补默认，
     # 而不是在每个调用点编造参数：读面「不编造默认」约束的是**参数推导/回显**，
@@ -3042,6 +3082,10 @@ def _cg_dispatch(cg, a):
         if _ctx is None and a.get("condition_space"):
             _ctx = a.get("condition_space")
             _ctx_from = "condition_space"
+        _hf = _try_hot_first(cg, a, q)
+        if _hf is not None:
+            return _hf
+
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=_ctx, session=a.get("session"),
                            validity=a.get("validity"),
