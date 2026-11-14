@@ -16,7 +16,10 @@
   async function fetchJSON(url, options = {}) {
     const controller = new AbortController(), timeout = setTimeout(() => controller.abort(), 70000);
     try {
-      const response = await fetch(url, { credentials:'same-origin', ...options, signal:controller.signal });
+      // issue #925：调用方的 signal 曾被这里**覆盖**（展开 options 后又赋值 signal）⇒「取消」只中止了
+      // 内部 controller，交给 fetch 的仍是它自己那条。两条都要能中止，故合并而非覆盖。
+      const signal = options.signal ? AbortSignal.any([controller.signal, options.signal]) : controller.signal;
+      const response = await fetch(url, { credentials:'same-origin', ...options, signal });
       const text = await response.text(); let value;
       try { value = JSON.parse(text); } catch { throw new Error(response.status === 401 ? '登录已过期，请返回 DSH 登录后重试。' : '服务器未返回 JSON，请检查插件是否已加载。'); }
       if (!response.ok) throw new Error(value.error || `请求失败 (${response.status})`);
