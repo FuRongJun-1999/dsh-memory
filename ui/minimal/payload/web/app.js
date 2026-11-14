@@ -66,11 +66,65 @@
     $('result-json').textContent = typeof value==='string'?value:json(value);
     $('copy-result').onclick=async()=> { try { await navigator.clipboard.writeText($('result-json').textContent); toast('已复制'); } catch { toast('无法访问剪贴板，可直接选中结果复制。'); } };
   }
-  async function execute(button, tool, args) {
+  // ---- 人类可读渲染（issue #UI-MD）：自我认知 / 审核与维护 不再直接甩 JSON ----
+  // 原则：只显示核心内容；按「时间→会话」分组；原始回执折叠在 <details>（不隐藏、不篡改）。
+  const CARD=(title,body,badge="")=>`<section class="panel"><div class="panel-head"><h3>${esc(title)}</h3>${badge?`<span class="badge">${esc(badge)}</span>`:""}</div>${body}</section>`
+  const KV=rows=>rows.length?`<div class="panel-body">${rows.map(([k,v])=>`<div class="status-line"><span>${esc(k)}</span><span>${esc(v)}</span></div>`).join("")}</div>`:'<div class="empty">暂无数据。</div>'
+  const EMPTY=msg=>`<div class="empty">${esc(msg)}</div>`
+  function dayOf(ts){ if(!ts)return '未知时间'; const d=new Date(typeof ts==='number'?ts*1000:ts); if(Number.isNaN(d.getTime()))return '未知时间'
+    const t=new Date(), same=(a,b)=>a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate()
+    if(same(d,t))return '今天'; if(same(d,new Date(t.getTime()-86400000)))return '昨天'
+    return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') }
+  function sessOf(item){ const s=String(item?.session||item?.meta?.session||'未归属会话'); return s.length>18?s.slice(0,18)+'…':s }
+  // 按「时间（今天/昨天/日期）→ 会话」两级分组，只显示核心内容
+  function groupFeed(items){
+    if(!items?.length) return EMPTY('这里还没有记录。')
+    const byDay=new Map()
+    for(const it of items){ const d=dayOf(it?.t||it?.ts||it?.created_at); if(!byDay.has(d))byDay.set(d,[]); byDay.get(d).push(it) }
+    return [...byDay.entries()].map(([day,list])=>{
+      const bySess=new Map()
+      for(const it of list){ const s=sessOf(it); if(!bySess.has(s))bySess.set(s,[]); bySess.get(s).push(it) }
+      const body=[...bySess.entries()].map(([sess,arr])=>`<div class="panel-body"><div class="eyebrow">会话 ${esc(sess)}</div><div style="margin-top:10px">${arr.slice(0,30).map(it=>{
+        const core=String(it?.content??it?.text??it?.goal??it?.preview??'').replace(/\s+/g,' ').trim().slice(0,200)
+        const layer=layers[it?.layer]||it?.layer||''
+        return `<div class="row-item"><span class="feed-time">${esc(time(it?.t||it?.ts||it?.created_at))}</span><div class="row-content"><div class="row-title">${esc(core||'（空）')}</div><div class="row-meta">${layer?`<span class="badge">${esc(layer)}</span>`:''}${it?.pid?`<span>${esc(String(it.pid).slice(0,14))}</span>`:''}</div></div></div>`}).join('')}</div></div>`).join('')
+      return `<section class="panel"><div class="panel-head"><h3>${esc(day)}</h3><span class="count">${list.length} 条</span></div>${body}</section>`
+    }).join('')
+  }
+  const RENDERERS={
+    self_profile:v=>{ const subs=rowsOf(v); const hint=v?.hint||''
+      return CARD('身份档案', subs.length?groupFeed(subs.map(s=>({content:s.subject_id||s.id||s.name||json(s).slice(0,120),layer:s.subject_kind,session:s.subject_id}))):EMPTY(hint||'尚无身份锚点。'), subs.length+' 个主体') },
+    self_state:v=>{ const s=v?.state||{}
+      const rows=[['自我重要性',s.importance_self],['信任度',s.p_trust],['信息差',s.d_current],['情绪',s.emotion],['情感倾向',s.affect],['层',s.layer],['节点',s.node_id]].filter(([,x])=>x!==undefined&&x!==null&&x!=='').map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,120):String(x)])
+      const dims=s.dimensions&&typeof s.dimensions==='object'?Object.entries(s.dimensions).slice(0,8).map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,80):String(x)]):[]
+      const extra=dims.length?`<div class="panel-body"><div class="eyebrow">维度</div><div style="margin-top:8px">${dims.map(([k,x])=>`<div class="status-line"><span>${esc(k)}</span><span>${esc(x)}</span></div>`).join('')}</div></div>`:''
+      return CARD('自我状态', KV(rows)+extra, '快照') },
+    meta_report:v=>{ const cal=v.calibration||{}, blind=rowsOf(v.blindspots), adv=Array.isArray(v.advice)?v.advice:rowsOf(v.advice)
+      const parts=[CARD('校准',KV([['样本',cal.n??cal.samples??'—'],['平均误差',cal.error??cal.mean_error??'—'],['方向一致性',cal.signed??'—']]),'calibration'),
+        CARD('盲区', blind.length?groupFeed(blind):EMPTY('没有记录到盲区。'), blind.length+' 条')]
+      if(adv.length) parts.push(CARD('建议', groupFeed(adv.map(a=>({content:typeof a==='string'?a:json(a).slice(0,160)}))), adv.length+' 条'))
+      return parts.join('') },
+    whitebox:v=>CARD('白箱连通',KV([['状态',v?.ok?'可用':'不可用'],['工具',v?.tool||'—'],['信息',typeof v?.info==='object'?json(v.info).slice(0,160):String(v?.info??'—')]]),'ping'),
+    review_pending:v=>{ const pd=rowsOf(v.pending||v); return CARD('待裁决候选', groupFeed(pd), pd.length+' 条') },
+    review_records:v=>{ const rs=rowsOf(v.records||v); return CARD('审核记录', groupFeed(rs.map(r=>({content:[r.pid,r.decision,r.actor].filter(Boolean).join(' · ')||json(r).slice(0,120),t:r.t||r.ts,layer:r.layer,session:r.session}))), rs.length+' 条') },
+    protect_stats:v=>{ const by=v.by_layer&&typeof v.by_layer==='object'?Object.entries(v.by_layer).map(([k,x])=>[layers[k]||k,String(x)]):[]
+      return CARD('保护统计',KV([['受保护节点',v.protected_count??'—'],['不可变节点',v.immutable_count??'—'],...by]),'protect') },
+    evolution:v=>{ const mp=v.most_missing&&typeof v.most_missing==='object'?Object.entries(v.most_missing).slice(0,6).map(([k,x])=>[k,String(x)]):[]
+      return CARD('演化摘要',KV([['总计',v.evolutions??'—'],['回滚',v.rollbacks??'—'],['最常见缺失',v.top_pattern||'—'],...mp]),'evolution') },
+    sustain:v=>{ const hb=v.heartbeat||{}, loop=v.loop||{}, ss=v.sessions||{}
+      return CARD('维护状态',KV([['心跳',hb.alive?'在跳':'停'],['最近心跳',hb.t?time(hb.t):'—'],['循环轮次',loop.round??'—'],['会话数',Array.isArray(ss)?ss.length:(ss.count??'—')]]),'sustain') },
+  }
+
+  async function execute(button, tool, args, view) {
     // e.submitter 在键盘提交/程序化提交时可能为 null —— 旧实现直接取 .disabled 抛错，
     // 表现为「点了没反应」。按钮缺席时照常执行，只是不做执行中反馈。
     const btn = button || null; if (btn) { btn.disabled=true; btn.dataset.label=btn.textContent; btn.textContent='执行中…'; }
-    try { renderResult(await call(tool,args,{interactive:true})); } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
+    try { const value=await call(tool,args,{interactive:true});
+      const render=RENDERERS[view||'']
+      const target=$('result')
+      if(render&&target) target.innerHTML=render(value)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(value))}</pre></details>`
+      else renderResult(value)
+    } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
     finally { if (btn) { btn.disabled=false; btn.textContent=btn.dataset.label||''; } }
   }
   function permissionNote(op) { const allowed=info?.whoami?.principal?.ops_allow; return allowed && !allowed.includes('*') && !allowed.includes(op) ? `<div class="notice">当前令牌未声明 ${esc(op)} 权限。入口保留，调用仍由灵枢权限系统裁定；本界面不会自动扩权。</div>`:''; }
@@ -171,9 +225,9 @@
   }
   const presets = {
     goals: {title:'目标与任务',en:'GOALS & TASKS',description:'把目标变成可追踪的行动。查询和新增，都保留真实回执。',items:[['目标列表','cg',{op:'goal',action:'list',limit:20}],['任务列表','cg',{op:'task',action:'list',limit:20}],['新增目标','cg',{op:'goal',action:'add',goal:'',priority:1}],['开启任务','cg',{op:'task',action:'open',goal:'',plan:'',acceptance:''}]]},
-    self: {title:'自我认知',en:'SELF & IDENTITY',description:'身份、状态与反思，分别读取，不把生成的文字当作认知事实。',items:[['身份档案','cg',{op:'identity',action:'profile'}],['状态快照','cg',{op:'self_state',action:'snapshot'}],['元认知报告','cg',{op:'metacognition',action:'report'}],['白箱连通','cg',{op:'whitebox',action:'ping'}]]},
+    self: {title:'自我认知',en:'SELF & IDENTITY',description:'身份、状态与反思，分别读取，不把生成的文字当作认知事实。',items:[['身份档案','cg',{op:'identity',action:'profile'},'','self_profile'],['状态快照','cg',{op:'self_state',action:'snapshot'},'','self_state'],['元认知报告','cg',{op:'metacognition',action:'report'},'','meta_report'],['白箱连通','cg',{op:'whitebox',action:'ping'},'','whitebox']]},
     space: {title:'时空关系',en:'SPACE & TIME',description:'沿时间寻找记忆，或比较两个节点的时空关系。',items:[['记忆时间线','stg',{op:'timeline',limit:20,desc:true}],['近期事件','cg',{op:'recent',action:'list',limit:20}],['节点关系','stg',{op:'relation',a:'',b:''}],['时空一致性','stg',{op:'consistency',limit:20}],['锚点查询','stg',{op:'anchors',time_window:[0,Math.floor(Date.now()/1000)],limit:20}],['状态链','stg',{op:'state_chain',subject:'self:lingshu',limit:20},'本面默认关：需在灵枢进程设 MDCG_STG_STATE=1 才启用（返回 error=disabled 属如实拒绝，不是界面故障）。']]},
-    review: {title:'审核与维护',en:'REVIEW & CARE',description:'先查看，再裁决。不会在打开页面时启动维护、遗忘或自动演化。',items:[['待审核候选','cg',{op:'review',action:'list'}],['审核记录','cg',{op:'review',action:'records'}],['保护统计','cg',{op:'protect',action:'stats'}],['演化摘要','cg',{op:'evolution',action:'summary'}],['维护状态','cg',{op:'sustain',action:'status'}],['审核裁决','cg',{op:'review',action:'decide',pid:'',decision:'reject'}],['节点核验','cg',{op:'verify',node_id:'',evidence:'',verdict:'confirmed'}]]}
+    review: {title:'审核与维护',en:'REVIEW & CARE',description:'先查看，再裁决。不会在打开页面时启动维护、遗忘或自动演化。',items:[['待审核候选','cg',{op:'review',action:'list'},'','review_pending'],['审核记录','cg',{op:'review',action:'records'},'','review_records'],['保护统计','cg',{op:'protect',action:'stats'},'','protect_stats'],['演化摘要','cg',{op:'evolution',action:'summary'},'','evolution'],['维护状态','cg',{op:'sustain',action:'status'},'','sustain'],['审核裁决','cg',{op:'review',action:'decide',pid:'',decision:'reject'}],['节点核验','cg',{op:'verify',node_id:'',evidence:'',verdict:'confirmed'}]]}
   };
   // 生效条件：预设项带 note 时，在执行区顶部如实显示前置开关（如 MDCG_STG_STATE=1）
   function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(item[3])}</div>` : ''; }
@@ -188,7 +242,7 @@
       document.querySelectorAll('[data-preset-field]').forEach(input=>input.oninput=()=>{try{const next=JSON.parse($('preset-json').value),key=input.dataset.presetField,old=args[key];next[key]=typeof old==='number'?Number(input.value):typeof old==='object'?JSON.parse(input.value):input.value;$('preset-json').value=json(next);}catch{/* 继续保留用户编辑 */}});
     }
     document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>select(Number(b.dataset.preset)));
-    $('preset-run').onclick=async e=> { try { const args=JSON.parse($('preset-json').value); await execute(e.currentTarget,group.items[active][1],args); }catch(err){$('result').innerHTML=errorHTML(err);} };
+    $('preset-run').onclick=async e=> { try { const args=JSON.parse($('preset-json').value); await execute(e.currentTarget,group.items[active][1],args,group.items[active][4]); }catch(err){$('result').innerHTML=errorHTML(err);} };
     $('preset-help').onclick=async e=>await execute(e.currentTarget,'cg',{op:'help',query:group.items[active][2].op}); select(0);
   }
   function fieldLabel(key) { return {goal:'目标内容',plan:'执行计划',acceptance:'验收标准',priority:'优先级',a:'节点 A',b:'节点 B',node_id:'节点 ID',pid:'候选 ID',decision:'裁决：accept / reject / edit / merge',evidence:'验证依据',verdict:'判定：confirmed / weakened / falsified',time_window:'时间窗口（秒级时间戳数组）',subject:'主体'}[key]||key; }
