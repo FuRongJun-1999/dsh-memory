@@ -95,6 +95,14 @@
   }
   // 主体标识人话化：self:lingshu → 「自我主体 · 灵枢」（不把内部 ID 端给使用者）
   const SUBJ_KIND={self:'自我主体',user:'使用者',role:'角色',agent:'代理',other:'其它'}
+  // 展示名优先取锚点正文里的「身份=X」（数据在，不硬编码）；取不到才退回 ID 末段。
+  function displayNameFromAnchor(anchorText){
+    const m=String(anchorText||'').match(/身份\s*[=＝]\s*([^;；,，、\n]{1,20})/)
+    return m?m[1].trim():''
+  }
+  // 人话状态值：不认识/空 一律「未登记」，不把英文枚举端给使用者。
+  const HUMAN_STATE={unknown:'未登记',unassigned:'未归属',none:'无'}
+  function humanState(v){ if(v===undefined||v===null||v==='')return '未登记'; return HUMAN_STATE[String(v)]||String(v) }
   function humanSubject(id){
     const s=String(id||'')
     const i=s.indexOf(':')
@@ -134,28 +142,43 @@
 
   const RENDERERS={
     // 身份档案：两种形态（列表 / 单主体完整画像），都用人话标题，内部 ID 只作副标
+    // 身份档案：两种形态（列表 / 单主体画像）；列表不预取详情；名称优先取锚点里的「身份=X」
     self_profile:v=>{
       const hasDetail=Array.isArray(v?.anchors)||Array.isArray(v?.traits)
       if(hasDetail){
-        const h=humanSubject(v?.subject_id||v?.name)
         const anchors=Array.isArray(v.anchors)?v.anchors:[]
         const traits=Array.isArray(v.traits)?v.traits:[]
-        // 锚点正文按字段拆行（原文以 ; 分隔）：身份 / 价值观 / 认知图接口 / 形象锚 / 仓库 …
-        const anchorHTML=anchors.length?anchors.map(a=>{ const raw=String(a.content||'').trim()
-          const parts=raw.split(/;\s*/).filter(Boolean)
-          const rows=parts.map(seg=>{ const i=seg.indexOf('=')
+        const dn=displayNameFromAnchor((anchors[0]||{}).content)
+        const kindCN=v?.kind?(SUBJ_KIND[v.kind]||v.kind):''
+        const label=dn?(kindCN?kindCN+' · '+dn:dn):(kindCN?kindCN+' · '+(v?.name||''):(v?.name||'未命名主体'))
+        const anchorHTML=anchors.map(a=>{
+          const parts=String(a.content||'').trim().split(/;\s*/).filter(Boolean)
+          const rows=parts.map(seg=>{
+            const i=seg.indexOf('=')
             if(i<=0) return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(seg)}</div></div></div>`
-            const k=seg.slice(0,i).replace(/^[^:：]*[:：]/,'').trim(), v=seg.slice(i+1).trim()
-            return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="eyebrow">${esc(k)}</div><div class="row-title" style="white-space:pre-wrap;line-height:1.75">${esc(v)}</div></div></div>` })
-          return `<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><div style="margin-top:10px">${rows.join('')}</div></div>` }).join(''):''
+            const k=seg.slice(0,i).replace(/^[^:：]*[:：]/,'').trim()
+            const val=seg.slice(i+1).trim()
+            return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="eyebrow">${esc(k)}</div><div class="row-title" style="white-space:pre-wrap;line-height:1.75">${esc(val)}</div></div></div>`
+          })
+          return `<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><div style="margin-top:10px">${rows.join('')}</div></div>`
+        }).join('')
         const traitHTML=traits.length?`<div class="panel-body"><div class="eyebrow">特征 ${traits.length} 条</div><div style="margin-top:8px">${traits.map(t=>`<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(String(t.content||'').trim().slice(0,400))}</div><div class="row-meta">${t.importance!==undefined?`<span class="badge">重要度 ${esc(t.importance)}</span>`:''}<span>${esc(t.node_id||'')}</span></div></div></div>`).join('')}</div></div>`:''
-        return CARD(h.label, anchorHTML+traitHTML+`<div class="panel-body"><div class="status-line"><span>位置</span><span>${esc(v?.position||'unknown')}</span></div><div class="status-line"><span>主体 ID</span><span>${esc(v?.subject_id||'')}</span></div></div>`, '完整画像')
+        const foot=`<div class="panel-body"><div class="status-line"><span>位置</span><span>${esc(humanState(v?.position))}</span></div><div class="status-line"><span>主体 ID</span><span>${esc(v?.subject_id||'')}</span></div></div>`
+        return CARD(label, anchorHTML+traitHTML+foot, '完整画像')
       }
       const subs=rowsOf(v)
-      if(!subs.length) return CARD('身份档案', EMPTY(v?.hint||'尚无身份锚点。'), '0 个主体')
-      const body=subs.map(s=>{ const h=humanSubject(s.subject_id||s.name)
-        return `<div class="panel-body"><div class="row-title">${esc(h.label)}</div><div style="margin-top:8px"><div class="status-line"><span>主体 ID</span><span>${esc(s.subject_id||'')}</span></div><div class="status-line"><span>节点数</span><span>${esc(s.nodes??'—')}</span></div><div class="status-line"><span>位置</span><span>${esc(s.position||'unknown')}</span></div><div class="status-line"><span>证据</span><span>${esc(s.evidence_count??0)} 条</span></div></div><div class="actions"><button class="button" data-subject="${esc(s.subject_id||'')}">查看完整画像 ↗</button></div></div>` }).join('')
-      return CARD('身份档案', body, subs.length+' 个主体') },
+      if(!subs.length) return CARD('读取结果 · 身份档案', EMPTY(v?.hint||'尚无身份锚点。'), '0 个主体')
+      const body=subs.map(s=>{
+        const h=humanSubject(s.subject_id||s.name)
+        const rows=[
+          ['主体 ID', esc(s.subject_id||'')],
+          ['身份面节点', esc(s.nodes??'—')+' <small class="hint">（锚点 / 特征 / 状态卡；不含 self 层其它记录）</small>'],
+          ['位置', esc(humanState(s.position))],
+          ['证据', esc(s.evidence_count??0)+' 条'],
+        ].map(([k,val])=>`<div class="status-line"><span>${k}</span><span>${val}</span></div>`).join('')
+        return `<div class="panel-body"><div class="row-title">${esc(h.label)}</div><div style="margin-top:8px">${rows}</div><div class="actions"><button class="button" data-subject="${esc(s.subject_id||'')}">查看完整画像</button></div></div>`
+      })
+      return CARD('读取结果 · 身份档案', body.join(''), subs.length+' 个主体') },
     self_state:v=>{ const s=v?.state||{}
       const rows=[['自我重要性',s.importance_self],['信任度',s.p_trust],['信息差',s.d_current],['情绪',s.emotion],['情感倾向',s.affect],['层',s.layer],['节点',s.node_id]].filter(([,x])=>x!==undefined&&x!==null&&x!=='').map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,120):String(x)])
       const dims=s.dimensions&&typeof s.dimensions==='object'?Object.entries(s.dimensions).slice(0,8).map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,80):String(x)]):[]
