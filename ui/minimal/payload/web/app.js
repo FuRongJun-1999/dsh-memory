@@ -78,6 +78,8 @@
   function sessOf(item){ const s=String(item?.session||item?.meta?.session||'未归属会话'); return s.length>18?s.slice(0,18)+'…':s }
   // 按「时间（今天/昨天/日期）→ 会话」两级分组，只显示核心内容
   function groupFeed(items){
+    const hasTime=(items||[]).some(it=>it&&(it.t||it.ts||it.created_at))
+    if(!hasTime) return plainFeed(items)
     if(!items?.length) return EMPTY('这里还没有记录。')
     const byDay=new Map()
     for(const it of items){ const d=dayOf(it?.t||it?.ts||it?.created_at); if(!byDay.has(d))byDay.set(d,[]); byDay.get(d).push(it) }
@@ -91,9 +93,43 @@
       return `<section class="panel"><div class="panel-head"><h3>${esc(day)}</h3><span class="count">${list.length} 条</span></div>${body}</section>`
     }).join('')
   }
+  // 主体标识人话化：self:lingshu → 「自我主体 · 灵枢」（不把内部 ID 端给使用者）
+  const SUBJ_KIND={self:'自我主体',user:'使用者',role:'角色',agent:'代理',other:'其它'}
+  function humanSubject(id){
+    const s=String(id||'')
+    const i=s.indexOf(':')
+    if(i<0) return {name:s,kind:'',label:s||'未命名主体'}
+    const kind=s.slice(0,i), name=s.slice(i+1)
+    const k=SUBJ_KIND[kind]||kind
+    return {name,kind,label:name?(k?k+' · '+name:name):(k||'未命名主体')}
+  }
+  // 无时间字段的面（身份、统计）平铺：不编造「未知时间」分组
+  function plainFeed(items){
+    if(!items?.length) return EMPTY('这里还没有记录。')
+    const bySess=new Map()
+    for(const it of items){ const s=sessOf(it); if(!bySess.has(s))bySess.set(s,[]); bySess.get(s).push(it) }
+    return [...bySess.entries()].map(([sess,arr])=>`<section class="panel"><div class="panel-head"><h3>${esc(sess)}</h3><span class="count">${arr.length} 条</span></div><div class="panel-body"><div style="margin-top:6px">${arr.map(it=>{
+      const core=String(it?.content??it?.text??it?.label??it?.goal??'').replace(/\s+/g,' ').trim().slice(0,300)
+      return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title">${esc(core||'（空）')}</div></div></div>`}).join('')}</div></div></section>`).join('')
+  }
+
   const RENDERERS={
-    self_profile:v=>{ const subs=rowsOf(v); const hint=v?.hint||''
-      return CARD('身份档案', subs.length?groupFeed(subs.map(s=>({content:s.subject_id||s.id||s.name||json(s).slice(0,120),layer:s.subject_kind,session:s.subject_id}))):EMPTY(hint||'尚无身份锚点。'), subs.length+' 个主体') },
+    // 身份档案：两种形态（列表 / 单主体完整画像），都用人话标题，内部 ID 只作副标
+    self_profile:v=>{
+      const hasDetail=Array.isArray(v?.anchors)||Array.isArray(v?.traits)
+      if(hasDetail){
+        const h=humanSubject(v?.subject_id||v?.name)
+        const anchors=Array.isArray(v.anchors)?v.anchors:[]
+        const traits=Array.isArray(v.traits)?v.traits:[]
+        const anchorHTML=anchors.length?anchors.map(a=>`<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><p class="hint" style="margin-top:8px;white-space:pre-wrap;line-height:1.75">${esc(String(a.content||'').trim())}</p></div>`).join(''):''
+        const traitHTML=traits.length?`<div class="panel-body"><div class="eyebrow">特征 ${traits.length} 条</div><div style="margin-top:8px">${traits.map(t=>`<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(String(t.content||'').trim().slice(0,400))}</div><div class="row-meta">${t.importance!==undefined?`<span class="badge">重要度 ${esc(t.importance)}</span>`:''}<span>${esc(t.node_id||'')}</span></div></div></div>`).join('')}</div></div>`:''
+        return CARD(h.label, anchorHTML+traitHTML+`<div class="panel-body"><div class="status-line"><span>位置</span><span>${esc(v?.position||'unknown')}</span></div><div class="status-line"><span>主体 ID</span><span>${esc(v?.subject_id||'')}</span></div></div>`, '完整画像')
+      }
+      const subs=rowsOf(v)
+      if(!subs.length) return CARD('身份档案', EMPTY(v?.hint||'尚无身份锚点。'), '0 个主体')
+      const body=subs.map(s=>{ const h=humanSubject(s.subject_id||s.name)
+        return `<div class="panel-body"><div class="row-title">${esc(h.label)}</div><div style="margin-top:8px"><div class="status-line"><span>主体 ID</span><span>${esc(s.subject_id||'')}</span></div><div class="status-line"><span>节点数</span><span>${esc(s.nodes??'—')}</span></div><div class="status-line"><span>位置</span><span>${esc(s.position||'unknown')}</span></div><div class="status-line"><span>证据</span><span>${esc(s.evidence_count??0)} 条</span></div></div><div class="actions"><button class="button" data-subject="${esc(s.subject_id||'')}">查看完整画像 ↗</button></div></div>` }).join('')
+      return CARD('身份档案', body, subs.length+' 个主体') },
     self_state:v=>{ const s=v?.state||{}
       const rows=[['自我重要性',s.importance_self],['信任度',s.p_trust],['信息差',s.d_current],['情绪',s.emotion],['情感倾向',s.affect],['层',s.layer],['节点',s.node_id]].filter(([,x])=>x!==undefined&&x!==null&&x!=='').map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,120):String(x)])
       const dims=s.dimensions&&typeof s.dimensions==='object'?Object.entries(s.dimensions).slice(0,8).map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,80):String(x)]):[]
@@ -124,6 +160,17 @@
       const target=$('result')
       if(render&&target) target.innerHTML=render(value)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(value))}</pre></details>`
       else renderResult(value)
+      // 身份档案：点「查看完整画像」时才拉单个主体（列表页不预取）
+      if((view||'')==='self_profile'&&target){
+        target.querySelectorAll('[data-subject]').forEach(b=>b.onclick=async()=>{
+          const sid=b.dataset.subject; if(!sid) return
+          b.disabled=true; const old=b.textContent; b.textContent='读取中…'
+          try{ const one=await call('cg',{op:'identity',action:'profile',subject_id:sid})
+            if(token!==generation)return
+            target.innerHTML=RENDERERS.self_profile(one)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(one))}</pre></details>`
+          }catch(err){ b.disabled=false; b.textContent=old; toast(err.message||'读取失败') }
+        })
+      }
     } catch(e) { const target=$('result'); if(target) target.innerHTML=errorHTML(e); }
     finally { if (btn) { btn.disabled=false; btn.textContent=btn.dataset.label||''; } }
   }
