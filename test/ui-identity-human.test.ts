@@ -36,3 +36,19 @@ test('S3 详情按需加载（列表不预取）', () => {
   assert.ok(app.includes("op:'identity',action:'profile',subject_id:sid"), '详情需带 subject_id 单独取')
   assert.ok(app.includes('锚点 ·'), '画像应展示锚点正文，而不是只列 ID')
 })
+
+test('S4 通用价值观直接引自《智能论 3.4》§2.1（防双副本漂移）', () => {
+  const theory = readFileSync(join(root, 'docs/theory/智能论3.4.md'), 'utf8')
+  const quote = '通过熵管理维持自身结构完整，在适当条件下缩小或扩大信息差，以建立并维持值得信任的协作关系。'
+  assert.ok(theory.includes(quote), '理论文档里找不到该句——引用已漂移，需同步更新界面文案')
+  assert.ok(app.includes(quote), '界面未引用该句')
+  assert.ok(app.includes('universalValuesCard'), '自我认知页缺通用价值观卡')
+  assert.ok(theory.includes('保持对未知的好奇') && app.includes('保持对未知的好奇'),
+    '第一定律需两侧都在')
+})
+
+test('S5 锚点正文按字段拆行（价值观不埋在整段里）', () => {
+  const blk = app.slice(app.indexOf('    self_profile:'), app.indexOf('    self_state:'))
+  assert.ok(blk.includes('/;'), '锚点正文需按分号拆字段')
+  assert.ok(blk.includes('eyebrow'), '字段需小标题而非一整段')
+})

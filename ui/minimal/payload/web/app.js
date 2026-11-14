@@ -113,6 +113,25 @@
       return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title">${esc(core||'（空）')}</div></div></div>`}).join('')}</div></div></section>`).join('')
   }
 
+  // 通用价值观（不变层）：真源 = docs/theory/智能论3.4.md §2.1（本处只**引用**，不改写）；
+  // 守卫 test/ui-identity-human.test.ts 的 S4 断言这段原文仍在该文档里（防双副本漂移）。
+  const UNIVERSAL_VALUES={
+    quote:'通过熵管理维持自身结构完整，在适当条件下缩小或扩大信息差，以建立并维持值得信任的协作关系。',
+    first_law:'保持对未知的好奇。',
+    note:'好奇不是无条件的第一性；真正的第一性是「存在受到威胁的感知」，它决定是否开始行动。',
+    test:'关键判定：该行为是否支持熵管理？是否维持了值得信任的协作关系？',
+    source:'智能论 3.4 §2.1 通用价值观（不变层）',
+  }
+  function universalValuesCard(){
+    const v=UNIVERSAL_VALUES
+    return `<section class="panel"><div class="panel-head"><h3>通用价值观（不变层）</h3><span class="badge">${esc(v.source)}</span></div>`+
+      `<div class="panel-body"><p class="hint" style="line-height:1.8">${esc(v.quote)}</p>`+
+      `<div class="status-line"><span>第一定律</span><span>${esc(v.first_law)}</span></div>`+
+      `<div class="status-line"><span>判定</span><span>${esc(v.test)}</span></div>`+
+      `<p class="hint" style="margin-top:10px">${esc(v.note)}</p>`+
+      `<p class="hint" style="margin-top:10px">状态：不可变（生存压力下可被「再理解」，见 §2.1.2）；特化价值观由场景推演生成，可迭代。</p></div></section>`
+  }
+
   const RENDERERS={
     // 身份档案：两种形态（列表 / 单主体完整画像），都用人话标题，内部 ID 只作副标
     self_profile:v=>{
@@ -121,7 +140,14 @@
         const h=humanSubject(v?.subject_id||v?.name)
         const anchors=Array.isArray(v.anchors)?v.anchors:[]
         const traits=Array.isArray(v.traits)?v.traits:[]
-        const anchorHTML=anchors.length?anchors.map(a=>`<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><p class="hint" style="margin-top:8px;white-space:pre-wrap;line-height:1.75">${esc(String(a.content||'').trim())}</p></div>`).join(''):''
+        // 锚点正文按字段拆行（原文以 ; 分隔）：身份 / 价值观 / 认知图接口 / 形象锚 / 仓库 …
+        const anchorHTML=anchors.length?anchors.map(a=>{ const raw=String(a.content||'').trim()
+          const parts=raw.split(/;\s*/).filter(Boolean)
+          const rows=parts.map(seg=>{ const i=seg.indexOf('=')
+            if(i<=0) return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(seg)}</div></div></div>`
+            const k=seg.slice(0,i).replace(/^[^:：]*[:：]/,'').trim(), v=seg.slice(i+1).trim()
+            return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="eyebrow">${esc(k)}</div><div class="row-title" style="white-space:pre-wrap;line-height:1.75">${esc(v)}</div></div></div>` })
+          return `<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><div style="margin-top:10px">${rows.join('')}</div></div>` }).join(''):''
         const traitHTML=traits.length?`<div class="panel-body"><div class="eyebrow">特征 ${traits.length} 条</div><div style="margin-top:8px">${traits.map(t=>`<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(String(t.content||'').trim().slice(0,400))}</div><div class="row-meta">${t.importance!==undefined?`<span class="badge">重要度 ${esc(t.importance)}</span>`:''}<span>${esc(t.node_id||'')}</span></div></div></div>`).join('')}</div></div>`:''
         return CARD(h.label, anchorHTML+traitHTML+`<div class="panel-body"><div class="status-line"><span>位置</span><span>${esc(v?.position||'unknown')}</span></div><div class="status-line"><span>主体 ID</span><span>${esc(v?.subject_id||'')}</span></div></div>`, '完整画像')
       }
@@ -280,7 +306,7 @@
   function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(item[3])}</div>` : ''; }
   function grouped(name) {
     const group=presets[name]; let active=0;
-    $('main').innerHTML=title(group.title,group.en,group.description)+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${label}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
+    $('main').innerHTML=title(group.title,group.en,group.description)+(name==="self"?universalValuesCard():"")+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${label}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
     function select(i) {
       active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=label; $('command-tool').textContent=tool+' · '+args.op; const _note=noteOf(group.items[i]); const _pf=$('preset-fields');
       document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',Number(b.dataset.preset)===i)); $('permission').innerHTML=tool==='cg'?permissionNote(args.op):''; $('preset-json').value=json(args); $('result').innerHTML='';
