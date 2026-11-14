@@ -52,3 +52,23 @@ test('S5 锚点正文按字段拆行（价值观不埋在整段里）', () => {
   assert.ok(blk.includes('/;'), '锚点正文需按分号拆字段')
   assert.ok(blk.includes('eyebrow'), '字段需小标题而非一整段')
 })
+
+test('S6 状态值说人话（unknown → 未登记），节点数标明口径', () => {
+  assert.ok(app.includes('function humanState('), '缺 humanState')
+  assert.ok(app.includes("unknown:'未登记'"), '缺 unknown → 未登记 映射')
+  const blk = app.slice(app.indexOf('    self_profile:'), app.indexOf('    self_state:'))
+  assert.ok(blk.includes('humanState(s.position)'), '列表态位置需人话化')
+  assert.ok(blk.includes('身份面节点'), '节点数字段需写明是身份面口径')
+})
+
+test('S7 展示名从数据取（锚点里的「身份=X」），不硬编码', () => {
+  assert.ok(app.includes('function displayNameFromAnchor('), '缺 displayNameFromAnchor')
+  const blk = app.slice(app.indexOf('    self_profile:'), app.indexOf('    self_state:'))
+  assert.ok(blk.includes('displayNameFromAnchor('), '画像标题应优先用锚点里的身份名')
+  assert.ok(!/lingshu['\"]?s*:s*['\"]灵枢/.test(app), '不得硬编码 lingshu→灵枢 映射')
+})
+
+test('S8 结果卡标题不与命令面板重复', () => {
+  const blk = app.slice(app.indexOf('    self_profile:'), app.indexOf('    self_state:'))
+  assert.ok(blk.includes("'读取结果 · 身份档案'"), '结果卡标题应区别于命令面板')
+})
