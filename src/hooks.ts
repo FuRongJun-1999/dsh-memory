@@ -449,10 +449,25 @@ const RECALL_SKIP_LAYERS = new Set(['anchor', 'self', 'structural', 'rejected'])
 const RECALL_SKIP_TAGS = new Set(['audit_trace', 'audit'])
 
 // 生效条件：item 为 timeline 条目（含 layer/tags）时，判它是否不得进「最近记忆」块
-function recallSkipItem(item: { layer?: unknown; tags?: unknown } | null | undefined): boolean {
+// 生效条件：s 为会话标识（形如 s5.<端>.<身份>.<工作区>.<时间>.<摘要>）时返回身份段小写；解析不出返回空串
+function sessionUnitOf(s: unknown): string {
+  const v = String(s || '')
+  if (!v.startsWith('s5.')) return ''
+  const parts = v.split('.')
+  return parts.length >= 6 ? String(parts[2] || '').toLowerCase() : ''
+}
+
+// 工作身份：这些会话在做事（维护/设计/审计/验证），看得见工作留痕是本分；
+// 其余会话（执行者/角色扮演/使用者/未登记）只看日常——这正是「工作与日常分开」。
+const WORK_UNITS = new Set(['maintainer', 'designer', 'auditor', 'verifier', 'recorder', 'reflector', 'output', 'sustain'])
+
+// 生效条件：item 为 timeline 条目、unit 为当前会话身份；判它是否不得进「最近记忆」块
+function recallSkipItem(item: { layer?: unknown; tags?: unknown } | null | undefined, unit = ''): boolean {
   const layer = String((item && item.layer) || '')
   if (RECALL_SKIP_LAYERS.has(layer)) return true
   const tags = Array.isArray((item as { tags?: unknown })?.tags) ? ((item as { tags: unknown[] }).tags as unknown[]) : []
+  // 工作留痕是否拦，取决于**本会话身份**：工作身份照常看见，日常身份一律拦。
+  if (WORK_UNITS.has(String(unit || ''))) return false
   return tags.some((t) => RECALL_SKIP_TAGS.has(String(t)))
 }
 
