@@ -553,7 +553,8 @@ export function dedupeRepeatedItems(
   }
   return { ...(payload as object), items: kept }
 }
-export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity?: boolean }): string {
+// 生效条件：opts.unit 为当前会话身份（五元组第二段）；缺省空串＝按日常处理（拦工作留痕）
+export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity?: boolean; unit?: string }): string {
   const items = (payload && typeof payload === 'object'
     && Array.isArray((payload as { items?: unknown }).items))
     ? (payload as { items: Array<Record<string, unknown>> }).items
@@ -564,8 +565,8 @@ export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity
     const layer = String(it['layer'] ?? '')
     // issue #635：includeIdentity=true 时，永久层**在本块仍不渲染**（它们走独立块），
     // 这里只放宽"跳过"以便调用方取到它们——真正的分流在 renderIdentityAnchors。
-    if (recallSkipItem(it) && !opts?.includeIdentity) continue
-    if (recallSkipItem(it)) continue
+    if (recallSkipItem(it, opts?.unit) && !opts?.includeIdentity) continue
+    if (recallSkipItem(it, opts?.unit)) continue
     const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     const tier = Math.floor(rank / RECALL_DECAY_EVERY)
@@ -1140,7 +1141,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             }
             if (lines749.length) knowText = lines749.join('\n')
           }
-          const timelineText = formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2))
+          const timelineText = formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2),
+            { unit: sessionUnitOf(sid) })
           // issue #749：knowledge 条目在前（跨会话知识），时间线在后（本会话工作记忆）
           const text = [knowText, timelineText].filter(Boolean).join('\n')
           if (text) {
