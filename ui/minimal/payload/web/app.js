@@ -112,52 +112,62 @@
       `<div class="panel section-gap"><div class="panel-body"><h3>认知图健康</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
     $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page)); bindNodes()
   }
-  // issue #UI-PERF：记忆页首屏曾直接 await read(query)（实测 3.5 万节点库 **24s**）。
-  // 改法：① 首屏只走 recent/timeline（0.0–0.6s）；② 检索**显式触发/防抖 350ms** 才发；
-  // ③ 分页「加载更多」按 20 递增（不全量）；④ 同参数结果进客户端缓存（60s TTL）；
-  // ⑤ 新请求先 abort 旧的，避免慢请求占住单进程 bridge 拖累会话界面。
+  // ---- issue #UI-PERF-2（使用者裁定 2026-11-14）：记忆页优先显示「便宜的、近的、待办的」，
+  // 历史一律**手动加载**。实测（3.5 万节点库）：self_state 0.02s / review list 0.15s /
+  // recent 100 0.00s / timeline 100 0.62s，而 cg read 24s ⇒ 首屏绝不发 read。
+  const ROLE_CN={user:'我',assistant:'灵枢',tool:'工具',system:'系统'}
+  function feedRows(events){
+    if(!events?.length) return '<div class="empty">今天还没有对话。</div>'
+    return events.map(e=>{const role=e.role||'',cn=ROLE_CN[role]||role||'记录',t=e.t||e.ts||e.start
+      return `<div class="row-item"><span class="feed-time">${esc(time(t))}</span><div class="row-content"><div class="row-title">${esc(String(e.text||e.preview||'').slice(0,300))}</div><div class="row-meta"><span class="badge">${esc(cn)}</span>${e.meta?.session?`<span>${esc(String(e.meta.session).slice(0,12))}</span>`:''}</div></div></div>`}).join('')
+  }
   async function memory(token, compose) {
-    $('main').innerHTML=title('记忆','MEMORY','检索已有认知，或将一条有价值的信息交给记忆闸门。','<button id="compose-toggle" class="button primary">＋ 记录记忆</button>')+
-      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。不会指定节点 ID 或覆盖已有记录。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section><form id="search-form" class="toolbar ${compose?'section-gap':''}"><input id="search-query" class="search" placeholder="搜索记忆中的关键词或问题…（回车检索）" aria-label="搜索记忆"><select id="search-layer" aria-label="记忆层"><option value="">所有层</option>${Object.entries(layers).map(([k,v])=>`<option value="${k}">${v}</option>`).join('')}</select><button class="button" type="submit">检索 ↗</button></form><section class="panel"><div class="panel-head"><h3 id="memory-list-title">最近写入的记忆</h3><span class="count" id="memory-count"></span></div><div id="memory-list">${loading()}</div><div class="panel-body"><button id="more" class="button" hidden>加载更多</button></div></section><div id="result"></div>`
+    const today0=new Date(); today0.setHours(0,0,0,0); const todayTs=today0.getTime()/1000
+    $('main').innerHTML=title('记忆','MEMORY','先看近的与待办的；历史检索按需手动加载。','<button id="compose-toggle" class="button primary">＋ 记录记忆</button>')+
+      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section>`+
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>自我层</h3><span class="badge" id="self-badge">读取中…</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>待裁决</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>今日对话</h3><span class="count" id="today-count"></span></div><div id="sec-today">${loading()}</div></section>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>最近 100 条对话</h3><span class="count" id="recent-count"></span></div><div id="sec-recent">${loading()}</div></section>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>历史（手动加载）</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">历史与全库检索成本高（实测 read≈24s / timeline≈0.6s）。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="全库检索（手动、较慢，约 10–25 秒）…" aria-label="全库检索"><button class="button" type="submit">检索 ↗</button></form>
+        <div class="actions"><button id="load-older" class="button">加载更早的对话（100 条）</button><button id="cancel-load" class="button" hidden>取消</button></div></div><div id="sec-history"></div><div id="result"></div></section>`
     $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();}
-    $('memory-form').onsubmit=async e=> { e.preventDefault(); const args={content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'}; await execute(e.submitter,'mdcg_remember',args); }
-    let limit=20, inflight=null, shown=[]
-    const cacheKey=(q,l)=>`${q}|${l}|${limit}`
-    async function loadList(reset=true) {
-      const query=$('search-query').value.trim(), layer=$('search-layer').value
-      const list=$('memory-list'), count=$('memory-count'), more=$('more')
-      if(reset){limit=20;shown=[];list.innerHTML=loading()}
-      const key=cacheKey(query,layer)
-      const hit=cacheGet(key)
-      if(hit){ if(token!==generation)return; shown=hit.items; render() ; if(hit.truncated)more.hidden=false; return }
-      if(inflight)try{inflight.abort()}catch{}
-      const ctrl=new AbortController()
-      inflight=ctrl
-      try {
-        const result=query?await call('cg',{op:'read',query,k:limit,...(layer?{layer}:{})},{signal:ctrl.signal})
-                       :await call('stg',{op:'timeline',limit,...(layer?{layer}:{})},{signal:ctrl.signal})
-        if(token!==generation)return
-        if(result?.error){ list.innerHTML=errorHTML(result.error); return }
-        const items=rowsOf(result)
-        shown=reset?items:shown.concat(items)
-        cacheSet(key,{items:shown,truncated:!!result?.truncated})
-        render()
-        more.hidden=!(result?.truncated||items.length>=limit)
-        if(!query&&!reset&&items.length>=limit)more.hidden=false
-      } catch(e) { if(e.name!=='AbortError'&&token===generation)list.innerHTML=errorHTML(e) }
-      finally { inflight=null }
-      function render(){
-        list.innerHTML=nodeRows(shown); bindNodes(list)
-        count.textContent=`${shown.length} 条`+(limit>20?` · 已取 ${limit}`:'')
-        $('memory-list-title').textContent=query?'检索结果':'最近写入的记忆'
-      }
+    $('memory-form').onsubmit=async e=>{e.preventDefault(); await execute(e.submitter,'mdcg_remember',{content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'});}
+    // 四个优先区块并行、各自渲染；任一失败只影响自己
+    const selfP=call('cg',{op:'self_state',action:'snapshot'}).then(r=>{ if(token!==generation)return; const s=r?.state||{}
+      const rows=[['自我重要性',s.importance_self],['信任',s.p_trust],['信息差',s.d_current],['情绪',s.emotion??s.affect]].filter(([,v])=>v!==undefined&&v!==null)
+      $('sec-self').innerHTML=rows.length?rows.map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(typeof v==='object'?json(v).slice(0,80):v)}</span></div>`).join(''):'<div class="empty">自我层暂无状态卡。</div>'
+      $('self-badge').textContent='已读取' }).catch(e=>{ if(token===generation){$('sec-self').innerHTML=errorHTML(e);$('self-badge').textContent='读取失败'} })
+    const reviewP=call('cg',{op:'review',action:'list'}).then(r=>{ if(token!==generation)return; const pd=r?.pending||[]; $('review-count').textContent=`${pd.length} 条`
+      $('sec-review').innerHTML=pd.length?pd.slice(0,20).map(p=>`<button type="button" class="row-item node-button" data-node="${esc(p.id||'')}"><span class="row-dot"></span><div class="row-content"><div class="row-title">${esc(String(p.content||'').slice(0,160))}</div><div class="row-meta"><span class="badge">${esc(layers[p.layer]||p.layer||'候选')}</span><span>${esc(time(p.t))}</span><span>${esc(p.pid||'')}</span></div></div></button>`).join('')+(pd.length>20?`<div class="panel-body"><span class="hint">还有 ${pd.length-20} 条未展示（渲染上限 20，避免一次铺 240 条 DOM）</span></div>`:'') : '<div class="empty">没有待裁决候选。</div>'
+      bindNodes($('sec-review')) }).catch(e=>{ if(token===generation)$('sec-review').innerHTML=errorHTML(e) })
+    const recentP=call('cg',{op:'recent',action:'list',limit:100}).then(r=>{ if(token!==generation)return; const ev=r?.events||[]
+      $('recent-count').textContent=`${ev.length} 条`; $('sec-recent').innerHTML=feedRows(ev)
+      const today=ev.filter(e=>(e.t||e.ts||0)>=todayTs); $('today-count').textContent=`${today.length} 条`
+      $('sec-today').innerHTML=today.length?feedRows(today):'<div class="empty">今天还没有对话。</div>' }).catch(e=>{ if(token===generation){$('sec-recent').innerHTML=errorHTML(e);$('sec-today').innerHTML=errorHTML(e)} })
+    // 历史：只有点击才发（timeline 0.6s / read 24s 都不进首屏）
+    let histCtrl=null
+    $('load-older').onclick=async e=>{
+      const btn=e.currentTarget, list=$('sec-history'); btn.disabled=true; $('cancel-load').hidden=false
+      histCtrl=new AbortController(); list.innerHTML=loading()
+      try{ const r=await call('stg',{op:'timeline',limit:100,desc:true},{signal:histCtrl.signal})
+        if(token!==generation)return; const items=rowsOf(r)
+        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>更早的对话</h3><span class="count">${items.length} 条</span></div>${nodeRows(items)}</section>`; bindNodes(list)
+      }catch(err){ if(err.name!=='AbortError'&&token===generation) list.innerHTML=errorHTML(err); else if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">已取消。</span></div>' }
+      finally{ btn.disabled=false; $('cancel-load').hidden=true }
     }
-    let timer=null
-    $('search-query').oninput=()=>{ clearTimeout(timer); timer=setTimeout(()=>{void loadList(true)},350) }
-    $('search-form').onsubmit=e=>{e.preventDefault(); clearTimeout(timer); void loadList(true)}
-    $('search-layer').onchange=()=>void loadList(true)
-    $('more').onclick=()=>{ limit+=20; void loadList(false) }
-    await loadList(true)
+    // 全库检索：同样是**手动**入口（read 实测 24s），与历史加载共用取消
+    $('hist-search').onsubmit=async e=>{
+      e.preventDefault(); const q=$('hist-query').value.trim(); if(!q) return
+      const list=$('sec-history'); if(histCtrl) try{histCtrl.abort()}catch{}; histCtrl=new AbortController()
+      $('cancel-load').hidden=false; list.innerHTML=loading()
+      try{ const r=await call('cg',{op:'read',query:q,k:20},{signal:histCtrl.signal})
+        if(token!==generation)return; const items=rowsOf(r)
+        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>检索结果</h3><span class="count">${items.length} 条</span></div>${items.length?nodeRows(items):'<div class="empty">没有命中。</div>'}</section>`; bindNodes(list)
+      }catch(err){ if(err.name==='AbortError'){ if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">已取消。</span></div>' } else if(token===generation) list.innerHTML=errorHTML(err) }
+      finally{ $('cancel-load').hidden=true }
+    }
+    $('cancel-load').onclick=()=>{ if(histCtrl) try{histCtrl.abort()}catch{} }
+    await Promise.allSettled([selfP,reviewP,recentP])
   }
   const presets = {
     goals: {title:'目标与任务',en:'GOALS & TASKS',description:'把目标变成可追踪的行动。查询和新增，都保留真实回执。',items:[['目标列表','cg',{op:'goal',action:'list',limit:20}],['任务列表','cg',{op:'task',action:'list',limit:20}],['新增目标','cg',{op:'goal',action:'add',goal:'',priority:1}],['开启任务','cg',{op:'task',action:'open',goal:'',plan:'',acceptance:''}]]},

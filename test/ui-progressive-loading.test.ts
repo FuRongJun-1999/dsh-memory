@@ -28,10 +28,12 @@ test('P2 概览统计走各自最便宜的 op（并行、容错）', () => {
   assert.ok(app.includes('Promise.allSettled'), '三张统计卡需要并行且单个失败不拖垮整页')
 })
 
-test('P3 记忆页首屏不得自动检索（read 实测 24s）', () => {
-  assert.ok(app.includes('setTimeout(()=>{void loadList(true)},350)'), '检索需防抖 350ms')
-  assert.ok(app.includes("$('more').onclick"), '需要「加载更多」分页按钮')
-  assert.ok(app.includes('limit+=20'), '分页按 20 递增，不得全量')
+test('P3 记忆页首屏不得自动检索（read 实测 24s）——改为历史区手动入口', () => {
+  const mem = app.slice(app.indexOf('  async function memory(token, compose) {'), app.indexOf('  const presets = {'))
+  const head = mem.slice(0, mem.indexOf("$('load-older')"))
+  assert.ok(!head.includes("op:'read'"), '首屏不得发 read')  // 24s
+  assert.ok(!head.includes("op:'timeline'"), '首屏不得发 timeline')  // 历史必须手动
+  assert.ok(mem.includes("$('hist-search').onsubmit"), '全库检索必须是手动入口')  // 无自动检索
 })
 
 test('P4 同参数结果进客户端缓存（60s TTL）', () => {
@@ -42,6 +44,6 @@ test('P4 同参数结果进客户端缓存（60s TTL）', () => {
 
 test('P5 慢请求必须可中止（否则占住单进程 bridge 拖累会话）', () => {
   assert.ok(app.includes('AbortController'), '需要 AbortController')
-  assert.ok(app.includes('signal:ctrl.signal'), 'call 需把 signal 传下去')
-  assert.ok(app.includes('if(inflight)try{inflight.abort()}catch{}'), '新请求要先中止旧的')
+  assert.ok(app.includes('signal:histCtrl.signal'), '历史/检索请求需把 signal 传下去')
+  assert.ok(app.includes('histCtrl.abort()'), '新请求要先中止旧的')
 })
