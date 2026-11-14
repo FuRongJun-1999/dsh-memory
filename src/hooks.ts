@@ -436,7 +436,12 @@ const RECALL_MIN_CHARS = 24
 /** 整块上限（与调用点 slice 对齐）。 */
 const RECALL_MAX_CHARS = 1400
 /** 永久层不自动注入（按需用 mdcg_recall / stg 取）。 */
-const RECALL_SKIP_LAYERS = new Set(['anchor', 'self'])
+// issue #929：注入面曾被 `[structural] 审核裁决记录（rev_*）` 占满——审计留痕 created_at 恒最新，
+// 按时间倒序天然排最前，4 条预算全被它吃掉，一条知识都进不来（同时与 confirm 档形成喂饭循环）。
+// 故把「不入注入面」的层补齐：self/anchor 有独立身份块；structural（含 rev_* 审计与机制记录）
+// 与 rejected（否证记忆）都不该占据「最近记忆」预算。白名单更稳，但改动面大，先按层补齐并在
+// 注入处二次过滤（见 renderTimelineDecayed 的调用点），防止未来新层再次挤入。
+const RECALL_SKIP_LAYERS = new Set(['anchor', 'self', 'structural', 'rejected'])
 
 /** 分级递减渲染：按距当前的次序逐档收窄，早期条目信息量更大。
  *
