@@ -52,3 +52,14 @@ test('D5 默认关的能力必须如实标注前置开关', () => {
     'state_chain 默认关，界面必须说明开关而不是让用户以为坏了')
   assert.ok(app.includes('function noteOf('), '需要 noteOf 渲染前置说明')
 })
+
+test('#929 注入面不得被审计留痕（structural/rev_*）占满', () => {
+  const src = readFileSync(join(root, 'src/hooks.ts'), 'utf8')
+  const m = src.match(/const RECALL_SKIP_LAYERS = new Set\(\[([^\]]+)\]\)/)
+  assert.ok(m, '缺 RECALL_SKIP_LAYERS 定义')
+  const set = m[1]
+  for (const layer of ['structural', 'rejected']) {
+    assert.ok(set.includes(`'${layer}'`), `注入面未跳过 ${layer}（审计/否证会挤占预算）`)
+  }
+  assert.ok(src.includes('issue #929'), '需留 #929 归因注释，防止后人回退')
+})
