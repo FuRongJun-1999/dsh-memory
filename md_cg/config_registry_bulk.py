@@ -280,6 +280,7 @@ CONST_ROWS = [
 ENV_ROWS = [
     ('MDCG_RETRIEVAL_PIPELINE', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_RETRIEVAL_PIPELINE', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（!= "1" 即旧行为）', 'unknown', ''),
     ('MDCG_GATE_S1_DOMAIN', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S1_DOMAIN', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+('MDCG_GATE_S1_MIN_COVERAGE', 'CALIB', 'calib', 'env', True, "'0.60'", 'float', '见 default（阈值/权重）', 'issue #929 问题2：big_domain 覆盖率低于此值时不收敛（跳过并标注 skipped_reason）', ''),
     ('MDCG_GATE_S2_COND', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S2_COND', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S3_SPREAD', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S3_SPREAD', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1" 才开）', 'unknown', ''),
     ('MDCG_GATE_S4_LAYER', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S4_LAYER', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),

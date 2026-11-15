@@ -1633,18 +1633,35 @@ def apply_retrieval_gates(entries, terms, big_domain, context, min_results):
             _lc[_l] = _lc.get(_l, 0) + 1
         gates["s4"] = {"boosts": _bo, "layers": _lc}
     if os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0" and big_domain:
+        # issue #929 问题2（2026-11-14）：**覆盖率前置判据**——节点侧 big_domain 覆盖率低时，
+        # 查询侧被判成某域就收敛会大面积误杀（实测 310/1892 被丢，且技术问题被判成「心理」域）。
+        # 阈值形态照搬 MDCG_TAGS_MIN_COVERAGE：可配置，缺省 0.60；低于阈值 ⇒ 跳过收敛并如实标注。
+        _dom_n = sum(1 for _e in entries if _e.get("big_domain"))
+        _cov = (_dom_n / float(len(entries))) if entries else 0.0
+        try:
+            _min_cov = float(os.environ.get("MDCG_GATE_S1_MIN_COVERAGE", "0.60"))
+        except ValueError:
+            _min_cov = 0.60
+        if _cov < _min_cov:
+            gates["s1"] = {"domain": big_domain, "in": len(entries), "dropped": 0,
+                           "skipped_reason": "big_domain_coverage_low",
+                           "coverage": round(_cov, 4), "min_coverage": _min_cov}
+            _s1_skipped = True
+        else:
+            _s1_skipped = False
         # 域内 ∪ 未标域（兜底池）：无域标签的历史节点绝不能因「域内够多」被丢
         #（契约 §3 S1 不变量：ORPHAN/未标域必须可被召回）
         same = [e for e in entries
                 if not e.get("big_domain") or e.get("big_domain") == big_domain]
         # 召回安全：域内候选不足以支撑 min_results 时不收敛，留全量兜底
-        if len(same) >= max(1, min_results):
-            gates["s1"] = {"domain": big_domain, "in": len(same),
-                           "dropped": len(entries) - len(same)}
-            entries = same
-        else:
-            gates["s1"] = {"domain": big_domain, "in": len(same),
-                           "dropped": 0, "fallback": "insufficient"}
+        if not _s1_skipped:
+            if len(same) >= max(1, min_results):
+                gates["s1"] = {"domain": big_domain, "in": len(same),
+                               "dropped": len(entries) - len(same)}
+                entries = same
+            else:
+                gates["s1"] = {"domain": big_domain, "in": len(same),
+                               "dropped": 0, "fallback": "insufficient"}
     elif os.environ.get("MDCG_GATE_S1_DOMAIN", "1") != "0":
         gates["s1"] = {"domain": None, "reason": "no_domain_signal"}
     # ---- S1b 细口径桶收敛（设计见 docs/hive/检索收敛实测与S1b设计_v0.1.md）----
