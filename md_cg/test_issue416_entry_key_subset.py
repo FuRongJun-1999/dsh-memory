@@ -294,6 +294,7 @@ _REGISTERED = {
     ("md_cg/mdcg.py", "subgraph"),
     ("md_cg/mdcg.py", "tags"),
     ("md_cg/mdcg.py", "total_nodes"),
+    ("md_cg/mdcg.py", "rejection_reason"),  # issue #929 问题3：否证原因进索引（假记忆可解释）
     ("md_cg/mdcos.py", "duty"),
     ("md_cg/mdcos.py", "forbidden"),
     ("md_cg/mdcos.py", "role"),

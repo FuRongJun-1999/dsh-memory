@@ -3199,6 +3199,13 @@ class MdCG:
             # 旧库无此键 → None）——「这条 0.8 是显式声明还是启发式分」免读
             # 文件可判（与既有扁平键同理由：检索期/审计期不读盘）。
             "importance_source": fm.get("importance_source"),
+            # issue #929 问题3（2026-11-14）：否证原因入快照——此前只在正文，
+            # 索引/检索面查不到「为什么没记住」，只能逐条读文件。
+            "rejection_reason": fm.get("rejection_reason"),
+            "rejection_reason": fm.get("rejection_reason"),
+            # issue #929 问题3（2026-11-14）：否证原因入快照——
+            # 此前只在正文里，索引面查不到「为什么没记住」，只能逐条读文件。
+            "rejection_reason": fm.get("rejection_reason"),
             # #417（2026-10-16）：把「本节点合并过哪些来源 id」入快照——
             # twophase 恢复期在**新实例**上判「已合并落盘」必须免读文件可见
             # （与 merge_sources 同款纪律：写路径同钩镜像 + 重建面同口径，
@@ -4497,9 +4504,18 @@ class MdCG:
         content = (f"# 假设：{hypothesis}\n"
                    f"# 否决原因：{reason}\n"
                    f"# 验证：{verification_basis}\n")
-        return self.add(nid, content, layer="rejected",
-                        tags=tags, verification_basis=verification_basis,
-                        importance=0.0, **extra)  # importance=0：不被检索优先
+        # issue #929 问题3：拒绝原因**同时写进索引条目**（此前只在正文里），
+        # 否则「为什么没记住」在检索面/索引面查不到，只能逐条读正文。
+        self.add(nid, content, layer="rejected",
+                 tags=tags, verification_basis=verification_basis,
+                 rejection_reason=str(reason or ""),
+                 importance=0.0, **extra)  # importance=0：不被检索优先
+        # issue #929 问题3：**索引条目是检索/审计面的读源**，正文与 frontmatter 带上了
+        # 不等于索引带上了——这里显式补写一次，保证「为什么没记住」免读盘可查。
+        _ent = self.index["nodes"].get(nid)
+        if isinstance(_ent, dict):
+            _ent["rejection_reason"] = str(reason or "")
+        return nid
 
     @staticmethod
 # 生效条件：身份文本 = topic 真值优先、否则 question；文本先以 " ".join(split()) 折叠空白，再过 tasks.slugify；返回 slug（身份为空时返回 ""）。
