@@ -2964,7 +2964,9 @@ def _cg_dispatch(cg, a):
                                       "state": None, "reason": None,
                                       "content": (_it.get("preview") or "")[:500],
                                       "verification_basis": None})
-                    for _n in (cg.index["nodes"].get(_it.get("id")) or {}).get("tags") or []:
+                    # H-4(a) 纪律：从 index 取回的 nodes 先取快照再迭代
+                    _snap = dict(cg.index["nodes"])
+                    for _n in (_snap.get(_it.get("id")) or {}).get("tags") or []:
                         if isinstance(_n, str) and _n.startswith("cap:"):
                             caps.append(_n[4:])
                 _m = dict(_hot.get("meta") or {})
