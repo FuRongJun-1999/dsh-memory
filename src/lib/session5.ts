@@ -55,5 +55,6 @@ export function parseSession5(s: unknown): { harness: string; unit: string; work
   const v = String(s ?? '')
   if (!isSession5(v)) return null
   const p = v.split('.')
-  return { harness: p[1], unit: p[2], workspace: p[3], startEpoch: Number(p[4]), digest: p[5] }
+  return { harness: String(p[1]), unit: String(p[2]), workspace: String(p[3]),
+           startEpoch: Number(p[4]), digest: String(p[5]) }
 }
