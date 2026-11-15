@@ -3176,6 +3176,18 @@ def _cg_dispatch(cg, a):
         # 形态注册于 writepipe.default_pipeline()，次序/启停不再硬编码于
         # 本文件；新增闸门 = register_before 一行，即插即拔。
         # 角色/层权限校验在 MdCGSecure.add 库层，结构上不可被拦截器绕过。
+        # 用途标签（goal-caf158e5）：与 mdcg_remember 同一判据同一形态——按会话身份派生，
+        # 不靠内容关键词；无身份不出标签。**只加标签**，不改层、不改落点、不改闸顺序。
+        try:
+            from . import identity_names as _idn
+            _pt = _idn.purpose_tag(a.get("session"))
+            if _pt:
+                _tg = list(a.get("tags") or [])
+                if _pt not in _tg:
+                    _tg.append(_pt)
+                a = dict(a, tags=_tg)
+        except Exception:            # noqa: BLE001 —— 打标失败不得影响写入
+            pass
         from .writepipe import default_pipeline
         # **元数据补丁**（issue #732 的实用形态）：只给 node_id + tags /
         # condition_space / depends_on 而不给 content ⇒ 视为「改元数据、不动

@@ -73,6 +73,17 @@ def main():
     nid3 = (r3 or {}).get("node_id") or (r3 or {}).get("id")
     tg3 = tags_of(cg, nid3) if nid3 else []
     ok("用途:扮演" in tg3, "T3 扮演身份 ⇒ 用途=扮演", tg3)
+    # T5 写入面（cg op=write）与 remember 面同一判据
+    _body5 = ("# 功能名：写入面用例\n# 生效条件：测试\n# 子功能：x\n# 执行：y"
+              "\n# 验证方式：z\n# 不适用条件：无\n\n正文内容用于通过闸门")
+    r5 = mcp_server.call_tool(cg, "cg", {
+        "op": "write", "node_id": "w5", "content": _body5,
+        "session": "s5.dsh.maintainer.D_4_ai.1791340000.aaaaaaaaaaaa",
+        "content_kind": "text", "tags": ["测试"],
+    })
+
+    tg5 = tags_of(cg, "w5")
+    ok("用途:修缺陷" in tg5, "T5 写入面也按身份打用途标签（两通路同判据）", tg5)
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
