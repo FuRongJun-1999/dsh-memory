@@ -1210,7 +1210,7 @@ class MdCGOS(MdCG):
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
-                    end_operator=None, time_axis=None, view=None):
+                    end_operator=None, time_axis=None, view=None, tags_any=None):
         """候选池：按层 + role 过滤。默认剔除工作角色（工具输出/命令/编辑）。
 
         session：会话归属过滤（frontmatter.session，写入时自动落盘）——
@@ -1271,6 +1271,13 @@ class MdCGOS(MdCG):
             # '"*"' = 显式跨会话（读遍所有会话）；缺省 None 同义（见 stg.timeline）
             if session and session != "*" and e.get("session") != session:
                 continue
+            # 标签预筛（2026-11-14，目标②）：按「用途:」等标签在**候选生成阶段**收敛，
+            # 避免 3.5 万节点全量打分（实测全库 24–29s，按层筛后 0.06s）。
+            # 语义：tags_any 内任一标签即可（OR）；缺省 None = 不过滤（零行为变更）。
+            if tags_any:
+                _et = e.get("tags") or ()
+                if not any(t in _et for t in tags_any):
+                    continue
             if e.get("branch_id") not in (None, branch):
                 continue
             if validity and trust.is_expired(e, now=now):
@@ -1318,7 +1325,7 @@ class MdCGOS(MdCG):
     @staticmethod
 # 生效条件：node_dict 的 frontmatter 中 ccg_exempt 为真且 content 去空白后非空时返回 DEFER 记录，否则以 (node_dict, query, context) 转 MdCG.judge_qualification；
     def judge_qualification(node_dict, query: str, context=None,
-                             strict_conditions: bool = True):
+                             strict_conditions: bool = True, tags_any=None):
         """在父类四态之上支持 legacy 记忆（迁移进来的自由文本）。
 
         迁移进来的历史记忆没有 CCG 5 要素注释。若直接按父类判 BLINDSPOT，
@@ -1409,7 +1416,7 @@ class MdCGOS(MdCG):
                session=None, branch=None, validity=None,
                start_time=None, end_time=None, start_operator=None,
                end_operator=None, time_axis=None, view=None,
-               strict_conditions: bool = True):
+               strict_conditions: bool = True, tags_any=None):
         """在父类语义之上加 role 过滤（默认剔除工具输出/命令/编辑）。
 
         返回 (results, meta)，与 MdCG.search 完全同构（T0–T3 阶梯 + 资格判定）。
@@ -1441,7 +1448,7 @@ class MdCGOS(MdCG):
                                    start_time=start_time, end_time=end_time,
                                    start_operator=start_operator,
                                    end_operator=end_operator, time_axis=time_axis,
-                                   view=view)
+                                   view=view, tags_any=tags_any)
         _tf = getattr(self, "_time_filter_stat", None)
         if not entries:
             _m = {"tier": None, "reason": "no_candidates", "scanned": 0}
