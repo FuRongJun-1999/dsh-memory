@@ -66,7 +66,18 @@ MAX_COMPARE = 240           # 单次重复检测的**下限**（写入非热路�
 # issue #929 问题4（2026-11-14）：同层池 >240 时纯截断 ⇒ 漏比且调用方只看到 truncated。
 # 改为**自适应上限**：池大时按比例放大，封顶 MAX_COMPARE_CAP（单点 ~38µs，1200 次 ≈ 46ms，
 # 写路径可接受）。仍超出上限才标 truncated（如实，不静默）。
-MAX_COMPARE_CAP = 1200      # 自适应上限的封顶（防病态大池拖垮写路径）
+MAX_COMPARE_CAP = 1200      # 自适应上限的**缺省**封顶（防病态大池拖垮写路径）
+# 运行期开关（复核意见：常量无法回退）：MDCG_MAX_COMPARE_CAP 覆盖，
+# 设成 240 即等价旧行为（硬截断）；设成 0 或负数 ⇒ 关掉自适应，回到 240。
+
+
+def _max_compare_cap() -> int:
+    import os as _os
+    try:
+        v = int(_os.environ.get("MDCG_MAX_COMPARE_CAP", str(MAX_COMPARE_CAP)))
+    except ValueError:
+        return MAX_COMPARE_CAP
+    return v if v > MAX_COMPARE else MAX_COMPARE
 
 
 # 生效条件：candidate_total 为正整数时返回本次实际比对上限——池 ≤240 原样；否则按池半量放大并封顶
@@ -76,7 +87,7 @@ def _adaptive_limit(candidate_total: int) -> int:
         return MAX_COMPARE
     # 池超过下限 ⇒ **尽量全比**（只受 CAP 约束）：半量放大仍会在 240–480 区间继续截断，
     # 与「不漏比」的目标相悖。单点 ~38µs，1200 次 ≈ 46ms，写路径可接受。
-    return min(MAX_COMPARE_CAP, n)
+    return min(_max_compare_cap(), n)
 
 # 来源类型 → 权重（确定性内部产生 = 低权；外部惊奇 = 高权）
 SOURCE_WEIGHT = {
