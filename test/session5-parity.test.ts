@@ -68,3 +68,13 @@ test('S6 开关关闭时 s5For 不产出五元组（不猜）', () => {
     if (prev !== undefined) process.env.MDCG_SESSION5 = prev
   }
 })
+
+test('S7 身份取值来自配置登记（选项 C），未匹配回退、均无则 agent', () => {
+  const src = readFileSync(new URL('../src/hooks.ts', import.meta.url), 'utf8')
+  assert.ok(src.includes('MDCG_SESSION5_UNITS'), '缺配置登记变量')
+  assert.ok(src.includes('function unitFor('), '缺身份取值函数')
+  assert.ok(src.includes('先长后短') || src.includes('sort((a, b) => b[0].length - a[0].length)'),
+    '前缀匹配需按长度降序（避免短前缀抢先）')
+  assert.ok(src.includes("process.env.MDCG_UNIT || 'agent'"), '回退链：MDCG_UNIT → agent')
+  assert.ok(!src.includes("unitFor(hostSid) || 'maintainer'"), '不得把某个身份写死成默认')
+})

@@ -774,6 +774,24 @@ function sessionIdOf(raw: unknown): string {
 // 开关：缺省关闭（MDCG_SESSION5=1 或 opts.session5=true 才启用）——避免在身份段取值定稿前改行为。
 const HOST_TO_S5 = new Map<string, string>()
 
+// 身份取值（选项 C：**配置里登记**，不由端侧推断、不猜）：
+//   MDCG_SESSION5_UNITS='前缀=身份;前缀=身份' —— 按宿主会话标识前缀匹配，先长后短；
+//   未匹配则回退 MDCG_UNIT；两者都无 ⇒ 'agent'（保守默认）。
+// 为什么这么设计：实测真实库五元组 0 条，而身份段语义必须由使用者决定（agent/维护者/设计者…）。
+let UNIT_MAP: Array<[string, string]> | null = null
+function unitFor(hostSid: string): string {
+  if (UNIT_MAP === null) {
+    UNIT_MAP = []
+    for (const part of String(process.env.MDCG_SESSION5_UNITS || '').split(';')) {
+      const i = part.indexOf('=')
+      if (i > 0) UNIT_MAP.push([part.slice(0, i).trim(), part.slice(i + 1).trim().toLowerCase()])
+    }
+    UNIT_MAP.sort((a, b) => b[0].length - a[0].length)
+  }
+  for (const [prefix, unit] of UNIT_MAP) if (prefix && hostSid.startsWith(prefix) && unit) return unit
+  return String(process.env.MDCG_UNIT || 'agent').trim().toLowerCase() || 'agent'
+}
+
 // 生效条件：给出宿主会话标识与首条用户消息，返回五元组标识；开关未启用或无法算出时返回空串（不猜）
 function s5For(hostSid: string, firstMessage: string): string {
   if (!hostSid || isSession5(hostSid)) return hostSid || ''
@@ -784,7 +802,7 @@ function s5For(hostSid: string, firstMessage: string): string {
   try {
     const made = makeSession5(
       'dsh',
-      process.env.MDCG_UNIT || 'agent',
+      unitFor(hostSid),
       process.cwd(),
       Math.floor(Date.now() / 1000),
       firstMessage || hostSid,
