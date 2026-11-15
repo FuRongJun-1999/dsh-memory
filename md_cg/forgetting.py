@@ -62,7 +62,21 @@ IMPORTANCE_MIN = 0.30       # 重要度 < 此值 → 不予写入
 PROTECT_IMPORTANCE = 0.70   # 对齐 tool_table：≥0.7 触发不可遗忘保护
 MAX_BITS = 4.0              # 自信息归一化上限（dup=0 时 4.0 bit）
 EPS = 0.0625                # 自信息平滑（避免 dup=0 时取 log(0)）
-MAX_COMPARE = 240           # 单次重复检测最多比对的同层节点数（写入非热路径）
+MAX_COMPARE = 240           # 单次重复检测的**下限**（写入非热路径）
+# issue #929 问题4（2026-11-14）：同层池 >240 时纯截断 ⇒ 漏比且调用方只看到 truncated。
+# 改为**自适应上限**：池大时按比例放大，封顶 MAX_COMPARE_CAP（单点 ~38µs，1200 次 ≈ 46ms，
+# 写路径可接受）。仍超出上限才标 truncated（如实，不静默）。
+MAX_COMPARE_CAP = 1200      # 自适应上限的封顶（防病态大池拖垮写路径）
+
+
+# 生效条件：candidate_total 为正整数时返回本次实际比对上限——池 ≤240 原样；否则按池半量放大并封顶
+def _adaptive_limit(candidate_total: int) -> int:
+    n = int(candidate_total or 0)
+    if n <= MAX_COMPARE:
+        return MAX_COMPARE
+    # 池超过下限 ⇒ **尽量全比**（只受 CAP 约束）：半量放大仍会在 240–480 区间继续截断，
+    # 与「不漏比」的目标相悖。单点 ~38µs，1200 次 ≈ 46ms，写路径可接受。
+    return min(MAX_COMPARE_CAP, n)
 
 # 来源类型 → 权重（确定性内部产生 = 低权；外部惊奇 = 高权）
 SOURCE_WEIGHT = {
@@ -178,7 +192,7 @@ def self_coverage(cg, node_id, content):
 
 
 # 生效条件：先按 cg.index 的 nodes 求出同层候选集（剔除 nid==exclude；layer 为真值时只收 str(layer 字段 or "")==layer 的节点）并记 candidate_total；content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0，**不带 truncated 键**）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），按索引序遍历候选，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。**截断必须可观测**（issue #358）：若 break 发生在候选集耗尽之前（scanned<candidate_total），best 追加 candidate_total（同层候选总数真值）与 truncated=True；未截断时两键**不出现**——正常写入报文与改动前逐位一致（保住 test_mode_parity 的 Q 组对拍）。
-def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE):
+def redundancy(cg, content, layer="contextual", exclude=None, limit=None):
     """Q1 重复？——新内容被既有同层节点覆盖的最大比例。
 
     issue #358 ①（外部校准）：MAX_COMPARE=240 按索引序截断近重复比对，而
@@ -203,6 +217,9 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
              if nid != exclude
              and (not layer or str(nodes[nid].get("layer") or "") == layer)]
     candidate_total = len(cands)
+    # issue #929 问题4：未显式给 limit 时用自适应上限（池大则多比，封顶 CAP）
+    if limit is None:
+        limit = _adaptive_limit(candidate_total)
     # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
     # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
     # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处循环外探一次、
@@ -240,6 +257,9 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=MAX_COMPARE)
     best["compared"] = n
     # issue #358 ①：截断可观测——只有真的没扫完候选集才落键（未截断时返回体
     # 与改动前逐位一致；mode_parity Q 组对拍依赖这一点）。
+    # issue #929 问题4：candidate_total **恒定透出**（调用方需要知道池有多大），
+    # truncated 只在真的没比完时为 True——不静默、也不虚报。
+    best["candidate_total"] = candidate_total
     if scanned < candidate_total:
         best["candidate_total"] = candidate_total
         best["truncated"] = True
