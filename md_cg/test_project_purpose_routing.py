@@ -38,6 +38,9 @@ def main():
     r3 = mcp_server.call_tool(cg, 'cg', {'op': 'read', 'query': '容量压测', 'k': 5})
     ok(((r3 or {}).get('meta') or {}).get('search_path') != 'single_preferred',
        'P4 不传 project/purpose ⇒ 不走优先域（零行为变更）')
+    # P5/P6：工具面端到端（复核意见：库层对拍不证明参数解析→路由组装→响应序列化）
+    ok((m1 or {}).get('tags_scope') == 'preferred', 'P5 工具面响应里带 tags_scope=preferred（标签确实装配到检索）', m1.get('tags_scope'))
+    ok('tags_coverage' in (m1 or {}), 'P6 工具面响应里带 tags_coverage（覆盖率读数随响应透出）', list((m1 or {}).keys())[:6])
     print()
     print('全部通过' if not FAILS else '失败 %d 项' % len(FAILS))
     return 1 if FAILS else 0

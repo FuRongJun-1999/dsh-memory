@@ -25,6 +25,23 @@ def main():
     ok(bool(ct and ct > forgetting.MAX_COMPARE), 'L4 夹具确实造出 >240 的同层池', ct)
     ok(not (out or {}).get('truncated'), 'L5 自适应后不再截断（不漏比；缺键=未截断）', out)
     ok((out or {}).get('compared', 0) > 240, 'L6 比对量确实放大（>240）', (out or {}).get('compared'))
+    # L7/L8：复核意见要求的「实际比较数」断言 + 运行期回退开关
+    os.environ['MDCG_MAX_COMPARE_CAP'] = '300'
+    try:
+        lim = forgetting._adaptive_limit(400)
+    finally:
+        os.environ.pop('MDCG_MAX_COMPARE_CAP', None)
+    ok(lim == 300, 'L7 运行期开关 MDCG_MAX_COMPARE_CAP 生效（400 池 ⇒ 封顶 300）', lim)
+    os.environ['MDCG_MAX_COMPARE_CAP'] = '240'
+    try:
+        out2 = forgetting.redundancy(cg, body + ' 又一次写入', layer='contextual')
+    finally:
+        os.environ.pop('MDCG_MAX_COMPARE_CAP', None)
+    ok((out2 or {}).get('compared') == 240 and (out2 or {}).get('truncated') is True,
+       'L8 置 240 即等价旧行为（截断并如实标 truncated）', out2)
+    out3 = forgetting.redundancy(cg, body + ' 第三次写入', layer='contextual')
+    ok((out3 or {}).get('compared') == min(400, forgetting.MAX_COMPARE_CAP),
+       'L9 缺省下实际比较数=池大小（不漏比）', (out3 or {}).get('compared'))
     print()
     print('全部通过' if not FAILS else '失败 %d 项' % len(FAILS))
     return 1 if FAILS else 0
