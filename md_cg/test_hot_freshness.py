@@ -32,7 +32,11 @@ def main():
         ok(hottier.is_fresh(cg) is False, 'F6 TTL=0 且戳已变 ⇒ 判为不新鲜（可配置）')
     finally:
         os.environ.pop('MDCG_HOT_TTL_S', None)
-    ok(hottier.is_fresh(cg) is True, 'F7 恢复缺省 TTL 后，刚写过仍视为新鲜（避免每次重建）')
+    ok(hottier.is_fresh(cg) is False, 'F7 新增节点 ⇒ 指纹变 ⇒ 不新鲜（新记忆必须能进热层）')
+    hottier.ensure(cg)
+    cg.add('h1', '热层新鲜判据用例一（只改标签）', layer='knowledge', tags=['用途:做设计'])
+    cg.flush()
+    ok(hottier.is_fresh(cg) is True, 'F8 只改标签（节点集合未变）⇒ 仍新鲜，不因改标签重建')
     print()
     print('全部通过' if not FAILS else '失败 %d 项' % len(FAILS))
     return 1 if FAILS else 0
