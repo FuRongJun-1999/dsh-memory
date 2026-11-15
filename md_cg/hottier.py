@@ -213,21 +213,49 @@ def load(root: str):
     return {"nodes": nodes, "postings": postings, "meta": meta}
 
 
-def is_fresh(root: str) -> bool:
-    """热层是否新鲜（meta 里的源库戳 == 当前源库戳）。"""
+def _root_of(x):
+    """库对象或库根字符串 → 库根（统一 is_fresh/ensure/search 的入参口径）。"""
+    return x if isinstance(x, str) else str(getattr(x, "root", "") or "")
+
+
+def is_fresh(x, ttl_s=None) -> bool:
+    """热层是否新鲜。
+
+    两层判据（2026-11-14 修）：
+      A. 源库戳相等 ⇒ 新鲜（最强判据）；
+      B. 否则看 **构建后经过的秒数**：小于 ttl（缺省 MDCG_HOT_TTL_S=600）也算新鲜。
+    为什么加 B：_index.json 的 mtime/size **每次写入都变**，只认戳会导致
+    「每写一条就全量重建一次热层」（实测每次 3.2 秒 × 每轮对话）——分层反而变慢。
+    宁可让热层短期稍旧（≤ttl），也不让每次都重建。
+    """
+    root = _root_of(x)
     h = load(root)
     if not h:
         return False
     cur = source_stamp(root)
-    return cur != "missing" and h["meta"].get("source_stamp") == cur
+    if cur != "missing" and h["meta"].get("source_stamp") == cur:
+        return True
+    if ttl_s is None:
+        try:
+            ttl_s = float(__import__("os").environ.get("MDCG_HOT_TTL_S", "600"))
+        except ValueError:
+            ttl_s = 600.0
+    try:
+        age = __import__("time").time() - float(h["meta"].get("built_at") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= age < ttl_s
 
 
-def ensure(cg, *, force: bool = False, **kw) -> dict:
-    """确保热层存在且新鲜；返回 meta（未过期则不重建）。"""
-    root = getattr(cg, "root", "")
+def ensure(cg, force=False, **kw):
+    """取热层；不新鲜则重建。入参可传库对象（推荐）或库根字符串。
+
+    2026-11-14 修：新鲜判据改走 is_fresh(cg)（支持对象 + TTL），
+    此前 ensure 用 source_stamp(root) 只认戳 ⇒ 每写一条就重建，实测每轮多耗 3–4 秒。
+    """
+    root = _root_of(cg)
     h = load(root)
-    cur = source_stamp(root)
-    if h and not force and cur != "missing" and h["meta"].get("source_stamp") == cur:
+    if h and not force and is_fresh(cg):
         return dict(h["meta"], reused=True)
     return dict(build(cg, **kw), reused=False)
 
