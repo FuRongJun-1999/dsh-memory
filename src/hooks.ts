@@ -461,6 +461,18 @@ function sessionUnitOf(s: unknown): string {
 // 其余会话（执行者/角色扮演/使用者/未登记）只看日常——这正是「工作与日常分开」。
 const WORK_UNITS = new Set(['maintainer', 'designer', 'auditor', 'verifier', 'recorder', 'reflector', 'output', 'sustain'])
 
+// 未登记身份的排查提示（使用者要求：给出定义与文档链接，否则别人无从排查）。
+// 定义：会话标识须为五元组 s5.<端>.<身份>.<工作区>.<创建时间>.<首条消息摘要>，第二段即身份。
+const IDENTITY_DOC = 'docs/architecture/会话身份与工作日常分离_v0.1.md'
+export const IDENTITY_MISSING_HINT =
+  '（本会话身份未登记：标识非五元组形态，已按「日常」处理。'
+  + '定义与排查见 ' + IDENTITY_DOC + '）'
+
+// 生效条件：unit 为空（未登记/解析失败）时返回该提示，否则返回空串（不打扰）
+export function identityHint(unit: string): string {
+  return String(unit || '') ? '' : IDENTITY_MISSING_HINT
+}
+
 // 生效条件：item 为 timeline 条目、unit 为当前会话身份；判它是否不得进「最近记忆」块
 function recallSkipItem(item: { layer?: unknown; tags?: unknown } | null | undefined, unit = ''): boolean {
   const layer = String((item && item.layer) || '')
@@ -1150,6 +1162,7 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             { unit: sessionUnitOf(sid) })
           // issue #749：knowledge 条目在前（跨会话知识），时间线在后（本会话工作记忆）
           const text = [knowText, timelineText].filter(Boolean).join('\n')
+            + (timelineText && !timelineText.includes('身份未登记') ? '\n' + identityHint(sessionUnitOf(sid)) : '')
           if (text) {
             // 注入边界转义（issue #16）：宿主 system-prompt 对 context 文本做严格
             // `{{variable}}` 插值，裸 `{{` 会 throw → 该轮请求整体失败。记忆原文

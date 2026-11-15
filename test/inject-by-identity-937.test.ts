@@ -39,3 +39,19 @@ test('K4 身份取自会话标识第二段（不新增维度）', () => {
   assert.ok(/parts\[2\]/.test(src), '身份必须取五元组第二段')
   assert.ok(src.includes('formatTimelineDecayed(dedupeRepeatedItems(timelinePayload, seenMap, 2),'), '注入侧需把身份传进渲染')
 })
+
+test('K5 未登记身份必须给出定义与文档链接（可排查）', () => {
+  const src = readFileSync(new URL('../src/hooks.ts', import.meta.url), 'utf8')
+  assert.ok(src.includes('IDENTITY_MISSING_HINT'), '缺未登记提示常量')
+  assert.ok(src.includes('docs/architecture/会话身份与工作日常分离_v0.1.md'),
+    '提示必须带文档路径，否则别人无从排查')
+  assert.ok(src.includes('s5.<端>.<身份>.<工作区>'), '提示处需写明五元组定义')
+  assert.ok(src.includes('已按「日常」处理'), '需说明当前降级行为')
+  assert.ok(/identityHint\(sessionUnitOf\(sid\)\)/.test(src), '提示须按当前会话身份决定是否出现')
+})
+
+test('K6 未登记提示在未登记时出现、已登记时不出现', async () => {
+  const mod = await import('../src/hooks.ts')
+  assert.equal(mod.identityHint(''), mod.IDENTITY_MISSING_HINT)
+  assert.equal(mod.identityHint('maintainer'), '')
+})
