@@ -688,7 +688,26 @@ def _norm_word_mem(w: str) -> str:
     return r
 
 # 生效条件：给定 text（假值按 "" 处理），先清除非中文/空格/字母数字字符，再对长度 ≥2 的英文词小写、若在 EN_STOPWORDS 中剔除否则 strip_tense_en 去时态复数，压缩空白后返回；中文保持不变。
+# 检索面重音折叠缓存（2026-11-14）：实测一次 search 里 fold_accents 被调 298,793 次、
+# 累计 38 秒（占 73 秒一半以上）——它是**纯函数**，同一字符串重复折叠毫无意义。
+# 故加记忆化：命中直接返回；容量上限 200k，超限清空。
+_FOLD_CACHE = {}
+_FOLD_CACHE_MAX = 200000
+
+
 def fold_accents(text: str) -> str:
+    key = text if isinstance(text, str) else str(text or '')
+    hit = _FOLD_CACHE.get(key)
+    if hit is not None:
+        return hit
+    val = _fold_accents_uncached(key)
+    if len(_FOLD_CACHE) >= _FOLD_CACHE_MAX:
+        _FOLD_CACHE.clear()
+    _FOLD_CACHE[key] = val
+    return val
+
+
+def _fold_accents_uncached(text: str) -> str:
     """检索面重音折叠单点（issue #636）：NFKC → NFD 去组合记号 → NFC。
 
     为什么单独一个函数：本仓的 NFKC 单点是 routing.nfkc_text（#362），它**不剥离重音**——
