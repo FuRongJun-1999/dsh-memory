@@ -4746,6 +4746,18 @@ def _dispatch(cg, name, args):
                     "got_type": type(a.get("role")).__name__,
                     "hint": "role 须为字符串（省略即合法）；非字符串会让节点落盘后被自家"
                             "装载器判 frontmatter 损坏而**隔离**（不进索引、get/search 读不到）。"}
+        # 用途标签（goal-caf158e5 第②步）：由**会话身份派生**，不靠内容关键词；
+        # 无身份（旧形态标识/未登记）则不出标签——不猜。只加标签，不改落层与落点。
+        try:
+            from . import identity_names as _idn
+            _pt = _idn.purpose_tag(a.get("session"))
+            if _pt:
+                _tg = list(a.get("tags") or [])
+                if _pt not in _tg:
+                    _tg.append(_pt)
+                a = dict(a, tags=_tg)
+        except Exception:            # noqa: BLE001 —— 打标失败不得影响写入
+            pass
         if a.get("gated"):
             res = cg.remember_gated(
                 nid, a.get("content", ""), layer=a.get("layer") or "contextual",
