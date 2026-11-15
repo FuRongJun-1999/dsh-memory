@@ -1371,6 +1371,46 @@ class MdCGOS(MdCG):
         并把 meta.prefilter_fallback=True 如实标出，便于事后核对。
         """
         res, meta = self._search_impl(*args, **kwargs)
+        # 标签预筛的两道安全阀（2026-11-14，验证单元复核结论）：
+        # ① 覆盖率闸：带标签节点占比过低时禁止过滤（否则 95% 节点永久不可达）；
+        # ② 空结果回退：预筛后为空 ⇒ 自动回全库重查并标注 fallback，绝不静默报空。
+        # 语义定稿（2026-11-14，据验证单元复核 + T2 全局档实测）：
+        # tags_any 是**优先域**，不是硬过滤——有带标签的命中就优先给它们（实测 0.31s），
+        # 过滤后为空时由检索内部的全局档兜底（保证不漏召回）。
+        # 该兜底会绕过标签，故必须**显式标注**，避免调用方误以为在看限定范围。
+        if kwargs.get("tags_any") and isinstance(meta, dict):
+            meta["tags_scope"] = "preferred"
+        if kwargs.get("tags_any") and isinstance(meta, dict):
+            # 回退真相标注：带 tags_any 却走到全局扫描档（T2/T3）⇒ 说明预筛没兜住，
+            # 结果来自回退而非预筛。记下来便于事后核对（不静默）。
+            _tier = str(meta.get("tier") or "")
+            if _tier.startswith(("T2", "T3")):
+                meta["fallback"] = "tags_any_global_scan"
+            _nodes = (self.index.get("nodes") or {})
+            _total = len(_nodes) or 1
+            _tagged = sum(1 for e in _nodes.values() if e.get("tags"))
+            _cov = _tagged / float(_total)
+            meta["tags_coverage"] = round(_cov, 4)
+            try:
+                from os import environ as _env
+                _min_cov = float(_env.get("MDCG_TAGS_MIN_COVERAGE", "0.60"))
+            except ValueError:
+                _min_cov = 0.60
+            if _cov < _min_cov:
+                _kw = dict(kwargs); _kw.pop("tags_any", None)
+                _r2, _m2 = self._search_impl(*args, **_kw)
+                if isinstance(_m2, dict):
+                    _m2["tags_any_disabled"] = "coverage_low"
+                    _m2["tags_coverage"] = round(_cov, 4)
+                return _r2, _m2
+            if not res:
+                _kw = dict(kwargs); _kw.pop("tags_any", None)
+                _r2, _m2 = self._search_impl(*args, **_kw)
+                # 无论回退结果空不空都要留痕：空=仍无结果，非空=来自回退。
+                if isinstance(_m2, dict):
+                    _m2["fallback"] = "tags_any_empty" if _r2 else "tags_any_empty_and_none"
+                if _r2:
+                    return _r2, _m2
         # 置信判据：预筛生效时，看**查询词在结果里的覆盖率**。
         # 实测：标签不匹配的查询会返回 5 条「格式对但内容不对」的结果（覆盖率 2/3、2/4），
         # 而真正命中的查询覆盖 3/3。故 < 75% 视为不自信 ⇒ 禁用预筛重查一次。
@@ -7805,7 +7845,7 @@ class MdCGSecure(MdCGOS):
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
-                    end_operator=None, time_axis=None, view=None):
+                    end_operator=None, time_axis=None, view=None, tags_any=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
                                   session=None, branch=branch, validity=validity,
                                   start_time=start_time, end_time=end_time,
