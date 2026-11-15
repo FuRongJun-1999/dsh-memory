@@ -51,12 +51,17 @@ def _fm(rec):
 
 
 def build(store, write=True, with_content=False, content_limit=400):
-    """从索引面重建两个桶。返回 {days, sessions, nodes, unattributed}。"""
+    """从索引面重建桶。返回 {days, sessions, purposes, nodes, unattributed}。
+
+    purposes 是「用途」副键（goal-caf158e5）：来自写时标签「用途:xx」，纯增量，
+    不进词表，故不影响既有检索打分与桶名。
+    """
     idx = getattr(store, "index", {}) or {}
     content_terms = 0
     nodes = idx.get("nodes") or {}
     days = {}
     sessions = {}
+    purposes = {}
     unattributed = 0
     for nid, rec in nodes.items():
         fm = _fm(rec)
@@ -67,6 +72,13 @@ def build(store, write=True, with_content=False, content_limit=400):
         if sid == UNATTRIBUTED:
             unattributed += 1
         sessions.setdefault(sid, []).append(nid)
+        # 用途副键（goal-caf158e5 第②步）：从**写时打的「用途:xx」标签**取，
+        # 不读 session（实测 remember 路径会话归属会丢），也不靠内容关键词。
+        # **纯增量**：只多一个 purposes 映射，不进 terms/skel 词表 ⇒ 既有打分与桶名零变化。
+        for _t in (fm.get("tags") or []):
+            _ts = str(_t)
+            if _ts.startswith("用途:"):
+                purposes.setdefault(_ts, []).append(nid)
     # 桶词表：{bucket_key: {term: 次数}} —— 供 scopeselect 打分（查询期只做字典运算）
     terms = {}
     skel = {}
@@ -106,6 +118,8 @@ def build(store, write=True, with_content=False, content_limit=400):
             for t in toks[:content_limit]:
                 bag[t] = bag.get(t, 0) + 1
     out = {"content_enriched": content_terms, "days": len(days), "sessions": len(sessions),
+           # 用途副键计数（goal-caf158e5）：纯增量，只多一个读数，不改既有键与词表
+           "purposes": len(purposes),
            "nodes": len(nodes), "unattributed": unattributed}
     if write:
         root = getattr(store, "root", None)
