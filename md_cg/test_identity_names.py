@@ -33,6 +33,11 @@ def main():
     ok(parsed.get("unit_cn") == "执行者" and parsed.get("harness_cn") == "DSH 端",
        "I4 示例会话可解析并给中文展示名", parsed)
     ok(nm.parse_identity("session-abc") == {}, "I4b 非五元组标识返回空（不硬解析）")
+    ok(nm.purpose_of("s5.dsh.maintainer.D_4_ai.1.abc") == "修缺陷", "I5 身份派生出用途（不靠关键词）")
+    ok(nm.purpose_of("s5.dsh.roleplay.D_4_ai.1.abc") == "扮演", "I5b 扮演身份 → 扮演用途")
+    ok(nm.purpose_of("session-abc") == "", "I6 解析不出身份 ⇒ 用途为空（不猜）")
+    ok(nm.purpose_tag("s5.dsh.maintainer.D_4_ai.1.abc") == "用途:修缺陷", "I6b 标签形态")
+    ok(nm.purpose_tag("session-abc") == "", "I6c 无身份不出标签")
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
     return 1 if FAILS else 0
