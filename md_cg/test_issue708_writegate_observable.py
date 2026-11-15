@@ -94,12 +94,22 @@ def main():
         except Exception as e:  # noqa: BLE001
             ok(False, "C1 带 reviewers ⇒ 审计节点落盘成功", "%s: %s" % (type(e).__name__, e))
 
+        # 2026-11-14 语义变更（issue #929 / PR #962）：审计记录改归**情景层**（工作记录），
+        # 不再是 2 档 ⇒ 本条不再能验证「2 档需 reflect+verify」。改用**显式结构层写入**验证同一不变量。
         try:
-            cg2._write_review_record(dict(rec, record_node_id="audit_p2_r1"), reviewers=None)
-            ok(False, "C2 不带 reviewers 仍应被拒（对照：不是放水）", "竟然成功了")
+            cg2.add("c2_structural", "# 功能名：结构事件对照\n# 生效条件：测试\n# 子功能：s\n# 执行：e\n# 验证方式：t\n# 不适用条件：无\n\n正文",
+                   layer="structural", override=True)
+            ok(False, "C2 结构层不带 reviewers 仍应被拒（对照：不是放水）", "竟然成功了")
         except Exception as e:  # noqa: BLE001
             ok("分层复核闸" in str(e) or "AccessDenied" in type(e).__name__,
-               "C2 不带 reviewers 仍被拒（对照）", "%s: %s" % (type(e).__name__, str(e)[:60]))
+               "C2 结构层不带 reviewers 仍被拒（对照）", "%s: %s" % (type(e).__name__, str(e)[:60]))
+        # C3 新语义：审计记录落情景层，**不需要** 2 档复核也能写（否则日志写不进）
+        try:
+            _nid3 = cg2._write_review_record(dict(rec, record_node_id="audit_p2_r1"), reviewers=None)
+            _ent3 = (cg2.index.get("nodes") or {}).get(_nid3) or {}
+            ok(_ent3.get("layer") == "contextual", 'C3 审计记录不带 reviewers 也能落（情景层）', _ent3.get("layer"))
+        except Exception as e:  # noqa: BLE001
+            ok(False, 'C3 审计记录不带 reviewers 也能落（情景层）', "%s: %s" % (type(e).__name__, str(e)[:80]))
         cg2.close()
 
         print("== D 全链透传锚点（静态）")
@@ -121,7 +131,8 @@ def main():
         print("== E 透传后仍需齐备（不得变成万能放行）")
         cg3 = MdCGSecure(os.path.join(T, "brain"), principal=p, autoflush=1)
         try:
-            cg3._write_review_record(dict(rec, record_node_id="audit_p3_r1"), reviewers=("reflect",))
+            cg3.add("e1_structural", "# 功能名：结构事件对照二\n# 生效条件：测试\n# 子功能：s\n# 执行：e\n# 验证方式：t\n# 不适用条件：无\n\n正文",
+                   layer="structural", override=True, reviewed_by=("reflect",))
             ok(False, "E1 只给 reflect（缺 verify）应被拒（2 档需两者）", "竟然成功了")
         except Exception as e:  # noqa: BLE001
             ok("AccessDenied" in type(e).__name__, "E1 只给 reflect 仍被拒", str(e)[:60])
