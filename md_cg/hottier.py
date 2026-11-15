@@ -135,6 +135,15 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
     now = time.time()
     cutoff = now - recent_days * 86400
     picked = {}
+    # 增量复用（2026-11-14，目标①）：既有热层里 content_hash 未变的节点**不重读正文**。
+    # 实测全量重建 3.2s，其中约 3s 是 6000 次 cg.get 读盘；跳过未变节点即可。
+    _prev_nodes = {}
+    try:
+        _ph = load(root)
+        if _ph and isinstance(_ph.get("nodes"), dict):
+            _prev_nodes = _ph["nodes"]
+    except Exception:
+        _prev_nodes = {}
     unreadable = 0
     truncated = False
     # 两遍：① 自我/锚点**永不因上限被挤掉**；② 其余按 (importance, 时间) 优先序取。
@@ -165,6 +174,12 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             unreadable += 1
             continue
         fm = node.get("frontmatter") or {}
+        _ev = nodes.get(nid) or {}
+        _h = str(_ev.get("content_hash") or "")
+        _pv = _prev_nodes.get(nid) or {}
+        if _h and _pv and str(_pv.get("content_hash") or "") == _h and _pv.get("preview"):
+            picked[nid] = dict(_pv)
+            continue
         body = str(node.get("content") or "")
         picked[nid] = {
             "id": nid,
@@ -173,6 +188,7 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             "t": ts,
             "session": fm.get("session") or "",
             "preview": re.sub(r"\s+", " ", body).strip()[:PREVIEW_MAX],
+            "content_hash": str((nodes.get(nid) or {}).get("content_hash") or ""),
         }
     # 兜底口径：self/anchor 若仍因上限被挤掉（理论不该发生），显式记为 truncated
     missing_self = [n for (_g, n, L, _i, _t) in priority if L in ("self", "anchor") and n not in picked]
