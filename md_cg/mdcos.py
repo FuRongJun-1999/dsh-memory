@@ -1371,6 +1371,34 @@ class MdCGOS(MdCG):
         并把 meta.prefilter_fallback=True 如实标出，便于事后核对。
         """
         res, meta = self._search_impl(*args, **kwargs)
+        # 标签预筛的两道安全阀（2026-11-14，验证单元复核结论）：
+        # ① 覆盖率闸：带标签节点占比过低时禁止过滤（否则 95% 节点永久不可达）；
+        # ② 空结果回退：预筛后为空 ⇒ 自动回全库重查并标注 fallback，绝不静默报空。
+        if kwargs.get("tags_any") and isinstance(meta, dict):
+            _nodes = (self.index.get("nodes") or {})
+            _total = len(_nodes) or 1
+            _tagged = sum(1 for e in _nodes.values() if e.get("tags"))
+            _cov = _tagged / float(_total)
+            meta["tags_coverage"] = round(_cov, 4)
+            try:
+                from os import environ as _env
+                _min_cov = float(_env.get("MDCG_TAGS_MIN_COVERAGE", "0.60"))
+            except ValueError:
+                _min_cov = 0.60
+            if _cov < _min_cov:
+                _kw = dict(kwargs); _kw.pop("tags_any", None)
+                _r2, _m2 = self._search_impl(*args, **_kw)
+                if isinstance(_m2, dict):
+                    _m2["tags_any_disabled"] = "coverage_low"
+                    _m2["tags_coverage"] = round(_cov, 4)
+                return _r2, _m2
+            if not res:
+                _kw = dict(kwargs); _kw.pop("tags_any", None)
+                _r2, _m2 = self._search_impl(*args, **_kw)
+                if _r2:
+                    if isinstance(_m2, dict):
+                        _m2["fallback"] = "tags_any_empty"
+                    return _r2, _m2
         # 置信判据：预筛生效时，看**查询词在结果里的覆盖率**。
         # 实测：标签不匹配的查询会返回 5 条「格式对但内容不对」的结果（覆盖率 2/3、2/4），
         # 而真正命中的查询覆盖 3/3。故 < 75% 视为不自信 ⇒ 禁用预筛重查一次。
@@ -7805,7 +7833,7 @@ class MdCGSecure(MdCGOS):
     def _candidates(self, layer=None, roles=None, include_work=False,
                     session=None, branch=None, validity=None,
                     start_time=None, end_time=None, start_operator=None,
-                    end_operator=None, time_axis=None, view=None):
+                    end_operator=None, time_axis=None, view=None, tags_any=None):
         out = super()._candidates(layer=layer, roles=roles, include_work=include_work,
                                   session=None, branch=branch, validity=validity,
                                   start_time=start_time, end_time=end_time,
