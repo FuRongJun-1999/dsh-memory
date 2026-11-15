@@ -2803,6 +2803,11 @@ def _cg_dispatch(cg, a):
             _bucket_auto = _bki.maybe_auto_rebuild(cg)
         except Exception:            # noqa: BLE001 —— 自动重建失败不影响 info
             _bucket_auto = {"rebuilt": False, "reason": "error"}
+        try:
+            from . import bucketindex as _bki_meta
+            _bucket_stats = _bki_meta.last_stats(cg)
+        except Exception:            # noqa: BLE001 —— 诊断面不拖崩
+            _bucket_stats = {}
         from . import audit
         from . import nodefile
         from . import theory as _th
@@ -2839,6 +2844,8 @@ def _cg_dispatch(cg, a):
              # issue #812：口径写明——它是**内存索引条目数**，不是「磁盘上活节点数」
              "node_count_scope": "memory_index",
             "bucket_auto": _bucket_auto,
+            # 分桶副键计数（goal-caf158e5）：读既有元数据文件，零重算；缺失为 {}
+            "bucket_stats": _bucket_stats,
              # issue #812：落盘索引的 mtime（零成本）。若它晚于本进程启动，说明索引被外部改过。
              "index_mtime": _idx_mtime,
              "audit_kinds": audit.kinds(),
