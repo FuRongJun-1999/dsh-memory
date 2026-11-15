@@ -43,6 +43,19 @@ def main():
     ok(any(t.startswith("用途:") for t in tg1), "T1 维护身份 ⇒ 写入带用途标签", tg1)
     ok("用途:修缺陷" in tg1, "T1b 具体用途来自身份派生", tg1)
 
+    # 验证单元要求的关键反例：正文塞满别的用途词，标签仍须由身份决定
+    _body4 = ("# 功能名：关键词反例\n# 生效条件：测试\n# 子功能：修缺陷 扮演 做验证 做审计"
+              "\n# 执行：y\n# 验证方式：z\n# 不适用条件：无\n\n修缺陷 扮演 做验证 做审计 日常")
+    r4 = mcp_server.call_tool(cg, "mdcg_remember", {
+        "content": _body4,
+        "session": "s5.dsh.designer.D_4_ai.1791340000.dddddddddddd",
+        "tags": ["测试"],
+    })
+    nid4 = (r4 or {}).get("node_id") or (r4 or {}).get("id")
+    tg4 = tags_of(cg, nid4) if nid4 else []
+    ok("用途:做设计" in tg4 and not any(t in tg4 for t in ("用途:修缺陷", "用途:扮演")),
+       "T4 正文塞满别的用途词 ⇒ 标签仍由身份决定（不靠关键词）", tg4)
+
     r2 = mcp_server.call_tool(cg, "mdcg_remember", {
         "content": "# 功能名：旧形态标识用例\n# 生效条件：测试\n# 子功能：x\n# 执行：y\n# 验证方式：z\n# 不适用条件：无\n\n正文",
         "session": "session-abc123",
