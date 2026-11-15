@@ -28,9 +28,8 @@ def main():
         ok(ids == {'t1'} or ids <= {'t1'}, 'S3 允许过滤时只返回带标签节点', ids)
         # 真不变量：预筛导致空、但全库非空 ⇒ 必须回退并标注（不是报空）
         res3, meta3 = cg.search('检索杂项', k=5, tags_any=['用途:做设计'])
-        ok(meta3.get('fallback') == 'tags_any_empty' or meta3.get('tags_any_disabled'),
-           'S4 预筛空且可回退 ⇒ 必须留下回退/禁用标记（不得静默）', meta3)
-        ok(len(res3) >= 1, 'S4b 回退后确实拿到结果（未静默报空）', len(res3))
+        ok(meta3.get('tags_scope') == 'preferred', 'S4 tags_any 语义=优先域（必须标注，不得让人误当硬过滤）', meta3)
+        ok(len(res3) >= 1, 'S4b 优先域无命中时由全局档兜底（不漏召回）', len(res3))
     finally:
         os.environ.pop('MDCG_TAGS_MIN_COVERAGE', None)
     print()
