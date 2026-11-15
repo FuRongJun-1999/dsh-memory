@@ -31,8 +31,10 @@ EXCERPT_CHARS = 600
 LLM_MAX_TOKENS = 200000
 
 
-def first_user_message(sid, root=r"D:/dsh-home/sessions", limit_bytes=1_500_000):
+def first_user_message(sid, root=None, limit_bytes=1_500_000):
     """从会话日志取首条用户消息（早停：最多解压 limit_bytes）。取不到返回空串。"""
+    if not root:
+        root = __import__("os").environ.get("DSH_HOME", "") or __import__("os").path.expanduser("~/dsh-home" + "/sessions")
     try:
         import glob
         import json as _json
