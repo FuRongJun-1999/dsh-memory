@@ -62,3 +62,34 @@ def parse_identity(session) -> dict:
         "unit_cn": human_unit(parts[2]),
         "harness_cn": human_harness(parts[1]),
     }
+
+#: 身份 → 用途（第 5 条：分桶主键要用「做什么用」，不能只有学科）
+#: 用途由**身份派生**（会话标识第二段），不靠内容关键词——同一个词在不同用途下含义不同。
+UNIT_PURPOSE = {
+    "maintainer": "修缺陷",
+    "designer": "做设计",
+    "auditor": "跑审计",
+    "verifier": "做验证",
+    "recorder": "做记录",
+    "reflector": "做反思",
+    "output": "做输出",
+    "sustain": "做维生",
+    "roleplay": "扮演",
+    "agent": "日常",
+    "user": "日常",
+}
+
+
+# 生效条件：session 为会话标识；返回该会话的用途（未登记/解析失败返回空串，不猜）
+def purpose_of(session) -> str:
+    ident = parse_identity(session)
+    unit = str(ident.get("unit") or "")
+    if not unit:
+        return ""
+    return UNIT_PURPOSE.get(unit, "")
+
+
+# 生效条件：purpose 非空时返回写入用的标签（形如 用途:修缺陷），否则返回空串
+def purpose_tag(session) -> str:
+    p = purpose_of(session)
+    return ("用途:" + p) if p else ""
