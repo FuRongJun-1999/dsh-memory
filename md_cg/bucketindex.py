@@ -137,6 +137,8 @@ def build(store, write=True, with_content=False, content_limit=400):
                 with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
                     json.dump(data, fh, ensure_ascii=False)
                 os.replace(tmp, path)
+            # 构建统计落盘（含 purposes / projects 副键计数）：读面 info 由此取，零重算。
+            _write_meta(store, out, time.time())
     return out
 
 
@@ -181,6 +183,24 @@ _RUNNING = {"on": False}
 def _meta_path(store):
     root = getattr(store, "root", None)
     return os.path.join(root, META_FILE) if root else None
+
+
+def last_stats(store):
+    """读取上次构建的统计（含 purposes / projects 副键计数）；缺失或损坏返回 {}。
+
+    为什么要它：副键计数此前只作为 build() 的返回值**算完即丢**，
+    读面（cg op=info）看不到；而元数据文件本来就由 build() 写入，故直接读它，
+    不新增文件、不重算全库。
+    """
+    p = _meta_path(store)
+    if not p or not os.path.exists(p):
+        return {}
+    try:
+        with open(p, encoding="utf-8") as fh:
+            d = json.load(fh)
+        return d if isinstance(d, dict) else {}
+    except (OSError, json.JSONDecodeError, TypeError):
+        return {}
 
 
 def last_build_ts(store):

@@ -10,7 +10,7 @@ sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-from md_cg import bucketindex  # noqa: E402
+from md_cg import bucketindex, mcp_server  # noqa: E402
 from md_cg.mdcos import MdCGOS  # noqa: E402
 
 FAILS = []
@@ -47,6 +47,15 @@ def main():
     out2 = bucketindex.build(cg2, write=False)
     ok(out2.get("purposes") == 0 and out2.get("projects") == 0,
        "P7 无项目/用途标签 ⇒ 两副键计数为 0（不凭空造桶）", out2)
+
+    # P8 可读：构建落盘后，读面（last_stats / info.bucket_stats）能看到副键计数
+    bucketindex.build(cg, write=True)
+    st = bucketindex.last_stats(cg)
+    ok(st.get("purposes") == 2 and st.get("projects") == 1,
+       "P8 副键计数可读（落盘后 last_stats 非空）", st)
+    info = mcp_server.call_tool(cg, "cg", {"op": "info"}) or {}
+    ok((info.get("bucket_stats") or {}).get("purposes") == 2,
+       "P8b info.bucket_stats 暴露副键计数（不再算完即丢）", info.get("bucket_stats"))
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))
