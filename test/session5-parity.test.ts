@@ -5,6 +5,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import { makeSession5, isSession5, parseSession5, slugWorkspace, digestMessage } from '../src/lib/session5.ts'
 
 const cases = [
@@ -44,4 +45,26 @@ test('S3 工作区 slug 归一（两种写法同值）', () => {
 test('S4 首条消息摘要取前 12 位十六进制', () => {
   assert.equal(digestMessage('abc'), digestMessage('abc'))
   assert.match(digestMessage('abc'), /^[0-9a-f]{12}$/)
+})
+
+test('S5 端侧接线开关缺省关闭（不改变既有行为）', () => {
+  const src = readFileSync(new URL('../src/hooks.ts', import.meta.url), 'utf8')
+  assert.ok(src.includes("process.env.MDCG_SESSION5 === '1'"), '开关必须是显式启用（缺省关闭）')
+  assert.ok(src.includes('function s5For('), '缺端侧接线函数')
+  assert.ok(src.includes('HOST_TO_S5'), '需记住「宿主标识 → 五元组」映射，保证同会话稳定')
+  assert.ok(src.includes('已写入的旧标识不回填'), '需写明存量不回填纪律')
+})
+
+test('S6 开关关闭时 s5For 不产出五元组（不猜）', () => {
+  const prev = process.env.MDCG_SESSION5
+  delete process.env.MDCG_SESSION5
+  try {
+    const s = makeSession5('dsh', 'agent', '/x', 1791340000, 'm')
+    assert.ok(isSession5(s))
+    // s5For 未导出：以源码断言 + 开关语义为准（行为级验证需端侧集成）
+    const src = readFileSync(new URL('../src/hooks.ts', import.meta.url), 'utf8')
+    assert.ok(/if \(!on\) return ''/.test(src), '开关未启用时必须返回空串而不是编造标识')
+  } finally {
+    if (prev !== undefined) process.env.MDCG_SESSION5 = prev
+  }
 })

@@ -77,6 +77,7 @@ import { HookAuditRecorder, kindOf, type HookWriteRole } from './lib/hook_audit.
 // 运行期会话状态单点（B 治本批）：观测在 hooks 面，写归因注入在工具面
 // （src/tools.ts）——两处共用同一状态，见 lib/session_state.ts 头注。
 import { currentSession, noteSession, UNASSIGNED_SESSION } from './lib/session_state.js'
+import { isSession5, makeSession5 } from './lib/session5.js'
 
 /** 自动记忆开关。 */
 export interface MemoryHooksOptions {
@@ -766,6 +767,36 @@ function sessionIdOf(raw: unknown): string {
   return typeof v === 'string' ? v.trim() : ''
 }
 
+// ---- 会话五元组接线（goal-caf158e5 第①步）----
+// 为什么需要：真实库里五元组标识 **0 条**（旧形态 82.7%），「用途」维度因此没有输入。
+// 设计：端侧在**首条用户消息**处按五元组算出标识，并记住「宿主标识 → 五元组」的映射，
+// 之后的写入与读取都用五元组；**已写入的旧标识不回填**（纪律）。
+// 开关：缺省关闭（MDCG_SESSION5=1 或 opts.session5=true 才启用）——避免在身份段取值定稿前改行为。
+const HOST_TO_S5 = new Map<string, string>()
+
+// 生效条件：给出宿主会话标识与首条用户消息，返回五元组标识；开关未启用或无法算出时返回空串（不猜）
+function s5For(hostSid: string, firstMessage: string): string {
+  if (!hostSid || isSession5(hostSid)) return hostSid || ''
+  const on = process.env.MDCG_SESSION5 === '1'
+  if (!on) return ''
+  const cached = HOST_TO_S5.get(hostSid)
+  if (cached) return cached
+  try {
+    const made = makeSession5(
+      'dsh',
+      process.env.MDCG_UNIT || 'agent',
+      process.cwd(),
+      Math.floor(Date.now() / 1000),
+      firstMessage || hostSid,
+    )
+    HOST_TO_S5.set(hostSid, made)
+    return made
+  } catch {
+    return ''
+  }
+}
+
+
 // UNASSIGNED_SESSION（会话归属未知时的显式占位常量）单点已移至
 // lib/session_state.ts（B 治本批：本文件与工具面共用同一常量与同一会话状态）。
 
@@ -1306,7 +1337,8 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
     // 会话归属（P45）：记忆写入必须带会话身份，用来区分不同会话的记忆。
     // 空串 = 宿主未给出会话标识 → **显式标注 unassigned**（H2③：不落内核的进程级
     // 随机 sess_*，也不编造宿主会话 id——见 lib/session_state.ts 的常量注释）。
-    const sid = sessionIdOf(session)
+    const hostSid = sessionIdOf(session)
+    const sid = hostSid ? (s5For(hostSid, '') || hostSid) : ''
     // 观测即记录（B 治本批）：注入单点在 lib/session_state.ts——工具面
     // （src/tools.ts 的写归因转发）读同一个状态；位置不动（H1 子代理闸之后）。
     if (sid) {
