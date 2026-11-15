@@ -464,10 +464,15 @@ const WORK_UNITS = new Set(['maintainer', 'designer', 'auditor', 'verifier', 're
 // 生效条件：item 为 timeline 条目、unit 为当前会话身份；判它是否不得进「最近记忆」块
 function recallSkipItem(item: { layer?: unknown; tags?: unknown } | null | undefined, unit = ''): boolean {
   const layer = String((item && item.layer) || '')
+  const work = WORK_UNITS.has(String(unit || ''))
+  // 永久层与否证层：任何身份都不进「最近记忆」（前者走独立身份块，后者是否证记忆）
+  if (layer === 'self' || layer === 'anchor' || layer === 'rejected') return true
+  // 结构层（含审核裁决留痕）：**工作身份可看**（那是自己的工作记录），日常身份拦
+  if (layer === 'structural') return !work
   if (RECALL_SKIP_LAYERS.has(layer)) return true
   const tags = Array.isArray((item as { tags?: unknown })?.tags) ? ((item as { tags: unknown[] }).tags as unknown[]) : []
-  // 工作留痕是否拦，取决于**本会话身份**：工作身份照常看见，日常身份一律拦。
-  if (WORK_UNITS.has(String(unit || ''))) return false
+  // 审计留痕：按标签再拦一次（防止它落到别的层）
+  if (work) return false
   return tags.some((t) => RECALL_SKIP_TAGS.has(String(t)))
 }
 
