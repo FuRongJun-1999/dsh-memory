@@ -3089,6 +3089,17 @@ def _cg_dispatch(cg, a):
         if _ctx is None and a.get("condition_space"):
             _ctx = a.get("condition_space")
             _ctx_from = "condition_space"
+        # 问题5（#929，2026-11-14）：把「按项目找 / 按用途找」直接接进检索路由。
+        # 语义：project=天元45 等价 tags_any=['项目:天元45']；purpose=做设计 等价 tags_any=['用途:做设计']。
+        # 二者可同时给（AND 语义 ⇒ 各自成一个标签，交给标签优先域按 OR 预筛后再由检索排序）。
+        # 只在显式传参时生效，绝不改缺省行为。
+        _pf_tags = []
+        for _k, _pre in (("project", "项目:"), ("purpose", "用途:")):
+            _v = a.get(_k)
+            if isinstance(_v, str) and _v.strip():
+                _pf_tags.append(_pre + _v.strip())
+        if _pf_tags and not a.get("tags_any"):
+            a = dict(a, tags_any=_pf_tags)
         _hf = _try_hot_first(cg, a, q)
         if _hf is not None:
             return _hf
