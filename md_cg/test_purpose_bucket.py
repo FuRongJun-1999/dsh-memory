@@ -29,6 +29,7 @@ def main():
     cg.add("n1", "维护用例", layer="contextual", tags=["用途:修缺陷"])
     cg.add("n2", "扮演用例", layer="contextual", tags=["用途:扮演"])
     cg.add("n3", "无用途用例", layer="contextual", tags=[])
+    cg.add("n4", "项目用例", layer="contextual", tags=["项目:天元45", "用途:修缺陷"])
     cg.flush()
 
     out = bucketindex.build(cg, write=False)
@@ -36,6 +37,8 @@ def main():
     ok(out.get("purposes") == 2, "P2 两条带用途标签 ⇒ 计数 2", out.get("purposes"))
     ok("days" in out and "sessions" in out, "P3 既有键仍在（纯增量）", list(out))
     ok(out.get("unattributed", 0) >= 1, "P4 无会话归属仍记 unattributed（未归属不建会话桶）", out)
+    ok(out.get("projects") == 1, "P5 项目副键计数（主归属=项目）", out.get("projects"))
+    ok(out.get("purposes") == 2, "P6 项目标签同时带用途 ⇒ 两者独立计数", (out.get("purposes"), out.get("projects")))
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))

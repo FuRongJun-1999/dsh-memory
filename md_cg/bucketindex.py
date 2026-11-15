@@ -51,7 +51,7 @@ def _fm(rec):
 
 
 def build(store, write=True, with_content=False, content_limit=400):
-    """从索引面重建桶。返回 {days, sessions, purposes, nodes, unattributed}。
+    """从索引面重建桶。返回 {days, sessions, purposes, projects, nodes, unattributed}。
 
     purposes 是「用途」副键（goal-caf158e5）：来自写时标签「用途:xx」，纯增量，
     不进词表，故不影响既有检索打分与桶名。
@@ -62,6 +62,7 @@ def build(store, write=True, with_content=False, content_limit=400):
     days = {}
     sessions = {}
     purposes = {}
+    projects = {}
     unattributed = 0
     for nid, rec in nodes.items():
         fm = _fm(rec)
@@ -79,6 +80,10 @@ def build(store, write=True, with_content=False, content_limit=400):
             _ts = str(_t)
             if _ts.startswith("用途:"):
                 purposes.setdefault(_ts, []).append(nid)
+            elif _ts.startswith("项目:"):
+                # 项目副键（goal-caf158e5）：**主归属**用项目（工作区）——实测节点无 workspace 字段、
+                # 会话归属也不落盘，故只能从写时标签「项目:xx」取；同样纯增量，不进词表。
+                projects.setdefault(_ts, []).append(nid)
     # 桶词表：{bucket_key: {term: 次数}} —— 供 scopeselect 打分（查询期只做字典运算）
     terms = {}
     skel = {}
@@ -120,6 +125,7 @@ def build(store, write=True, with_content=False, content_limit=400):
     out = {"content_enriched": content_terms, "days": len(days), "sessions": len(sessions),
            # 用途副键计数（goal-caf158e5）：纯增量，只多一个读数，不改既有键与词表
            "purposes": len(purposes),
+           "projects": len(projects),
            "nodes": len(nodes), "unattributed": unattributed}
     if write:
         root = getattr(store, "root", None)
