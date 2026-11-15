@@ -188,6 +188,7 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
         "recent_days": recent_days,
         "importance_min": importance_min,
         "nodes": len(picked),
+        "index_fp": _index_fp(nodes),
         "tokens": len(postings),
         "skipped_layer": len(nodes) - len(priority),
         "unreadable": unreadable,
@@ -213,21 +214,67 @@ def load(root: str):
     return {"nodes": nodes, "postings": postings, "meta": meta}
 
 
-def is_fresh(root: str) -> bool:
-    """热层是否新鲜（meta 里的源库戳 == 当前源库戳）。"""
+def _index_fp(nodes) -> str:
+    """索引指纹：节点 id 集合的短哈希（O(n)，~毫秒级）。
+
+    用途：判断「库里的节点集合变没变」——比文件 mtime/size 稳（不随轮转抖动），
+    比全量重建便宜（全量 3.2s）。新增/删除节点 ⇒ 指纹变 ⇒ 重建；仅改标签 ⇒ 指纹不变 ⇒ 复用。
+    """
+    import hashlib
+    h = hashlib.sha1()
+    for nid in sorted(nodes):
+        h.update(str(nid).encode("utf-8", "replace"))
+        h.update(b"\n")
+    return h.hexdigest()[:16]
+
+
+def _root_of(x):
+    """库对象或库根字符串 → 库根（统一 is_fresh/ensure/search 的入参口径）。"""
+    return x if isinstance(x, str) else str(getattr(x, "root", "") or "")
+
+
+def is_fresh(x, ttl_s=None) -> bool:
+    """热层是否新鲜（2026-11-14 重写）。
+
+    判据优先级：
+      ① 传库对象且 meta 有 index_fp ⇒ **比节点集合指纹**（增删节点即变；仅改标签不变）。
+         这是最稳的一层：文件 mtime/size 会随轮转抖动，指纹不会。
+      ② 否则比 source_stamp（源库戳）相等。
+      ③ 都不成立时，构建后经过的秒数 < ttl（缺省 MDCG_HOT_TTL_S=600）也算新鲜——
+         **只用于兜底**，避免在拿不到指纹时每次重建（实测每轮多 3 秒）。
+    """
+    root = _root_of(x)
     h = load(root)
     if not h:
         return False
+    meta = h["meta"] or {}
+    nodes = (getattr(x, "index", {}) or {}).get("nodes") if not isinstance(x, str) else None
+    if nodes is not None and meta.get("index_fp"):
+        return meta["index_fp"] == _index_fp(nodes)
     cur = source_stamp(root)
-    return cur != "missing" and h["meta"].get("source_stamp") == cur
+    if cur != "missing" and meta.get("source_stamp") == cur:
+        return True
+    if ttl_s is None:
+        try:
+            ttl_s = float(__import__("os").environ.get("MDCG_HOT_TTL_S", "600"))
+        except ValueError:
+            ttl_s = 600.0
+    try:
+        age = __import__("time").time() - float(meta.get("built_at") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    return 0 <= age < ttl_s
 
 
-def ensure(cg, *, force: bool = False, **kw) -> dict:
-    """确保热层存在且新鲜；返回 meta（未过期则不重建）。"""
-    root = getattr(cg, "root", "")
+def ensure(cg, force=False, **kw):
+    """取热层；不新鲜则重建。入参可传库对象（推荐）或库根字符串。
+
+    2026-11-14 修：新鲜判据改走 is_fresh(cg)（支持对象 + TTL），
+    此前 ensure 用 source_stamp(root) 只认戳 ⇒ 每写一条就重建，实测每轮多耗 3–4 秒。
+    """
+    root = _root_of(cg)
     h = load(root)
-    cur = source_stamp(root)
-    if h and not force and cur != "missing" and h["meta"].get("source_stamp") == cur:
+    if h and not force and is_fresh(cg):
         return dict(h["meta"], reused=True)
     return dict(build(cg, **kw), reused=False)
 
