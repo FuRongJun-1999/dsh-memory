@@ -3107,11 +3107,18 @@ def _cg_dispatch(cg, a):
             # 结果会假性空掉，故两者共用同一条超取规则。
             search_args["k"] = min(max(_k_want * 4, _k_want + 32), 400)
         if a.get("bm25", True) and hasattr(cg, "search_rrf"):
-            # 【issue #811】read 面早先**忽略 `semantic`**（该参数只在 mdcg_search 生效）⇒ 传了等于没传。
-            # 现显式并入第 6 路（向量/语义仅在库里有向量时才产候选，没有则自然为空，不造假）。
             _paths = ("bm25", "semantic") if a.get("semantic") else ("bm25",)
-            ranked, meta = cg.search_rrf(q, paths=_paths, **search_args)
-            res = [(n, s, qual) for n, s, qual, _provenance in ranked]
+            # 标签限定检索走单路优先域（目标②）：融合六路未接预筛；单路实测 0.31s（全库 24-38s）。
+            if a.get("tags_any"):
+                _sa = dict(search_args)
+                _sa["tags_any"] = a.get("tags_any")
+                ranked, meta = cg.search(q, **_sa)
+                if isinstance(meta, dict):
+                    meta["search_path"] = "single_preferred"
+                res = [(x[0], x[1], x[2]) for x in (ranked or [])]
+            else:
+                ranked, meta = cg.search_rrf(q, paths=_paths, **search_args)
+                res = [(n, s, qual) for n, s, qual, _provenance in ranked]
         else:
             res, meta = cg.search(q, **search_args)
         # read 面过滤 doc_ 索引节点（2026-10-23 使用者批准）：doc_ 为会话日志切片，
