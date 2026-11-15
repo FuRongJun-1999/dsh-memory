@@ -133,7 +133,7 @@ def _steps():
         is_p, _why = protect.is_protected_entry(fm)
         out = {"audit_node": nid, "layer": fm.get("layer"),
                "protected": is_p, "role": fm.get("role")}
-        ok = (out["layer"] == "structural" and out["protected"] is False)
+        ok = (out["layer"] == "contextual" and out["protected"] is False)  # 2026-11-14 使用者裁定：审计=工作记录，不占结构层
         return (PASS if ok else FAIL), out
 
     def s_self_surface_filter(ctx):
@@ -168,7 +168,7 @@ def _steps():
             "true_self_included": "n_true_self" in surface,
         }
         ok = (out["new_audit_tagged"] is True
-              and out["new_audit_layer"] == "structural"   # 源头已改，新记录不进 self
+              and out["new_audit_layer"] == "contextual"   # 审计属工作记录（情景层），不占结构层、也不进 self
               and out["legacy_audit_has_tag"] is True
               and out["legacy_audit_excluded"] is True     # 存量在自我面被过滤
               and out["legacy_audit_in_unfiltered"] is True  # 不过滤时仍可见（可审计）

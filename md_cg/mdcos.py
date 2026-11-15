@@ -4074,9 +4074,11 @@ class MdCGOS(MdCG):
         # 同一个闸挡住（jsonl 还在、可复核的 md 节点没了）。
         # 修法（报告人建议 3）：把**本次裁决已经取得的** reviewed_by 一并带进写入——
         # 它本来就是「本次裁决的复核单元」，不是凭空自证。
-        self.add(nid, body, layer="structural", override=True, role=self.AUDIT_ROLE,
+        self.add(nid, body, layer="contextual", override=True, role=self.AUDIT_ROLE,
                  reviewed_by=reviewers,
-                 tags=["audit", "audit_trace", self.AUDIT_TAG, f"pid:{rec['pid']}",
+                 tags=["audit", "audit_trace", self.AUDIT_TAG, "用途:跑审计",
+                       "项目:" + str(rec.get("project") or "未登记"),
+                       f"pid:{rec['pid']}",
                        f"round:{rec['round']}"],
                  importance=0.2, verification_basis="data",
                  pid=rec["pid"], round=rec["round"], decision=rec["decision"],
