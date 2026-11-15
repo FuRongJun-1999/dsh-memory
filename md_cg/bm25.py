@@ -323,6 +323,10 @@ class BM25Index:
                 continue
             text = cg._positive_body(entry, content)
             tags = " ".join(str(t) for t in (fm.get("tags") or []))
+            # issue #954：aliases 只入**词面**（召回），不并入 tags（不改身份/路由判据）。
+            _al = fm.get("aliases")
+            if isinstance(_al, list) and _al:
+                tags = tags + " " + " ".join(str(a) for a in _al)
             tf = Counter(tokenize(text + "\n" + tags))
             length = sum(tf.values())
             doc_terms = []

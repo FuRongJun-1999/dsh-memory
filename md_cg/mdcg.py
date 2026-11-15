@@ -3200,7 +3200,11 @@ class MdCG:
             # 该键，重建路径若漏掉，rebuild_index() 之后「按会话过滤」
             # 即静默全空——快照与 _stage 必须同口径（与 role 同款理由）。
             "session": fm.get("session"),
+            # issue #954（2026-11-14）：aliases 进索引快照——此前只在 _like() 兜底里可见，
+            # 主链路（bm25/RRF）读索引条目 ⇒ 别名召回静默失效。**只入词面，不并入 tags**
+            # （aliases 与 tags 物理分离：不得影响身份/路由判据）。
             "tags": fm.get("tags", []),
+            "aliases": fm.get("aliases") or None,
             "bucket": parent if parent != layer else None,
             # issue #33：中文别名入快照（fm 派生，与写入路径同口径）——
             # S1b 跨语言收敛免读文件可判。
@@ -4208,6 +4212,8 @@ class MdCG:
         self._stage(node_id, _strip_empty_gate_fields({
             "path": os.path.relpath(path, self.root).replace("\\", "/"),
             "layer": layer, "tags": tags, "bucket": bucket,
+            # issue #954：与 _node_entry 同口径（漏一处即“写完看不到、重建后又能看到”）
+            "aliases": fm.get("aliases") or None,
             "bucket_zh": bucket_zh or None,
             # 2026-10-18：与 _node_entry 同口径（写入路径也要带，否则
             # 「新写的节点索引有条件空间、重建后反而没有」——两路径分叉的经典形态）。
@@ -6406,7 +6412,14 @@ class MdCG:
         # 只统计 `docs`（= 本次 _score 的候选批），不扫全库、不读盘。
         # 走 readcache 覆写版钩子取 bigram：内容不变则派生物不变，df 统计与
         # 打分共用同一份 nb（单遍计算，无重复归一化）。
-        _nbs = [self._doc_norm_bigrams(e, c) for e, _fm, c in docs]
+        # issue #954（2026-11-14）：aliases 并入**文档侧 bigram**——此前只有 _like() 兜底读它，
+        # 主链路（lexical_sim/bm25）看不到 ⇒ 别名召回静默失效。只扩词面，不并入 tags。
+        def _alias_nb(_fm):
+            _al = _fm.get("aliases") if isinstance(_fm, dict) else None
+            if not isinstance(_al, list) or not _al:
+                return frozenset()
+            return bigrams(normalize_en(" ".join(str(a) for a in _al)))
+        _nbs = [(self._doc_norm_bigrams(e, c) | _alias_nb(_fm)) for e, _fm, c in docs]
         _df = None
         if qb and (mode or SCORE_MODE) != "jaccard":
             _df = {}
