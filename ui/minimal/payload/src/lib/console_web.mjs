@@ -91,6 +91,9 @@ export function createConsoleHandler(mdcg, config, assets, getConnection, probeC
       if (!mdcg?.isReady()) return reply(res, 503, { error: '灵枢大脑尚未就绪，请稍后重试' });
       if (!(await tools()).some(t => t.name === body.tool)) return reply(res, 400, { error: '该工具不在灵枢真实工具目录中' });
       if (needsConfirmation(body.tool, body.args) && body.confirm !== true) return reply(res, 409, { error: '此操作可能修改数据，请先确认' });
+      // 调用计时（2026-11-15）：定位「每次点记忆等 16s」是桥重启还是单次调用慢。
+      const _t0 = Date.now();
+      const _label = body.tool + ':' + String(body.args?.op ?? body.args?.action ?? '');
       let result;
       if (body.tool === 'cg') result = await mdcg.cg(body.args);
       else if (body.tool === 'stg') result = await mdcg.stg(body.args);
@@ -104,6 +107,8 @@ export function createConsoleHandler(mdcg, config, assets, getConnection, probeC
         if (raw.isError) return reply(res, 422, { error: text || '灵枢拒绝此次操作' });
         try { result = JSON.parse(text); } catch { result = text; }
       }
+      try { ctx?.logger?.info?.('dsh-memory: ui-call ' + _label + ' '
+        + ((Date.now() - _t0) / 1000).toFixed(2) + 's ready=' + String(!!mdcg?.isReady())) } catch {}
       reply(res, 200, { ok: true, result: redact(result) });
     } catch (error) { reply(res, error.status ?? 500, { error: String(error.message ?? error) }); }
   };
