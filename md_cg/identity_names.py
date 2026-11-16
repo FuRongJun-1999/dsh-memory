@@ -93,3 +93,31 @@ def purpose_of(session) -> str:
 def purpose_tag(session) -> str:
     p = purpose_of(session)
     return ("用途:" + p) if p else ""
+
+# ── 大类 / 小类（2026-11-14 使用者定：用途与项目都是「大类套小类」，允许交叉，靠标签与排序表达）──
+# 形态：`用途:<大类>` 或 `用途:<大类>/<小类>`；项目同理 `项目:<大类>/<小类>`。
+# 一条记忆可有多个「用途:」标签表示**交叉**；**第一个**是主标签（排序用），其余是补充。
+# 判据纪律：不猜——没有标签就是没有；大类不在闭集里就原样保留（由人工裁定是否登记）。
+
+
+# 生效条件：tags 为节点标签列表；返回主标签的大类（第一个「用途:」标签的斜杠前部分），无则空串
+def primary_purpose(tags) -> str:
+    for t in (tags or []):
+        s = str(t)
+        if s.startswith('用途:'):
+            return s[len('用途:'):].split('/')[0].strip()
+    return ''
+
+
+# 生效条件：tags 为节点标签列表；返回全部用途标签（完整路径，含交叉），保持原顺序
+def all_purposes(tags) -> list:
+    return [str(t) for t in (tags or []) if str(t).startswith('用途:')]
+
+
+# 生效条件：tags 为节点标签列表；返回主项目大类（第一个「项目:」标签的斜杠前部分），无则空串
+def primary_project(tags) -> str:
+    for t in (tags or []):
+        s = str(t)
+        if s.startswith('项目:'):
+            return s[len('项目:'):].split('/')[0].strip()
+    return ''

@@ -2588,14 +2588,36 @@ def _try_hot_first(cg, a, q):
         items = res.get("items") or []
         meta = res.get("meta") or {}
         top = max([float(i.get("hot_score") or 0) for i in items] or [0.0])
-        if not (meta.get("available") and items and top >= _HOT_MIN_SCORE):
+        # scope=hot（2026-11-14，UI 明示「只看热层」）：跳过分数门槛，**宁给弱结果也不查主库**。
+        # 用于 UI 首屏：用户要的是「立刻有东西看」，弱命中比 30 秒白屏好；
+        # meta.hot_only + hint 明示范围，避免被误读为全库结果。
+        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
+        _browse = False
+        if _hot_only and not items:
+            # 首屏浏览模式：查询词在热层无命中时，**按热层优先级出一批**（自我/锚点/近期/高重要度），
+            # 而不是让 UI 白屏 30 秒。meta.mode=browse 明示这不是检索命中。
+            try:
+                _h = _ht.load(cg.root) or {}
+                _nodes = list((_h.get("nodes") or {}).values())
+                _w = {"self": 0.5, "anchor": 0.4}
+                _nodes.sort(key=lambda n: (_w.get(str(n.get("layer") or ""), 0.0)
+                                          + float(n.get("importance") or 0.0),
+                                          float(n.get("t") or 0.0)), reverse=True)
+                items = [dict(n, hot_score=0.0) for n in _nodes[:k]]
+                _browse = True
+            except Exception:
+                return None
+        if not items:
+            return None
+        if not _hot_only and top < _HOT_MIN_SCORE:
             return None
         return {"ok": True, "query": q, "k": k, "count": len(items),
                 "items": [{"id": i.get("id"), "layer": i.get("layer"),
                             "preview": i.get("preview"), "score": i.get("hot_score"),
                             "source": "hot"} for i in items],
                 "source": "hot",
-                "meta": {"hot_first": {"used": True, "hits": len(items), "top": top,
+                "meta": {"hot_only": _hot_only, "mode": ("browse" if _browse else "match"),
+                         "hot_first": {"used": True, "hits": len(items), "top": top,
                                        "candidates": meta.get("candidates"),
                                        "built_at": meta.get("built_at")}},
                 "hint": "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库"}
@@ -2930,6 +2952,28 @@ def _cg_dispatch(cg, a):
 
     if op == "route":
         intent = a.get("intent") or a.get("query") or ""
+        # scope=hot（2026-11-14，UI 认知图首屏）：热层内路由，**不扫全库**。
+        # 语义：只用「自我/锚点/近期/高重要度」这批节点给出知识与建议能力，
+        # meta.scope=hot 明示范围；需要全库路由时传 scope=full 或省略。
+        if str(a.get("scope") or "").strip().lower() == "hot":
+            _hot = _try_hot_first(cg, dict(a, scope="hot", hot_first=True), intent)
+            if isinstance(_hot, dict) and _hot.get("items"):
+                knowledge, caps = [], []
+                for _it in _hot["items"]:
+                    knowledge.append({"id": _it.get("id"), "score": _it.get("score"),
+                                      "state": None, "reason": None,
+                                      "content": (_it.get("preview") or "")[:500],
+                                      "verification_basis": None})
+                    # H-4(a) 纪律：从 index 取回的 nodes 先取快照再迭代
+                    _snap = dict(cg.index["nodes"])
+                    for _n in (_snap.get(_it.get("id")) or {}).get("tags") or []:
+                        if isinstance(_n, str) and _n.startswith("cap:"):
+                            caps.append(_n[4:])
+                _m = dict(_hot.get("meta") or {})
+                _m["scope"] = "hot"
+                return {"knowledge": knowledge, "suggested_capabilities": sorted(set(caps)),
+                        "meta": _m,
+                        "note": "热层路由（自我/近期/高重要度）；全库请 scope=full"}
         res, meta = cg.search(intent, k=_int_arg(a, "k", 10),
                               context=a.get("context"), record=False,
                               view=a.get("view"),
@@ -4355,6 +4399,27 @@ def _stg_call(cg, a):
     op = (a.get("op") or "").strip().lower()
     axis = a.get("time_axis") or "observed"
     if op == "relation":
+        # scope=hot（2026-11-14，UI 时空页）：两个节点都在热层时**直接比对**，不扫全库。
+        # 语义：命中则正常返回关系；任一不在热层 ⇒ 回落全库（不猜、不伪造）。
+        if str(a.get("scope") or "").strip().lower() == "hot":
+            try:
+                from . import hottier as _ht
+                _h = _ht.load(cg.root) or {}
+                _hn = _h.get("nodes") or {}
+                _ka, _kb = str(a.get("a") or ""), str(a.get("b") or "")
+                if _ka in _hn and _kb in _hn:
+                    _ra, _rb = _hn[_ka], _hn[_kb]
+                    _out = {"a": _ka, "b": _kb,
+                            "same_layer": _ra.get("layer") == _rb.get("layer"),
+                            "same_session": bool(_ra.get("session"))
+                            and _ra.get("session") == _rb.get("session"),
+                            "a_layer": _ra.get("layer"), "b_layer": _rb.get("layer"),
+                            "time_axis": axis,
+                            "previews": [_ra.get("preview"), _rb.get("preview")],
+                            "scope": "hot"}
+                    return _out
+            except Exception:
+                pass
         return stg.relation(cg, a.get("a", ""), a.get("b", ""), time_axis=axis)
     if op == "timeline":
         return stg.timeline(cg, layer=a.get("layer"),

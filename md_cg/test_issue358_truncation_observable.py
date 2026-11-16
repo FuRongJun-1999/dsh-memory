@@ -63,6 +63,10 @@ def _suite(mod=None, label=''):
     if mod is None:
         from md_cg import forgetting as mod
     red = mod.redundancy
+    # issue #929 问题4（2026-11-14）：比对上限已改**自适应**（池>240 尽量全比，封顶 1200）。
+    # 本套断言钉的是「旧硬截断可观测」——用回退开关复现旧行为，而不是删断言。
+    _prev_cap = os.environ.get("MDCG_MAX_COMPARE_CAP")
+    os.environ["MDCG_MAX_COMPARE_CAP"] = "240"
     passed, failed = [], []
 
     def check(name, cond, detail=''):
@@ -86,7 +90,9 @@ def _suite(mod=None, label=''):
     # A2：未超限（5 候选）——不落两键，返回体与改动前逐位一致
     r2 = red(_stub(5), _TARGET, layer="contextual")
     check("A2a 未超限：无 truncated 键", "truncated" not in r2, r2)
-    check("A2b 未超限：无 candidate_total 键", "candidate_total" not in r2, r2)
+    # issue #929 问题4：candidate_total 改为**恒定透出**（调用方随时知道池多大），
+    # 未超限时也应等于真实候选数——旧版「不落键」已不适用。
+    check("A2b 未超限：candidate_total=5（恒定透出）", r2.get("candidate_total") == 5, r2)
     check("A2c 未超限：compared=5 且命中末位", r2.get("compared") == 5
           and r2.get("with") == "n0004", r2)
 
@@ -129,6 +135,15 @@ def _suite(mod=None, label=''):
     check("A7 limit=0：compared=1（既有语义）且 truncated=True/candidate_total=301",
           r7.get("compared") == 1 and r7.get("truncated") is True
           and r7.get("candidate_total") == 301, r7)
+    # A8：缺省（自适应，无回退开关）——301 候选**不再**被截断（新语义）
+    os.environ.pop("MDCG_MAX_COMPARE_CAP", None)
+    r8 = red(_stub(301), _TARGET, layer="contextual")
+    check("A8 缺省自适应：compared=301 且无 truncated（不漏比）",
+          r8.get("compared") == 301 and not r8.get("truncated"), r8)
+    if _prev_cap is None:
+        os.environ.pop("MDCG_MAX_COMPARE_CAP", None)
+    else:
+        os.environ["MDCG_MAX_COMPARE_CAP"] = _prev_cap
     return passed, failed
 
 

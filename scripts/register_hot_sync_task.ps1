@@ -1,7 +1,7 @@
 # Register nightly hot-tier sync: rebuild _hot/ + write daily digest into the main brain (idempotent, soft-deletable).
-# Usage: powershell -ExecutionPolicy Bypass -File scripts/register_hot_sync_task.ps1 [-BrainRoot D:\program\AEIS\data\mdcg] [-Time 02:30]
+# Usage: powershell -ExecutionPolicy Bypass -File scripts/register_hot_sync_task.ps1 -BrainRoot <库根>cg] [-Time 02:30]
 param(
-  [string]$BrainRoot = 'D:\program\AEIS\data\mdcg',
+  [Parameter(Mandatory = $true)][string]$BrainRoot,
   [string]$Time = '02:30',
   [string]$TaskName = 'LingshuHotTierNightly'
 )

@@ -346,6 +346,8 @@ RULES = {
     'dsh-memory-main::scripts/verify_open_encoding.py::_FLOORS': {'type': 'str'},
     'dsh-memory-main::scripts/zcode_window_hook.py::REMINDER_TMPL': {'type': 'str'},
     'dsh-memory-main::scripts/zcode_window_hook.py::WINDOW_ACK_KEY': {'type': 'str'},
+    'issue #929 问题2：big_domain 覆盖率低于此值时不收敛（跳过并标注 skipped_reason）': {'bool_like': True, 'type': 'bool'},
+    'issue #929 问题4：重复度比对自适应上限的封顶；置 240 等价旧硬截断（回退开关）': {'bool_like': True, 'type': 'bool'},
 }
 
 

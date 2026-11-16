@@ -1386,7 +1386,8 @@ class MdCGOS(MdCG):
             _tier = str(meta.get("tier") or "")
             if _tier.startswith(("T2", "T3")):
                 meta["fallback"] = "tags_any_global_scan"
-            _nodes = (self.index.get("nodes") or {})
+            # H-4(a) 纪律：从 index 取回的 nodes 先取快照再迭代
+            _nodes = dict(self.index.get("nodes") or {})
             _total = len(_nodes) or 1
             _tagged = sum(1 for e in _nodes.values() if e.get("tags"))
             _cov = _tagged / float(_total)

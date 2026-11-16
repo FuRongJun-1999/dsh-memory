@@ -2,7 +2,7 @@
 """每晚同步：重建本地热层 + 把当天短期记忆整理成摘要写入总库。
 
 用法（缺省全是「先看别写」）：
-  python -X utf8 scripts/sync_hot_tier.py --root D:/program/AEIS/data/mdcg
+  python -X utf8 scripts/sync_hot_tier.py --root <库根>
   python -X utf8 scripts/sync_hot_tier.py --root ... --write      # 才真正写摘要节点
   python -X utf8 scripts/sync_hot_tier.py --root ... --dry-digest # 只打印摘要文本
 

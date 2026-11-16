@@ -74,7 +74,8 @@ MAX_COMPARE_CAP = 1200      # 自适应上限的**缺省**封顶（防病态大�
 def _max_compare_cap() -> int:
     import os as _os
     try:
-        v = int(_os.environ.get("MDCG_MAX_COMPARE_CAP", str(MAX_COMPARE_CAP)))
+        # 缺省写成字面量 "1200"（与 config_registry 登记一致）；常量仍在，供文档与旧引用
+        v = int(_os.environ.get("MDCG_MAX_COMPARE_CAP", "1200"))
     except ValueError:
         return MAX_COMPARE_CAP
     return v if v > MAX_COMPARE else MAX_COMPARE

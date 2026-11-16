@@ -281,7 +281,7 @@
       `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>自我层</h3><span class="badge" id="self-badge">读取中…</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>待裁决</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
       `<section class="panel section-gap"><div class="panel-head"><h3>今日对话</h3><span class="count" id="today-count"></span></div><div id="sec-today">${loading()}</div></section>`+
       `<section class="panel section-gap"><div class="panel-head"><h3>最近 100 条对话</h3><span class="count" id="recent-count"></span></div><div id="sec-recent">${loading()}</div></section>`+
-      `<section class="panel section-gap"><div class="panel-head"><h3>历史（手动加载）</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">历史与全库检索成本高（实测 read≈24s / timeline≈0.6s）。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="全库检索（手动、较慢，约 10–25 秒）…" aria-label="全库检索"><button class="button" type="submit">检索 ↗</button></form>
+      `<section class="panel section-gap"><div class="panel-head"><h3>历史（手动加载）</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="检索记忆（默认热层 0.3 秒）…" aria-label="检索记忆"><select id="hist-scope" class="search" aria-label="检索范围"><option value="hot">热层（快）</option><option value="full">全库（慢 10–30 秒）</option></select><button class="button" type="submit">检索 ↗</button></form>
         <div class="actions"><button id="load-older" class="button">加载更早的对话（100 条）</button><button id="cancel-load" class="button" hidden>取消</button></div></div><div id="sec-history"></div><div id="result"></div></section>`
     $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();}
     $('memory-form').onsubmit=async e=>{e.preventDefault(); await execute(e.submitter,'mdcg_remember',{content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'});}
@@ -313,9 +313,11 @@
       e.preventDefault(); const q=$('hist-query').value.trim(); if(!q) return
       const list=$('sec-history'); if(histCtrl) try{histCtrl.abort()}catch{}; histCtrl=new AbortController()
       $('cancel-load').hidden=false; list.innerHTML=loading()
-      try{ const r=await call('cg',{op:'read',query:q,k:20},{signal:histCtrl.signal})
+      // issue: 首屏/交互默认走热层（0.3s）；全库需用户显式点选（实测 20-30s）
+      const scopeHot = $('hist-scope') ? $('hist-scope').value !== 'full' : true
+      try{ const r=await call('cg',{op:'read',query:q,k:20,        ...(scopeHot?{scope:'hot'}:{})},{signal:histCtrl.signal})
         if(token!==generation)return; const items=rowsOf(r)
-        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>检索结果</h3><span class="count">${items.length} 条</span></div>${items.length?nodeRows(items):'<div class="empty">没有命中。</div>'}</section>`; bindNodes(list)
+        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>检索结果${scopeHot?'（热层）':'（全库）'}</h3><span class="count">${items.length} 条</span></div>${items.length?nodeRows(items):'<div class="empty">没有命中。</div>'}</section>`; bindNodes(list)
       }catch(err){ if(err.name==='AbortError'){ if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">已取消。</span></div>' } else if(token===generation) list.innerHTML=errorHTML(err) }
       finally{ $('cancel-load').hidden=true }
     }
