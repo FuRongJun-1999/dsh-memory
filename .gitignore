@@ -195,3 +195,7 @@ scripts/*.bak-*
 # 草稿）。同 .zcode/ 一节的性质：本机工具产物，正文含本机路径，不入库。
 # 只忽略**仓根**这一份；docs/dsh-memory-upstream-pr/ 是 4 份可复用核查结论，已入库。
 /dsh-memory-upstream-pr/
+
+# ������ʱ�⣨����⣩
+# 测试临时库（勿入库）
+i909_*/
