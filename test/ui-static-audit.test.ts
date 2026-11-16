@@ -69,6 +69,8 @@ test('#929 审计留痕按**标签**拦（层黑名单不够）', () => {
   assert.ok(src.includes("RECALL_SKIP_TAGS = new Set(['audit_trace', 'audit'])"),
     '缺 audit 标签黑名单——审计件若落别的层仍会挤占注入预算')
   assert.ok(src.includes('function recallSkipItem('), '缺统一判据函数')
-  assert.ok(/recallSkipItem\(it\)/.test(src), '注入过滤须走 recallSkipItem（不得只按 layer）')
+  // #929 后续：调用点改为 recallSkipItem(it, opts?.unit)，故判据放宽为「以 it 为第一实参」，
+  // 仍钉住「必须走统一判据」，不钉具体第二参。
+  assert.ok(/recallSkipItem\(it[),]/.test(src), '注入过滤须走 recallSkipItem（不得只按 layer）')
   assert.ok(src.includes('_write_review_record'), '需注明判据来源（mdcos 写入点）')
 })
