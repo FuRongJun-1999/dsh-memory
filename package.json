@@ -6,9 +6,9 @@
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "bin": {
-    "lingshu": "./lib/cli.js",
-    "lingshu-init": "./lib/init.js",
-    "dsh-memory": "./lib/cli.js"
+    "lingshu": "lib/cli.js",
+    "lingshu-init": "lib/init.js",
+    "dsh-memory": "lib/cli.js"
   },
   "exports": {
     ".": {
