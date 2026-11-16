@@ -29,6 +29,59 @@
   };
   const langSwitch = () => '<button id="lang-toggle" class="button" title="语言 / Language">'
     + (LANG === 'en' ? '中文' : 'EN') + '</button>';
+  // ── 工具说明翻译表（issue #970）────────────────────────────────────────────────
+  // 使用者裁定（2026-11-15）：**工具描述与参数说明原文不动**——schema 里的中文是给模型看的，
+  // 翻译绝不能写回 schema（那会给每次调用增加 token，且语言一多就翻倍）。
+  // 翻译**只挂在界面上**：工具台渲染时查这张表，缺译回退中文原文。
+  // 加语言 = 在这一层加一个键（en / ja / …），代码与 schema 都不用动。
+  const TOOL_I18N = {
+    en: {
+      tools: {
+        cg: 'Lingshu cognitive graph — the single entry point (39 ops: write / read / review / protect / evolve / metacognition / predict / whitebox / verification state …)',
+        stg: 'Semantic spatiotemporal graph — 5 ops: relation | timeline | anchors | consistency | state_chain.',
+        mdcg_remember: 'Write a memory node (gated=true goes through the active-forgetting gate; CCG five elements recommended in the body).',
+        mdcg_search: 'Exact retrieval (T0–T3 ladder + four-state eligibility).',
+        mdcg_recall: 'Recall a memory pack under a token budget (RRF multi-path fusion; fuzzy / conditional-semantic paths optional).',
+        mdcg_get: 'Read one node by id (frontmatter + content).',
+        mdcg_review_list: 'List pending candidates (red-teamed ones carry needs_reapproval).',
+        mdcg_health: 'Health report (bucket health + CCG completeness + verification-basis coverage + OS metrics).',
+        mdcg_whoami: 'Identity and permissions (tenant / actor / clearance / visible nodes / readable sensitivity).',
+        mdcg_service_info: 'Service info (identity / version / root / node stats / tool count / permissions).',
+      },
+      ops: {
+        info: 'Service info and counts',
+        read: 'Read memories by query or node id (scope=hot serves the hot tier only)',
+        route: 'Intent → relevant knowledge + suggested capabilities',
+        write: 'Write a memory node',
+        review: 'Review queue: list / records / decide',
+        identity: 'Identity features: profile / traits / positions',
+        self_state: 'Self-state layer (snapshot / relations)',
+        recent: 'Recent event window',
+        edges: 'Reverse lookup of triples',
+        status: 'Verification state',
+        goal: 'Goals: list / add / status',
+        task: 'Tasks: list / find / status',
+        verify: 'External adjudication of a node (confirmed / weakened / falsified)',
+        protect: 'Write protection: stats / check / mark / snapshot',
+        evolution: 'Evolution ledger (each edit = one added missing condition)',
+        sustain: 'Self-maintenance: heal / scrub / status',
+        predict: 'Generative prediction (candidate futures + scoring)',
+        ccg: 'CCG six-element compiler',
+        help: 'Op semantics and parameters',
+      },
+    },
+    // 未来语言在此追加：ja / de / … 只需补 tools 与 ops 两段，其余代码不动。
+  };
+  // 工具级：缺译回退原文（原文来自实时目录，即 schema 里的中文）
+  const tTool = (name, original) => {
+    const pack = TOOL_I18N[LANG];
+    return (pack && pack.tools && pack.tools[name]) || original;
+  };
+  // 操作级：只翻 op 名本身（枚举值不翻，避免参数值被改写）
+  const tOp = op => {
+    const pack = TOOL_I18N[LANG];
+    return (pack && pack.ops && pack.ops[op]) || op;
+  };
   const pages = [ ['overview','◈','概览'], ['memory','▤','记忆'], ['goals','◎','目标与任务'], ['self','◇','自我认知'], ['space','◷','时空关系'], ['review','☷','审核与维护'], ['tools','⌘','工具台'] ];
   const layers = { knowledge:'知识', contextual:'情景', structural:'结构', anchor:'锚点', self:'自我', rejected:'否证', unresolved:'待定' };
   let meta = null, info = null, page = 'overview', generation = 0, chosen = 'cg', toolsFilter = '', toastTimer;
@@ -381,14 +434,14 @@
     function renderList() { $('tool-list').innerHTML=tools.filter(t=>(t.name+' '+t.description).toLowerCase().includes(toolsFilter.toLowerCase())).map(t=>`<button class="tool-choice ${chosen===t.name?'active':''}" data-tool="${esc(t.name)}">${esc(t.name)}</button>`).join('') || '<div class="empty">没有匹配工具</div>'; document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool)); }
     async function selectTool(name) {
       chosen=name; const tool=tools.find(t=>t.name===name); if(!tool)return;
-      renderList(); $('tool-name').textContent=name; $('tool-description').textContent=tool.description;
+      renderList(); $('tool-name').textContent=name; $('tool-description').textContent=tTool(name, tool.description);
       const properties=tool.inputSchema?.properties || {}, required=tool.inputSchema?.required || [];
       const defaults = name==='cg'?{op:'info'}:name==='stg'?{op:'timeline',limit:20,desc:true}:{};
       $('tool-args').value=json(defaults); $('result').innerHTML='';
       const opProp=properties.op;
       let ops=opProp?.enum || [];
       if(!ops.length && opProp?.description) ops=(opProp.description.split(/[\s，。]/)[0]||'').split('|').filter(Boolean);
-      $('op-chooser').innerHTML=ops.length?`<label class="schema-field" style="margin-top:20px">操作<select id="tool-op">${ops.map(op=>`<option value="${esc(op)}">${esc(op)}</option>`).join('')}</select></label>`:'';
+      $('op-chooser').innerHTML=ops.length?`<label class="schema-field" style="margin-top:20px">操作<select id="tool-op">${ops.map(op=>`<option value="${esc(op)}">${esc(tOp(op))}</option>`).join('')}</select></label>`:'';
       if($('tool-op')){ $('tool-op').value=defaults.op||ops[0]; $('tool-op').onchange=()=>{try{const args=JSON.parse($('tool-args').value);args.op=$('tool-op').value;delete args.action;$('tool-args').value=json(args);}catch(e){toast('先修正 JSON 参数。');}}; }
       const common=Object.entries(properties).filter(([key])=>key!=='op' && (required.includes(key)||['query','content','action','node_id','layer','limit','goal','evidence','verdict','a','b'].includes(key)));
       $('schema-fields').innerHTML=common.map(([key,p])=>`<label class="schema-field">${esc(fieldLabel(key))}${required.includes(key)?' *':''}<input data-field="${esc(key)}" data-type="${esc(p.type||'string')}" placeholder="${esc(p.enum?.join(' / ')||p.type||'string')}" ${p.type==='number'||p.type==='integer'?'type="number" step="any"':''}><small>${esc((p.description||'').slice(0,240))}</small></label>`).join('');
