@@ -3,6 +3,32 @@
   const $ = id => document.getElementById(id);
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const json = value => JSON.stringify(value, null, 2);
+  // ── 语言（issue #970，使用者裁定：默认中文，可切换英文）─────────────────────────
+  // 设计：**以中文原文作 key**，未登记英文则原样返回（不猜、不机翻）。
+  // 只翻「人看的」：导航、区块标题、按钮、提示；**不翻**注入块标题（给模型看的）与回执原始 JSON。
+  const EN = {
+    '概览': 'Overview', '记忆': 'Memory', '目标与任务': 'Goals & Tasks', '自我认知': 'Self',
+    '时空关系': 'Space & Time', '审核与维护': 'Review & Care', '工具台': 'Tools',
+    '灵枢 · 认知工作台': 'Lingshu · Cognitive Workspace',
+    '自我层': 'Self layer', '今日对话': 'Today', '最近 100 条对话': 'Recent 100 turns',
+    '历史（手动加载）': 'History (manual)', '默认不读': 'not read by default',
+    '正在读取认知图': 'Reading the cognitive map…', '这里还没有记录。': 'Nothing here yet.',
+    '检索结果（热层）': 'Results (hot tier)', '检索结果（全库）': 'Results (full library)',
+    '热层（快）': 'Hot tier (fast)', '全库（慢 10–30 秒）': 'Full library (slow, 10–30s)',
+    '检索记忆（默认热层 0.3 秒）…': 'Search memory (hot tier by default, ~0.3s)…',
+    '记录一条记忆': 'Record a memory', '加载更早的对话（100 条）': 'Load older turns (100)',
+    '取消': 'Cancel', '正在读取…': 'Reading…', '已读取': 'loaded',
+  };
+  let LANG = 'zh';
+  try { LANG = (localStorage.getItem('lingshu.lang') || 'zh').toLowerCase() === 'en' ? 'en' : 'zh'; } catch (e) { LANG = 'zh'; }
+  const t = value => (LANG === 'en' ? (EN[value] || value) : value);
+  const setLang = next => {
+    LANG = next === 'en' ? 'en' : 'zh';
+    try { localStorage.setItem('lingshu.lang', LANG); } catch (e) { /* 忽略：隐私模式 */ }
+    location.reload();
+  };
+  const langSwitch = () => '<button id="lang-toggle" class="button" title="语言 / Language">'
+    + (LANG === 'en' ? '中文' : 'EN') + '</button>';
   const pages = [ ['overview','◈','概览'], ['memory','▤','记忆'], ['goals','◎','目标与任务'], ['self','◇','自我认知'], ['space','◷','时空关系'], ['review','☷','审核与维护'], ['tools','⌘','工具台'] ];
   const layers = { knowledge:'知识', contextual:'情景', structural:'结构', anchor:'锚点', self:'自我', rejected:'否证', unresolved:'待定' };
   let meta = null, info = null, page = 'overview', generation = 0, chosen = 'cg', toolsFilter = '', toastTimer;
@@ -47,8 +73,8 @@
   function cacheSet(key,value){ cacheMap.set(key,{t:Date.now(),v:value}); if(cacheMap.size>120){ const first=cacheMap.keys().next().value; cacheMap.delete(first) } }
 
   function time(ts) { if (!ts) return '—'; const d = new Date(typeof ts==='number'?ts*1000:ts); return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); }
-  function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${name}</h1><p class="subtitle">${subtitle}</p></div>${action}</div>`; }
-  function loading() { return '<div class="loading">正在读取认知图</div>'; }
+  function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${t(name)}</h1><p class="subtitle">${subtitle}</p></div>${action}${langSwitch()}</div>`; }
+  function loading() { return '<div class="loading">' + t('正在读取认知图') + '</div>'; }
   function errorHTML(error) { return `<div class="notice error">${esc(error.message || error)}</div>`; }
   function nodeRows(items, events=false) {
     if (!items?.length) return '<div class="empty">这里还没有记录。<br>认知从一次真实的记录开始。</div>';
@@ -263,7 +289,8 @@
     $('ov-rest').outerHTML='<div id="ov-rest">'+
       `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>最近记忆</h3><button class="button text" id="all-memory">查看全部 ↗</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>运行状态</h3><span class="badge">真实连接</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">工具可见不等于全部有权限。保留现有令牌与护栏。</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${(meta.tools||[]).length} 个真实工具 ↗</span></button></div></div></div>`+
       `<div class="panel section-gap"><div class="panel-body"><h3>认知图健康</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
-    $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page)); bindNodes()
+    $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
+    const _lt = $('lang-toggle'); if (_lt) _lt.onclick = () => setLang(LANG === 'en' ? 'zh' : 'en'); bindNodes()
   }
   // ---- issue #UI-PERF-2（使用者裁定 2026-11-14）：记忆页优先显示「便宜的、近的、待办的」，
   // 历史一律**手动加载**。实测（3.5 万节点库）：self_state 0.02s / review list 0.15s /
@@ -278,10 +305,10 @@
     const today0=new Date(); today0.setHours(0,0,0,0); const todayTs=today0.getTime()/1000
     $('main').innerHTML=title('记忆','MEMORY','先看近的与待办的；历史检索按需手动加载。','<button id="compose-toggle" class="button primary">＋ 记录记忆</button>')+
       `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section>`+
-      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>自我层</h3><span class="badge" id="self-badge">读取中…</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>待裁决</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
-      `<section class="panel section-gap"><div class="panel-head"><h3>今日对话</h3><span class="count" id="today-count"></span></div><div id="sec-today">${loading()}</div></section>`+
-      `<section class="panel section-gap"><div class="panel-head"><h3>最近 100 条对话</h3><span class="count" id="recent-count"></span></div><div id="sec-recent">${loading()}</div></section>`+
-      `<section class="panel section-gap"><div class="panel-head"><h3>历史（手动加载）</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="检索记忆（默认热层 0.3 秒）…" aria-label="检索记忆"><select id="hist-scope" class="search" aria-label="检索范围"><option value="hot">热层（快）</option><option value="full">全库（慢 10–30 秒）</option></select><button class="button" type="submit">检索 ↗</button></form>
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>${t('自我层')}</h3><span class="badge" id="self-badge">读取中…</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>待裁决</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>${t('今日对话')}</h3><span class="count" id="today-count"></span></div><div id="sec-today">${loading()}</div></section>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>${t('最近 100 条对话')}</h3><span class="count" id="recent-count"></span></div><div id="sec-recent">${loading()}</div></section>`+
+      `<section class="panel section-gap"><div class="panel-head"><h3>${t('历史（手动加载）')}</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="检索记忆（默认热层 0.3 秒）…" aria-label="检索记忆"><select id="hist-scope" class="search" aria-label="检索范围"><option value="hot">热层（快）</option><option value="full">全库（慢 10–30 秒）</option></select><button class="button" type="submit">检索 ↗</button></form>
         <div class="actions"><button id="load-older" class="button">加载更早的对话（100 条）</button><button id="cancel-load" class="button" hidden>取消</button></div></div><div id="sec-history"></div><div id="result"></div></section>`
     $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();}
     $('memory-form').onsubmit=async e=>{e.preventDefault(); await execute(e.submitter,'mdcg_remember',{content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'});}
@@ -334,7 +361,7 @@
   function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(item[3])}</div>` : ''; }
   function grouped(name) {
     const group=presets[name]; let active=0;
-    $('main').innerHTML=title(group.title,group.en,group.description)+(name==="self"?universalValuesCard():"")+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${label}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
+    $('main').innerHTML=title(group.title,group.en,group.description)+(name==="self"?universalValuesCard():"")+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${t(label)}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
     function select(i) {
       active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=label; $('command-tool').textContent=tool+' · '+args.op; const _note=noteOf(group.items[i]); const _pf=$('preset-fields');
       document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',Number(b.dataset.preset)===i)); $('permission').innerHTML=tool==='cg'?permissionNote(args.op):''; $('preset-json').value=json(args); $('result').innerHTML='';
@@ -374,7 +401,7 @@
   }
   async function navigate(name, compose=false) {
     page=pages.some(p=>p[0]===name)?name:'overview'; const token=++generation;
-    history.replaceState(null,'', '#'+page); $('crumb').textContent=pages.find(p=>p[0]===page)[2];
+    history.replaceState(null,'', '#'+page); $('crumb').textContent=t(pages.find(p=>p[0]===page)[2]);
     document.querySelectorAll('[data-nav]').forEach(b=>{b.classList.toggle('active',b.dataset.nav===page); if(b.dataset.nav===page)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
     $('main').innerHTML=loading();
     try { if(!meta)throw new Error('插件未连接，请点击右上角刷新。'); if(page==='overview')await overview(token);else if(page==='memory')await memory(token,compose);else if(presets[page])grouped(page);else await toolsPage(); }
@@ -387,7 +414,7 @@
     catch(e){meta=null;$('connection').textContent='连接失败';$('connection').classList.remove('online');$('main').innerHTML=errorHTML(e);}
     finally{$('refresh').disabled=false;}
   }
-  $('nav').innerHTML=pages.map(([id,icon,label])=>`<button class="nav-item" data-nav="${id}"><span class="nav-icon" aria-hidden="true">${icon}</span>${label}</button>`).join('');
+  $('nav').innerHTML=pages.map(([id,icon,label])=>`<button class="nav-item" data-nav="${id}"><span class="nav-icon" aria-hidden="true">${icon}</span>${t(label)}</button>`).join('');
   document.querySelectorAll('[data-nav]').forEach(b=>b.onclick=()=>navigate(b.dataset.nav)); $('refresh').onclick=boot; $('close-detail').onclick=()=>$('detail').close();
   let theme='';try{theme=localStorage.getItem('lingshu.theme')||'';}catch{} if(theme)document.documentElement.dataset.theme=theme;else if(matchMedia('(prefers-color-scheme:dark)').matches)document.documentElement.dataset.theme='dark';
   $('theme').onclick=()=>{const next=document.documentElement.dataset.theme==='dark'?'light':'dark';document.documentElement.dataset.theme=next;try{localStorage.setItem('lingshu.theme',next);}catch{}};
