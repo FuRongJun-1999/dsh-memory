@@ -288,7 +288,8 @@ FAST_INFO_KEYS = set(NEW_INFO_KEYS) | {
     "write_policy", "write_gate", "theory", "links",
 }
 #: 快照模式**新增**的键（除 NEW_INFO_KEYS 外）——只允许这三个出现在 full 的「多出」里。
-FULL_ONLY_EXTRA = {"bucket_stats"}  # issue #953：分桶副键计数（只在 full 面出现）
+# issue #980 问题 2（2026-11-17）：op=info 新增数据面水位（代码代际之外的又一条轴）。
+FULL_ONLY_EXTRA = {"bucket_stats", "data_stale", "data_stamp", "data_hint"}  # issue #953：分桶副键计数（只在 full 面出现）
 FAST_ONLY_KEYS = {"flush_state", "full", "node_count"}
 
 #: issue #812：**只在 full 面**出现的键（快照面不解析 58MB 落盘索引，故不能要求快照齐备）。
