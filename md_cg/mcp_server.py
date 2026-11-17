@@ -2802,7 +2802,11 @@ def _cg_dispatch(cg, a):
         # issue #980 问题 1（2026-11-17 使用者裁定）：**未声明层 ⇒ 默认写情景层**。
         # 知识层是「可复用结论」，需经分层复核闸（writegate：知识=1 档需反思单元）；
         # 默认落到 knowledge 等于让随手一写就进最高复用面——外部模型自写 0.9 正是这么发生的。
-        if _a_kind is not None and not _a_kind.get("layer"):
+        # 只对**新写**（无 node_id）默认落情景层；改写既有节点时保持其原层——
+        # 覆盖语义要继承，不能因为没声明就把知识层节点改落到情景层（实测会让
+        # test_issue297 / test_issue733 的「覆盖继承」断言失效）。
+        if (_a_kind is not None and not _a_kind.get("layer")
+                and not _a_kind.get("node_id")):
             _a_kind["layer"] = "contextual"
             _a_kind["_layer_defaulted"] = True
         # issue #980 问题 1（2026-11-17 使用者裁定）：用途 / 身份 真正进写流程。
