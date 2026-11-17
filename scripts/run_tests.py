@@ -457,6 +457,9 @@ def _child_env(parallel=False):
         env.pop(_k, None)
     if parallel:
         env["MDCG_RUN_TESTS_PARALLEL"] = "1"
+    # 写入闸默认 enforce：知识层需 reflect 复核。测试夹具大量直写 knowledge 层，
+    # 不声明复核会把夹具本身拦掉（被测行为不是「写不进去」）。等价「复核已通过」。
+    env.setdefault("MDCG_REVIEWERS", "reflect")
     return env
 
 
