@@ -2792,6 +2792,13 @@ def _cg_dispatch(cg, a):
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
+        # issue #980 问题 4（2026-11-17）：content_kind 缺省时**补 text**，
+        # 否则闸门按「未知内容类型 ''」判 BLINDSPOT——报错不说人话、模型要试三次。
+        # 补默认只影响「没声明」的情形；显式声明非法值仍按原样拒（不猜）。
+        _a_kind = a if isinstance(a, dict) else None
+        if _a_kind is not None and not _a_kind.get("content_kind"):
+            _a_kind["content_kind"] = "text"
+            _a_kind["_content_kind_defaulted"] = True
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
