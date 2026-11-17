@@ -137,15 +137,33 @@
     const interactive = options.interactive === true
     if (!meta?.csrf) throw new Error('灵枢未连接，请刷新后重试。');
     const mutating = needsConfirm(tool,args);
+    // 读面缓存（issue #UI-PERF）：同参数 60s 内复用——切换页面/宿主重挂载不再重复取数。
+    const _ck = mutating ? null : tool + ':' + JSON.stringify(args)
+    if (_ck) { const _hit = cacheGet(_ck); if (_hit !== null) return _hit }
+
     if (mutating && (!interactive || !await confirm(tool,args))) throw new Error('已取消操作');
     const response = await fetchJSON('/plugins/lingshu/call', { method:'POST', signal:options.signal, headers:{'Content-Type':'application/json','X-Lingshu-CSRF':meta.csrf}, body:JSON.stringify({tool,args,confirm:mutating}) });
+    if (_ck) cacheSet(_ck, response.result); else cacheMap.clear()  // 写操作清缓存
     return response.result;
   }
   function toast(text) { $('toast').textContent=text; $('toast').hidden=false; clearTimeout(toastTimer); toastTimer=setTimeout(()=>$('toast').hidden=true,4000); }
   // ---- 客户端缓存（issue #UI-PERF）：同参数 60s 内复用，切页/来回切换不再重复取数 ----
   const CACHE_TTL=60000, cacheMap=new Map()
-  function cacheGet(key){ const hit=cacheMap.get(key); if(!hit)return null; if(Date.now()-hit.t>CACHE_TTL){cacheMap.delete(key);return null} return hit.v }
-  function cacheSet(key,value){ cacheMap.set(key,{t:Date.now(),v:value}); if(cacheMap.size>120){ const first=cacheMap.keys().next().value; cacheMap.delete(first) } }
+  function cacheGet(key){
+  const hit = cacheMap.get(key);
+  if (hit && Date.now()-hit.t <= CACHE_TTL) return hit.v;
+  try {
+    const raw = sessionStorage.getItem("lingshu.cache."+key);
+    if (raw) { const obj = JSON.parse(raw); if (Date.now()-obj.t <= CACHE_TTL) { cacheMap.set(key, obj); return obj.v } }
+  } catch (e) {}
+  return null;
+}
+function cacheSet(key,value){
+  const rec = {t:Date.now(), v:value};
+  cacheMap.set(key, rec);
+  try { sessionStorage.setItem("lingshu.cache."+key, JSON.stringify(rec)) } catch (e) {}
+  if (cacheMap.size > 120) { const first = cacheMap.keys().next().value; cacheMap.delete(first) }
+}
 
   function time(ts) { if (!ts) return '—'; const d = new Date(typeof ts==='number'?ts*1000:ts); return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); }
   function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${t(name)}</h1><p class="subtitle">${subtitle}</p></div>${action}${langSwitch()}</div>`; }
@@ -476,7 +494,8 @@
   }
   async function navigate(name, compose=false) {
     page=pages.some(p=>p[0]===name)?name:'overview'; const token=++generation;
-    history.replaceState(null,'', '#'+page); $('crumb').textContent=t(pages.find(p=>p[0]===page)[2]);
+    history.replaceState(null,'', '#'+page);
+    try { sessionStorage.setItem('lingshu.page', page) } catch (e) {} $('crumb').textContent=t(pages.find(p=>p[0]===page)[2]);
     document.querySelectorAll('[data-nav]').forEach(b=>{b.classList.toggle('active',b.dataset.nav===page); if(b.dataset.nav===page)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
     $('main').innerHTML=loading();
     try { if(!meta)throw new Error('插件未连接，请点击右上角刷新。'); if(page==='overview')await overview(token);else if(page==='memory')await memory(token,compose);else if(presets[page])grouped(page);else await toolsPage(); }
@@ -485,7 +504,7 @@
   async function boot() {
     $('refresh').disabled=true;
     try { meta=await fetchJSON('/plugins/lingshu/meta');$('connection').textContent=meta.ready?'大脑已连接':'大脑未就绪';$('connection').classList.toggle('online',meta.ready);$('identity').textContent=meta.identity+' · '+meta.tools.length+' 个工具';
-      if (meta.version) { const v=$('version'); if (v) v.textContent='LINGSHU / '+meta.version; } await navigate(location.hash.slice(1)||page); }
+      if (meta.version) { const v=$('version'); if (v) v.textContent='LINGSHU / '+meta.version; } await navigate(location.hash.slice(1) || (() => { try { return sessionStorage.getItem('lingshu.page') || 'overview' } catch (e) { return 'overview' } })()||page); }
     catch(e){meta=null;$('connection').textContent='连接失败';$('connection').classList.remove('online');$('main').innerHTML=errorHTML(e);}
     finally{$('refresh').disabled=false;}
   }
