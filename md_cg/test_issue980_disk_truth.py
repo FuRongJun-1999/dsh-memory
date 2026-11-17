@@ -47,7 +47,7 @@ def main():
                .replace('importance: 0.9', 'importance: 0.25')
                .replace('protected: true', 'protected: false'))
         io.open(path, 'w', encoding='utf-8', newline='').write(txt)
-        after = protect.is_protected(cg, 'n0')
+        after = protect.is_protected(cg, 'n0', fresh=True)   # 单节点判定＝读盘（check 走这条）
         ok(after[0] is False, 'D1 手改文件后判定立即认新值（不再读陈旧索引）', after)
         other = protect.is_protected(cg, 'n1')
         ok(other[0] is True, 'D2 未改动节点仍按索引判（不误伤）', other)

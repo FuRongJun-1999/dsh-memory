@@ -149,14 +149,12 @@ def _file_newer(cg, node_id):
     except OSError:
         return False
 
-def _fm(cg, node_id, fresh=True):
+def _fm(cg, node_id, fresh=False):
     """取判定所需 frontmatter。
     fresh=True  ⇒ **强制读盘**（单节点判定）。
     fresh=False ⇒ 读索引；但**若该文件比索引新**（外部手改），仍读盘。
     ⇒ 「原文为真源」在判定面成立，代价是每节点一次 stat（微秒级），不是一次读盘。
     """
-    if not fresh and _file_newer(cg, node_id):
-        fresh = True
     if fresh:
         node = cg.get(node_id)
         if not node:
@@ -217,7 +215,7 @@ def _fm(cg, node_id, fresh=True):
 
 
 # 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None（键缺省）或 'hint' 时返回 (True, 重要性保护)——issue50-e：'heuristic' 等显式非 hint 来源不得由分数触发；其余返回 (False, '')。
-def is_protected(cg, node_id, fresh=True):
+def is_protected(cg, node_id, fresh=False):
     """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。
 
     issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护
@@ -272,7 +270,7 @@ def is_protected_entry(fm):
 
 
 # 生效条件：cg 索引无 node_id 条目时返回 (False, '')；有条目时若 self_state is True 一律返回 (False, '')（自我状态豁免）；否则 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 immutable is True 返回 (True, protection_reason 或 '显式不可覆盖标记')；其余返回 (False, '')。
-def is_immutable(cg, node_id, fresh=True):
+def is_immutable(cg, node_id, fresh=False):
     """**不可覆盖**判定 → (是否不可篡改, 原因)。比不可遗忘更窄，只认强信号。
 
     例外：自我状态卡（frontmatter.self_state is True）**必须可覆盖**——
