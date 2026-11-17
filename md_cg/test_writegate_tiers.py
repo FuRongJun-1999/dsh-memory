@@ -23,7 +23,9 @@ def ok(cond, msg, detail=''):
 
 def main():
     print('== A 档位与层映射')
-    ok(w.gate_mode({}) == 'off', 'A1 缺省档位是 off（零介入，避免升级即自伤）')
+    # 2026-11-17 使用者裁定：闸门开（默认 enforce）。旧约定「缺省 off 避免升级即自伤」被显式推翻——
+    # 知识层是理论化、要复用的东西，直接写它本身就是不负责任；随手记一笔应落情景层。
+    ok(w.gate_mode({}) == 'enforce', 'A1 缺省档位是 enforce（知识层需复核；情景层不受影响）')
     ok(w.gate_mode({'MDCG_WRITE_GATE': 'warn'}) == 'warn', 'A2 warn 可识别')
     ok(w.gate_mode({'MDCG_WRITE_GATE': 'ENFORCE'}) == 'enforce', 'A3 enforce 大小写不敏感')
     ok(w.gate_mode({'MDCG_WRITE_GATE': 'bogus'}) == 'off', 'A4 非法值 fail-open 到 off')

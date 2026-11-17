@@ -366,6 +366,8 @@ def group_a4():
         nid = "race_move"
         old = dict(os.environ)
         try:
+            os.environ["MDCG_WRITE_GATE"] = "warn"   # 本用例验跨进程锁，不验写入闸
+            os.environ["MDCG_WRITE_GATE"] = "warn"   # 本用例验锁，不验写入闸
             os.environ.update({k: v for k, v in env.items()
                                if k.startswith(("MDCG_", "HOME"))})
             from md_cg.mdcos import MdCGOS
@@ -415,6 +417,7 @@ def group_a5():
         nid = "race_sens"
         old = dict(os.environ)
         try:
+            os.environ["MDCG_WRITE_GATE"] = "warn"   # 本用例验锁，不验写入闸
             os.environ.update({k: v for k, v in env.items()
                                if k.startswith(("MDCG_", "HOME"))})
             from md_cg.mdcos import MdCGSecure

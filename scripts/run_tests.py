@@ -457,6 +457,10 @@ def _child_env(parallel=False):
         env.pop(_k, None)
     if parallel:
         env["MDCG_RUN_TESTS_PARALLEL"] = "1"
+    # 写入闸默认 enforce + 通道默认未声明（生产口径）。测试跑道改 warn：
+    # 夹具大量直写知识/结构/自我层，硬拦会把「被测行为」和「闸门行为」混成一件事；
+    # 闸门本身由 test_writegate_tiers / test_writegate_defaults 显式设 enforce 验证。
+    env.setdefault("MDCG_WRITE_GATE", "warn")
     return env
 
 
