@@ -2058,6 +2058,13 @@ def _scrub_call(cg, a):
     可逆动作（weaken / demote），**永不删节点**；保护节点跳过。
     """
     from . import scrub
+    # issue #980：批量改动前先把索引修好（外部手改 .md 时索引是旧世界）。
+    # 只在实际会改盘的 apply 批次做；体检/预演不付这 1.2s。
+    if bool(a.get("apply")):
+        try:
+            a["_index_refresh"] = cg.ensure_index_fresh_for_batch(reason="scrub")
+        except Exception:
+            pass
     act = (a.get("action") or "sweep").strip().lower()
     ids = a.get("ids")
     if isinstance(ids, str):
@@ -4339,6 +4346,13 @@ def _maintain_call(cg, a):
     # 保写入延迟恒定——多跳的重算成本交给巡检面）。
     #   · 预演（默认 apply=False）→ 只出可达集报表，放行写层角色先看影响面；
     #   · apply=True → 直接改写下游验证态（同步写盘）→ 管理操作。
+    # issue #980（2026-11-17）：批量写盘前先把索引修好——外部手改 .md 时索引是旧世界，
+    # 判定面读索引会得出旧结论。只在 apply（真写盘）批次做，预演不付这 1.2s。
+    if apply:
+        try:
+            a["_index_refresh"] = cg.ensure_index_fresh_for_batch(reason="maintain_" + act)
+        except Exception:
+            pass
     if act == "propagate":
         from . import trust as _trust
         if apply and principal is not None:

@@ -5480,6 +5480,39 @@ class MdCGOS(MdCG):
         return out
 
 # 生效条件：act 取 str(action or "stat") 去空白并 lower 后按分支分派（reload / importance / longterm / prefeed / separate / stat 等，reload 只触发 _maybe_reload_index 并返回 {"reloaded": bool}）；未识别 act 走 stat 兜底；只读与写层 action 库层不鉴权，apply 类批量改写由 MCP 分发层 require_admin 把守；
+
+    def ensure_index_fresh_for_batch(self, reason=""):
+        """批量判定面前的条件重建（2026-11-17，issue #980 问题 2 收尾）。
+
+        为什么要它：批量面（scrub / maintain apply / consolidate）读索引判定，
+        外部手改 .md 不会更新索引 ⇒ 判定用的是旧世界。单节点已改读盘，但 4.7 万节点
+        逐条读盘不可行（实测 stats 曾从 0.01s 回到 310s）。正确做法是**先把索引修好再判**。
+
+        三个前提（反思单元指出，实测确认）：
+          ① 判据必须 ttl=0——5 分钟缓存等于没测（实测真实库扫描 1.2s，可接受）；
+          ② 内存有未落盘写（pending_dirty>0）时**不得重建**：重建会用旧内存覆盖磁盘，
+             紧接着 async flush 又写回内存态，等于把刚修好的索引再次弄脏（正反馈）；
+          ③ 只在 apply/写盘批次入口调，预演与单节点判定不调（热路径不加 1.2s）。
+        """
+        from . import freshness as _fr
+        try:
+            _fs = self.flush_state() or {}
+        except Exception:            # noqa: BLE001  诊断面不得冒泡进判定路径
+            _fs = {}
+        pending = int(_fs.get("pending_dirty") or 0)
+        _d = _fr.data_stamp(self.root, ttl=0)
+        rep = {"reason": reason, "stale": bool(_d.get("stale")),
+               "pending_dirty": pending, "files": _d.get("files"),
+               "elapsed_s": _d.get("elapsed_s"), "rebuilt": False}
+        if rep["stale"] and pending == 0:
+            try:
+                self.rebuild_index()
+                rep["rebuilt"] = True
+            except Exception as exc:  # noqa: BLE001
+                rep["error"] = "%s: %s" % (type(exc).__name__, exc)
+        elif rep["stale"]:
+            rep["skipped"] = "pending_dirty>0：先让写落盘，避免重建与 flush 互相覆盖"
+        return rep
     def maintain(self, action="stat", layer=None, limit=None, apply=False,
                  min_delta=None, max_rows=None, force=False, keep=None,
                  mode=None, snapshot_id=None, batch=None, entry_ids=None,
