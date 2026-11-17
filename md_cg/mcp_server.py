@@ -1411,21 +1411,48 @@ def _node_view(node, offset: int = 0):
 # --------------------------------------------------------------------------
 
 # 生效条件：当 cg、a 传入时，按 a.get('action') or 'stats'（空串/None 回退 'stats'）并 strip().lower() 分派：action=stats 返回 cg.protect_stats()；action 为 forgetting 或 forgetting_history 返回 {'records': cg.forgetting_history(limit=int(a.get('limit') or 100))}（a.get('limit') 为 0/空串/None 时回落 100）；action=check 时 node_id 取 a.get('node_id') or ''（空串/None 回落 ''），返回包含 node_id、exists（nid in (cg.index.get('nodes') or {})）、protected、reason、immutable、immutable_reason 的 dict；action=history 返回 {'node_id': nid, 'versions': protect.history(cg, nid)}；action=snapshot 返回 {'node_id': nid, 'snapshot': protect.snapshot(cg, nid)}；action 为 mark 或 protect 时若 cg.principal 非 None 则先调用 cg.principal.require_admin('protect_mark')，再返回 protect.mark(cg, nid, a.get('reason') or '显式保护标记')（reason 空串/None 回落 '显式保护标记'）；其他 action 抛 ValueError；
+def _now_ts():
+    import time as _t
+    return int(_t.time())
+
+
 def _protect_call(cg, a):
     """写保护 / 遗忘留痕的统一入口（cg op=protect 与 mdcg_protect 共用）。"""
     from . import protect
     act = (a.get("action") or "stats").strip().lower()
     nid = a.get("node_id") or ""
     if act == "stats":
-        return cg.protect_stats()
+        # issue #980（2026-11-17）：体检是只读面，但读索引会给出「旧世界的数」——
+        # 先条件重建（ttl=0 判陈旧，pending_dirty>0 时跳过），代价约 1.2s，只在真陈旧时付。
+        _refresh = None
+        if hasattr(cg, "ensure_index_fresh_for_batch"):
+            try:
+                _refresh = cg.ensure_index_fresh_for_batch(reason="protect_stats")
+            except Exception:
+                _refresh = None
+        _st = cg.protect_stats()
+        if _refresh and isinstance(_st, dict):
+            _st["index_refresh"] = _refresh
+        return _st
     if act in ("forgetting", "forgetting_history"):
         return {"records": cg.forgetting_history(limit=int(a.get("limit") or 100))}
     if act == "check":
-        prot, why = protect.is_protected(cg, nid)
-        imm, iwhy = protect.is_immutable(cg, nid)
-        return {"node_id": nid, "exists": nid in (cg.index.get("nodes") or {}),
+        # issue #980 问题 2（2026-11-17）：check 读**盘**，不读索引快照——
+        # 「原文为真源」就不能一边说原文、一边拿内存条目判定。单节点读盘代价可忽略。
+        prot, why = protect.is_protected(cg, nid, fresh=True)
+        imm, iwhy = protect.is_immutable(cg, nid, fresh=True)
+        _e = (cg.index.get("nodes") or {}).get(nid) or {}
+        _fmfile = (cg.get(nid) or {}).get("frontmatter") or {}
+        _ip = _e.get("importance", 0.5)
+        _fp = _fmfile.get("importance", 0.5)
+        _stale = abs(float(_ip or 0) - float(_fp or 0)) > 1e-9
+        return {"node_id": nid, "exists": bool(nid in (cg.index.get("nodes") or {}) or _fmfile),
                 "protected": prot, "reason": why,
-                "immutable": imm, "immutable_reason": iwhy}
+                "immutable": imm, "immutable_reason": iwhy,
+                "source": "file", "as_of": _now_ts(),
+                "index_mismatch": _stale,
+                **({"index_importance": _ip, "file_importance": _fp,
+                   "hint": "磁盘与内存索引不一致：索引未随外部改动更新；本结果以磁盘为准；重建索引走 maintain action=reload"} if _stale else {})}
     if act == "history":
         return {"node_id": nid, "versions": protect.history(cg, nid)}
     if act == "snapshot":
@@ -2042,6 +2069,13 @@ def _scrub_call(cg, a):
     可逆动作（weaken / demote），**永不删节点**；保护节点跳过。
     """
     from . import scrub
+    # issue #980：批量改动前先把索引修好（外部手改 .md 时索引是旧世界）。
+    # 只在实际会改盘的 apply 批次做；体检/预演不付这 1.2s。
+    if bool(a.get("apply")):
+        try:
+            a["_index_refresh"] = cg.ensure_index_fresh_for_batch(reason="scrub")
+        except Exception:
+            pass
     act = (a.get("action") or "sweep").strip().lower()
     ids = a.get("ids")
     if isinstance(ids, str):
@@ -3147,6 +3181,16 @@ def _cg_dispatch(cg, a):
         from . import generation as _gen
         try:
             h.update(_gen.report())
+            # issue #980 问题 2 收尾（2026-11-17）：代码代际之外，**数据面**也要能自证。
+            # stale_on_disk 只比代码；data_stale 比「有没有 .md 比 _index.json 新」。
+            from . import freshness as _fr
+            _ds = _fr.data_stamp(getattr(cg, "root", "") or "")
+            h["data_stamp"] = {k: _ds.get(k) for k in ("files", "newest_mtime",
+                                                          "index_mtime", "elapsed_s")}
+            h["data_stale"] = bool(_ds.get("stale"))
+            if h["data_stale"]:
+                h["data_hint"] = ("有节点文件比索引新：批量判定面（stats/scrub）可能滞后；"
+                                  "单节点判定已改为读盘，不受影响。重建索引走 maintain action=reload")
         except Exception as _ge:            # noqa: BLE001
             h.update({"code_generation": None, "disk_generation": None,
                       "stale_on_disk": None, "restart_required": None,
@@ -4408,6 +4452,13 @@ def _maintain_call(cg, a):
     # 保写入延迟恒定——多跳的重算成本交给巡检面）。
     #   · 预演（默认 apply=False）→ 只出可达集报表，放行写层角色先看影响面；
     #   · apply=True → 直接改写下游验证态（同步写盘）→ 管理操作。
+    # issue #980（2026-11-17）：批量写盘前先把索引修好——外部手改 .md 时索引是旧世界，
+    # 判定面读索引会得出旧结论。只在 apply（真写盘）批次做，预演不付这 1.2s。
+    if apply:
+        try:
+            a["_index_refresh"] = cg.ensure_index_fresh_for_batch(reason="maintain_" + act)
+        except Exception:
+            pass
     if act == "propagate":
         from . import trust as _trust
         if apply and principal is not None:
