@@ -2608,7 +2608,8 @@ def _theory_pass(cg, q, k=3):
     本路不改库层语义：先收窄域（tags 含 理论真源），再在域内用 bigram 重合度排序；
     域内为空则返回空，由调用方回落原路径（不硬塞）。
     """
-    idx = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    # H-4(a) 纪律：从 index 取回的 nodes 先取快照再迭代
+    idx = dict((getattr(cg, "index", {}) or {}).get("nodes") or {})
     cands = []
     for nid, e in idx.items():
         tags = (e or {}).get("tags") or []
@@ -3331,7 +3332,7 @@ def _cg_dispatch(cg, a):
             "条件是什么", "怎么算"))
         if _theory_q:
             try:
-                _tres, _tcount = _theory_pass(cg, q, k=_int_arg(a, "k", 20))
+                _tres, _tcount = _theory_pass(cg, q, k=_k_want)
                 if _tres:
                     _have = {(x[0] or {}).get("id") for x in res}
                     # 理论结果**置顶**（不是只补缺）：同一节点若已在主结果里也要提前。
