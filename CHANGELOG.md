@@ -6,6 +6,21 @@
 
 ## [Unreleased]
 
+### 修复
+
+- **#749 自动召回的跨会话 knowledge 从未真正浮现（返回契约错配）**：
+  `src/hooks.ts` 的注入面按**热层形态**取值（`kr.items ?? kr`），而 `op=read` 的另一条路径
+  （主库检索）返回 `{ meta, results: [{ node }] }`。热层在运行时**从未被构建**
+  （`hottier.ensure/build` 全包零调用点；构建脚本 `scripts/sync_hot_tier.py` 未进
+  `package.json` 的 `files` 白名单）⇒ 恒走主库分支 ⇒ 恒取不到数组 ⇒ 该块**自 #916 发布起
+  一直静默为空**。
+  修法：新增 `normalizeReadItems()` 兼容三种形态（`{items}` / `{results:[{node}]}` / 裸数组），
+  把主库的 `node.content` 压成 `preview`（渲染循环只认该字段）、`layer` 取自
+  `frontmatter.layer`，并剔除 `usable === false`（#722 条件闸判不可用）。
+  同时校正 `test/issue749_cross_session_knowledge.test.ts` 的 mock——它此前也按热层形态打桩，
+  与实现共享了同一个错误假设，故 K1 一直是**假绿**。
+  新增 `test/issue749_read_contract.test.ts`（R1–R5）锁住两条路径与 fail-soft。
+
 ## [0.10.4] - 2026-11-16
 
 > **宿主兼容性声明**：本版本基于 **DSH 0.2.1-rc.5** 开发与验证。

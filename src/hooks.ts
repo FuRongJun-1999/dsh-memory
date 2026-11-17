@@ -884,6 +884,61 @@ function isExcludedSession(sid: string, list: unknown): boolean {
   return false
 }
 
+/** 主库 content → preview 的截断长度（与 `md_cg/hottier.py` 的 PREVIEW_MAX 同值）。 */
+const READ_PREVIEW_MAX = 300
+
+/** issue #749 修复：`cg(op=read)` 的**返回契约**在两条路径上不同，归一成条目数组。
+ *
+ *  病象（0.10.4 实测）：自动注入块只含本会话 contextual 裸消息，跨会话 knowledge
+ *  层零浮现。同一 query 显式 `cg(op=read)` 能 rank 命中 ⇒ 检索没坏，是注入面读错字段。
+ *
+ *  契约真相（md_cg/mcp_server.py，两条路径**形状不同**）：
+ *   · 热层命中（`_try_hot_first`）→ `{ ok, query, k, count, items: [{ id, layer, preview, score, source }], source: 'hot', meta }`
+ *   · 主库检索（`op == "read"` 尾部）→ `{ meta, results: [{ node: { id, path, frontmatter, content, verification_state }, score, state, reason, usable? }] }`
+ *  PR #916 按**热层**形态取值（`kr.items ?? kr`），而热层在运行时从未被构建
+ *  （`hottier.ensure/build` 全包零调用点；构建脚本 `scripts/sync_hot_tier.py` 未进
+ *  `package.json` 的 files 白名单）⇒ 恒走主库分支 ⇒ 恒拿不到数组 ⇒ 整块静默为空。
+ *
+ *  故此处兼容三种形态，并把主库的 `node.content` 压成 `preview`（渲染循环只认
+ *  preview，主库形态没有该字段）：
+ *   · `{ items: [...] }`   热层
+ *   · `{ results: [...] }` 主库（解包 `r.node`；`layer` 在 `frontmatter.layer`）
+ *   · `[...]`              裸数组
+ *
+ *  只做**读取侧归一**：不改检索、不改写入、不改渲染循环的字段名。
+ *  `usable === false`（issue #722 条件闸判不可用）由调用方剔除，本函数只透出。 */
+function normalizeReadItems(payload: unknown): Array<Record<string, unknown>> {
+  const isObj = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v)
+  const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
+  let rows: unknown[] = []
+  if (isObj(payload)) {
+    rows = asArray(payload['items'])
+    if (!rows.length) rows = asArray(payload['results'])
+  } else {
+    rows = asArray(payload)
+  }
+  const out: Array<Record<string, unknown>> = []
+  for (const raw of rows) {
+    if (!isObj(raw)) continue
+    const node = isObj(raw['node']) ? raw['node'] : raw
+    const fm = isObj(node['frontmatter']) ? node['frontmatter'] : {}
+    const content = String(node['content'] ?? '')
+    const preview = String(node['preview'] ?? content).replace(/\s+/g, ' ').trim()
+    if (!preview) continue
+    out.push({
+      id: node['id'],
+      layer: node['layer'] ?? fm['layer'] ?? '',
+      // 预览口径对齐 hottier（`PREVIEW_MAX = 300`）：主库 content 最长 50 KiB，
+      // 不截断会让单条吃掉整块预算（本块另有 RECALL_MAX_CHARS 总闸）。
+      preview: preview.length > READ_PREVIEW_MAX ? preview.slice(0, READ_PREVIEW_MAX) : preview,
+      score: typeof raw['score'] === 'number' ? raw['score'] : node['score'],
+      usable: raw['usable'] ?? node['usable'],
+    })
+  }
+  return out
+}
+
 function isRelayedMessage(source: unknown): boolean {
   const s = source as { form?: unknown } | null | undefined
   return !!s && typeof s === 'object' && s.form === 'relay'
@@ -1158,12 +1213,13 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
             const q749 = sid ? lastUserText.get(sid) : undefined
             if (q749) {
               const kr = await graph.read(q749.slice(0, 200), { k: recallLimit })
-              const rawItems = ((kr as { items?: unknown })?.items ?? kr) as unknown
-              if (Array.isArray(rawItems)) {
+              // issue #749 修复：主库形态是 `{meta, results:[{node}]}`、热层是 `{items}`，
+              // 旧实现只认后者（而热层运行时从未构建）⇒ 本块恒空。归一后两条路径都能浮现。
+              knowItems = normalizeReadItems(kr)
                 // 只取非 contextual 层：contextual 由 timeline 块负责，避免同一批裸消息被两条通路各贴一遍。
-                knowItems = (rawItems as Array<Record<string, unknown>>)
-                  .filter((it) => String((it || {})['layer'] ?? '') !== 'contextual')
-              }
+                .filter((it) => String((it || {})['layer'] ?? '') !== 'contextual')
+                // 条件闸判不可用（issue #722）的不进注入面
+                .filter((it) => it['usable'] !== false)
             }
           } catch (err) {
             ctx.logger.info(`dsh-memory: 跨会话知识检索未生效（已跳过）: ${redactForLog(err)}`)
