@@ -38,11 +38,17 @@ function makeCtx(opts: { readThrows?: boolean } = {}): {
         { id: 'c1', layer: 'contextual', start: 1, end: 2, preview: '本会话流水：今天写了个测试' },
       ] }
     },
-    // 查询式检索：返回跨会话 knowledge（模拟 A 会话写入、B 会话可读）
+    // 查询式检索：返回跨会话 knowledge（模拟 A 会话写入、B 会话可读）。
+    // ⚠️ 形状必须是**主库路径的真实契约** `{ meta, results: [{ node }] }`——
+    // 本用例早先按热层形态 `{ items: [...] }` 打桩，与实现共享了同一个错误假设
+    // （见 test/issue749_read_contract.test.ts 头注），故 K1 一直是假绿。
     async read() {
       if (opts.readThrows) throw new Error('read boom')
-      return { items: [
-        { id: 'k1', layer: 'knowledge', start: 9, end: 10, preview: '降熵定理：新结构必须自证降熵' },
+      return { meta: { tier: 'RRF' }, results: [
+        { node: { id: 'k1', path: 'knowledge/orphan/k1.md',
+                  frontmatter: { layer: 'knowledge', importance: 0.8 },
+                  content: '降熵定理：新结构必须自证降熵' },
+          score: 0.42, state: 'ACCEPT' },
       ] }
     },
     async remember() { return { ok: true, id: 'n1' } },
