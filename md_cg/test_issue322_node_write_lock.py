@@ -150,6 +150,9 @@ def _env(t):
                  ("MDCG_EXPORT_ROOT", "export")):
         env[k] = os.path.join(t, d)
         os.makedirs(env[k])
+    # 写入闸默认 enforce（2026-11-17）：本用例验跨进程写锁，不验闸门——
+    # 子进程显式走 warn 档，否则知识层写入被闸拒，A5 的密级继承就测不成。
+    env["MDCG_WRITE_GATE"] = "warn"
     env.update(MDCG_SUSTAIN="0", MDCG_SLEEP="0", PYTHONUTF8="1",
                PYTHONPATH=_REPO)
     return env
