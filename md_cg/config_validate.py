@@ -81,6 +81,7 @@ RULES = {
     'MDCG_SCOPESEL_COOC': {'type': 'str'},
     'MDCG_SCOPE_SELECT': {'type': 'str'},
     'MDCG_SCORE_MODE': {'enum': ['legacy', 'jaccard'], 'type': 'str'},
+    'MDCG_SELF_PREDICT': {'bool_like': True, 'type': 'bool'},
     'MDCG_SEMANTIC': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
     'MDCG_SLEEP': {'bool_like': True, 'type': 'bool'},
     'MDCG_SLEEP_GITDIR': {'type': 'str'},

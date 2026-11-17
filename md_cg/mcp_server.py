@@ -2567,6 +2567,39 @@ _HOT_MIN_SCORE = 2.0
 
 
 # 生效条件：cg 与 read 参数 a、query q 传入；返回 dict（热层直答）或 None（回落主库）
+def _self_forecast(q, a):
+    """检索前的自我预测（控制论闭环，2026-11-17）。
+
+    预测内容：本次检索能否给出「可用结果」（top 分 ≥ 0.5）。
+    依据（basis）**必须给**：查询长度、是否走专用路（理论/自指）、k 的大小。
+    置信度不是拍脑袋——从这些特征推一个初值，然后在同一轮内被实际结果检验，
+    差额（Brier）就是这一轮的自我修正量。**不跨轮等待外部反馈。**
+    """
+    from . import predict_loop as _pl
+    q = q or ""
+    basis = ["retrieval_heuristics", "query_len=%d" % len(q)]
+    conf = 0.45
+    if len(q) >= 8:
+        conf += 0.10; basis.append("len>=8")
+    if any(w in q for w in ("理论", "智能系统", "元认知", "信任")):
+        conf += 0.15; basis.append("theory_route")
+    if any(w in q for w in ("我", "我们", "约定", "身份")):
+        conf += 0.10; basis.append("self_route")
+    conf = min(0.85, max(0.20, conf))
+    return _pl.make_prediction(basis, "本次检索能给出 top 分 ≥ 0.5 的结果", conf)
+
+
+def _self_resolve(forecast, rows):
+    """同轮内检验预测：命中＝有结果且 top 分 ≥ 0.5。返回 Brier δ 与命中。"""
+    from . import predict_loop as _pl
+    top = 0.0
+    if rows:
+        try:
+            top = float(rows[0][1] if isinstance(rows[0], tuple) else rows[0].get("score") or 0.0)
+        except Exception:
+            top = 0.0
+    return _pl.resolve(forecast, bool(rows) and top >= 0.5)
+
 def _theory_pass(cg, q, k=3):
     """理论问法专用路（2026-11-17）：只在「理论真源」域内按字面重合度排序。
 
@@ -2575,7 +2608,8 @@ def _theory_pass(cg, q, k=3):
     本路不改库层语义：先收窄域（tags 含 理论真源），再在域内用 bigram 重合度排序；
     域内为空则返回空，由调用方回落原路径（不硬塞）。
     """
-    idx = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    # H-4(a) 纪律：从 index 取回的 nodes 先取快照再迭代
+    idx = dict((getattr(cg, "index", {}) or {}).get("nodes") or {})
     cands = []
     for nid, e in idx.items():
         tags = (e or {}).get("tags") or []
@@ -3298,7 +3332,7 @@ def _cg_dispatch(cg, a):
             "条件是什么", "怎么算"))
         if _theory_q:
             try:
-                _tres, _tcount = _theory_pass(cg, q, k=_int_arg(a, "k", 20))
+                _tres, _tcount = _theory_pass(cg, q, k=_k_want)
                 if _tres:
                     _have = {(x[0] or {}).get("id") for x in res}
                     # 理论结果**置顶**（不是只补缺）：同一节点若已在主结果里也要提前。
@@ -3336,6 +3370,17 @@ def _cg_dispatch(cg, a):
         meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
         if _tag_on:
             meta = _note_tag_filter(meta, _tag_dropped, _inc_tags, _exc_tags)
+        # 自我预测闭环（2026-11-17）：预测在同轮内被实际结果检验，不跨轮等外部反馈。
+        if str(os.environ.get("MDCG_SELF_PREDICT", "1")) not in ("0", "false", ""):
+            try:
+                _fc = _self_forecast(q, a)
+                _rr = _self_resolve(_fc, res)
+                if isinstance(meta, dict):
+                    meta["self_prediction"] = {"claim": _fc["claim"], "confidence": _fc["confidence"],
+                                                "hit": _rr["hit"], "delta": _rr["delta"],
+                                                "basis": _fc["basis"]}
+            except Exception:
+                pass
         _out = {"meta": meta, "results": [
             {"node": _node_view(n), "score": s, "state": q2.get("state"),
              "reason": q2.get("reason"),
