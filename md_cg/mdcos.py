@@ -5592,7 +5592,8 @@ class MdCGOS(MdCG):
                         "ids_sample": _ss.load(self)[:5]})
             return _st
         if act == "importance":
-            return weights.recalc(self, layer=layer, limit=limit, apply=apply,
+            # issue #980 问题 3：ids 传了就必须只用这些节点（此前收了不生效 ⇒ 改一个分数要全库走）
+            return weights.recalc(self, layer=layer, limit=limit, apply=apply, ids=ids,
                                   min_delta=(weights.APPLY_DELTA if min_delta is None
                                              else min_delta),
                                   actor=actor or getattr(self, "actor", "maintain"))

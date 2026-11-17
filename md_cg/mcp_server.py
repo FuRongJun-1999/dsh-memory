@@ -2826,6 +2826,63 @@ def _cg_dispatch(cg, a):
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
     if op == "write":
+        # issue #980 问题 4（2026-11-17）：content_kind 缺省时**补 text**，
+        # 否则闸门按「未知内容类型 ''」判 BLINDSPOT——报错不说人话、模型要试三次。
+        # 补默认只影响「没声明」的情形；显式声明非法值仍按原样拒（不猜）。
+        _a_kind = a if isinstance(a, dict) else None
+        # 只对**新写**补默认类型；覆写既有节点时应继承其原类型（否则会把
+        # 「正文真变了的覆写」判成普通文本写入，绕过出单——实测 G6-7 因此变绿为红）。
+        if (_a_kind is not None and not _a_kind.get("content_kind")
+                and not _a_kind.get("node_id")):
+            _a_kind["content_kind"] = "text"
+            _a_kind["_content_kind_defaulted"] = True
+        # issue #980 问题 1（2026-11-17 使用者裁定）：**未声明层 ⇒ 默认写情景层**。
+        # 知识层是「可复用结论」，需经分层复核闸（writegate：知识=1 档需反思单元）；
+        # 默认落到 knowledge 等于让随手一写就进最高复用面——外部模型自写 0.9 正是这么发生的。
+        # 只对**新写**（无 node_id）默认落情景层；改写既有节点时保持其原层——
+        # 覆盖语义要继承，不能因为没声明就把知识层节点改落到情景层（实测会让
+        # test_issue297 / test_issue733 的「覆盖继承」断言失效）。
+        if (_a_kind is not None and not _a_kind.get("layer")
+                and not _a_kind.get("node_id")):
+            _a_kind["layer"] = "contextual"
+            _a_kind["_layer_defaulted"] = True
+        # issue #980 问题 1（2026-11-17 使用者裁定）：用途 / 身份 真正进写流程。
+
+        # 此前「用途:」标签只从**会话身份五元组**派生——身份不登记（或形态不对）就一个都没有，
+
+        # 于是「用途」在设计上存在、在实际记忆里缺席。现改为：显式 purpose 优先，其次按
+
+        # content_kind 派生默认用途；身份取 MDCG_HARNESS/MDCG_UNIT；已有同前缀标签则不动。
+
+        if _a_kind is not None:
+
+            _tags = list(_a_kind.get("tags") or [])
+
+            _purpose = str(_a_kind.get("purpose") or "").strip()
+
+            if not _purpose:
+
+                _purpose = {"work_done": "做记录", "work_wip": "做推进", "code": "做实现",
+
+                            "image_desc": "做设计", "permission": "做治理"}.get(
+
+                                str(_a_kind.get("content_kind") or "text"), "做记录")
+
+            if not any(str(t).startswith("用途:") for t in _tags):
+
+                _tags.append("用途:" + _purpose)
+
+            _u = str(os.environ.get("MDCG_UNIT") or "").strip()
+
+            _h = str(os.environ.get("MDCG_HARNESS") or "").strip()
+
+            _idv = "/".join([x for x in (_h, _u) if x])
+
+            if _idv and not any(str(t).startswith("身份:") for t in _tags):
+
+                _tags.append("身份:" + _idv)
+
+            _a_kind["tags"] = _tags
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。
@@ -3186,8 +3243,46 @@ def _cg_dispatch(cg, a):
                 "note": "认知图只给知识与建议能力名，不执行；由调用方决定"}
 
     if op == "read":
-        # 热层懒建（2026-11-17）：**与路由无关**——理论/自指查询会绕过热层，
-        # 若只在 _try_hot_first 里触发，绕行路径上热层永远建不起来（PR #983 根因）。
+        # 理论问法**快速通道**（2026-11-17 实测）：理论域只有个位数节点，而主库全扫一次
+        # search 20–30s（k 放大后更久）。域内命中即返回，不再付全扫代价——语义也对：
+        # 问「定义」就该给定义。节点视图就地构造（不能用闭包里的 _node_view）。
+        _tq_early = any(w in (a.get("query") or "") for w in (
+            "智能系统", "元认知", "协定式", "自我赋予", "红线", "退化",
+            "五条件", "七维度", "P_trust", "信任", "情感权重"))
+        if _tq_early:
+            try:
+                _tres0, _tcnt0 = _theory_pass(cg, a.get("query") or "", k=3)  # 恒定 3 条：不再多调一次 _int_arg
+                # 阈值取 1.5：score = 3×别名重合 + 1×正文重合，
+                # 1.5 以上意味「别名强命中」；只靠正文偶然重合不得短路主路径。
+                if _tres0 and float(_tres0[0][1]) >= 1.5:
+                    _sp_on = str(os.environ.get("MDCG_SELF_PREDICT", "1")) not in ("0", "false", "")
+                    _fc0 = _self_forecast(a.get("query") or "", a) if _sp_on else None
+                    _rr0 = _self_resolve(_fc0, _tres0) if _sp_on else {"hit": None, "delta": None}
+                    return {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
+                                         "fast_path": True},
+                                     **({"self_prediction": {"claim": _fc0["claim"],
+                                                        "confidence": _fc0["confidence"],
+                                                        "hit": _rr0["hit"],
+                                                        "delta": _rr0["delta"],
+                                                        "basis": _fc0["basis"]}}
+                                        if _sp_on else {}),
+                                     "scanned": 0, "fused": len(_tres0)},
+
+                            "results": [{"node": {"id": (n or {}).get("id"),
+                                                    "content": (n or {}).get("content"),
+                                                    "frontmatter": (n or {}).get("frontmatter") or {}},
+                                         "score": s, "state": (q2 or {}).get("state"),
+                                         "reason": (q2 or {}).get("reason")}
+                                        for n, s, q2 in _tres0]}
+            except Exception:
+                pass
+        # 热层懒建（2026-11-17）：与路由无关——理论/自指查询会绕过热层
+        try:
+            from . import hottier as _ht0
+            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
+                _ensure_hot_async(cg)
+        except Exception:
+            pass
         try:
             from . import hottier as _ht0
             if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):

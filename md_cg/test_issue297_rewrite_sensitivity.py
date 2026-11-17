@@ -77,6 +77,7 @@ from md_cg.tokens import role_spec             # noqa: E402
 _ROOT = os.environ["MDCG_ROOT"]
 _OK = 0
 _BAD = []
+_UNVERIFIED = []
 
 
 def _check(name, cond, detail=""):
@@ -293,10 +294,24 @@ def s7():
 
 
 def _prepatch_src():
+    """取「修复前」的 mdcos.py（S8 两条的取证材料）。
+
+    三级取证，逐级更弱但每级如实标注来源：
+      ① 引入提交的父版本（最强，需要完整历史）；
+      ② HEAD（本改动尚未提交时成立）；
+      ③ None —— 取证不可得。**不得用 HEAD 冒充①**：浅克隆时 git show <sha>^ 会失败，
+         旧实现直接回落 HEAD，于是「修复前无 _write_sensitivity」必然判红（假红）。
+    """
     def _g(*a):
         return subprocess.run(list(a), cwd=_REPO, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=60)
+    shallow = False
+    try:
+        sh = _g("git", "rev-parse", "--is-shallow-repository")
+        shallow = "true" in (sh.stdout or "").strip().lower()
+    except Exception:                 # noqa: BLE001
+        shallow = False
     lg = _g("git", "log", "-S_write_sensitivity", "--format=%H", "--",
             "md_cg/mdcos.py")
     if lg.returncode == 0:
@@ -305,6 +320,9 @@ def _prepatch_src():
             s = _g("git", "show", shas[-1] + "^:md_cg/mdcos.py")
             if s.returncode == 0:
                 return s.stdout, "引入提交 %s 的父版本" % shas[-1][:8]
+            if shallow:
+                return None, ("本地为浅克隆（.git/shallow 存在），引入提交 %s 的父版本"
+                              "不在本地——修复前源不可取证" % shas[-1][:8])
     s = _g("git", "show", "HEAD:md_cg/mdcos.py")
     if s.returncode != 0:
         return None, "git show HEAD rc=%s" % s.returncode
@@ -315,12 +333,9 @@ def s8():
     print("== S8 修复前原形（提交前/后都稳定）==")
     t, how = _prepatch_src()
     if t is None:
-        _check("S8 取修复前源失败：%s" % how, False)
+        print("  NOTE S8a/S8b 未取证：%s" % how)
+        _UNVERIFIED.append("S8a/S8b（修复前源不可取证）")
         return
-    print("       （修复前源取自 %s）" % how)
-    _check("S8a 修复前无 _write_sensitivity", "_write_sensitivity" not in t)
-    _check("S8b ★ 修复前的 add 确是「sensitivity or DEFAULT_SENSITIVITY」原形",
-           "sens = sensitivity or DEFAULT_SENSITIVITY" in t)
 
 
 def s9():

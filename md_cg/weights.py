@@ -473,7 +473,7 @@ def node_importance(cg, nid, indeg=None, red=None, entry=None):
 
 
 # 生效条件：给定 cg 且 nodes = cg.index["nodes"] 时按 layer 过滤、limit 为真值才 ids = ids[:int(limit)] 逐节点重算，abs(after-before) < float(min_delta) 记 unchanged（**预演面不接档位闸**）；仅 apply=True 才在**任何写盘之前**先经 autonomy_modes.e_gate() 档位判定（补强批次 v1.2·E 面接线）——非 ALLOW（plan 档无计划）即经 forbidden_result() fail-closed 早退（零写盘、零审计行），ALLOW（confirm/full）才把 frontmatter.importance/importance_source/importance_components 写回（after >= IMPORTANCE_PROTECT 且未 protected 时补写 protected/protection_reason），并向 cg.root 下 append_jsonl(..., MAINTAIN_LOG) 记 batch 后 rebuild_index。
-def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
+def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA, ids=None,
            actor="maintain", dry_run_samples=10):
     """结构重要性重算：覆盖度 + 冗余度 + 验证基底 → 重排节点重要性。
 
@@ -486,7 +486,15 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
     无计划 ⇒ `forbidden_result()` fail-closed 早退（零写盘、零审计行）；confirm/
     full ⇒ ALLOW、**原链原样**（逐位不变）。`apply=False`（预演）不接闸。
     """
-    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
+    # H-4(a)：从 index 取回的 nodes 先取快照；ids 收窄（issue #980 问题 3：单点改分）
+    _all = dict((getattr(cg, "index", None) or {}).get("nodes") or {})
+    _miss = []
+    if ids:
+        _want = [str(x) for x in (ids if isinstance(ids, (list, tuple)) else [ids])]
+        _miss = [x for x in _want if x not in _all]
+        nodes = {k: _all[k] for k in _want if k in _all}
+    else:
+        nodes = _all
     indeg = coverage_index(cg)
     red = redundancy_map(cg, layer=layer)
     ids = [nid for nid, e in list(nodes.items())
@@ -573,7 +581,7 @@ def recalc(cg, layer=None, limit=None, apply=False, min_delta=APPLY_DELTA,
         "ok": True, "action": "importance", "dry_run": not apply,
         "batch": batch, "nodes_scanned": len(ids), "changed": changed,
         "unchanged": unchanged, "skipped": skipped, "written": written,
-        "min_delta": float(min_delta),
+        "min_delta": float(min_delta), "unknown_ids": _miss,
         "avg_before": round(before_sum / n, 4),
         "avg_after": round(after_sum / n, 4),
         "by_layer": {k: {"nodes": v["nodes"], "changed": v["changed"]}
