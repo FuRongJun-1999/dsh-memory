@@ -2682,6 +2682,29 @@ def _time_intent_boost(res, q):
         out.append((item[0], item[1] + add) + tuple(item[2:]))
     out.sort(key=lambda x: -float(x[1]))
     return out, boosted
+#: 热层懒建标志（2026-11-17）：PR #983 查出「热层运行时从未被构建」——
+#: `hottier.search` 只 load 不 ensure，全包无 ensure 调用点 ⇒ 恒 available=False，
+#: 于是 read 恒走主库分支，注入面按热层形态取值就永远拿不到（跨会话 knowledge 从未浮现）。
+#: 修法：首次用到热层时**后台建一次**，本轮先走主库（不阻塞），下一轮自然命中。
+_HOT_BUILD = {"started": False, "done": False, "error": None}
+
+
+def _ensure_hot_async(cg):
+    """后台构建热层（幂等）。返回是否本次启动了构建。"""
+    import threading
+    if _HOT_BUILD["started"]:
+        return False
+    _HOT_BUILD["started"] = True
+    def _job():
+        try:
+            from . import hottier as _ht
+            _ht.ensure(cg)
+            _HOT_BUILD["done"] = True
+        except Exception as exc:      # noqa: BLE001 —— 热层失败不得影响读路径
+            _HOT_BUILD["error"] = "%s: %s" % (type(exc).__name__, exc)
+    threading.Thread(target=_job, name="mdcg-hot-build", daemon=True).start()
+    return True
+
 def _try_hot_first(cg, a, q):
     """本地热层优先（2026-11-14 使用者裁定）：够不着才查主库。
 
@@ -2699,6 +2722,14 @@ def _try_hot_first(cg, a, q):
             return None
         from . import hottier as _ht
         k = _int_arg(a, "k", 20)
+        # 热层未构建 ⇒ 后台建一次，本轮回落主库（PR #983 根因：从无 ensure 调用点）
+        if not _ht.load(getattr(cg, "root", "") or ""):
+            if not _HOT_BUILD["started"]:
+                try:
+                    _ensure_hot_async(cg)
+                except Exception:
+                    pass
+            return None
         res = _ht.search(cg, q, k=k)
         items = res.get("items") or []
         meta = res.get("meta") or {}
@@ -3111,6 +3142,14 @@ def _cg_dispatch(cg, a):
                 "note": "认知图只给知识与建议能力名，不执行；由调用方决定"}
 
     if op == "read":
+        # 热层懒建（2026-11-17）：**与路由无关**——理论/自指查询会绕过热层，
+        # 若只在 _try_hot_first 里触发，绕行路径上热层永远建不起来（PR #983 根因）。
+        try:
+            from . import hottier as _ht0
+            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
+                _ensure_hot_async(cg)
+        except Exception:
+            pass
         # 时间算子（阶段二 4.1）：**原样透传**五个时间入参——本层不做校验也不填
         # 默认值，合法性判定单点在库层 `trust.check_time_args`（默认轴 effective
         # 亦由库层 `time_axis_of` 决定）。本层若自填默认值，两处口径就会分叉。
