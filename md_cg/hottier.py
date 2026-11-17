@@ -153,7 +153,16 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
         layer = str(e.get("layer") or "")
         imp = float(e.get("importance") or 0.0)
         ts = float(e.get("t") or e.get("created_at") or e.get("last_access") or 0.0)
-        if layer in ("self", "anchor"):
+        # 常驻（2026-11-16 使用者裁定）：标了 `常驻` 的节点**永远在热层**——
+        # 理论真源不能因为「不新、不重要度不够」被挤出去。
+        # 起因：智能论 3.4 §1.6.3 五红线只在 doc_* 切片里、切片又进不了热层，
+        # 结果「天天看书却把母语丢了」——检索永远从工作记录起步，不从理论起步。
+        _tags = e.get("tags") or []
+        if isinstance(_tags, str):
+            _tags = [_tags]
+        if any(str(t) == "常驻" for t in _tags):
+            priority.append((3, nid, layer, imp, ts))
+        elif layer in ("self", "anchor"):
             priority.append((2, nid, layer, imp, ts))
         elif layer == "contextual" and ts >= cutoff:
             priority.append((1, nid, layer, imp, ts))
