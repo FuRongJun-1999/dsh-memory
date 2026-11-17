@@ -1422,7 +1422,18 @@ def _protect_call(cg, a):
     act = (a.get("action") or "stats").strip().lower()
     nid = a.get("node_id") or ""
     if act == "stats":
-        return cg.protect_stats()
+        # issue #980（2026-11-17）：体检是只读面，但读索引会给出「旧世界的数」——
+        # 先条件重建（ttl=0 判陈旧，pending_dirty>0 时跳过），代价约 1.2s，只在真陈旧时付。
+        _refresh = None
+        if hasattr(cg, "ensure_index_fresh_for_batch"):
+            try:
+                _refresh = cg.ensure_index_fresh_for_batch(reason="protect_stats")
+            except Exception:
+                _refresh = None
+        _st = cg.protect_stats()
+        if _refresh and isinstance(_st, dict):
+            _st["index_refresh"] = _refresh
+        return _st
     if act in ("forgetting", "forgetting_history"):
         return {"records": cg.forgetting_history(limit=int(a.get("limit") or 100))}
     if act == "check":
