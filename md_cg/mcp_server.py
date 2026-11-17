@@ -3200,13 +3200,23 @@ def _cg_dispatch(cg, a):
             "五条件", "七维度", "P_trust", "信任", "情感权重"))
         if _tq_early:
             try:
-                _tres0, _tcnt0 = _theory_pass(cg, a.get("query") or "", k=_int_arg(a, "k", 20))
+                _tres0, _tcnt0 = _theory_pass(cg, a.get("query") or "", k=3)  # 恒定 3 条：不再多调一次 _int_arg
                 # 阈值取 1.5：score = 3×别名重合 + 1×正文重合，
                 # 1.5 以上意味「别名强命中」；只靠正文偶然重合不得短路主路径。
                 if _tres0 and float(_tres0[0][1]) >= 1.5:
+                    _sp_on = str(os.environ.get("MDCG_SELF_PREDICT", "1")) not in ("0", "false", "")
+                    _fc0 = _self_forecast(a.get("query") or "", a) if _sp_on else None
+                    _rr0 = _self_resolve(_fc0, _tres0) if _sp_on else {"hit": None, "delta": None}
                     return {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
-                                                 "fast_path": True},
+                                         "fast_path": True},
+                                     **({"self_prediction": {"claim": _fc0["claim"],
+                                                        "confidence": _fc0["confidence"],
+                                                        "hit": _rr0["hit"],
+                                                        "delta": _rr0["delta"],
+                                                        "basis": _fc0["basis"]}}
+                                        if _sp_on else {}),
                                      "scanned": 0, "fused": len(_tres0)},
+
                             "results": [{"node": {"id": (n or {}).get("id"),
                                                     "content": (n or {}).get("content"),
                                                     "frontmatter": (n or {}).get("frontmatter") or {}},
