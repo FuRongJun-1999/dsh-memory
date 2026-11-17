@@ -619,3 +619,57 @@ def selfcheck() -> dict:
             "gain": REFRESH_PARAMS["gain"],
             "protect_floor": IMPORTANCE_PROTECT,
             "node_importance_available": callable(node_importance)}
+
+
+#: 数据面陈旧检测的 TTL 缓存：全库 stat 扫描在 4.7 万节点上约 3.4s，
+#: 不能每次调用都扫；按 TTL 复用，超时重扫（2026-11-17，issue #980 问题 2 收尾）。
+_DATA_STAMP = {"at": 0.0, "report": None}
+DATA_STAMP_TTL = 300.0
+
+
+def data_stamp(root, ttl=DATA_STAMP_TTL, tolerance=5.0):
+    """数据面水位：{files, newest_mtime, index_mtime, stale, elapsed_s}。
+
+    stale=True 表示**有 .md 比 _index.json 还新（超容差）** ⇒ 索引落后于磁盘。
+    容差 5 秒是给异步 flush 留窗口：刚写入的 .md 一定比索引新，那不是陈旧。
+    带 TTL 缓存：同一库 5 分钟内只扫一次（4.7 万文件约 3.4 秒）。
+    """
+    import os as _os
+    import time as _t
+    now = _t.time()
+    hit = _DATA_STAMP.get("report")
+    if hit and hit.get("root") == root and (now - float(_DATA_STAMP.get("at") or 0)) < ttl:
+        return hit
+    t0 = _t.time()
+    files = 0
+    newest = 0.0
+    for dp, dns, fns in _os.walk(root):
+        dns[:] = [d for d in dns if not d.startswith("_") and d not in (".git", "__pycache__")]
+        for fn in fns:
+            if not fn.endswith(".md"):
+                continue
+            files += 1
+            try:
+                mt = _os.path.getmtime(_os.path.join(dp, fn))
+                if mt > newest:
+                    newest = mt
+            except OSError:
+                pass
+    try:
+        idx_mt = _os.path.getmtime(_os.path.join(root, "_index.json"))
+    except OSError:
+        idx_mt = 0.0
+    rep = {"root": root, "files": files, "newest_mtime": newest,
+           "index_mtime": idx_mt,
+           # 索引文件不存在（idx_mt=0）时不算陈旧：那是「尚未落盘」，不是「落后于磁盘」。
+           "index_present": bool(idx_mt > 0),
+           "stale": bool(idx_mt > 0 and newest > idx_mt + float(tolerance)),
+           "elapsed_s": round(_t.time() - t0, 2)}
+    _DATA_STAMP["at"] = now
+    _DATA_STAMP["report"] = rep
+    return rep
+
+
+def data_stale(root, ttl=DATA_STAMP_TTL):
+    """只要布尔值（带 TTL 缓存）。批量判定面可在批次开始前问一句。"""
+    return bool(data_stamp(root, ttl=ttl).get("stale"))

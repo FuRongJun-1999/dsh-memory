@@ -3106,6 +3106,16 @@ def _cg_dispatch(cg, a):
         from . import generation as _gen
         try:
             h.update(_gen.report())
+            # issue #980 问题 2 收尾（2026-11-17）：代码代际之外，**数据面**也要能自证。
+            # stale_on_disk 只比代码；data_stale 比「有没有 .md 比 _index.json 新」。
+            from . import freshness as _fr
+            _ds = _fr.data_stamp(getattr(cg, "root", "") or "")
+            h["data_stamp"] = {k: _ds.get(k) for k in ("files", "newest_mtime",
+                                                          "index_mtime", "elapsed_s")}
+            h["data_stale"] = bool(_ds.get("stale"))
+            if h["data_stale"]:
+                h["data_hint"] = ("有节点文件比索引新：批量判定面（stats/scrub）可能滞后；"
+                                  "单节点判定已改为读盘，不受影响。重建索引走 maintain action=reload")
         except Exception as _ge:            # noqa: BLE001
             h.update({"code_generation": None, "disk_generation": None,
                       "stale_on_disk": None, "restart_required": None,
