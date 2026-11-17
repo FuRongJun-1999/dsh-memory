@@ -1171,13 +1171,11 @@ _SRC_MUTATIONS = (
     # 红 2（实测 2026-10-03）：P2 weights 的读数对拍 + 落盘 fm 对拍。
     ("E 面被档位闸阻塞（weights.recalc 按档名分叉）", "mod",
      weights, "recalc",
-     '    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}\n'
-     '    indeg = coverage_index(cg)',
+     '    _all = dict((getattr(cg, "index", None) or {}).get("nodes") or {})\n',
      '    from . import autonomy_modes as _am\n'
      '    if _am.mode() == "full":\n'
      '        return {"ok": False, "error": "mode_blocked"}\n'
-     '    nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}\n'
-     '    indeg = coverage_index(cg)', 2),
+     '    _all = dict((getattr(cg, "index", None) or {}).get("nodes") or {})\n', 2),
     # ⑧ 补强批次 v1.2·U2——**空池注入**（复核探针形态）：守卫的字节读取单点
     #    `_bytes` 恒返回空字节 ⇒ 一切「逐字节比对前像」的合取项两侧皆空。
     #    U2 收口前（复核探针实测「R 组红 3 / 绿 30」）：R1-逐字节与 R3-节点复位
