@@ -31,6 +31,9 @@ TIMESCALE_CFG = {
     "year": {"alpha": 0.08, "half_life_s": 365 * 86400},
 }
 
+#: 理论信任的观察窗口（工程参数，非理论死值；使用者 2026-11-17：可后续微调）
+TRUST_WINDOW = 20
+
 DEFAULTS = {
     "e_baseline": 0.0,
     "t_prior": 0.5,
@@ -129,6 +132,28 @@ def update(state, observation, cfg=None):
         s[key_dt] = new - cur
         s[key_d2] = s[key_dt] - prev_d
         s["t_" + side] = new
+
+    # 理论信任（智能论 3.4 §2.9）：**只在给出 δ_norm / D_norm 时生效**。
+    # 情绪误差（error）不驱动信任——这是分离原则（守卫 N2a 钉住）。
+    if ("delta" in observation) or ("gap" in observation):
+        from . import trust_math as _tm
+        if "delta" in observation:
+            s.setdefault("deltas", []).append(float(observation["delta"]))
+        if "gap" in observation:
+            s.setdefault("gaps", []).append(float(observation["gap"]))
+        s["deltas"] = (s.get("deltas") or [])[-TRUST_WINDOW:]
+        s["gaps"] = (s.get("gaps") or [])[-TRUST_WINDOW:]
+        _prev_t = float(s.get("t_ext") or 0.5)
+        _new_t = _tm.t_total(s["deltas"], s["deltas"], _prev_t)
+        s["t_ext"] = _new_t
+        s["dt_ext"] = _new_t - _prev_t
+        s["t_hist"] = ((s.get("t_hist") or []) + [_new_t])[-3:]
+        if len(s["t_hist"]) >= 3:
+            s["e_weight"] = round(_tm.e_weight(*s["t_hist"][-3:]), 6)
+        s["p_trust"] = round(_tm.p_trust(s["deltas"]), 4)
+        s["p_gap"] = round(_tm.p_gap(s["gaps"]), 4) if s["gaps"] else None
+        s["fully_trusted"] = bool(s["p_gap"] is not None and
+                                   _tm.fully_trusted(s["p_trust"], s["p_gap"]))
 
     s["t"] = now
     s["n"] = int(s.get("n") or 0) + 1
