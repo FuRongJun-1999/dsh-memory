@@ -160,17 +160,33 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
         _tags = e.get("tags") or []
         if isinstance(_tags, str):
             _tags = [_tags]
+        # 2026-11-17（使用者裁定：重要性 = 层位 × 影响度 × 使用率，前一项定了就不看后一项）：
+        # 热层只做**字典序**——先按层位分档，档内才比重要度/新近/出边。
+        # 旧库不动（不重算任何节点的 importance 字段），只在**选谁进热层**这一层生效。
+        #   5 常驻：理论真源，永远在
+        #   4 self/anchor：维持自我稳定是兜底，不能被引用量压过去
+        #   3 structural：规则/判据面，比知识先
+        #   1 knowledge：可复用结论（且重要性过线）
+        #   2 contextual 近期：工作近况（比知识先——热层要给「刚发生的事」）
+        #   0 其余（含低重要度知识）
+        _eg = len(e.get("edges") or [])          # 出边数：影响下游的粗代理，仅作档内次序
         if any(str(t) == "常驻" for t in _tags):
-            priority.append((3, nid, layer, imp, ts))
+            priority.append((5, nid, layer, imp, ts, _eg))
         elif layer in ("self", "anchor"):
-            priority.append((2, nid, layer, imp, ts))
+            priority.append((4, nid, layer, imp, ts, _eg))
+        elif layer == "structural":
+            priority.append((3, nid, layer, imp, ts, _eg))
+        elif layer == "knowledge":
+            # 低重要度知识**不进热层**（既有语义不变）：宁可少收，不拿噪声充数。
+            if imp >= importance_min:
+                priority.append((1, nid, layer, imp, ts, _eg))
         elif layer == "contextual" and ts >= cutoff:
-            priority.append((1, nid, layer, imp, ts))
-        elif imp >= importance_min:
-            priority.append((0, nid, layer, imp, ts))
+            priority.append((2, nid, layer, imp, ts, _eg))
+        else:
+            priority.append((0, nid, layer, imp, ts, _eg))
     # 组内：高重要度 + 新近 优先；组间：self/anchor > 近期情景 > 高重要度知识
-    priority.sort(key=lambda r: (-r[0], -r[3], -r[4]))
-    for _grp, nid, layer, imp, ts in priority:
+    priority.sort(key=lambda r: (-r[0], -r[3], -r[4], -r[5]))
+    for _grp, nid, layer, imp, ts, _eg in priority:
         if len(picked) >= max_nodes:
             truncated = True
             break
@@ -200,7 +216,7 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             "content_hash": str((nodes.get(nid) or {}).get("content_hash") or ""),
         }
     # 兜底口径：self/anchor 若仍因上限被挤掉（理论不该发生），显式记为 truncated
-    missing_self = [n for (_g, n, L, _i, _t) in priority if L in ("self", "anchor") and n not in picked]
+    missing_self = [n for (_g, n, L, _i, _t, _e) in priority if L in ("self", "anchor") and n not in picked]
     if missing_self:
         truncated = True
     postings = {}
