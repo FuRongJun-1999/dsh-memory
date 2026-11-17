@@ -2567,6 +2567,39 @@ _HOT_MIN_SCORE = 2.0
 
 
 # 生效条件：cg 与 read 参数 a、query q 传入；返回 dict（热层直答）或 None（回落主库）
+def _time_intent_boost(res, q):
+    """时间意图重排（2026-11-17）：问「什么时候/何时/哪一年」时，按日期 + 实体词命中加权。
+
+    起因（第 4 条取证）：检索『什么时候立的约定』→ 人物树主干 persona_trunk_* 未进 top3。
+    相似度对「何时」不敏感：实体词在主干里出现少，而日期才是答案本体。
+    做法：去掉时间词后取 2-gram 作实体词，命中 +0.2/个（上限 0.6）；正文含日期 +0.4。
+    返回 (res, boosted)；boosted=0 时调用方不写 meta（不制造「生效了」的假信号）。
+    """
+    TIME_WORDS = ('什么时候', '何时', '哪年', '哪一年', '哪月', '几月', '哪天', '多久', '时间线', '日期')
+    if not any(w in (q or '') for w in TIME_WORDS) or not res:
+        return res, 0
+    import re as _re
+    date_rx = _re.compile(chr(39) + r'(19|20)\d{2}\s*[-/年]\s*\d{1,2}' + chr(39))
+    core = q or ''
+    for w in TIME_WORDS:
+        core = core.replace(w, ' ')
+    grams = {core[k:k + 2] for k in range(max(0, len(core) - 1))}
+    grams = {gm for gm in grams if gm.strip() and gm.strip('的了吗呢是怎么我们你他她它')}
+    out, boosted = [], 0
+    for item in res:
+        if not isinstance(item, tuple):
+            out.append(item)
+            continue
+        n = item[0] or {}
+        blob = (n.get('content') or '') + ' ' + ' '.join(
+            str(v) for v in ((n.get('frontmatter') or {}).get('aliases') or []))
+        hits = sum(1 for gm in grams if gm in blob)
+        add = (0.4 if date_rx.search(blob) else 0.0) + min(0.6, 0.2 * hits)
+        if add > 0:
+            boosted += 1
+        out.append((item[0], item[1] + add) + tuple(item[2:]))
+    out.sort(key=lambda x: -float(x[1]))
+    return out, boosted
 def _try_hot_first(cg, a, q):
     """本地热层优先（2026-11-14 使用者裁定）：够不着才查主库。
 
@@ -3144,6 +3177,20 @@ def _cg_dispatch(cg, a):
                 _pf_tags.append(_pre + _v.strip())
         if _pf_tags and not a.get("tags_any"):
             a = dict(a, tags_any=_pf_tags)
+        # 时间意图查询**绕过热层**（2026-11-17）：热层只按「自我/近期/重要度」收节点，
+        # 不做时间排序——问「什么时候」时若先撞热层，会拿到一堆「近的」而不是「对的」。
+        # 故带时间意图时强制走主库 + 日期加权重排（见 _time_intent_boost）。
+        _temporal_q = any(w in (q or '') for w in
+                          ('什么时候', '何时', '哪年', '哪一年', '哪月', '几月', '哪天', '多久', '时间线', '日期'))
+        # 时间意图还要**超取**：日期加权发生在 top-k 之后，若主干排在 20 名外就永远进不来。
+        if _temporal_q:
+            _k_want_t = _int_arg(a, "k", 20)
+            a = dict(a, k=min(max(_k_want_t * 6, 30), 120))
+            a = dict(a, hot_first=False)
+        # 自指查询同样绕过热层：热层按「自我/近期/重要度」收，不做关系排序，
+        # 先撞热层会拿到一堆「近的」而不是「关乎我的」。
+        if any(w in (q or "") for w in ("我", "我们", "约定", "相识", "相爱", "身份", "来历")):
+            a = dict(a, hot_first=False)
         _hf = _try_hot_first(cg, a, q)
         if _hf is not None:
             return _hf
@@ -3191,6 +3238,29 @@ def _cg_dispatch(cg, a):
         # 截回调用方要的 k（超取只为让被过滤项不占配额，不改变对外语义）
         if (_doc_filter_on or _tag_on) and len(res) > _k_want:
             res = res[:_k_want]
+        # 时间意图重排（2026-11-17）：问「何时」时按日期存在性加权；未受益不写 meta。
+        # 自指查询要看自我层（2026-11-17）：库层默认检索**不含 layer=self**（安全默认），
+        # 导致「我们怎么走到今天 / 什么时候立的约定」摸不到人物树主干。
+        # 判据：查询含人称/关系词时，补一路 layer=self 并按分数并入（去重，不覆盖原序）。
+        _self_q = any(w in (q or "") for w in ("我", "我们", "自己", "约定", "相识", "相爱", "身份", "来历"))
+        if _self_q and not a.get("layer"):
+            try:
+                _sres, _ = cg.search(q, k=6, layer="self", record=False)
+                if _sres:
+                    _have = {(x[0] or {}).get("id") for x in res}
+                    _extra = [x for x in _sres if (x[0] or {}).get("id") not in _have]
+                    _extra = [(x[0], float(x[1]) + 0.5, x[2]) for x in _extra]  # 自我层策展权威
+                    if _extra:
+                        res = list(res) + _extra
+                        res.sort(key=lambda x: -float(x[1]))
+                    if isinstance(meta, dict):
+                        # 合并数**恒写**（含 0）：0 也要可审计
+                        meta["self_route"] = {"merged": len(_extra)}
+            except Exception:
+                pass
+        res, _boosted = _time_intent_boost(res, q)
+        if _boosted and isinstance(meta, dict):
+            meta["time_route"] = {"by": "date_presence", "boosted": _boosted}
         meta = _note_doc_filter(meta, _excluded_doc, _doc_filter_on)
         if _tag_on:
             meta = _note_tag_filter(meta, _tag_dropped, _inc_tags, _exc_tags)
