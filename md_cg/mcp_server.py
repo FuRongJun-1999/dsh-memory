@@ -2876,6 +2876,13 @@ def _cg_dispatch(cg, a):
 
             _h = str(os.environ.get("MDCG_HARNESS") or "").strip()
 
+            # 环境没声明时回落到**安全主体的身份**（role/actor）——否则经 MCP 接入的进程
+            # 拿不到 MDCG_*，「身份:」标签几乎恒空（实测真实库只有 1 条）。
+            if not (_u or _h):
+                _pr = getattr(cg, "principal", None)
+                if _pr is not None:
+                    _u = str(getattr(_pr, "role", "") or "").strip()
+                    _h = str(getattr(_pr, "actor", "") or "").strip()
             _idv = "/".join([x for x in (_h, _u) if x])
 
             if _idv and not any(str(t).startswith("身份:") for t in _tags):
