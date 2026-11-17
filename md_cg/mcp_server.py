@@ -2796,7 +2796,10 @@ def _cg_dispatch(cg, a):
         # 否则闸门按「未知内容类型 ''」判 BLINDSPOT——报错不说人话、模型要试三次。
         # 补默认只影响「没声明」的情形；显式声明非法值仍按原样拒（不猜）。
         _a_kind = a if isinstance(a, dict) else None
-        if _a_kind is not None and not _a_kind.get("content_kind"):
+        # 只对**新写**补默认类型；覆写既有节点时应继承其原类型（否则会把
+        # 「正文真变了的覆写」判成普通文本写入，绕过出单——实测 G6-7 因此变绿为红）。
+        if (_a_kind is not None and not _a_kind.get("content_kind")
+                and not _a_kind.get("node_id")):
             _a_kind["content_kind"] = "text"
             _a_kind["_content_kind_defaulted"] = True
         # issue #980 问题 1（2026-11-17 使用者裁定）：**未声明层 ⇒ 默认写情景层**。
