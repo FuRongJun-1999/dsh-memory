@@ -119,7 +119,52 @@ def known_nodes(cg):
 
 
 # 生效条件：cg 索引中无 node_id 条目时返回 None；有条目时先取 layer/importance（缺 importance 键回落 0.5）/protected/protection_reason/immutable/self_state/importance_source（issue50-e：缺键读 None），仅当条目缺 protected 或 immutable、或（缺 self_state 且条目 layer∈PROTECTED_LAYERS）、或（条目 layer∈PROTECTED_LAYERS 且 _GATE_UNKNOWN_KEYS 中任一键的值为 None）时再经 cg.get(node_id) 用 frontmatter 覆盖这些键（cg.get 抛异常或返回假值时保留索引值；layer 取 frontmatter.layer or 索引 layer，importance 缺键时回落索引 importance）。
-def _fm(cg, node_id):
+def _index_mtime(cg):
+    """索引文件的最后写时间（缓存到 cg 上）。用于 mtime 级新鲜度判定。"""
+    cached = getattr(cg, "_idx_mtime", None)
+    if cached is not None:
+        return cached
+    import os as _os
+    v = 0.0
+    try:
+        v = _os.path.getmtime(_os.path.join(cg.root, "_index.json"))
+    except OSError:
+        pass
+    try:
+        cg._idx_mtime = v
+    except Exception:
+        pass
+    return v
+
+def _file_newer(cg, node_id):
+    """该节点的 .md 是否比索引新（一次 stat，微秒级）。
+    索引条目里没有 mtime ⇒ 以「索引文件时间」为基线：文件更新即视为外部改过。"""
+    import os as _os
+    e = _entry(cg, node_id) or {}
+    rel = e.get("path")
+    if not rel:
+        return False
+    try:
+        return _os.path.getmtime(_os.path.join(cg.root, rel)) > _index_mtime(cg)
+    except OSError:
+        return False
+
+def _fm(cg, node_id, fresh=True):
+    """取判定所需 frontmatter。
+    fresh=True  ⇒ **强制读盘**（单节点判定）。
+    fresh=False ⇒ 读索引；但**若该文件比索引新**（外部手改），仍读盘。
+    ⇒ 「原文为真源」在判定面成立，代价是每节点一次 stat（微秒级），不是一次读盘。
+    """
+    if not fresh and _file_newer(cg, node_id):
+        fresh = True
+    if fresh:
+        node = cg.get(node_id)
+        if not node:
+            return None
+        fm0 = dict(node.get("frontmatter") or {})
+        fm0.setdefault("layer", node.get("layer"))
+        return fm0
+
     """取判定所需的 frontmatter 字段；索引快照门控字段**未知**时回退读文件。"""
     e = _entry(cg, node_id)
     if e is None:
@@ -172,7 +217,7 @@ def _fm(cg, node_id):
 
 
 # 生效条件：cg 索引无 node_id 条目（_fm 直接返回 None，不走回退读文件）时返回 (False, '')；有条目时按 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 protected is True 时返回 (True, protection_reason 或 '显式保护标记')；否则 importance（缺失/假值/float 转换异常一律按 0.0）≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None（键缺省）或 'hint' 时返回 (True, 重要性保护)——issue50-e：'heuristic' 等显式非 hint 来源不得由分数触发；其余返回 (False, '')。
-def is_protected(cg, node_id):
+def is_protected(cg, node_id, fresh=True):
     """**不可遗忘**判定 → (是否受保护, 原因)。节点不存在返回 (False, "")。
 
     issue50-e（2026-10-02，使用者裁定「读面也只认显式来源」）：按分自动保护
@@ -191,7 +236,7 @@ def is_protected(cg, node_id):
       is_immutable 一律不动；MERGE 强化（forgetting.reinforce 跨 0.7 置
       protected=True）是「重复确认」的显式动作，不经本分支，不受影响。
     """
-    return is_protected_entry(_fm(cg, node_id))
+    return is_protected_entry(_fm(cg, node_id, fresh=fresh))
 
 
 # 生效条件：fm 为假值时返回 (False, "")；否则按三条真源判定——layer∈PROTECTED_LAYERS ⇒ 层保护；protected is True ⇒ 显式位；importance≥AUTO_PROTECT_IMPORTANCE 且 importance_source 为 None 或 "hint" ⇒ 按分保护；其余返回 (False, "")。
@@ -227,7 +272,7 @@ def is_protected_entry(fm):
 
 
 # 生效条件：cg 索引无 node_id 条目时返回 (False, '')；有条目时若 self_state is True 一律返回 (False, '')（自我状态豁免）；否则 layer∈PROTECTED_LAYERS 返回 (True, 层保护)；否则 immutable is True 返回 (True, protection_reason 或 '显式不可覆盖标记')；其余返回 (False, '')。
-def is_immutable(cg, node_id):
+def is_immutable(cg, node_id, fresh=True):
     """**不可覆盖**判定 → (是否不可篡改, 原因)。比不可遗忘更窄，只认强信号。
 
     例外：自我状态卡（frontmatter.self_state is True）**必须可覆盖**——
@@ -235,7 +280,7 @@ def is_immutable(cg, node_id):
     但它仍然 is_protected（不可遗忘），这是「不可遗忘 ≠ 不可覆盖」的延伸。
     身份锚点不设此豁免，依旧两者皆禁。
     """
-    return is_immutable_entry(_fm(cg, node_id))
+    return is_immutable_entry(_fm(cg, node_id, fresh=fresh))
 
 
 # 生效条件：fm 为假值时返回 (False, "")；否则先判自我状态豁免（self_state is True ⇒ 返回 (False, "")），再 layer∈PROTECTED_LAYERS ⇒ (True, 层保护)，再 immutable is True ⇒ (True, protection_reason 或 '显式不可覆盖标记')，其余 (False, "")——与 is_protected_entry 对称的**条目口径**单点。

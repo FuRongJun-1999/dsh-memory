@@ -1411,6 +1411,11 @@ def _node_view(node, offset: int = 0):
 # --------------------------------------------------------------------------
 
 # 生效条件：当 cg、a 传入时，按 a.get('action') or 'stats'（空串/None 回退 'stats'）并 strip().lower() 分派：action=stats 返回 cg.protect_stats()；action 为 forgetting 或 forgetting_history 返回 {'records': cg.forgetting_history(limit=int(a.get('limit') or 100))}（a.get('limit') 为 0/空串/None 时回落 100）；action=check 时 node_id 取 a.get('node_id') or ''（空串/None 回落 ''），返回包含 node_id、exists（nid in (cg.index.get('nodes') or {})）、protected、reason、immutable、immutable_reason 的 dict；action=history 返回 {'node_id': nid, 'versions': protect.history(cg, nid)}；action=snapshot 返回 {'node_id': nid, 'snapshot': protect.snapshot(cg, nid)}；action 为 mark 或 protect 时若 cg.principal 非 None 则先调用 cg.principal.require_admin('protect_mark')，再返回 protect.mark(cg, nid, a.get('reason') or '显式保护标记')（reason 空串/None 回落 '显式保护标记'）；其他 action 抛 ValueError；
+def _now_ts():
+    import time as _t
+    return int(_t.time())
+
+
 def _protect_call(cg, a):
     """写保护 / 遗忘留痕的统一入口（cg op=protect 与 mdcg_protect 共用）。"""
     from . import protect
@@ -1421,11 +1426,22 @@ def _protect_call(cg, a):
     if act in ("forgetting", "forgetting_history"):
         return {"records": cg.forgetting_history(limit=int(a.get("limit") or 100))}
     if act == "check":
-        prot, why = protect.is_protected(cg, nid)
-        imm, iwhy = protect.is_immutable(cg, nid)
-        return {"node_id": nid, "exists": nid in (cg.index.get("nodes") or {}),
+        # issue #980 问题 2（2026-11-17）：check 读**盘**，不读索引快照——
+        # 「原文为真源」就不能一边说原文、一边拿内存条目判定。单节点读盘代价可忽略。
+        prot, why = protect.is_protected(cg, nid, fresh=True)
+        imm, iwhy = protect.is_immutable(cg, nid, fresh=True)
+        _e = (cg.index.get("nodes") or {}).get(nid) or {}
+        _fmfile = (cg.get(nid) or {}).get("frontmatter") or {}
+        _ip = _e.get("importance", 0.5)
+        _fp = _fmfile.get("importance", 0.5)
+        _stale = abs(float(_ip or 0) - float(_fp or 0)) > 1e-9
+        return {"node_id": nid, "exists": bool(nid in (cg.index.get("nodes") or {}) or _fmfile),
                 "protected": prot, "reason": why,
-                "immutable": imm, "immutable_reason": iwhy}
+                "immutable": imm, "immutable_reason": iwhy,
+                "source": "file", "as_of": _now_ts(),
+                "index_mismatch": _stale,
+                **({"index_importance": _ip, "file_importance": _fp,
+                   "hint": "磁盘与内存索引不一致：索引未随外部改动更新；本结果以磁盘为准；重建索引走 maintain action=reload"} if _stale else {})}
     if act == "history":
         return {"node_id": nid, "versions": protect.history(cg, nid)}
     if act == "snapshot":

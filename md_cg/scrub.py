@@ -899,7 +899,7 @@ def decontaminate(cg, node_ids=None, *, kinds=None, dry_run: bool = True,
             actions.append({"node_id": nid, "kind": kind, "action": "skip",
                             "detail": "已处置过（幂等）", "applied": False})
             continue
-        prot, why = protect.is_protected(cg, nid)
+        prot, why = protect.is_protected(cg, nid, fresh=False)
         if prot and not override:
             n_prot += 1
             actions.append({"node_id": nid, "kind": kind,
@@ -1009,7 +1009,7 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
             continue
         if int(e.get("evidence_count") or 0) < int(min_evidence):
             continue
-        prot, _why = protect.is_protected(cg, nid)
+        prot, _why = protect.is_protected(cg, nid, fresh=False)
         if prot and not override:
             skipped += 1
             continue
