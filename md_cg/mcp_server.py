@@ -2799,6 +2799,12 @@ def _cg_dispatch(cg, a):
         if _a_kind is not None and not _a_kind.get("content_kind"):
             _a_kind["content_kind"] = "text"
             _a_kind["_content_kind_defaulted"] = True
+        # issue #980 问题 1（2026-11-17 使用者裁定）：**未声明层 ⇒ 默认写情景层**。
+        # 知识层是「可复用结论」，需经分层复核闸（writegate：知识=1 档需反思单元）；
+        # 默认落到 knowledge 等于让随手一写就进最高复用面——外部模型自写 0.9 正是这么发生的。
+        if _a_kind is not None and not _a_kind.get("layer"):
+            _a_kind["layer"] = "contextual"
+            _a_kind["_layer_defaulted"] = True
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。

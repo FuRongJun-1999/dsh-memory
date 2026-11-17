@@ -49,6 +49,17 @@ def main():
         ok('功能名' in str((v.get('detail') or {}).get('missing')), 'I4b 缺项清单具体到要素名', v.get('detail'))
         hint = str((w or {}).get('hint') or '')
         ok('六要素' in hint and '补齐' in hint, 'I4c 顶层提示可照做（中文骨架）', hint[:80])
+        # I5 未声明层 ⇒ 默认情景层（2026-11-17 使用者裁定）
+        body = "# 功能名：x\n# 生效条件：a\n# 子功能：b\n# 执行：c\n# 验证方式：d\n# 不适用条件：e\n\n正文"
+        w1 = mcp_server.call_tool(cg, "cg", {"op": "write", "content": body})
+        n1 = cg.get((w1 or {}).get("id")) or {}
+        ok((n1.get("frontmatter") or {}).get("layer") == "contextual",
+           "I5a 未声明层 ⇒ 落情景层（不默认进知识层）", (n1.get("frontmatter") or {}).get("layer"))
+        w2 = mcp_server.call_tool(cg, "cg", {"op": "write", "layer": "knowledge", "content": body})
+        n2 = cg.get((w2 or {}).get("id")) or {}
+        ok((n2.get("frontmatter") or {}).get("layer") == "knowledge",
+           "I5b 显式声明 knowledge 仍按声明落层", (n2.get("frontmatter") or {}).get("layer"))
+
     finally:
         shutil.rmtree(T, ignore_errors=True)
 
