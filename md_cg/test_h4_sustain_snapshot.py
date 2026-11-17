@@ -83,6 +83,7 @@ _TMP = tempfile.mkdtemp(prefix="h4sus_")
 os.environ["MDCG_AUX_ROOT"] = os.path.join(_TMP, "auxroot")
 os.environ["MDCG_MASTER_KEY"] = "ab" * 32          # 哑主密钥（绝不触真实密钥面）
 os.environ["MDCG_TOKEN_FILE"] = os.path.join(_TMP, "tokens.json")
+os.environ["MDCG_WRITE_GATE"] = "warn"   # 本用例验并发快照，不验写入闸
 os.environ["MDCG_ROOT"] = os.path.join(_TMP, "cgroot")
 os.environ["MDCG_SUSTAIN_DIR"] = os.path.join(_TMP, "sustain")
 os.makedirs(os.environ["MDCG_AUX_ROOT"], exist_ok=True)

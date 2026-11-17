@@ -41,7 +41,10 @@ os.environ.update(HOME=_T, MDCG_ROOT=ROOT,
                   MDCG_AUX_ROOT=os.path.join(_T, "auxroot"),
                   MDCG_DATA_ROOT=os.path.join(_T, "dataroot"),
                   MDCG_EXPORT_ROOT=_T, MDCG_SUSTAIN="0", MDCG_SLEEP="0",
-                  MDCG_INGEST_ROOT=BASE)
+                  MDCG_INGEST_ROOT=BASE,
+                    # 写入闸默认 enforce（2026-11-17）：本用例验摄取根判定，不验闸门。
+                    # 闸把摄取的知识层写入拒掉会让 B01/B02 变成“空扫假绿/假红”。
+                    MDCG_WRITE_GATE="warn")
 
 from md_cg.mdcos import MdCGSecure           # noqa: E402
 from md_cg.security import Principal         # noqa: E402

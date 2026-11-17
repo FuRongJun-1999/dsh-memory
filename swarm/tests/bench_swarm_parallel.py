@@ -126,6 +126,15 @@ def verdict(speedup, threshold=THRESHOLD):
 
 def main():
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+    # 2026-11-17（CI 实测）：本件量的是 **N=8 路并行**的加速比。核数不足 8 时
+    # 「加速比 < 2×」量的是机器而不是代码（CI runner 常见 2~4 核），必然假红。
+    # 故核数不足即明确 SKIP 并写明原因——不降阈值（#302 已论证那是偷偷放宽）。
+    import os as _os
+    _cpu = _os.cpu_count() or 1
+    if _cpu < N:
+        print("SKIP  bench_swarm_parallel：本机 %d 核 < N=%d，无法演示 %d 路并行加速比"
+              % (_cpu, N, N))
+        return 0
     tmp = tempfile.mkdtemp(prefix="swarm_bench_")
     proj = os.path.join(tmp, "proj")
     gen = generate_rust_project(SOURCE, proj)

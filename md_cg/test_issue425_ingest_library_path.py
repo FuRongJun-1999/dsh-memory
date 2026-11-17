@@ -41,6 +41,7 @@ EXT = os.path.join(_T, "extsrc")
 OUTSIDE = os.path.join(_T, "outside_root")
 os.environ.update(HOME=_T, MDCG_ROOT=ROOT,
                   MDCG_STATE_ROOT=os.path.join(_T, "stateroot"),
+                  MDCG_WRITE_GATE="warn",   # 本用例验摄取根判定，不验闸门
                   MDCG_AUX_ROOT=os.path.join(_T, "auxroot"),
                   MDCG_DATA_ROOT=os.path.join(_T, "dataroot"),
                   MDCG_EXPORT_ROOT=_T, MDCG_SUSTAIN="0", MDCG_SLEEP="0")

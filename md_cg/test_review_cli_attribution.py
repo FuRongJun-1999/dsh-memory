@@ -62,6 +62,10 @@ def _child_env(extra=None, remove=("MDCG_SESSION", "DSH_SESSION_ID",
     env = dict(os.environ)
     for k in remove:
         env.pop(k, None)
+    # 本用例断言 stderr 恰一行（归属告警），故不能用 warn 档（会多出一行闸告警）；
+    # 改为声明「复核已通过」，让闸静默放行。
+    env["MDCG_REVIEW_CHANNELS"] = "hive,subagent"
+    env["MDCG_REVIEWERS"] = "reflect,verify,human"
     env["MDCG_MASTER_KEY"] = DUMMY_KEY
     env["PYTHONUTF8"] = "1"
     env["PYTHONIOENCODING"] = "utf-8"
