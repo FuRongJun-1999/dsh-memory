@@ -56,9 +56,11 @@ _warned = {"mode": False}
 
 # 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值返回 off 并首次告警。
 def gate_mode(environ=None):
-    """当前闸档位（off / warn / enforce）。非法值 fail-open 到 off 并告警一次。"""
+    """当前闸档位（off / warn / enforce，缺省 warn）。非法值 fail-open 到 off 并告警一次。"""
     env = os.environ if environ is None else environ
-    raw = str(env.get(GATE_ENV) or "off").strip().lower()
+    # 2026-11-17 使用者裁定：闸门默认**开**（warn）——会判定、会留痕、返回体可见，
+    # 但不硬拦；要硬拦设 MDCG_WRITE_GATE=enforce。此前默认 off ⇒ 分档模型形同虚设。
+    raw = str(env.get(GATE_ENV) or "warn").strip().lower()
     if raw in ("off", "warn", "enforce"):
         return raw
     if not _warned["mode"]:

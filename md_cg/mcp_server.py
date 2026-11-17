@@ -2805,6 +2805,43 @@ def _cg_dispatch(cg, a):
         if _a_kind is not None and not _a_kind.get("layer"):
             _a_kind["layer"] = "contextual"
             _a_kind["_layer_defaulted"] = True
+        # issue #980 问题 1（2026-11-17 使用者裁定）：用途 / 身份 真正进写流程。
+
+        # 此前「用途:」标签只从**会话身份五元组**派生——身份不登记（或形态不对）就一个都没有，
+
+        # 于是「用途」在设计上存在、在实际记忆里缺席。现改为：显式 purpose 优先，其次按
+
+        # content_kind 派生默认用途；身份取 MDCG_HARNESS/MDCG_UNIT；已有同前缀标签则不动。
+
+        if _a_kind is not None:
+
+            _tags = list(_a_kind.get("tags") or [])
+
+            _purpose = str(_a_kind.get("purpose") or "").strip()
+
+            if not _purpose:
+
+                _purpose = {"work_done": "做记录", "work_wip": "做推进", "code": "做实现",
+
+                            "image_desc": "做设计", "permission": "做治理"}.get(
+
+                                str(_a_kind.get("content_kind") or "text"), "做记录")
+
+            if not any(str(t).startswith("用途:") for t in _tags):
+
+                _tags.append("用途:" + _purpose)
+
+            _u = str(os.environ.get("MDCG_UNIT") or "").strip()
+
+            _h = str(os.environ.get("MDCG_HARNESS") or "").strip()
+
+            _idv = "/".join([x for x in (_h, _u) if x])
+
+            if _idv and not any(str(t).startswith("身份:") for t in _tags):
+
+                _tags.append("身份:" + _idv)
+
+            _a_kind["tags"] = _tags
         # issue #320：op 名合规（write）不等于**参数**合规——验证态是裁决面，
         # 按参数再要一次 verify op。单点放在分派层，不下沉到库层：库层不认识角色
         # 白名单，且写面另有「入队→accept」通道（accept 的裁决权在 admin 手上）。

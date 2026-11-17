@@ -348,8 +348,14 @@ class Principal:
             # issue #708：既要 stderr（宿主愿意转发时实时可见），更要**进程内计数**
             # ——后者经 `cg(op=info).write_gate` 可查，不依赖 DSH 是否转发子进程 stderr。
             import sys as _sys
-            _sys.stderr.write("[writegate] warn：%s（未阻断，仅记录；计数见 cg(op=info).write_gate）"
-                              % verdict.get("reason"))
+            # 2026-11-17：默认档位改为 warn 后，逐次 stderr 会把日志刷满。
+            # 同一 (layer, reason) 每进程只喊一次——计数仍逐次记（信息不丢，噪声收敛）。
+            _k = (str(layer), str(verdict.get("reason"))[:80])
+            _seen = globals().setdefault("_WG_WARNED", set())
+            if _k not in _seen:
+                _seen.add(_k)
+                _sys.stderr.write("[writegate] warn：%s（未阻断，仅记录；计数见 cg(op=info).write_gate）"
+                                  % verdict.get("reason"))
             try:
                 _wg.warn_record(layer, verdict.get("tier"), verdict.get("reason"))
             except Exception:            # noqa: BLE001  诊断面不得冒泡进写入路径
