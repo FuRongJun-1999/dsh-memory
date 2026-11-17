@@ -3142,8 +3142,36 @@ def _cg_dispatch(cg, a):
                 "note": "认知图只给知识与建议能力名，不执行；由调用方决定"}
 
     if op == "read":
-        # 热层懒建（2026-11-17）：**与路由无关**——理论/自指查询会绕过热层，
-        # 若只在 _try_hot_first 里触发，绕行路径上热层永远建不起来（PR #983 根因）。
+        # 理论问法**快速通道**（2026-11-17 实测）：理论域只有个位数节点，而主库全扫一次
+        # search 20–30s（k 放大后更久）。域内命中即返回，不再付全扫代价——语义也对：
+        # 问「定义」就该给定义。节点视图就地构造（不能用闭包里的 _node_view）。
+        _tq_early = any(w in (a.get("query") or "") for w in (
+            "智能系统", "元认知", "协定式", "自我赋予", "红线", "退化",
+            "五条件", "七维度", "P_trust", "信任", "情感权重"))
+        if _tq_early:
+            try:
+                _tres0, _tcnt0 = _theory_pass(cg, a.get("query") or "", k=_int_arg(a, "k", 20))
+                # 阈值取 1.5：score = 3×别名重合 + 1×正文重合，
+                # 1.5 以上意味「别名强命中」；只靠正文偶然重合不得短路主路径。
+                if _tres0 and float(_tres0[0][1]) >= 1.5:
+                    return {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
+                                                 "fast_path": True},
+                                     "scanned": 0, "fused": len(_tres0)},
+                            "results": [{"node": {"id": (n or {}).get("id"),
+                                                    "content": (n or {}).get("content"),
+                                                    "frontmatter": (n or {}).get("frontmatter") or {}},
+                                         "score": s, "state": (q2 or {}).get("state"),
+                                         "reason": (q2 or {}).get("reason")}
+                                        for n, s, q2 in _tres0]}
+            except Exception:
+                pass
+        # 热层懒建（2026-11-17）：与路由无关——理论/自指查询会绕过热层
+        try:
+            from . import hottier as _ht0
+            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
+                _ensure_hot_async(cg)
+        except Exception:
+            pass
         try:
             from . import hottier as _ht0
             if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
