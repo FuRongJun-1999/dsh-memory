@@ -2567,6 +2567,54 @@ _HOT_MIN_SCORE = 2.0
 
 
 # 生效条件：cg 与 read 参数 a、query q 传入；返回 dict（热层直答）或 None（回落主库）
+def _theory_pass(cg, q, k=3):
+    """理论问法专用路（2026-11-17）：只在「理论真源」域内按字面重合度排序。
+
+    为什么单独一路：理论节点只有个位数，而库里 doc_* 切片是几十万级——
+    走融合路会被切片淹没（实测四个理论问法里三个落空或命中切片）。
+    本路不改库层语义：先收窄域（tags 含 理论真源），再在域内用 bigram 重合度排序；
+    域内为空则返回空，由调用方回落原路径（不硬塞）。
+    """
+    idx = (getattr(cg, "index", {}) or {}).get("nodes") or {}
+    cands = []
+    for nid, e in idx.items():
+        tags = (e or {}).get("tags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        if "理论真源" in [str(t) for t in tags]:
+            cands.append(nid)
+    if not cands:
+        return [], 0
+
+    def grams(text):
+        t = str(text or "")
+        return {t[i:i + 2] for i in range(max(0, len(t) - 1)) if t[i:i + 2].strip()}
+
+    qg = grams(q)
+    scored = []
+    for nid in cands[:4000]:
+        n = cg.get(nid) or {}
+        fm = n.get("frontmatter") or {}
+        alias = " ".join(str(a) for a in (fm.get("aliases") or []))
+        blob = alias + " " + (n.get("content") or "")[:4000]
+        bg = grams(blob)
+        if not qg or not bg:
+            continue
+        alias_ratio = (len(qg & grams(alias)) / float(len(qg) or 1)) if alias else 0.0
+        body_ratio = len(qg & bg) / float(len(qg) or 1)
+        # 别名命中权重 3 倍：别名就是「这句话该怎么问」，正文只是佐证。
+        score = 3.0 * alias_ratio + body_ratio
+        if score > 0:
+            scored.append((score, nid, n))
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    out = []
+    for score, nid, n in scored[:max(1, int(k))]:
+        # 下游输出体在 usable 存在时会连带读 relaxed/code——三键必须齐，缺一即 KeyError。
+        qual = {"state": "theoretical", "reason": "理论真源域内命中",
+                "usable": True, "relaxed": False, "code": None}
+        out.append((n, round(score, 4), qual))
+    return out, len(cands)
+
 def _time_intent_boost(res, q):
     """时间意图重排（2026-11-17）：问「什么时候/何时/哪一年」时，按日期 + 实体词命中加权。
 
@@ -3189,7 +3237,10 @@ def _cg_dispatch(cg, a):
             a = dict(a, hot_first=False)
         # 自指查询同样绕过热层：热层按「自我/近期/重要度」收，不做关系排序，
         # 先撞热层会拿到一堆「近的」而不是「关乎我的」。
-        if any(w in (q or "") for w in ("我", "我们", "约定", "相识", "相爱", "身份", "来历")):
+        _theory_keys_early = ('智能系统', '元认知', '协定式', '自我赋予', '红线', '退化',
+                              '信任', '情感权重', '五条件', '七维度', 'P_trust')  # 理论查询同样绕热层
+        if (any(w in (q or "") for w in _theory_keys_early)
+                or any(w in (q or "") for w in ("我", "我们", "约定", "相识", "相爱", "身份", "来历"))):
             a = dict(a, hot_first=False)
         _hf = _try_hot_first(cg, a, q)
         if _hf is not None:
@@ -3238,6 +3289,27 @@ def _cg_dispatch(cg, a):
         # 截回调用方要的 k（超取只为让被过滤项不占配额，不改变对外语义）
         if (_doc_filter_on or _tag_on) and len(res) > _k_want:
             res = res[:_k_want]
+        # 理论问法专用路（2026-11-17）：什么叫/是什么意思/怎么产生/差在哪/条件是什么/怎么算
+        # 理论名词本身即触发器（不只是疑问词）——否则「最小智能系统的条件」这类问法进不来。
+        _theory_keys = ("智能系统", "元认知", "协定式", "自我赋予", "红线", "退化",
+                        "信任", "情感权重", "五条件", "七维度", "P_trust")
+        _theory_q = any(w in (q or "") for w in _theory_keys) or any(w in (q or "") for w in (
+            "什么叫", "是什么意思", "怎么产生", "怎么来的", "差在哪", "区别是什么",
+            "条件是什么", "怎么算"))
+        if _theory_q:
+            try:
+                _tres, _tcount = _theory_pass(cg, q, k=_int_arg(a, "k", 20))
+                if _tres:
+                    _have = {(x[0] or {}).get("id") for x in res}
+                    # 理论结果**置顶**（不是只补缺）：同一节点若已在主结果里也要提前。
+                    _extra = list(_tres)
+                    if _extra:
+                        _ids = {(y[0] or {}).get("id") for y in _extra}
+                        res = list(_extra) + [x for x in res if (x[0] or {}).get("id") not in _ids]
+                    if isinstance(meta, dict):
+                        meta["theory_route"] = {"domain": _tcount, "used": len(_tres)}
+            except Exception:
+                pass
         # 时间意图重排（2026-11-17）：问「何时」时按日期存在性加权；未受益不写 meta。
         # 自指查询要看自我层（2026-11-17）：库层默认检索**不含 layer=self**（安全默认），
         # 导致「我们怎么走到今天 / 什么时候立的约定」摸不到人物树主干。
