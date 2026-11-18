@@ -49,7 +49,6 @@ import sys
 # require_op 实参），互不对账——实测删掉枚举串里的一个 op，全部测试仍绿。
 # 现在各处**从 op_table 派生**；分发结构（下面 `_cg_dispatch` 的 `if op == "x"` 链）
 # 保持原样，故 `protocol.dispatch_ops()` 的 AST 提取面逐位不变，仍是独立读数。
-from . import session_norm as _session_norm
 from . import op_table as _ot  # noqa: E402
 
 # ---------------------------------------------------------------- 入口自保证 UTF-8
@@ -2877,13 +2876,6 @@ def _cg_dispatch(cg, a):
 
             _h = str(os.environ.get("MDCG_HARNESS") or "").strip()
 
-            # 环境没声明时回落到**安全主体的身份**（role/actor）——否则经 MCP 接入的进程
-            # 拿不到 MDCG_*，「身份:」标签几乎恒空（实测真实库只有 1 条）。
-            if not (_u or _h):
-                _pr = getattr(cg, "principal", None)
-                if _pr is not None:
-                    _u = str(getattr(_pr, "role", "") or "").strip()
-                    _h = str(getattr(_pr, "actor", "") or "").strip()
             _idv = "/".join([x for x in (_h, _u) if x])
 
             if _idv and not any(str(t).startswith("身份:") for t in _tags):
@@ -4807,7 +4799,7 @@ def _stg_call(cg, a):
                             desc=bool(a.get("desc", True)), time_axis=axis,
                             # 会话视图：缺省读遍所有会话，"*" = 显式跨会话，
                             # 其它值 = 本会话视图（自动召回走这条防串台）
-                            session=a.get("session"))
+                            session=a.get("session"), normalize_session=_normalize_session)
     if op == "anchors":
         return stg.anchors(cg, time_window=a.get("time_window"), bbox=a.get("bbox"),
                            layer=a.get("layer"), limit=int(a.get("limit") or 50),
@@ -5837,21 +5829,27 @@ def _start_sustain(cg):
     return lp
 
 
+from . import session_norm as _session_norm  # noqa: E402
+
+
 # 生效条件：s=str(s or "").strip()；不以 "session-" 开头、或去前缀按 "-" 分组后长度不等于 [8,4,4,4,12]、或某组字符不都在 "0123456789abcdef" 时返回 False，三者皆过返回 True。
-# issue #994：三个判定已下沉到零反向依赖的 md_cg/session_norm.py（stg → mcp_server
-# 的反向边由此切断）。此处保留原名薄包装，签名与语义一字不改。
 def _is_dsh_session(s: str) -> bool:
+    """DSH 会话 id 形态判定：委托 md_cg.session_norm.is_dsh_session（兼容转发）。"""
     return _session_norm.is_dsh_session(s)
 
 
+# 生效条件：s=str(raw or "").strip()；s 为空返回 "anonymous"；非 DSH 形态返回 s；DSH 形态时以 root=os.environ.get("MDCG_DSH_SESSIONS_ROOT") or ~/.dsh/sessions 遍历条目，存在 root/<name>/s 目录则返回 s，os.listdir 抛 OSError 时返回 s，否则返回 "anonymous"。
 def _is_session5_like(s):
+    """会话身份五元组形态（s5.*）判定：委托 md_cg.session_norm.is_session5_like（兼容转发）。"""
     return _session_norm.is_session5_like(s)
 
 
 def _normalize_session(raw):
+    """会话 id 归一 + 轻校验：委托 md_cg.session_norm.normalize_session（#434 公共下沉，兼容保留）。"""
     return _session_norm.normalize_session(raw)
 
 
+# 生效条件：raw=str(raw or "").strip()；raw 为空或恰为 "*" 时返回 None（不构成归因声明）；部署侧 MDCG_SESSION 或 DSH_SESSION_ID 去空白后非空时返回 None（环境权威，请求声明被否决）；否则返回 _normalize_session(raw)。
 def _declared_session(raw):
     """**请求级会话归属声明**（归因维度，与授权正交）。
 

@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import os
 
-from . import lifecycle
+from . import lifecycle, session_norm as _session_norm
 from . import stgidx
 from . import trust
 
@@ -507,8 +507,7 @@ def relation(cg, a_id, b_id, time_axis="observed"):
 
 
 # 生效条件：环境变量 MDCG_SESSION（优先）或 DSH_SESSION_ID 去空白后非空时，返回其
-# _normalize_session 归一值；两者皆空/未设时返回 None。归一真源不可导入（ImportError
-# 等）时返回去空白原值（fail-soft）。
+# session_norm.normalize_session 归一值；两者皆空/未设时返回 None。
 def _env_session_authority():
     """部署侧 env 固定的会话（issue #128，2026-10-12）。
 
@@ -525,19 +524,15 @@ def _env_session_authority():
            or os.environ.get("DSH_SESSION_ID") or "").strip()
     if not raw:
         return None
-    try:
-        from .session_norm import normalize_session as _normalize_session
-    except Exception:                          # noqa: BLE001  fail-soft：保原值
-        return raw
-    return _normalize_session(raw)
+    return _session_norm.normalize_session(raw)
 
 
-# 生效条件：session 为 None 或 str(session).strip() 为空串时返回 ""（跨会话视图的内部表示，与旧实现 `"" if session is None else str(session).strip()` 逐位一致）；去空白后恰为 "*" 时返回 "*"；否则**先查 env 权威**（MDCG_SESSION 优先，退回 DSH_SESSION_ID；在场即返回其归一值——与写侧 _declared_session 同源，见 _env_session_authority），无 env 权威时延迟导入 mcp_server._normalize_session 并返回其归一结果；该导入抛任何异常（ImportError 等）时返回去空白原值（fail-soft 退回旧行为）。
-def _view_session(session):
+# 生效条件：session 为 None 或 str(session).strip() 为空串时返回 ""（跨会话视图的内部表示，与旧实现 `"" if session is None else str(session).strip()` 逐位一致）；去空白后恰为 "*" 时返回 "*"；否则**先查 env 权威**（MDCG_SESSION 优先，退回 DSH_SESSION_ID；在场即返回其归一值——与写侧 _declared_session 同源，见 _env_session_authority），无 env 权威时调用传入的 normalize_session（缺省走 session_norm.normalize_session）返回归一结果。
+def _view_session(session, normalize_session=None):
     """读侧会话视图值 → 过滤值：**与写侧同一把尺**（H2，2026-09-30；#128 补 env 权威）。
 
     动机（端到端实测，见 `md_cg/test_h2_session_view_norm.py`）：写侧落盘值 =
-    `_normalize_session(请求声明值)`（`MdCGSecure._attribution` 取 `cg.session`，
+    `normalize_session(请求声明值)`（`MdCGSecure._attribution` 取 `cg.session`，
     而 `cg.session` 由 `call_tool` → `_declared_session` 归一），读侧若拿
     **未归一的原值**做等值比较，同一条记忆就「写进去查不出」——DSH 形态的
     会话 id 在会话根下不存在时，写侧落 `anonymous`、读侧按 `session-…`
@@ -553,12 +548,11 @@ def _view_session(session):
     由此本函数**只归一「具体会话值」这一态**，三态语义逐位不变：
       · None / 空串 → 跨会话（缺省不过滤，向后兼容）；
       · `"*"`       → 跨会话（显式意图；`"*"` 不是会话名，**不归一**）；
-      · 其它值      → env 权威在场时归到 env 值；否则过 `_normalize_session`。
+      · 其它值      → env 权威在场时归到 env 值；否则过公共归一函数。
 
-    真源只有一份（`mcp_server._normalize_session`），此处**消费而不重写**：
-    写侧读侧各写一份校验必然造出第三种不等值。延迟导入的副作用为零——正常
-    形态下 stg 本就被 mcp_server 调用（模块早已加载）；`stg` 被独立使用时导入
-    失败即 fail-soft 返回原值（退回旧行为，不报错、不改变既有语义）。
+    真源只有一份（`session_norm.normalize_session`，#434 下沉以切断
+    `stg → mcp_server` 反向依赖）；`mcp_server._stg_call` 亦可通过
+    `normalize_session` 参数注入以兼容测试替身，未传时直接走公共模块，零宿主依赖。
 
     不适用条件：`cg` 侧读路径（search/recall/`cg(op=read)`）的请求 `session`
     走 `MdCGSecure._candidates` 的**身份判定**（issue #35 定稿：身份不可自报），
@@ -577,15 +571,12 @@ def _view_session(session):
     env = _env_session_authority()
     if env is not None:
         return env            # env 权威：请求声明归到 env（与写侧同一归属）
-    try:
-        from .session_norm import normalize_session as _normalize_session
-    except Exception:                          # noqa: BLE001  fail-soft：保旧行为
-        return s
-    return _normalize_session(s)
+    norm = normalize_session if callable(normalize_session) else _session_norm.normalize_session
+    return norm(s)
 
 
-# 生效条件：session 为 None / 去空白为空串 / 恰为 "*" 时返回 False（跨会话视图不构成「丢弃声明」）；否则 env 权威（MDCG_SESSION 优先，退回 DSH_SESSION_ID）在场且 _normalize_session(请求值) 不等于 env 归一值时返回 True——即请求声明确实被丢弃（只做回报，不改语义）。
-def _session_declaration_ignored(session):
+# 生效条件：session 为 None / 去空白为空串 / 恰为 "*" 时返回 False（跨会话视图不构成「丢弃声明」）；否则 env 权威（MDCG_SESSION 优先，退回 DSH_SESSION_ID）在场且归一后请求值不等于 env 归一值时返回 True——即请求声明确实被丢弃（只做回报，不改语义）。
+def _session_declaration_ignored(session, normalize_session=None):
     """请求声明是否因 env 权威被丢弃（issue #128 第 3 项：**只做回报**）。
 
     语义一字不改（env 权威是既有契约，见 `_declared_session` docstring）：仅把
@@ -603,16 +594,13 @@ def _session_declaration_ignored(session):
     env = _env_session_authority()
     if env is None:
         return False
-    try:
-        from .session_norm import normalize_session as _normalize_session
-    except Exception:                          # noqa: BLE001  fail-soft
-        return s != env
-    return _normalize_session(s) != env
+    norm = normalize_session if callable(normalize_session) else _session_norm.normalize_session
+    return norm(s) != env
 
 
-# 生效条件：以 _scan(cg,layer=layer) 为候选（全部 layer/可见性命中），session 经 _view_session 归一后（None/空/"*"=跨会话不过滤，其它值=env 权威在场时归到 env 值、否则 _normalize_session 归一后的具体会话）非跨会话时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过——**条件命中集到此确定**；随后才截断：命中集超过 max_scan（默认 5000 不变）时按 (start,end,id) 时间倒序保留近期 max_scan 条并标记 truncated；保留集按 (start,end,id) 以 reverse=bool(desc) 排序，返回 count=条件命中总数（截断前，**不再受索引切片影响**）、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、scanned=候选遍历数、kept=截断后保留数、truncated=截断标记（截断时另有 hint）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）；请求声明确被 env 权威丢弃时额外带 session_declaration_ignored=True（issue #128：只回报不改语义）。
+# 生效条件：以 _scan(cg,layer=layer) 为候选（全部 layer/可见性命中），session 经 _view_session 归一后（None/空/"*"=跨会话不过滤，其它值=env 权威在场时归到 env 值、否则 normalize_session 归一后的具体会话）非跨会话时仅保留 frontmatter.session 精确相等的节点，_interval(n["frontmatter"], time_axis) 为 None 的节点被跳过——**条件命中集到此确定**；随后才截断：命中集超过 max_scan（默认 5000 不变）时按 (start,end,id) 时间倒序保留近期 max_scan 条并标记 truncated；保留集按 (start,end,id) 以 reverse=bool(desc) 排序，返回 count=条件命中总数（截断前，**不再受索引切片影响**）、limit=传入 limit、session=生效的会话过滤值（跨会话时为 None）、scanned=候选遍历数、kept=截断后保留数、truncated=截断标记（截断时另有 hint）、items 为排序后前 limit 项（limit=0 时为空列表）且每项附 session 归属与 _preview(cg,id)（time_axis 缺省 observed，与旧行为逐位一致；非法轴抛 ValueError）；请求声明确被 env 权威丢弃时额外带 session_declaration_ignored=True（issue #128：只回报不改语义）。
 def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
-             time_axis="observed", session=None):
+             time_axis="observed", session=None, normalize_session=None):
     """按时间排序的节点列表。`time_axis` 决定排序依据的时间区间（见 `_interval`）。
 
     `session` 是**视图开关**（P45 归因维度，与授权正交）：
@@ -632,7 +620,7 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
     现在 `count` 恒为条件命中总数（不受切片影响），命中集超限才按时间倒序
     保留近期，并在返回体上报 `truncated`/`scanned`/`kept`/`hint`。
     """
-    sid = _view_session(session)
+    sid = _view_session(session, normalize_session=normalize_session)
     cross = sid in ("", "*")            # 跨会话：显式 "*" 与缺省同义
     # 第 3 层：会话/层两维由结构索引直取（跨会话视图下会话维不参与——它本就
     # 「不过滤」；具体会话值走 by_session[归一后 sid]，与基线等值比较同一把尺）。
@@ -667,7 +655,7 @@ def timeline(cg, layer=None, limit=50, desc=True, max_scan=5000,
          # 丢弃时如实回报，消除「接受参数、静默替换」的假装成功形态。
          # 仅确被丢弃（env 在场 ∧ 归一后请求值 ≠ env 值）才出现该键。
          **({"session_declaration_ignored": True}
-            if _session_declaration_ignored(session) else {})},
+            if _session_declaration_ignored(session, normalize_session=normalize_session) else {})},
         scanned=scanned, hits=hits, kept=kept, truncated=truncated,
         max_scan=max_scan, index_meta=imeta)
 
