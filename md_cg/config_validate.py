@@ -105,6 +105,7 @@ RULES = {
     'MDCG_TOPIC_AGG': {'type': 'str'},
     'MDCG_TOPIC_AGG_TAGFALLBACK': {'type': 'str'},
     'MDCG_UNIFY_QUERY': {'bool_like': True, 'true_literals': ['1'], 'type': 'bool'},
+    'MDCG_VALUES_GATE': {'bool_like': True, 'type': 'bool'},
     'MDCG_WARM_SEARCH': {'type': 'str'},
     'MDCG_WRITELIMIT': {'bool_like': True, 'type': 'bool'},
     'MDCG_WRITE_ATTEMPT_LEDGER': {'bool_like': True, 'type': 'bool'},

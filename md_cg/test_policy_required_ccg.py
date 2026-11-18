@@ -126,6 +126,9 @@ _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
 # （`from .condaccept import …` / `from .condgate import …`），同款以追加语句登记，
 # 不动上面那行字面量锚。
 _SHIMS = _SHIMS + ("protect", "condaccept", "condgate")
+# 2026-11-18（#980 接线）：writepipe 新增价值观闸的相对 import
+# （`from . import values_gate as _vg`），同款追加登记。
+_SHIMS = _SHIMS + ("values_gate",)
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
