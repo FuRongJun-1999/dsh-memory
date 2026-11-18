@@ -1112,6 +1112,13 @@ class MdCGOS(MdCG):
         # 抽走函数体会让该锚命中 0 次 ⇒ 全量链新增一红（实测 rc=2 ANCHOR-MISS）。
         # 故锁用 `with` 包住原函数体，而非把函数体搬进独立子函数。
         with node_write_lock(self, node_id):
+            # issue #980（2026-11-18）：hint 是**自评**，不再自动授权保护。
+            # 写侧在这里给**设计者身份**的 hint 落独立确认位；protect 的按分分支
+            # 只认带确认位的 hint（自评过线即自动 protected 的反例见 #980）。
+            if kw.get("importance_source") == "hint":
+                _pr = getattr(self, "principal", None)
+                if str(getattr(_pr, "role", "") or "").lower() == "designer":
+                    kw["importance_confirmed_by"] = str(getattr(_pr, "actor", "") or "designer")
             # #151（2026-10-12 DSH 端）：**有限性与取值范围守卫**（范式抄 `reach._ttl()`：
             # 非法值**回落文档缺省**，不抛、不改既有调用方语义）。
             # 病象：`importance`/`confidence` 直接落 frontmatter，而 JSON/上游可传入
@@ -6491,6 +6498,7 @@ class MdCGOS(MdCG):
             # 本批影响）。
             kw["importance"] = verdict["importance"]["score"]
             kw["importance_source"] = verdict["importance"]["from"]
+            kw["importance"] = verdict["importance"]["score"]
             # 三档自治批次②补强（2026-10-02）：**gated 面的 C 改写 / A 新增档位
             # 判定**。此前本分支直调 `self.add`——`gated=true` 的覆写在确认档
             # 不落任何档位判定就覆写既有节点（复核发现 1：插件自动记忆的主写入

@@ -287,6 +287,7 @@ ENV_ROWS = [
      'on', 'env_literal', 'md_cg/affect.py', '', 'uncalibrated',
      '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_SELF_PREDICT', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_SELF_PREDICT', 'on', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_VALUES_GATE', 'CALIB', 'calib', 'env', True, "'observe'", 'str', 'on', 'MDCG_VALUES_GATE', 'on', 'env_literal', 'md_cg/values_gate.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S2_COND', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S2_COND', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S3_SPREAD', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S3_SPREAD', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1" 才开）', 'unknown', ''),
     ('MDCG_GATE_S4_LAYER', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S4_LAYER', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),

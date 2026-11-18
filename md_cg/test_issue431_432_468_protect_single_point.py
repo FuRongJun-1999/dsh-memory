@@ -87,7 +87,8 @@ def group_a(tmp):
     _check("A1c 两口径同源（未保护）",
            _p.is_protected_entry(e_free)[0] == _p.is_protected(cg, "n_free")[0] is False)
     _check("A1d 两口径同源（按分 hint / heuristic）",
-           _p.is_protected_entry({"importance": 0.8, "importance_source": "hint"})[0] is True
+           _p.is_protected_entry({"importance": 0.8, "importance_source": "hint",
+                                     "importance_confirmed_by": "u_fu"})[0] is True
            and _p.is_protected_entry({"importance": 0.9,
                                       "importance_source": "heuristic"})[0] is False)
     _check("A2 lifecycle.stamp 的判据 == 权威（层保护无位节点）",
@@ -113,7 +114,8 @@ def group_a(tmp):
            and _fg._tier_of({"importance": 0.9, "importance_source": "heuristic"}) == "working",
            "tier=%r" % (_fg._tier_of({"importance": 0.9, "importance_source": "heuristic"}),))
     _check("A6b hint 0.9 仍入 longterm（真源覆盖面未被一刀切）",
-           _fg._tier_of({"importance": 0.9, "importance_source": "hint"}) == "longterm")
+           _fg._tier_of({"importance": 0.9, "importance_source": "hint",
+                            "importance_confirmed_by": "u_fu"}) == "longterm")
     cg.close()
 
 
@@ -133,7 +135,8 @@ def group_k(tmp):
     _check("K2 apply=False 纯预演不落盘（importance 未变）",
            float(before or 0) == float(after or 0), "before=%r after=%r" % (before, after))
     _check("K3 hint 高分仍判保护（覆盖面不回归）",
-           _p.is_protected_entry({"importance": 0.75, "importance_source": "hint"})[0] is True)
+           _p.is_protected_entry({"importance": 0.75, "importance_source": "hint",
+                                     "importance_confirmed_by": "u_fu"})[0] is True)
     cg.close()
 
 

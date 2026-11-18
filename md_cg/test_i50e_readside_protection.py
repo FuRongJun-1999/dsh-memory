@@ -534,23 +534,22 @@ _SRC_MUTATIONS = (
     # + E7（stats 聚合）+ F2 a_heur 行。存量/对照/位面全不红——闸只加宽
     # heuristic 一态，恰证语义按来源分叉。
     ("heuristic 也认保护（m1）",
-     '(_src is None or _src == "hint")',
-     '(_src is None or _src == "hint" or _src == "heuristic")',
+     '(_src is None or _hint_ok)',
+     '(_src is None or _hint_ok or _src == "heuristic")',
      11),
     # 契约 G②：缺省键也判不认（「缺省即不认」被禁的缺陷形态）。红 10
     # （实测 2026-10-02）：A6（同分缺省对照）+ B1/B2/B3/B5/B6（存量零回归
     # 锚 5——B4 走 guard_overwrite 放行不受影响）+ E4/E6（b_legacy 行两格，
     # E5 走 guard_overwrite 不红）+ E7（stats 聚合）+ F2 b_legacy 行。
     ("缺省键也判不认（m2，禁用缺陷形态）",
-     '(_src is None or _src == "hint")',
-     '(_src == "hint")',
+     '(_src is None or _hint_ok)',
+     '(_src == "hint" and _confirmed)',
      10),
     # 契约 G③：按分分支整支删除。红 10（实测同 m2 构成）：A6 + B1/B2/B3/
     # B5/B6 + E4/E6 + E7 + F2 b_legacy 行——A/B 同红（A 经 A6 对照；
     # a_heur 行不红，因启发式改后本就 False，整支删除不改变其读数）。
     ("按分整支删除（m3）",
-     '    _src = fm.get("importance_source")\n'
-     '    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):\n'
+     '    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _hint_ok):\n'
      '        return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"',
      '    pass',
      10),
@@ -564,7 +563,7 @@ _ANCHORS_BANNED = (
 )
 _ANCHORS_REQUIRED = (
     ("is_protected", '_src = fm.get("importance_source")'),
-    ("is_protected", 'and (_src is None or _src == "hint"):'),
+    ("is_protected", 'and (_src is None or _hint_ok):'),
 )
 
 

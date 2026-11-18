@@ -307,6 +307,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     cred = resolution
     // 注入子进程 env：显式配置与密钥环都在此汇合成**唯一**的 MDCG_TOKEN。
     const mdcgEnv: Record<string, string> = { ...config.env }
+    // 2026-11-17（issue #992 追因）：身份面的 **harness/unit 一直没接线**——
+    // `_apply_attribution` 只从子进程 env 读 MDCG_HARNESS/MDCG_UNIT，而插件
+    // 只把用户显式配置的 env 传下去 ⇒ 这两个恒空 ⇒ 「身份:」标签几乎不落、
+    // 会话身份退化成「日常」。现补默认值（用户显式配置仍优先）。
+    mdcgEnv.MDCG_HARNESS = mdcgEnv.MDCG_HARNESS ?? 'dsh'
+    mdcgEnv.MDCG_UNIT = mdcgEnv.MDCG_UNIT ?? 'agent'
     if (resolution.token) mdcgEnv.MDCG_TOKEN = resolution.token
     mdcg = new MdcgClient({
       python: config.python,
