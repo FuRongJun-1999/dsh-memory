@@ -12,9 +12,9 @@
 
 ![Awesome DSH Plugin](https://awesome-dsh-plugin.com/badge.svg)![DSH 适配](https://img.shields.io/badge/DSH-0.2.1--rc.5%20%E5%B7%B2%E9%AA%8C%E8%AF%81-4E9BF1)![downloads](https://badgen.net/npm/dt/@furongjun1999/dsh-memory?label=downloads&color=4E9BF1)![Protocol](https://img.shields.io/badge/Protocol-MCP-blue)![Node](https://img.shields.io/badge/Node-%3E%3D22.19-brightgreen)![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.10.2）**
+**高性能 · 无幻觉 · 多智能体适用的长期记忆系统（v0.11.0）**
 
-> **当前版本 `0.10.2`**（npm `latest`）· 已在 **DSH `0.2.1-rc.5`** 上验证可用（维护者实测）。
+> **当前版本 `0.11.0`**（GitHub Release；npm `latest` 待维护者浏览器验证后发布）· 已在 **DSH `0.2.1-rc.5`** 上验证可用（维护者实测）。
 > **路线**：后续开发专注 **灵枢 1.0 架构**；存量 issue 的修复会**延后**处理（不停止受理，但优先级低于 1.0）。
 
 📖 **[官方使用教程](docs/灵枢使用教程.md)** —— 分层怎么选 / 六要素怎么写 / 读三面怎么用 / 七个必踩的坑（10 分钟上手）。
@@ -26,6 +26,26 @@
 > **装不起来 / 看到奇怪的告警？** 先看 [环境与已知问题](https://github.com/FuRongJun-1999/dsh-memory/blob/main/docs/ops/%E7%8E%AF%E5%A2%83%E4%B8%8E%E5%B7%B2%E7%9F%A5%E9%97%AE%E9%A2%98.md)——
 > DSH Desktop 的启动告警、体积与整目录耦合、异步落盘、以及五条「看起来像 bug 其实是契约」的设计取舍都在那里。
 
+## ⚠️ 升级须知：0.11.0 起写入按层要复核
+
+从 0.11.0 起，**写记忆不再总是成功**。缺省策略按层要复核：
+
+```
+contextual          直接落
+knowledge           需 reflect 复核（通道未声明即拒）
+structural          需 reflect + verify
+self / anchor       再加 human
+```
+
+这不是故障，是这一版的核心改动：知识层的内容会被当作「可复用结论」在以后检索出来，写错一条会污染后续判断。
+
+**升级后如果写入被拒**，三种处置按顺序试：
+
+1. 声明复核通道：`MDCG_REVIEW_CHANNELS=hive,subagent`（协作场景再加 `MDCG_REVIEWERS=reflect,verify,human`）；
+2. 临时放宽：`MDCG_WRITE_GATE=warn`（只记录不拦，**别在生产长期开**）；
+3. 这条本来就不该进知识层 → 落 `contextual`。
+
+细节见 [官方使用教程 §5.6](docs/灵枢使用教程.md) 与 [CHANGELOG 0.11.0](CHANGELOG.md)。
 ## ⚠️ 升级须知：工具名去掉 lingshu_ 前缀（0.9.9 起）
 
 | 版本 | 工具名 |
