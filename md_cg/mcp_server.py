@@ -49,6 +49,7 @@ import sys
 # require_op 实参），互不对账——实测删掉枚举串里的一个 op，全部测试仍绿。
 # 现在各处**从 op_table 派生**；分发结构（下面 `_cg_dispatch` 的 `if op == "x"` 链）
 # 保持原样，故 `protocol.dispatch_ops()` 的 AST 提取面逐位不变，仍是独立读数。
+from . import session_norm as _session_norm
 from . import op_table as _ot  # noqa: E402
 
 # ---------------------------------------------------------------- 入口自保证 UTF-8
@@ -5837,75 +5838,20 @@ def _start_sustain(cg):
 
 
 # 生效条件：s=str(s or "").strip()；不以 "session-" 开头、或去前缀按 "-" 分组后长度不等于 [8,4,4,4,12]、或某组字符不都在 "0123456789abcdef" 时返回 False，三者皆过返回 True。
+# issue #994：三个判定已下沉到零反向依赖的 md_cg/session_norm.py（stg → mcp_server
+# 的反向边由此切断）。此处保留原名薄包装，签名与语义一字不改。
 def _is_dsh_session(s: str) -> bool:
-    """DSH 会话 id 形态判定：session-<8>-<4>-<4>-<4>-<12>（uuid4）。"""
-    s = str(s or "").strip()
-    if not s.startswith("session-"):
-        return False
-    groups = s[len("session-"):].split("-")
-    if [len(g) for g in groups] != [8, 4, 4, 4, 12]:
-        return False
-    return all(all(c in "0123456789abcdef" for c in g) for g in groups)
+    return _session_norm.is_dsh_session(s)
 
 
-# 生效条件：s=str(raw or "").strip()；s 为空返回 "anonymous"；非 DSH 形态返回 s；DSH 形态时以 root=os.environ.get("MDCG_DSH_SESSIONS_ROOT") or ~/.dsh/sessions 遍历条目，存在 root/<name>/s 目录则返回 s，os.listdir 抛 OSError 时返回 s，否则返回 "anonymous"。
 def _is_session5_like(s):
-    """会话身份五元组形态（s5.*）判定 —— 权威定义见 md_cg/session5.py。
-
-    设计者 2026-10-09 定稿：s5.<harness>.<unit>.<workspace>.<epoch>.<digest12>；
-    语义是会话身份由 (harness, unit, 工作区, 会话创建时间, 首条 user 消息)
-    确定性推导 —— 任何进程/端都能复算同一值，不依赖 env 传递。
-
-    为何不改主校验而走本分支：_is_dsh_session 只认 uuid4 形态，session- 前缀的
-    非 uuid4 串会被它判假进而降级 anonymous；s5.* 属「载体自定的会话名」，走
-    _normalize_session 的『非 DSH 形态原样采用』分支即可，无需改主路径。
-
-    延迟 import（且兼容包内/脚本两种加载形态），使本判定在 session5 模块缺失时
-    安全退化为「非 s5」，不影响既有会话归因。
-    """
-    try:
-        from session5 import is_session5
-    except ImportError:
-        try:
-            from md_cg.session5 import is_session5
-        except ImportError:
-            return False
-    try:
-        return bool(is_session5(s))
-    except Exception:
-        return False
+    return _session_norm.is_session5_like(s)
 
 
 def _normalize_session(raw):
-    """会话 id 归一 + 轻校验（只影响归因，不影响写入）。
-
-    规则：
-      · DSH 形态且根目录下存在该会话 → 原样采用（可重算校验，防编造会话 id）；
-      · DSH 形态、根目录可读但无该会话 → "anonymous"（降级不拒绝，防特殊环境丢记忆）；
-      · 根目录不存在/不可读（未装 DSH 等）→ 原样采用（fail-soft：不因环境差异
-        丢失会话标记，此时校验降级为「仅形态判定」，是刻意的取舍）；
-      · 非 DSH 形态（载体自定的会话名）→ 原样采用；
-      · 目录根可用 MDCG_DSH_SESSIONS_ROOT 覆盖（默认 ~/.dsh/sessions）。
-    """
-    s = str(raw or "").strip()
-    if not s:
-        return "anonymous"
-    if _is_session5_like(s):          # s5 五元组形态（见 md_cg/session5.py）
-        return s
-    if not _is_dsh_session(s):
-        return s
-    root = (os.environ.get("MDCG_DSH_SESSIONS_ROOT")
-            or os.path.join(os.path.expanduser("~"), ".dsh", "sessions"))
-    try:
-        for name in os.listdir(root):
-            if os.path.isdir(os.path.join(root, name, s)):
-                return s
-    except OSError:
-        return s                      # 目录不可读：不因环境差异丢失会话标记
-    return "anonymous"
+    return _session_norm.normalize_session(raw)
 
 
-# 生效条件：raw=str(raw or "").strip()；raw 为空或恰为 "*" 时返回 None（不构成归因声明）；部署侧 MDCG_SESSION 或 DSH_SESSION_ID 去空白后非空时返回 None（环境权威，请求声明被否决）；否则返回 _normalize_session(raw)。
 def _declared_session(raw):
     """**请求级会话归属声明**（归因维度，与授权正交）。
 

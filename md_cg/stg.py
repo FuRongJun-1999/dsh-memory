@@ -526,7 +526,7 @@ def _env_session_authority():
     if not raw:
         return None
     try:
-        from .mcp_server import _normalize_session
+        from .session_norm import normalize_session as _normalize_session
     except Exception:                          # noqa: BLE001  fail-soft：保原值
         return raw
     return _normalize_session(raw)
@@ -578,7 +578,7 @@ def _view_session(session):
     if env is not None:
         return env            # env 权威：请求声明归到 env（与写侧同一归属）
     try:
-        from .mcp_server import _normalize_session
+        from .session_norm import normalize_session as _normalize_session
     except Exception:                          # noqa: BLE001  fail-soft：保旧行为
         return s
     return _normalize_session(s)
@@ -604,7 +604,7 @@ def _session_declaration_ignored(session):
     if env is None:
         return False
     try:
-        from .mcp_server import _normalize_session
+        from .session_norm import normalize_session as _normalize_session
     except Exception:                          # noqa: BLE001  fail-soft
         return s != env
     return _normalize_session(s) != env
