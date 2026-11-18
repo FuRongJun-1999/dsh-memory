@@ -37,6 +37,9 @@ def _check(name, cond, detail=""):
 
 
 def _mk_cg(tmp, role="designer"):
+    # 写入闸默认 enforce（2026-11-17）：本模块验写入链本身，不验闸门。
+    # 夹具写知识层但无复核单元 ⇒ 会被闸拒；显式声明「复核已通过」。
+    os.environ.setdefault("MDCG_WRITE_GATE", "warn")
     _seq[0] += 1
     root = os.path.join(tmp, "root_%02d_%s" % (_seq[0], role))
     p = Principal(tenant="default", actor="t_" + role, role=role,
@@ -135,7 +138,9 @@ def _run(tmp):
                                  "content": "PASSED SKIPME",
                                  "layer": "knowledge"})
     _check("移除即恢复(核心文件零改动)", out.get("committed") is True, repr(out))
-    # 默认 before 链含 linkref→ghostref→deps→condspace→audit→consistency→gated→autonomy
+    # 默认 before 链含 linkref→ghostref→deps→condspace→audit→consistency→values→gated→autonomy
+    # （2026-11-17 价值观闸插在 consistency 之后：先判节点间冲突，再判「能否指回已声明价值观」——
+    #  conflict 是硬冲突，归因缺失是软标记，硬在前。）
     # （condspace = 条件空间闸，2026-10-18 memory-gate 批次插在 deps 之后：缺条件
     #  空间的写入当场打回作者，须早于 audit 留痕与 gated 档位判定）
     # （2026-09-19 deps 闸门新增；2026-10-05 A2 幽灵引用闸插 linkref 之后——
@@ -147,7 +152,7 @@ def _run(tmp):
     #  opt-in，缺省路径与加闸前逐位一致。）
     _check("单例默认链", singleton.names()["before"]
            == ["dedupe", "linkref", "ghostref", "deps", "condspace", "audit",
-               "consistency", "gated", "autonomy"],
+               "consistency", "values", "gated", "autonomy"],
            repr(singleton.names()))
     _check("单例默认after链", singleton.names()["after"]
            == ["linkref", "trust"],
