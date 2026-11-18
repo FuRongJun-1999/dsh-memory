@@ -177,6 +177,9 @@ def _fm(cg, node_id, fresh=False):
         # issue50-e：重要度来源进判定面（_node_entry/_stage 恒落该键，值可为
         # None ⇒「缺省来源」；老索引条目缺键时 .get() 同样得 None，等价缺省）。
         "importance_source": e.get("importance_source"),
+        # issue #980（2026-11-18）：确认位必须随 fm 进判据，否则按分分支
+        # 永远看不到它、带确认的 hint 也判不保护。
+        "importance_confirmed_by": e.get("importance_confirmed_by"),
     }
     # 回退读文件：索引快照缺字段时。self_state 只在受保护层（self/anchor）
     # 需要，回退代价被限制在少量节点上，不影响全量统计性能。
@@ -211,6 +214,7 @@ def _fm(cg, node_id, fresh=False):
             fm["layer"] = f2.get("layer") or fm["layer"]
             fm["importance"] = f2.get("importance", fm["importance"])
             fm["importance_source"] = f2.get("importance_source")
+            fm["importance_confirmed_by"] = f2.get("importance_confirmed_by")
     return fm
 
 
@@ -227,7 +231,12 @@ def is_protected(cg, node_id, fresh=False):
     ① 键缺省（None）= 存量节点（既有 cg.add(importance=0.9) 直写、维护路径
       调分等从未有过该键）⇒ 行为一字不变——按「缺省即不认」会大规模改变
       既有保护面，禁止；
-    ② "hint" = 显式声明（写侧对 hint 过线本就打位，按分分支只是其无位形态
+    ② 【2026-11-18 按 #980 修订，覆盖原「hint 即显式声明」裁定】"hint" 只是**自评**，
+      不再自动授权保护：必须带 `importance_confirmed_by`（由设计者身份写入方落）
+      才按分保护。理由：issue #980 实测外部模型自评 importance=0.9 + 本分支 ⇒
+      自动 protected，于是「演出来的结果」被当设定锁死；原裁定假设 hint 恒来自可信
+      声明，该假设已被反例推翻。存量影响为零（真实库 hint≥0.7 仅 1 条，且带显式
+      protected 位，不走本分支）。原裁定原文保留于下一行（按分分支只是其无位形态
       的兜底，语义不变）；
     ③ "heuristic" 及其它显式来源不得由分数触发——机器推断的重要度不构成
       不可遗忘的依据。层保护（PROTECTED_LAYERS）、fm.protected 位、
@@ -261,7 +270,13 @@ def is_protected_entry(fm):
     except Exception:
         imp = 0.0
     _src = fm.get("importance_source")
-    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _src == "hint"):
+    # issue #980（2026-11-18）：显式 hint 不再自动授权保护——外部模型自评
+    # importance=0.9 + 本分支 ⇒ 自动 protected，正是报告里「把演出来的结果当设定」
+    # 并锁死的机制。现要求 hint 带**独立确认**（importance_confirmed_by，由
+    # 设计者身份的写入方落）；无确认的自评只作排序分，不构成不可遗忘依据。
+    _confirmed = bool(fm.get("importance_confirmed_by"))
+    _hint_ok = (_src == "hint" and _confirmed)
+    if imp >= AUTO_PROTECT_IMPORTANCE and (_src is None or _hint_ok):
         return True, f"重要性保护：importance={imp:.2f}≥{AUTO_PROTECT_IMPORTANCE}"
     # issue50-e（2026-10-02）：按分保护**只认缺省或显式 hint 来源**——
     # 语义与边界见 docstring ①②③；_fm 恒带 importance_source 键（缺省读
