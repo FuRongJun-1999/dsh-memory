@@ -56,6 +56,8 @@ RULES = {
     'MDCG_HOTCACHE_MAX_NODES': {'min': 1, 'type': 'int'},
     'MDCG_HOTCACHE_MAX_QUERIES': {'min': 1, 'type': 'int'},
     'MDCG_INGEST_ROOT': {'bool_like': True, 'type': 'bool'},
+    'MDCG_INTENT_INTERVAL': {'bool_like': True, 'type': 'bool'},
+    'MDCG_INTENT_TICK': {'bool_like': True, 'type': 'bool'},
     'MDCG_LAYER_BOOST': {'type': 'str'},
     'MDCG_MCP_SURFACE': {'enum': ['kernel', 'full'], 'type': 'str'},
     'MDCG_MIN_SCORE': {'type': 'str'},

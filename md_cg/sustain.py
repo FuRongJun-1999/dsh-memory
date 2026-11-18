@@ -1527,6 +1527,11 @@ class SustainLoop:
                                       if sleep_scrub_apply is None
                                       else sleep_scrub_apply)
         self.last_sleep = None
+        # 第七档：主动队列（2026-11-18）。间隔/档位取自 intent_tick 的**单一真源**读取器，
+        # 本处不写第二份缺省字面量。
+        from . import intent_tick as _intent
+        self.intent_interval = float(_intent.interval())
+        self.last_intent = None
         self.sleeps = []
         self.sleep_round = 0
         self.task_running = False
@@ -1749,6 +1754,7 @@ class SustainLoop:
         next_evolve = time.time() + self.evolve_interval
         next_tidy = time.time() + self.tidy_interval
         next_sleep = time.time() + self.sleep_interval
+        next_intent = time.time() + self.intent_interval
         while not self._stop.is_set():
             now = time.time()
             if own_beat and now >= next_beat:
@@ -1787,6 +1793,13 @@ class SustainLoop:
                 except Exception:
                     pass                       # 睡眠周期失败不中断常驻
                 next_sleep = now + self.sleep_interval
+            # 第七档：主动队列（2026-11-18）——没人提问时也要起身。
+            if now >= next_intent:
+                try:
+                    self._tick_intent()
+                except Exception:
+                    pass                   # 主动队列失败不中断常驻
+                next_intent = now + self.intent_interval
             self._stop.wait(_POLL)
 
     # ---- D1：心跳独立线程（缺省关）----
@@ -1806,6 +1819,17 @@ class SustainLoop:
                 pass                             # 心跳失败不中断常驻
 
 # 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
+    def _tick_intent(self):
+        """主动队列（2026-11-18）：无人提问时取一条**自己留下的**待办，留一行台账。
+
+        只读库 + 追加 `_intent.jsonl`；**不写记忆**——无人值守时对库做写操作风险不对等，
+        边界写在 `md_cg/intent_tick.py` 的模块 docstring 里。
+        """
+        from . import intent_tick
+        rec = intent_tick.step(self.cg, actor="sustain_intent")
+        self.last_intent = rec
+        return rec
+
     def _tick_tidy(self):
         """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
 
