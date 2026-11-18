@@ -87,26 +87,59 @@ def recent(cg, limit=10):
     return out[-limit:]
 
 
+def _attempts(cg):
+    """从台账统计每个节点的**尝试次数**与**最近尝试时间**（只读账本，坏行跳过）。"""
+    seen = {}
+    p = _log_path(cg)
+    try:
+        with open(p, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    d = json.loads(line)
+                except Exception:  # noqa: BLE001
+                    continue
+                nid = str(d.get("node_id") or "")
+                if not nid:
+                    continue
+                t = float(d.get("t") or 0.0)
+                cur = seen.get(nid) or (0, 0.0)
+                seen[nid] = (cur[0] + 1, max(cur[1], t))
+    except OSError:
+        pass
+    return seen
+
+
 def pick(cg):
-    """挑一条待办：unresolved 优先，其次 goals；同层内取 last_access 最小（最久没碰）。"""
+    """挑一条待办：**按「试过最少的优先，同等试过则最久没碰的优先」**。
+
+    2026-11-19 修（用户夜里发现的问题）：此前只按 `last_access` 最小挑，而
+    `step` 从不更新它 ⇒ **同一个节点被无限重复捡起**（实测一夜 14 条全是同一道题）。
+    现改为读台账计次：试得少的先上，试过同样多的按最早那次往后排。
+    这样队列会**往前走**，而不是原地踩。
+    """
     idx = dict((getattr(cg, "index", {}) or {}).get("nodes") or {})
     if not idx:
         return None
+    seen = _attempts(cg)
     for layer in LAYERS:
         cand = []
         for nid, e in idx.items():
             if str((e or {}).get("layer") or "") != layer:
                 continue
+            n, last_try = seen.get(nid, (0, 0.0))
             try:
                 la = float((e or {}).get("last_access") or 0.0)
             except (TypeError, ValueError):
                 la = 0.0
-            cand.append((la, nid))
+            cand.append((n, last_try, la, nid))
             if len(cand) >= MAX_SCAN:
                 break
         if cand:
             cand.sort()
-            return cand[0][1]
+            return cand[0][3]
     return None
 
 
@@ -151,3 +184,56 @@ def step(cg, node_id=None, *, actor="intent_tick", dry_run=False):
     except OSError as e:
         return {"ok": False, "picked": nid, "error": "log_%s" % type(e).__name__}
     return {"ok": True, "picked": nid, "record": rec}
+
+
+def brief(cg, node_id=None):
+    """把「这一跳该想什么」整理成一段可读的思考简报（**只读，不写台账**）。
+
+    用途（2026-11-19 使用者提议）：心跳的机械部分只负责**挑题**；
+    真正的思考由我在前台做——所以它要把题目连同边界递给我，而不是替我下结论。
+    """
+    nid = node_id or pick(cg)
+    if not nid:
+        return {"ok": True, "node_id": None, "brief": "库里没有待办，这一跳没有题。"}
+    try:
+        node = cg.get(nid) or {}
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "node_id": nid, "error": type(e).__name__}
+    content = str(node.get("content") or "")
+    fm = node.get("frontmatter") or {}
+    lines = [l.strip() for l in content.splitlines() if l.strip()]
+    head = lines[0] if lines else ""
+    seen = _attempts(cg).get(nid, (0, 0.0))
+    parts = [
+        "题：%s" % head[:120],
+        "层：%s | 重要度：%s | 试过：%d 次" % (fm.get("layer"), fm.get("importance"), seen[0]),
+        "还差什么（机械提炼）：%s" % _next_action(content),
+    ]
+    body = [l for l in lines[1:8]]
+    if body:
+        parts.append("原文节选：" + " / ".join(b[:60] for b in body[:4]))
+    return {"ok": True, "node_id": nid, "layer": fm.get("layer"),
+            "attempts": seen[0], "brief": "\n".join(parts)}
+
+
+def cli(argv=None):
+    """前台触发入口（使用者提议）：`python -m md_cg.intent_tick --peek|--once`。"""
+    import sys
+    args = list(sys.argv[1:] if argv is None else argv)
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if repo not in sys.path:
+        sys.path.insert(0, repo)
+    from md_cg.mdcos import MdCGOS
+    root = os.environ.get("MDCG_ROOT") or r"D:/program/AEIS/data/mdcg"
+    cg = MdCGOS(root, actor="dsh端")
+    if "--once" in args:
+        r = step(cg, actor="foreground")
+        print(json.dumps(r, ensure_ascii=False, indent=2))
+        return 0
+    b = brief(cg)
+    print(b.get("brief"))
+    return 0 if b.get("ok") else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(cli())
