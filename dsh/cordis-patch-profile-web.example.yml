@@ -77,8 +77,13 @@
       # 打开方式（取消注释其一）：
       # ① 功能完整（推荐）：python -m md_cg.tokens issue --role designer \
       #      --actor dsh-memory --clearance internal \
-      #      --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify \
+      #      --ops-allow info,route,read,write,recent,goal,identity,whitebox,verify,sustain,task,ccg \
       #      --layers-allow knowledge,contextual,structural,self,goals,unresolved,rejected
+      #
+      # ⚠ `sustain` 必须在列（2026-11-18 起）：心跳的第七档＝主动队列（md_cg/intent_tick.py），
+      #   没有 sustain 就起不了常驻循环 ⇒ 没人提问时永远不会「起身」。
+      #   实测症状：心跳 ok、`loop.running=false`、`_intent.jsonl` 永不存在。
+      # ⚠ `task` 同理（跨端任务卡读写）。两项都属**必需**而非可选。
       # MDCG_TOKEN: !!js process.env.MDCG_TOKEN
       # ② 最小权限：--role recorder（自动记忆/转录/角色定义；无 whitebox/identity/
       #    verify，且不能写 self 层）
