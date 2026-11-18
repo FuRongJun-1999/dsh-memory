@@ -224,7 +224,19 @@ def cli(argv=None):
     if repo not in sys.path:
         sys.path.insert(0, repo)
     from md_cg.mdcos import MdCGOS
-    root = os.environ.get("MDCG_ROOT") or r"D:/program/AEIS/data/mdcg"
+    # 根解析走仓内单一真源（env MDCG_ROOT > paths.json > 用户级状态根）；
+    # 不在此写死本机绝对路径（preflight「本机路径」门禁）。
+    root = None
+    if "--root" in args:            # 显式指定库根（部署侧/本机调用用；文件里不写死路径）
+        i = args.index("--root")
+        if i + 1 < len(args):
+            root = args[i + 1]
+    if not root:
+        try:
+            from md_cg.datapath import mdcg_root
+            root = mdcg_root()
+        except Exception:
+            root = os.environ.get("MDCG_ROOT") or "."
     cg = MdCGOS(root, actor="dsh端")
     if "--once" in args:
         r = step(cg, actor="foreground")
