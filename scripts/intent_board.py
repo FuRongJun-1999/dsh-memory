@@ -4,14 +4,14 @@
     python -X utf8 scripts/intent_board.py --root <库根>            # 打到屏幕
     python -X utf8 scripts/intent_board.py --root <库根> --write    # 写 docs/日记看板.md
 
-为什么不是网页（2026-11-19 与使用者商定）：网页要开、要维护、会失效；
-Markdown 能进 Git、能 diff、能被检索，也谁都能读。
-
-两条判据（都是踩出来的）：
+三条判据（都是踩出来的）：
   ① 「它在动」不等于「它在往前走」——看末 N 条的换题率，不看总条数。
-  ② 心跳戳会撒谎——戳里的 pid 可能早已退出（残留戳），
-     所以必须核对写者是否存活；昨天那个跑了 9 天的僵尸守护就是这样藏住的。
+  ② 心跳戳会撒谎——写者可能早已退出（残留戳）。
+  ③ **多个端共用一个戳目录，名字都叫 md_cg 就会互相覆盖**——
+     2026-11-19 实测：zcode 端一跳，DSH 端读到的就是别人家的心跳。
+     所以本看板按端分列；每端应设独立 MDCG_SUSTAIN_NAME。
 """
+import glob
 import io
 import json
 import os
@@ -39,7 +39,7 @@ def _root(argv):
 
 
 def _alive(pid):
-    """写者是否还活着（跨平台，只读探测，不改任何状态）。"""
+    """写者是否还活着（跨平台只读探测）。"""
     try:
         pid = int(pid)
     except (TypeError, ValueError):
@@ -49,7 +49,7 @@ def _alive(pid):
     try:
         if os.name == "nt":
             import ctypes
-            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED
+            h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
             if not h:
                 return False
             ctypes.windll.kernel32.CloseHandle(h)
@@ -77,16 +77,24 @@ def _read_jsonl(p):
     return out
 
 
-def _stamp(root):
+def _stamps(root):
+    """收集所有端的心跳戳：一端一个 name ⇒ 一个文件。"""
+    out, seen = [], set()
     for base in (os.path.join(root, "sustain"), os.path.expanduser("~/.mdcg/sustain")):
-        p = os.path.join(base, "heartbeat.md_cg.stamp")
-        if os.path.isfile(p):
+        if not os.path.isdir(base):
+            continue
+        for p in sorted(glob.glob(os.path.join(base, "*.stamp"))):
+            if p in seen:
+                continue
+            seen.add(p)
             try:
                 with io.open(p, encoding="utf-8") as f:
-                    return json.load(f)
+                    data = json.load(f)
             except Exception:  # noqa: BLE001
-                return None
-    return None
+                continue
+            name = os.path.basename(p).replace("heartbeat.", "").replace(".stamp", "")
+            out.append({"name": name, "path": p, "data": data})
+    return out
 
 
 def _rotation(records):
@@ -106,7 +114,7 @@ def _rotation(records):
 
 
 def _diary(root, limit=40):
-    """标签含「日记」的节点（读索引筛，再逐个取正文首行）。"""
+    """标签含「日记」的节点：先用索引筛，再逐个取正文首行。"""
     out = []
     try:
         from md_cg.mdcos import MdCGOS
@@ -128,11 +136,52 @@ def _diary(root, limit=40):
                 head = line.strip().lstrip("#").strip()[:56]
                 break
         created = float((e or {}).get("created_at") or 0)
-        out.append({"id": nid,
-                    "date": time.strftime("%Y-%m-%d %H:%M", time.localtime(created)) if created else "—",
-                    "head": head})
+        date = time.strftime("%Y-%m-%d %H:%M", time.localtime(created)) if created else "—"
+        out.append({"id": nid, "date": date, "head": head})
     out.sort(key=lambda x: x["date"], reverse=True)
     return out[:limit]
+
+
+def _section_heartbeat(A, root, now):
+    """第一节：心跳（按端分列）。"""
+    stamps = _stamps(root)
+    warns = []
+    A("## 一、心跳（按端分列）")
+    A("")
+    if not stamps:
+        A("未找到任何心跳戳——循环可能没起来。")
+        A("")
+        return
+    A("| 端（戳名） | pid | 写者存活 | 最近一跳 | 距今 | 最近动作 | 最近错误 |")
+    A("|---|---|---|---|---|---|---|")
+    for s in stamps:
+        d = s["data"]
+        done = d.get("last_tick_done") or {}
+        err = d.get("last_tick_error")
+        pid = d.get("pid")
+        alive = _alive(pid)
+        ts = float(d.get("ts") or 0)
+        age = max(0.0, now - ts) if ts else None
+        err_txt = "无" if not err else (str(err.get("name") or "") + "：" + str(err.get("error"))[:40])
+        A("| %s | %s | %s | %s | %s | %s | %s |" % (
+            s["name"], pid,
+            {True: "是", False: "**否**", None: "未知"}[alive],
+            d.get("iso") or "—",
+            ("—" if age is None else "%.0f 秒" % age),
+            str(done.get("name") or "—") + (" · ok" if done.get("ok") else ""),
+            err_txt))
+        if alive is False:
+            warns.append("%s 的戳写者已退出（%s）——读到的是残留。" % (s["name"], pid))
+        elif age is not None and age > 1200:
+            warns.append("%s 心跳滞后 %.0f 分钟（正常 10 分钟）。" % (s["name"], age / 60.0))
+    A("")
+    if len(stamps) > 1:
+        A("> ⚠ 本机有 **%d 个端**共用戳目录；若戳名都是 `md_cg` 会互相覆盖。" % len(stamps))
+        A("> 每端应设独立 `MDCG_SUSTAIN_NAME`（如 `md_cg_dsh` / `md_cg_zcode`）。")
+        A("")
+    for w in warns:
+        A("**⚠ %s**" % w)
+        A("")
 
 
 def render(root, now=None):
@@ -143,11 +192,6 @@ def render(root, now=None):
         nid = str(r.get("node_id") or "")
         if nid:
             attempts[nid] = attempts.get(nid, 0) + 1
-    stamp = _stamp(root) or {}
-    ts = float(stamp.get("ts") or 0)
-    age = max(0.0, now - ts) if ts else None
-    alive = _alive(stamp.get("pid")) if stamp else None
-    tail, tail_node = _rotation(records)
     lines = []
     A = lines.append
     A("# 日记看板")
@@ -155,45 +199,24 @@ def render(root, now=None):
     A("> 本页由 `scripts/intent_board.py` 生成，**勿手改**（下次生成会覆盖）。")
     A("> 生成于 %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)))
     A("")
-    A("## 一、心跳")
-    A("")
-    if stamp:
-        done = stamp.get("last_tick_done") or {}
-        err = stamp.get("last_tick_error")
-        A("| 项 | 值 |")
-        A("|---|---|")
-        A("| pid | `%s` |" % stamp.get("pid"))
-        A("| 写者存活 | %s |" % {True: "是", False: "**否（戳是残留！）**", None: "未知"}[alive])
-        A("| 最近一跳 | %s |" % stamp.get("iso"))
-        A("| 距今 | %s |" % ("—" if age is None else "%.0f 秒" % age))
-        A("| 最近动作 | %s · %s |" % (done.get("name") or "—", "ok" if done.get("ok") else "无记录"))
-        A("| 最近错误 | %s |" % ("无" if not err else "%s：%s" % (err.get("name"), err.get("error"))))
-        A("")
-        if alive is False:
-            A("**⚠ 戳的写者已退出。** 读到的时间不代表循环在跑——先确认真正的服务进程有没有起来。")
-            A("")
-        if age is not None and age > 1200:
-            A("**⚠ 心跳滞后超过 20 分钟**（正常节律 10 分钟）——先查循环是否还在跑。")
-            A("")
-    else:
-        A("未找到心跳戳（`heartbeat.md_cg.stamp`）——循环可能没起来。")
-        A("")
+    _section_heartbeat(A, root, now)
     A("## 二、它在动，还是在往前走")
     A("")
     A("| 指标 | 值 | 判读 |")
     A("|---|---|---|")
     A("| 台账条数 | %d | 起身次数 |" % len(records))
     A("| 不同节点数 | %d | 越多越在往前走 |" % len(attempts))
+    tail, tail_node = _rotation(records)
     A("| 末尾连续同一题 | %d 次 | %s |" % (tail, "⚠ 卡住了" if tail > 2 else "健康"))
     window = records[-10:]
     if len(window) >= 4:
-        ratio = len(set(str(r.get("node_id") or "") for r in window)) / len(window)
+        ratio = len(set(str(r.get("node_id") or "") for r in window)) / float(len(window))
         A("| 近期换题率（末 %d 条） | %.0f%% | %s |"
           % (len(window), ratio * 100,
              "低于 30%，多半在原地踩" if ratio < 0.3 else "正常（在换题）"))
     A("")
     if tail > 2 and tail_node:
-        A("> 连续 %d 次都是 `%s`——这正是 2026-11-19 修掉的毛病（只比 last_access ⇒ 无限重复）。" % (tail, tail_node))
+        A("> 连续 %d 次都是 `%s`——这正是 2026-11-19 修掉的毛病。" % (tail, tail_node))
         A("> 若再次出现，先看 `md_cg/intent_tick.py` 的 `pick()` 是否按尝试次数轮转。")
         A("")
     A("## 三、待办推进")
