@@ -21,7 +21,8 @@ def main(argv=None):
         spec = json.load(f)
     tasks = {t["id"]: t for t in spec["tasks"]}
     rows = []
-    for p in sorted(glob.glob(os.path.join(a.dir, "*.json"))):
+    dirs = [d.strip() for d in (a.dir or "").split(",") if d.strip()]
+    for p in sorted(x for d in dirs for x in glob.glob(os.path.join(d, "*.json"))):
         if p.endswith("index.jsonl"):
             continue
         with io.open(p, encoding="utf-8") as f:

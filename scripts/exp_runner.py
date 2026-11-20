@@ -67,9 +67,18 @@ def wait_result(jobs_dir, job_id, timeout_s=600):
 
 
 def build_prompt(task, arm, spec):
+    """题面 + 前缀。支持两种写法：
+      ① 旧版 arm["extra"]=True → 取 spec["extra_instructions"]（persona_v1）
+      ② 新版 arm["prefix"]="persona" → 取 spec["prefixes"]["persona"]（persona_v2）
+    """
     p = task["prompt"]
-    if arm.get("extra"):
-        p = p + chr(10) + spec["extra_instructions"]
+    pre = ""
+    if arm.get("prefix") is not None:
+        pre = (spec.get("prefixes") or {}).get(arm["prefix"]) or ""
+    elif arm.get("extra"):
+        pre = spec.get("extra_instructions") or ""
+    if pre:
+        p = p + chr(10) + pre
     return p
 
 
