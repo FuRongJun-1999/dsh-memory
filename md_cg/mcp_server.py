@@ -142,7 +142,45 @@ def _as_flag(v):
 
 
 # 生效条件：始终返回 {"type":t,"description":desc}，仅当 req 为真值时该字典额外含 "_req": True。
-def drop_doc_nodes(items, id_of, enabled=False):
+DOC_ALLOW_FILE = "_doc_allow.json"
+_DOC_ALLOW_CACHE = {"key": None, "ids": frozenset()}
+
+
+# 生效条件：cg 有 root 或 root 入参时，读 <root>/_doc_allow.json 的 allow 数组；
+# 按 (path, mtime) 缓存；文件缺失/解析失败/无 allow 键 → 空 frozenset。
+def doc_allow_ids(cg=None, root=None):
+    """「单独放行」白名单：检索面不排除这些 doc_ 节点。
+
+    2026-11-20 使用者裁定：只放行指定文档（首个病例＝智能论原文切片），
+    不按标签推断、不整类开口子——白名单必须是一份可审计的短清单。
+    """
+    base = root or getattr(cg, "root", None) or os.environ.get("MDCG_ROOT") or "."
+    path = os.path.join(base, DOC_ALLOW_FILE)
+    try:
+        st = os.stat(path)
+        # 缓存键用 (mtime_ns, size)：getmtime 秒级精度会让「同一秒内改写」读回旧值
+        # （2026-11-20 实测：改成空 allow 后仍返回上一条白名单）。
+        key = (path, st.st_mtime_ns, st.st_size)
+    except OSError:
+        return frozenset()
+    if _DOC_ALLOW_CACHE.get("key") == key:
+        return _DOC_ALLOW_CACHE["ids"]
+    ids = frozenset()
+    try:
+        # 注意：本模块**未导入 io**（2026-11-20 实测：用 io.open 抛 NameError，
+        # 被宽 except 吞成空集，白名单静默失效）。此处用内建 open。
+        # except 收窄到数据面异常——NameError/AttributeError 这类编程错误必须暴露。
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        ids = frozenset(str(x) for x in (data.get("allow") or []))
+    except (OSError, ValueError, TypeError):
+        ids = frozenset()
+    _DOC_ALLOW_CACHE["key"] = key
+    _DOC_ALLOW_CACHE["ids"] = ids
+    return ids
+
+
+def drop_doc_nodes(items, id_of, enabled=False, allow=None):
     """过滤 doc_ 索引节点（会话日志切片）——**单一判据**，供所有可达路径共用。
 
     issue #653：此前该过滤只活在 cg(op=read) 的非 budget 分支里：
@@ -156,10 +194,14 @@ def drop_doc_nodes(items, id_of, enabled=False):
     enabled = _as_flag(enabled)
     if not enabled:
         return list(items or []), 0
+    allow = allow or ()
     kept, dropped = [], 0
     for it in items or []:
         nid = str(id_of(it) or "")
-        if nid.startswith("doc_"):
+        # 2026-11-20 使用者裁定：**单独放行**指定文档（理论原文类）。
+        # 判据收敛在库根 _doc_allow.json（显式 id 白名单），不按标签推断——
+        # 白名单是可审计的短清单；标签会被误打，推断会开口子。
+        if nid.startswith("doc_") and nid not in allow:
             dropped += 1
             continue
         kept.append(it)
@@ -3425,7 +3467,7 @@ def _cg_dispatch(cg, a):
             if isinstance(_out, dict):
                 _pack2, _drop2 = drop_doc_nodes(
                     _out.get("pack") or [], lambda it: (it or {}).get("id"),
-                    a.get("exclude_doc", False))
+                    a.get("exclude_doc", False), allow=doc_allow_ids(cg))
                 if _drop2:
                     _out = dict(_out)
                     _out["pack"] = _pack2
@@ -3520,7 +3562,7 @@ def _cg_dispatch(cg, a):
         # 与真记忆卡同分（0.016）且占 top5 的 60–80%，稀释可达性。默认 true，可显式关。
         # issue #653：判据收敛到 drop_doc_nodes（单一真源），不再就地手写第二条。
         res, _excluded_doc = drop_doc_nodes(
-            res, lambda x: (x[0] or {}).get("id"), _doc_filter_on)
+            res, lambda x: (x[0] or {}).get("id"), _doc_filter_on, allow=doc_allow_ids(cg))
         # issue #721：标签过滤（search 路径）。与 recall 路径同一判据函数 filter_by_tags，
         # 语义见其 docstring：多标签 OR / 全等 / 无匹配返回空集 / exclude 优先于 include。
         _tag_dropped = 0
@@ -5520,7 +5562,7 @@ def _dispatch(cg, name, args):
         if isinstance(_pack, dict):
             _pk, _pk_drop = drop_doc_nodes(
                 _pack.get("pack") or [], lambda it: (it or {}).get("id"),
-                a.get("exclude_doc", False))
+                a.get("exclude_doc", False), allow=doc_allow_ids(cg))
             if _pk_drop:
                 _pack = dict(_pack)
                 _pack["pack"] = _pk
@@ -5596,7 +5638,7 @@ def _dispatch(cg, name, args):
                               validity=a.get("validity"))
         # issue #653：search 面此前同样不读 exclude_doc（直调库层）。
         res, _sd_drop = drop_doc_nodes(
-            res, lambda x: (x[0] or {}).get("id"), a.get("exclude_doc", False))
+            res, lambda x: (x[0] or {}).get("id"), a.get("exclude_doc", False), allow=doc_allow_ids(cg))
         meta = _note_doc_filter(meta, _sd_drop, a.get("exclude_doc", False))
         from . import conflict_surface
         _cf = conflict_surface.as_meta([n for n, _s, _q in res])
