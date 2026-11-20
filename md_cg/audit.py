@@ -93,6 +93,26 @@ POLICY_LIST_KEYS = ("forbidden", "required", "required_kinds", "required_labels"
 
 
 # 生效条件：rules 为 dict 时取 key 的**列表型**安全取值——list/tuple 原样浅拷贝，其余（标量/对象/None/缺键）一律返回空列表；rules 非 dict 亦返回空列表；恒不抛异常。
+
+# 生效条件：text 为待审正文、present 为已识别要素名列表时，返回「形似 # 要素：但未被识别」的行预览，
+# 形如 ["3 # 假设：功能名：…"]；最多 5 条（报错本身也不能长）。
+# 判据：行首 #+/空白 后 1–10 个非冒号字符 + 冒号；该键不在 present 内即视为未识别。
+def _unrecognized_ccg_lines(text, present, limit=5):
+    known = {str(x).strip() for x in (present or [])}
+    out = []
+    for ln, line in enumerate(str(text or "").splitlines(), 1):
+        m = re.match(r"^\s*#+\s*([^：:\s]{1,10})[：:]", line)
+        if not m:
+            continue
+        key = m.group(1).strip()
+        if not key or key in known:
+            continue
+        out.append("%d %s" % (ln, line.strip()[:20]))
+        if len(out) >= limit:
+            break
+    return out
+
+
 def _policy_list(rules, key):
     """列表型键的**安全**取值（纵深防御，不是可用性判据）。
 
@@ -316,10 +336,22 @@ def _rule_check(text, rules, kind="text"):
             except re.error:
                 continue
         if missing_patterns:
+            # issue #997：只给并列清单，写入方看不出解析成功了几项、卡在哪一行。
+            # 补两项：已识别要素、未识别行预览（形如 "3 # 假设：功能名：…"）。
+            present = [str(labels[i]) if labels and i < len(labels) else str(required[i])
+                       for i, pat in enumerate(required) if pat not in missing_patterns]
+            odd = _unrecognized_ccg_lines(text, present)
+            extra = []
+            if present:
+                extra.append("已识别：" + "、".join(present))
+            if odd:
+                extra.append("未识别行：" + "；".join(odd))
+            tail = ("（" + "；".join(extra) + "）") if extra else ""
             return (REJECT,
-                    "缺少必需要素：%s（补齐后重写即可，本条未入库）"
-                    % "、".join(missing),
-                    {"missing": missing, "missing_patterns": missing_patterns})
+                    "缺少必需要素：%s%s（补齐后重写即可，本条未入库）"
+                    % ("、".join(missing), tail),
+                    {"missing": missing, "missing_patterns": missing_patterns,
+                     "recognized": present, "unrecognized_lines": odd})
     if not required:
         return (ACCEPT,
                 f"通过 {len(forbidden)} 条禁止规则（未配置必需规则）", None)

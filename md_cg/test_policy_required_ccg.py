@@ -285,9 +285,15 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
 
     # ---------------- G2 缺 3 项 ----------------
     r = _audit(audit_mod, miss3, _policy())
-    want = "缺少必需要素：执行、验证方式、不适用条件（补齐后重写即可，本条未入库）"
+    # issue #997：报错补「已识别要素 / 未识别行预览」，故不再做全等断言，
+    # 改为三段断言（前缀不变——writepipe 依赖 startswith("缺少必需要素")）。
     add("G2a", r["state"] == "REJECT", r["state"])
-    add("G2b", r["evidence"] == want, r["evidence"])
+    add("G2b", r["evidence"].startswith("缺少必需要素：执行、验证方式、不适用条件"), r["evidence"])
+    add("G2b2", "已识别：功能名、生效条件、子功能" in r["evidence"], r["evidence"])
+    add("G2b3", (r["evidence"].rstrip().endswith("（补齐后重写即可，本条未入库）")
+                 or "（补齐后重写即可，本条未入库）" in r["evidence"]), r["evidence"])
+    add("G2b4", (r["detail"] or {}).get("recognized") == ["功能名", "生效条件", "子功能"],
+        (r["detail"] or {}).get("recognized"))
     add("G2c", (r["detail"] or {}).get("missing") == list(three),
         (r["detail"] or {}).get("missing"))
     add("G2d", (r["detail"] or {}).get("missing_patterns") == list(REQ_PATTERNS[3:]),

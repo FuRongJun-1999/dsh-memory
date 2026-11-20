@@ -6,6 +6,16 @@
 
 ## [Unreleased]
 
+- **`#997` 非 s5 会话每轮追加「身份未登记」提示**：`identityHint()` 对空 unit 无条件返回排查文案，
+  而日常桌面会话必然解析不出身份 ⇒ 每轮注入 73 字，既占上下文又让模型以为要处理某个故障。
+  改为**缺省静默**，排查时开 `MDCG_IDENTITY_HINT=1`。
+- **`#997` 提示所指文档未随包发布**：`IDENTITY_DOC` 指向
+  `docs/architecture/会话身份与工作日常分离_v0.1.md`，但 `package.json` 的 files 白名单没有 `docs/architecture`
+  ⇒ 用户按提示去查必然扑空。已把该文档加进白名单。
+- **`#997` 写入被拒不指出卡在哪一行**：原先只给并列清单，看不出解析成功了几项。
+  现补「已识别：…」与「未识别行：<行号> <前20字>」，并在 `detail` 里给机器可读的
+  `recognized` / `unrecognized_lines` 两项。前缀 `缺少必需要素` 未变（`writepipe` 依赖 `startswith`）。
+
 ### 新增
 
 - **`md_cg/degrade_guard.py`（防退化检测器）**：三种退化形态的确定性判据——

@@ -50,8 +50,22 @@ test('K5 未登记身份必须给出定义与文档链接（可排查）', () =>
   assert.ok(/identityHint\(sessionUnitOf\(sid\)\)/.test(src), '提示须按当前会话身份决定是否出现')
 })
 
-test('K6 未登记提示在未登记时出现、已登记时不出现', async () => {
+test('K6 未登记提示缺省静默、开关打开才出现、已登记时永不出现（issue #997）', async () => {
   const mod = await import('../src/hooks.ts')
-  assert.equal(mod.identityHint(''), mod.IDENTITY_MISSING_HINT)
-  assert.equal(mod.identityHint('maintainer'), '')
+  const saved = process.env.MDCG_IDENTITY_HINT
+  try {
+    delete process.env.MDCG_IDENTITY_HINT
+    assert.equal(mod.identityHint(''), '', '缺省必须静默：日常会话解析不出身份是正常降级，不是故障')
+    assert.equal(mod.identityHint('maintainer'), '')
+
+    process.env.MDCG_IDENTITY_HINT = '1'
+    assert.equal(mod.identityHint(''), mod.IDENTITY_MISSING_HINT, '开关打开时必须恢复排查提示')
+    assert.equal(mod.identityHint('maintainer'), '', '已登记身份任何时候都不给提示')
+
+    process.env.MDCG_IDENTITY_HINT = 'off'
+    assert.equal(mod.identityHint(''), '', '非真值一律按关闭处理')
+  } finally {
+    if (saved === undefined) delete process.env.MDCG_IDENTITY_HINT
+    else process.env.MDCG_IDENTITY_HINT = saved
+  }
 })

@@ -8,6 +8,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+- **`#997` identity hint injected every turn in non-s5 sessions**: `identityHint()` returned the
+  troubleshooting text whenever the unit was empty, and ordinary desktop sessions always have an
+  empty unit, so a 73-char hint appeared on every turn. Now **silent by default**; enable it with
+  `MDCG_IDENTITY_HINT=1` when you actually need to debug identity parsing.
+- **`#997` the doc the hint points to was not in the package**: `IDENTITY_DOC` points at
+  `docs/architecture/会话身份与工作日常分离_v0.1.md`, but `package.json` files had no `docs/architecture`
+  entry, so following the hint led nowhere. Added to the whitelist.
+- **`#997` rejection did not say which line failed**: the message listed all missing elements
+  with no indication of what was parsed successfully. Now appends the recognized set and an
+  unrecognized-line preview, plus machine-readable `recognized` / `unrecognized_lines`
+  in `detail`. The `缺少必需要素` prefix is unchanged (`writepipe` relies on `startswith`).
+
 ### Added: anti-degradation guide + `degrade_guard`
 
 - **`md_cg/degrade_guard.py`** -- deterministic checks for three degradation forms:

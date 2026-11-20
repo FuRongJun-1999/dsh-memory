@@ -37,6 +37,7 @@
     "docs/规范/AI编程通用规范_灵枢适配.md",
     "docs/规范/AI编程通用规范_自检清单.md",
     "docs/discipline",
+    "docs/architecture/会话身份与工作日常分离_v0.1.md",
     "docs/工作纪律_认知图条目_v1.1.json",
     "scripts/workspace_index.py",
     "ui",
