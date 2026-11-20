@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c5_p2",
+ "domain": "验证纪律/pos",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0417",
+ "ok": true,
+ "text": "第 5 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795140909.2342777
+}

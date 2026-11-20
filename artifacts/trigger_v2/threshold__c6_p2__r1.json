@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c6_p2",
+ "domain": "双副本/pos",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0422",
+ "ok": true,
+ "text": "第 6 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795140954.0146663
+}

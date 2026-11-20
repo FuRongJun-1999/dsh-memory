@@ -1,0 +1,12 @@
+{
+ "arm": "open",
+ "task": "c5_n",
+ "domain": "验证纪律/neg",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0359",
+ "ok": true,
+ "text": "第 8 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795137867.2765608
+}

@@ -1,0 +1,12 @@
+{
+ "arm": "verbose",
+ "task": "c6_p1",
+ "domain": "双副本/pos",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0480",
+ "ok": true,
+ "text": "第 6 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795141291.6386275
+}
