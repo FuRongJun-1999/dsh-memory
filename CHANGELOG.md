@@ -6,6 +6,14 @@
 
 ## [Unreleased]
 
+- **`#997` `cg op=read` 返回体含大量调试/遥测字段**：`bm25` 统计、`path_fingerprint.provenance`
+  全量、以及每条 `frontmatter` 的评分字段都会原样回给宿主，而 `budget_tokens` 只约束正文。
+  新增 `_slim_read_out()`：缺省摘掉顶层与 `meta` 里的遥测块，`pack`/`results` 只留白名单键，
+  `frontmatter` 只留 `layer/tags/importance/created_at/verification_state/sensitivity/protected`；
+  **正文一字不动**。两条回退通道：`detail="full"`（单次取全量）与 `MDCG_READ_SLIM=0`（全局关）。
+  保留 `detail="full"` 而不只留 env——排查「为什么这条没命中」要看 `path_fingerprint`，
+  只给 env 等于让人为了看一眼去改全局状态。守卫 `md_cg/test_issue997_read_slim.py` 共 16 条断言。
+
 - **`#997` 非 s5 会话每轮追加「身份未登记」提示**：`identityHint()` 对空 unit 无条件返回排查文案，
   而日常桌面会话必然解析不出身份 ⇒ 每轮注入 73 字，既占上下文又让模型以为要处理某个故障。
   改为**缺省静默**，排查时开 `MDCG_IDENTITY_HINT=1`。

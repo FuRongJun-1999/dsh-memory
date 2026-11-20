@@ -944,6 +944,9 @@ KERNEL_TOOLS = [
                              "receipt（回执审计：命令与预期输出）；"
                              "非法值库层报错（fail-closed）"),
             budget_tokens=_p("integer", "read 的 token 预算"),
+            detail=_p("string", "read 返回体详略（issue #997）：缺省瘦身（摘掉 bm25/path_fingerprint"
+                                "等调试块与评分字段，正文不动）；传 full 取全量（排查命中时用）；"
+                                "env MDCG_READ_SLIM=0 可全局关闭瘦身"),
                           # issue #722：工具面缺省 false=放宽（库面默认严格）。
                           strict_conditions=_p("boolean", "条件闸门严格度（**缺省 false=放宽**："
                                                          "生效条件未在情境确认时仍标 usable，但 state 保持"
@@ -1431,6 +1434,58 @@ def _k_warning(k):
 #     枚举面与改动前一致（一律 null）。空串 `""` 是 #274 裁定的显式
 #     node_missing 形态，不按格式非法处理（M2-B8/N3b 钉住）。要带原因取值
 #     仍用 `get`（not_found + readable_sensitivities）。
+# 读面瘦身（issue #997）：把调试/遥测块与评分字段摘掉，正文一字不动。
+# 关法与例外：MDCG_READ_SLIM=0 全局关闭；detail="full" 单次取全量。
+# 为什么保留 detail="full" 而不是只留 env：排查「为什么这条没命中」要看 path_fingerprint，
+# 只给 env 等于让人为了看一眼去改全局状态。
+_READ_SLIM_DROP_TOP = ("bm25", "path_fingerprint", "skipped", "provenance",
+                       "timeline_groups", "paths", "path_truncation")
+_READ_SLIM_DROP_META = ("bm25", "path_fingerprint", "provenance", "paths", "path_truncation")
+_READ_SLIM_KEEP_FM = ("layer", "tags", "importance", "created_at",
+                      "verification_state", "sensitivity", "protected")
+_READ_SLIM_KEEP_ITEM = ("id", "content", "state", "score", "tokens", "verification_state",
+                        "truncated", "next_offset", "note", "reason")
+
+
+# 生效条件：out 为 read 面返回体、detail 为调用方 detail 参数时，返回瘦身后的副本；
+# detail="full" 或 MDCG_READ_SLIM 关闭时原样返回（同一对象，不改调用方语义）。
+def _slim_read_out(out, detail=None):
+    if str(detail or "").strip().lower() == "full":
+        return out
+    if str(os.environ.get("MDCG_READ_SLIM", "1")).strip().lower() in ("0", "false", "off"):
+        return out
+    if not isinstance(out, dict):
+        return out
+    slim = {k: v for k, v in out.items() if k not in _READ_SLIM_DROP_TOP}
+    if isinstance(slim.get("meta"), dict):
+        slim["meta"] = {k: v for k, v in slim["meta"].items() if k not in _READ_SLIM_DROP_META}
+    for key in ("pack", "results"):
+        items = slim.get(key)
+        if not isinstance(items, list):
+            continue
+        trimmed = []
+        for it in items:
+            if not isinstance(it, dict):
+                trimmed.append(it)
+                continue
+            row = {k: it[k] for k in _READ_SLIM_KEEP_ITEM if k in it}
+            node = it.get("node")
+            if isinstance(node, dict):
+                nn = {k: node[k] for k in ("id", "content", "verification_state") if k in node}
+                fm = node.get("frontmatter")
+                if isinstance(fm, dict):
+                    keep = {k: fm[k] for k in _READ_SLIM_KEEP_FM if k in fm}
+                    if keep:
+                        nn["frontmatter"] = keep
+                for k in ("truncated", "content_lines", "next_offset", "note", "path"):
+                    if k in node:
+                        nn[k] = node[k]
+                row["node"] = nn
+            trimmed.append(row)
+        slim[key] = trimmed
+    return slim
+
+
 def _node_view(node, offset: int = 0):
     if not node:
         return None
@@ -3485,7 +3540,7 @@ def _cg_dispatch(cg, a):
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
-            return _out
+            return _slim_read_out(_out, a.get("detail"))
         from . import refindex
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
@@ -3642,7 +3697,7 @@ def _cg_dispatch(cg, a):
             for n, s, q2 in res]}
         if _kwarn:
             _out["warning"] = _kwarn
-        return _out
+        return _slim_read_out(_out, a.get("detail"))
 
     if op == "audit":
         # 路线 C（2026-10-05，多主体世界模型对齐 v0.1 §4）：证据审计面——

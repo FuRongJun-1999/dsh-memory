@@ -8,6 +8,16 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+- **`#997` `cg op=read` returned large debug/telemetry payloads**: `bm25` statistics,
+  the full `path_fingerprint.provenance` list, and per-node scoring fields in `frontmatter`
+  were all passed back to the host, while `budget_tokens` only constrained the body.
+  Added `_slim_read_out()`: by default it drops telemetry blocks from the top level and
+  `meta`, keeps a whitelist of keys in `pack`/`results`, and trims `frontmatter` to
+  `layer/tags/importance/created_at/verification_state/sensitivity/protected`. **The body is never touched.**
+  Two escape hatches: `detail="full"` (one-off) and `MDCG_READ_SLIM=0` (global).
+  `detail="full"` exists so debugging a miss does not require flipping a global switch.
+  Guard: `md_cg/test_issue997_read_slim.py`, 16 assertions.
+
 - **`#997` identity hint injected every turn in non-s5 sessions**: `identityHint()` returned the
   troubleshooting text whenever the unit was empty, and ordinary desktop sessions always have an
   empty unit, so a 73-char hint appeared on every turn. Now **silent by default**; enable it with
