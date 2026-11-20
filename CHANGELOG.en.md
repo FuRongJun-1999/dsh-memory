@@ -8,6 +8,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+### Added: anti-degradation guide + `degrade_guard`
+
+- **`md_cg/degrade_guard.py`** -- deterministic checks for three degradation forms:
+  cross-turn restatement (adjacent-turn bigram Jaccard > 0.4, or LCS >= 20 chars),
+  self-nagging (>=3 consecutive lines of <=6 chars after stripping punctuation),
+  and reason-form degradation (presence / opening-uniqueness / reuse).
+  Guard: `md_cg/test_degrade_guard.py`, 10 assertions including a mutation anchor
+  (widen the threshold -> same sample must turn green -> restore -> red).
+- **`docs/灵枢使用教程.md` section 11** -- how to recognise and fix each form, including
+  the one move that measurably broke a live loop (change the task + impose a format,
+  never say "continue"), three phrasings that make it worse, and the measured result that
+  long sessions degrade *phrasing* while substance often deepens (12/12 identical openings,
+  content 140 -> 393 chars).
+- Windows side note: `msvcrt.locking` byte-range locks accumulate as 0-byte files in
+  `<root>/_node_locks/`; 19,879 stale entries (>7 days) were swept with no live lock touched
+  (deleting a held lock fails rather than succeeding), then every write was re-verified.
+
 ## [0.10.2] - 2026-11-12
 
 ### Added: `recall` now returns a timeline — the state sequence becomes first-class (#868 / #869)
