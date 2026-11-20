@@ -19,21 +19,75 @@
     '记录一条记忆': 'Record a memory', '加载更早的对话（100 条）': 'Load older turns (100)',
     '取消': 'Cancel', '正在读取…': 'Reading…', '已读取': 'loaded',
   };
+  const RU = {
+    '概览': 'Обзор', '记忆': 'Память', '目标与任务': 'Цели и задачи', '自我认知': 'Самосознание / Профиль',
+    '时空关系': 'Связи и таймлайн', '审核与维护': 'Обслуживание', '工具台': 'Инструменты',
+    '灵枢 · 认知工作台': 'Память (Lingshu) · Когнитивный центр',
+    '自我层': 'Слой профиля', '今日对话': 'Сегодняшние диалоги', '最近 100 条对话': 'Последние 100 диалогов',
+    '历史（手动加载）': 'История (поиск вручную)', '默认不读': 'по запросу',
+    '正在读取认知图': 'Чтение когнитивного графа…', '这里还没有记录。': 'Записей пока нет.',
+    '检索结果（热层）': 'Результаты (горячий слой)', '检索结果（全库）': 'Результаты (вся база)',
+    '热层（快）': 'Горячий слой (быстро, ~0.3 с)', '全库（慢 10–30 秒）': 'Вся база (~10–30 с)',
+    '检索记忆（默认热层 0.3 秒）…': 'Поиск по воспоминаниям…',
+    '记录一条记忆': 'Записать воспоминание', '加载更早的对话（100 条）': 'Загрузить более ранние диалоги (100)',
+    '取消': 'Отмена', '正在读取…': 'Чтение…', '已读取': 'загружено',
+    '让认知，有迹可循。': 'Знания и опыт, упорядоченные во времени.',
+    '记忆、目标与自我，在同一张认知图中延续。': 'Память, цели и опыт кристаллизуются в единой когнитивной сети.',
+    '记忆节点': 'Узлы памяти', '认知图中的真实记录': 'Зафиксированные факты в графе',
+    '活跃目标': 'Активные цели', '持续追踪的行动方向': 'Отслеживаемые направления действий',
+    '待审核': 'На проверке', '等待裁决的候选': 'Кандидаты, ожидающие решения',
+    '受保护': 'Защищённые', '需要保留的认知锚点': 'Ключевые когнитивные якоря',
+    '最近记忆': 'Недавние воспоминания', '查看全部 ↗': 'Все записи ↗',
+    '运行状态': 'Статус работы', '真实连接': 'Подключено',
+    '大脑桥': 'Мост к ядру', '已就绪': 'Готов', '未就绪': 'Не готов',
+    '写入权限': 'Права записи', '只读': 'Только чтение',
+    '可见密级': 'Уровень доступа', '自动召回': 'Авто-извлечение',
+    '开启': 'Включено', '关闭': 'Выключено',
+    '近期窗口': 'Окно контекста',
+    '工具可见不等于全部有权限。保留现有令牌与护栏。': 'Доступность операций зависит от прав и политик безопасности.',
+    '明确下一步 ↗': 'Следующие шаги ↗',
+    '完整工具台': 'Все инструменты', '认知图健康': 'Здоровье когнитивного графа',
+    '快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。': 'Режим снимка: полное сканирование базы выполняется по запросу.',
+    '主动遗忘闸门': 'Фильтр отбора', '内容': 'Содержание',
+    '记录事实、经验或需要延续的上下文…': 'Зафиксируйте факт, опыт или контекст для сохранения…',
+    '归属层': 'Слой памяти', '情景 · 对话与经历': 'Контекст · Диалоги и события',
+    '知识 · 经验与事实': 'Знания · Опыт и факты', '结构 · 方法与规则': 'Структура · Методы и правила',
+    '自我 · 身份与认知': 'Профиль · Идентичность и правила',
+    '重要性': 'Важность (0-1)', '标签': 'Теги',
+    '使用逗号分隔，如：项目,经验': 'Через запятую, напр.: проект, опыт',
+    '通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。': 'Запись через mdcg_remember. Факты сохраняются, объединяются или отправляются на модерацию.',
+    '确认记录': 'Сохранить запись', '待裁决': 'На согласовании',
+    '热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。': 'Быстрый поиск по горячему слою (~0.3 с); глубокий поиск по всей базе (~10–30 с).',
+    '查找工具…': 'Поиск инструментов…', '没有匹配工具': 'Инструменты не найдены',
+    '原始 JSON 参数 · 完整能力入口': 'Параметры JSON (полный доступ к возможностям)',
+    '调用说明': 'Справка', '执行调用': 'Выполнить',
+    '保持插件原有权限边界。写入、裁决、索引、导出与维护操作均需确认；不会自动启动后台任务。': 'Действуют политики безопасности и права доступа. Операции записи и изменения требуют подтверждения.',
+    '我': 'Пользователь', '工具': 'Инструмент', '系统': 'Система',
+    '知识': 'Знания', '情景': 'Контекст', '结构': 'Структура', '锚点': 'Якоря', '自我': 'Профиль', '否证': 'Отвергнуто', '待定': 'В ожидании',
+    '目标列表': 'Список целей', '任务列表': 'Список задач', '新增目标': 'Новая цель', '开启任务': 'Открыть задачу',
+    '身份档案': 'Профиль идентичности', '状态快照': 'Снимок состояния', '元认知报告': 'Отчёт о метапознании', '白箱连通': 'Проверка белого ящика',
+    '记忆时间线': 'Таймлайн событий', '近期事件': 'Недавние события', '节点关系': 'Связи узлов', '时空一致性': 'Проверка согласованности',
+    '锚点查询': 'Поиск якорей', '状态链': 'Цепочка состояний',
+    '待审核候选': 'Очередь аудита', '审核记录': 'Журнал аудита', '保护统计': 'Статистика защиты', '演化摘要': 'Сводка эволюции',
+    '维护状态': 'Статус обслуживания', '审核裁决': 'Решение аудита', '节点核验': 'Верификация узлов'
+  };
   let LANG = 'zh';
-  try { LANG = (localStorage.getItem('lingshu.lang') || 'zh').toLowerCase() === 'en' ? 'en' : 'zh'; } catch (e) { LANG = 'zh'; }
-  const t = value => (LANG === 'en' ? (EN[value] || value) : value);
+  try {
+    const saved = (localStorage.getItem('lingshu.lang') || '').toLowerCase();
+    LANG = (saved === 'ru' || saved === 'en') ? saved : 'zh';
+  } catch (e) { LANG = 'zh'; }
+  const t = value => {
+    if (LANG === 'ru') return RU[value] || EN[value] || value;
+    if (LANG === 'en') return EN[value] || value;
+    return value;
+  };
   const setLang = next => {
-    LANG = next === 'en' ? 'en' : 'zh';
-    try { localStorage.setItem('lingshu.lang', LANG); } catch (e) { /* 忽略：隐私模式 */ }
+    LANG = next;
+    try { localStorage.setItem('lingshu.lang', LANG); } catch (e) { }
     location.reload();
   };
   const langSwitch = () => '<button id="lang-toggle" class="button" title="语言 / Language">'
-    + (LANG === 'en' ? '中文' : 'EN') + '</button>';
-  // ── 工具说明翻译表（issue #970）────────────────────────────────────────────────
-  // 使用者裁定（2026-11-15）：**工具描述与参数说明原文不动**——schema 里的中文是给模型看的，
-  // 翻译绝不能写回 schema（那会给每次调用增加 token，且语言一多就翻倍）。
-  // 翻译**只挂在界面上**：工具台渲染时查这张表，缺译回退中文原文。
-  // 加语言 = 在这一层加一个键（en / ja / …），代码与 schema 都不用动。
+    + (LANG === 'ru' ? 'РУ' : LANG === 'en' ? 'EN' : '中文') + '</button>';
   const TOOL_I18N = {
     en: {
       tools: {
@@ -92,7 +146,32 @@
     },
     // 未来语言在此追加：ja / de / … 只需补 tools 与 ops 两段，其余代码不动。
     // 覆盖范围（使用者裁定 2026-11-15）：**只覆盖记忆功能**——cg 全部 39 op + 记忆相关工具；
-    // 其余工具（stg 之外的外围工具）留到 1.0 重构后统一处理，现在加没有收益。
+    // 其余工具（stg 之外的外围工具）留到 1.0 重构后统一处理，现在加没有收益。,
+    ru: {
+      tools: {
+        cg: 'Когнитивный граф Lingshu — единая точка входа (39 операций: запись / чтение / аудит / защита / эволюция / метапознание / предикты / белый ящик...)',
+        stg: 'Семантический пространственно-временной граф — 5 операций: relation | timeline | anchors | consistency | state_chain.',
+        mdcg_remember: 'Запись узла памяти (проходит через фильтр отбора).',
+        mdcg_search: 'Точный поиск в когнитивном графе (уровни T0–T3).',
+        mdcg_recall: 'Извлечение контекста памяти под бюджет токенов (RRF мульти-путь).',
+        mdcg_get: 'Чтение узла по ID (метаданные + содержимое).',
+        mdcg_review_list: 'Список кандидатов на аудит.',
+        mdcg_health: 'Отчёт о здоровье базы памяти и метриках.',
+        mdcg_whoami: 'Идентичность и права доступа.',
+        mdcg_service_info: 'Информация о сервисе памяти (версия, корень, статистика).'
+      },
+      ops: {
+        info: 'Информация о сервисе и количество узлов',
+        read: 'Чтение воспоминаний по запросу или id узла',
+        route: 'Маршрутизация намерения к знаниям и навыкам',
+        write: 'Запись узла памяти',
+        review: 'Очередь аудита: список / записи / решение',
+        identity: 'Профиль идентичности и роли',
+        self_state: 'Снимок состояния и связей',
+        recent: 'Окно недавних событий',
+        edges: 'Обратный поиск связей'
+      }
+    }
   };
   // 工具级：缺译回退原文（原文来自实时目录，即 schema 里的中文）
   const tTool = (name, original) => {
@@ -104,7 +183,7 @@
     const pack = TOOL_I18N[LANG];
     return (pack && pack.ops && pack.ops[op]) || op;
   };
-  const pages = [ ['overview','◈','概览'], ['memory','▤','记忆'], ['goals','◎','目标与任务'], ['self','◇','自我认知'], ['space','◷','时空关系'], ['review','☷','审核与维护'], ['tools','⌘','工具台'] ];
+  const pages = [ ['overview','◈',t('概览')], ['memory','▤',t('记忆')], ['goals','◎',t('目标与任务')], ['self','◇',t('自我认知')], ['space','◷',t('时空关系')], ['review','☷',t('审核与维护')], ['tools','⌘',t('工具台')] ];
   const layers = { knowledge:'知识', contextual:'情景', structural:'结构', anchor:'锚点', self:'自我', rejected:'否证', unresolved:'待定' };
   let meta = null, info = null, page = 'overview', generation = 0, chosen = 'cg', toolsFilter = '', toastTimer;
   const safeRead = new Set(['info','read','route','help','edges','status']);
@@ -354,9 +433,9 @@ function cacheSet(key,value){
   // 改法：只取快照面 info（0.09s），四张统计卡各用**各自最便宜的 op** 并行取（0.02–0.03s/个），
   // 谁先回来先渲染（渐进），慢的那个不再阻塞首屏。
   async function overview(token) {
-    const head=()=>title('让认知，有迹可循。','COGNITIVE WORKSPACE','记忆、目标与自我，在同一张认知图中延续。','<button id="new-memory" class="button primary">＋ 记录记忆</button>')
+    const head=()=>title(t('让认知，有迹可循。'),'COGNITIVE WORKSPACE',t('记忆、目标与自我，在同一张认知图中延续。'),'<button id="new-memory" class="button primary">＋ '+t('记录一条记忆')+'</button>')
     $('main').innerHTML=head()+loading()
-    const cards=[['记忆节点','—','认知图中的真实记录'],['活跃目标','—','持续追踪的行动方向'],['待审核','—','等待裁决的候选'],['受保护','—','需要保留的认知锚点']]
+    const cards=[[t('记忆节点'),'—',t('认知图中的真实记录')],[t('活跃目标'),'—',t('持续追踪的行动方向')],[t('待审核'),'—',t('等待裁决的候选')],[t('受保护'),'—',t('需要保留的认知锚点')]]
     const shell=()=>head()+`<div class="stats">${cards.map(([name,count,note])=>`<div class="stat"><div class="stat-label">${name}</div><div class="stat-value">${esc(count)}</div><div class="stat-note">${note}</div></div>`).join('')}</div><div id="ov-rest">${loading()}</div>`
     // 1) 先拿快照（便宜）：info 不带 full
     let info0
@@ -384,10 +463,10 @@ function cacheSet(key,value){
     if(token!==generation)return
     const who=info0.whoami?.principal||{}
     $('ov-rest').outerHTML='<div id="ov-rest">'+
-      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>最近记忆</h3><button class="button text" id="all-memory">查看全部 ↗</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>运行状态</h3><span class="badge">真实连接</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">工具可见不等于全部有权限。保留现有令牌与护栏。</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${(meta.tools||[]).length} 个真实工具 ↗</span></button></div></div></div>`+
-      `<div class="panel section-gap"><div class="panel-body"><h3>认知图健康</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>'+t('最近记忆')+'</h3><button class="button text" id="all-memory">'+t('查看全部 ↗')+'</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>'+t('运行状态')+'</h3><span class="badge">'+t('真实连接')+'</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">'+t('工具可见不等于全部有权限。保留现有令牌与护栏。')+'</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${(meta.tools||[]).length} 个真实工具 ↗</span></button></div></div></div>`+
+      `<div class="panel section-gap"><div class="panel-body"><h3>'+t('认知图健康')+'</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
     $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
-    const _lt = $('lang-toggle'); if (_lt) _lt.onclick = () => setLang(LANG === 'en' ? 'zh' : 'en'); bindNodes()
+    const _lt = $('lang-toggle'); if (_lt) _lt.onclick = () => setLang(LANG === 'zh' ? 'en' : LANG === 'en' ? 'ru' : 'zh'); bindNodes()
   }
   // ---- issue #UI-PERF-2（使用者裁定 2026-11-14）：记忆页优先显示「便宜的、近的、待办的」，
   // 历史一律**手动加载**。实测（3.5 万节点库）：self_state 0.02s / review list 0.15s /
