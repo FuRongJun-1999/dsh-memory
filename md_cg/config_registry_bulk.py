@@ -400,6 +400,10 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_LLM_MAX_TOKENS', 'env', 'dsh-memory-main', '整数', 'LLM 调用上限（md_cg/consolidate.py:251,286,1542）'),
     ('MDCG_NODE_ID', 'env', 'dsh-memory-main', '字符串', '证据写入的节点 id 覆盖（md_cg/evidence.py:94,470）'),
     ('MDCG_READ_FOREIGN_SAMPLE', 'env', 'dsh-memory-main', '采样率（非法回落 0）', '跨租户读取采样（md_cg/mdcos.py:639）'),
+    # issue #997：读面瘦身总开关（缺省 1=瘦身；0/false/off 关闭；单次可用 read 的 detail="full"）
+    ('MDCG_READ_SLIM', 'env', 'dsh-memory-main', '开关', 'read 返回体瘦身总开关（md_cg/mcp_server.py::_slim_read_out）'),
+    # issue #997：未登记身份排查提示（缺省静默；1/true/on 才注入排查文案）
+    ('MDCG_IDENTITY_HINT', 'env', 'dsh-memory-main', '开关', '未登记身份排查提示开关（src/hooks.ts::identityHint）'),
     ('MDCG_RRF_CANDIDATES', 'env', 'dsh-memory-main', '整数', 'RRF 候选上限（md_cg/rrf_candidates.py:18）'),
     ('MDCG_RANK_CREDIBILITY', 'env', 'dsh-memory-main', '开关', '名次可信度性质判据（md_cg/mdcos.py:2027）'),
     ('MDCG_TIME_ANCHOR', 'env', 'dsh-memory-main', '开关', '相对时间锚定总开关（md_cg/timeanchor.py::enabled）'),
