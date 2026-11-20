@@ -348,7 +348,8 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
     add("G7a", r["state"] == "ACCEPT", r["state"])
     r = _audit(audit_mod, "正文 " + FORBIDDEN_HIT, dict(p7))
     add("G7b", r["state"] == "REJECT"
-        and r["evidence"] == "命中禁止规则：" + FORBIDDEN, r["evidence"])
+        and r["evidence"].startswith("命中禁止规则 #") and FORBIDDEN in r["evidence"]
+             and "命中片段" in r["evidence"], r["evidence"])
     add("G7c", r["detail"] is None, repr(r["detail"]))
 
     # ---------------- G8 写入面返回（真实写入链 + audit 闸） ----------------

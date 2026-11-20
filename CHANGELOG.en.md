@@ -30,6 +30,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
   unrecognized-line preview, plus machine-readable `recognized` / `unrecognized_lines`
   in `detail`. The `缺少必需要素` prefix is unchanged (`writepipe` relies on `startswith`).
 
+- **`#997` forbidden-rule hits echoed only the regex**: the rejection now reports the rule
+  index and a **truncated** match preview (10 chars plus total length). The full match is
+  deliberately not echoed, since repeating a credential verbatim re-stores it — consistent with
+  the existing placeholder design that carries only the rule index, never the original text.
 ### Added: anti-degradation guide + `degrade_guard`
 
 - **`md_cg/degrade_guard.py`** -- deterministic checks for three degradation forms:

@@ -315,12 +315,21 @@ def _rule_check(text, rules, kind="text"):
     required = [r for r in _policy_list(rules, "required") if r]
     if not forbidden and not required:
         return DEFER, "未配置合规/纪律规则（MDCG_POLICY_FILE），无法判定", None
-    for pat in forbidden:
+    for idx, pat in enumerate(forbidden):
         try:
-            if re.search(pat, text):
-                return REJECT, f"命中禁止规则：{pat}", None
+            m = re.search(pat, text)
         except re.error:
             continue
+        if m:
+            # issue #997：只给正则，写入方只能对着它反推自己撞了哪条。
+            # 回显「规则序号 + 命中片段」——但**片段截断**：整段凭据再回显一次，
+            # 等于把它又抄进对话/日志（与本文件 338 行「占位符只带禁表序号，不带原文」同向）。
+            hit = str(m.group(0) or "").strip()
+            preview = hit[:10] + ("…" if len(hit) > 10 else "")
+            return (REJECT,
+                    "命中禁止规则 #%d：%s；命中片段「%s」（共 %d 字符，截断不回显全文）"
+                    % (idx, pat, preview, len(hit)),
+                    None)
     kinds = [str(k) for k in _policy_list(rules, "required_kinds") if str(k)]
     req_active = bool(required) and (not kinds or str(kind) in kinds)
     if req_active:
