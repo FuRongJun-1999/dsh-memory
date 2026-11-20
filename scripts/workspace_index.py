@@ -73,6 +73,11 @@ DIR_ROLES = {
               ["AGENTS.md", "lingshu-memory"]),
     "claude": ("Claude Code 端纪律注入件 + 插件形态（lingshu-memory/）",
                ["CLAUDE.md", "lingshu-memory"]),
+    #: 实验台根（人格化验证 persona_v1–v3 的样本落盘面）；登记按纪律 #18。
+    "experiments": ("实验台——预注册 spec 与盲评交接包（样本本身在 artifacts/，可重跑生成）",
+                    ["specs/persona_v1.json", "handoff/README.md"]),
+    "artifacts": ("实验原始产物（60/90 份样本 + 盲评包），gitignored 之外保留以便复核",
+                  ["persona_v1", "persona_v3"]),
     "scripts": ("工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检",
                 ["render_discipline.py", "verify_discipline.py", "cogmap_sync.py"]),
     "test": ("跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成）",

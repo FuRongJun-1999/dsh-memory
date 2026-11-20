@@ -5,7 +5,7 @@
 > **为什么有这一页**：查工作区文件前先读本页——按目录职责与关键入口定位，替代每次重复全盘浏览（**工作纪律第 18 条**）。
 > **数据源**：git 追踪面（`git ls-files`，NUL 分隔取原始路径）；gitignored 的语料 / 实验产物 / 构建产物不在其内。
 > **生成 / 守卫**：`python scripts/workspace_index.py --write` ｜ `--check`（CI：`.github/workflows/workspace-index-check.yml`）。
-> **快照**：HEAD `950d7de9` · 追踪 **3850** 件 · 生成于 2026-11-20 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
+> **快照**：HEAD `088c1738` · 追踪 **3850** 件 · 生成于 2026-11-20 —— 计数与 HEAD 为生成时快照，**不参与守卫校验**；守卫校验的是：①顶层目录集合 ②根级文件集合 ③职责文案与关键入口 ④正文（归一化后）逐字一致。
 
 ## 一、顶层目录
 
@@ -25,6 +25,8 @@
 | `zcode/` | ZCode 端纪律注入件（full 变体） | 2 | `AGENTS.md` |
 | `codex/` | Codex CLI 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `AGENTS.md` · `lingshu-memory` |
 | `claude/` | Claude Code 端纪律注入件 + 插件形态（lingshu-memory/） | 7 | `CLAUDE.md` · `lingshu-memory` |
+| `experiments/` | 实验台——预注册 spec 与盲评交接包（样本本身在 artifacts/，可重跑生成） | 281 | `specs/persona_v1.json` · `handoff/README.md` |
+| `artifacts/` | 实验原始产物（60/90 份样本 + 盲评包），gitignored 之外保留以便复核 | 216 | `persona_v1` · `persona_v3` |
 | `scripts/` | 工程管线——纪律渲染/守卫、认知图同步、发布件与常驻进程体检 | 204 | `render_discipline.py` · `verify_discipline.py` · `cogmap_sync.py` |
 | `test/` | 跨包测试与独立评测脚本（宿主侧 TS 测试 + python 集成） | 106 | `mock_mcp.py` · `hive_exec_test.py` |
 | `tests/` | 悬赏验收直接运行入口（复用 md_cg 下同一守卫与定点变异自证） | 34 | `test_chain_best_first.py` |
@@ -34,8 +36,6 @@
 | `.codebuddy/` | CodeBuddy 宿主规则注入面（RULE.mdc 渲染落点，纪律第 18 条压缩锚点所在，随仓库分发） | 1 | `rules` |
 | `.claude-plugin/` | Claude 插件市场清单（/plugin marketplace add 入口） | 1 | `marketplace.json` |
 | `.agents/` | Codex 插件市场清单（codex plugin marketplace add 入口） | 1 | `plugins` |
-| `artifacts/` | **未登记**——请在 `scripts/workspace_index.py` 的 `DIR_ROLES` 补职责与关键入口后重生成 | 216 | — |
-| `experiments/` | **未登记**——请在 `scripts/workspace_index.py` 的 `DIR_ROLES` 补职责与关键入口后重生成 | 281 | — |
 
 ## 二、根级文件
 
