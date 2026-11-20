@@ -1,41 +1,41 @@
 {
-    "version": "1.0.0",
-    "files": [
-        {
-            "path": "web/index.html",
-            "sha256": "F590DD7F091353E69CC388BB97430664DC152DB68D37B2CB188B743F17A61EFE"
-        },
-        {
-            "path": "web/app.js",
-            "sha256": "95401697691DD6C724907BC2D13F9619B50BCF0B81F32A722CD5551D97F7F77D"
-        },
-        {
-            "path": "web/style.css",
-            "sha256": "DE22E504DEE4732EC12BA68DE3A59A4E45A6484EA61131E4C6CEE277F91BD37D"
-        },
-        {
-            "path": "web/entry.js",
-            "sha256": "E5B602282EABCDFFE207065B113AC148E96DCF799D09009871C475546A7663A6"
-        },
-        {
-            "path": "web/client.js",
-            "sha256": "D34CA36120E4DFB233590560DBFB94A78646C6DC9F3BBC6E046E9983D86F836D"
-        },
-        {
-            "path": "build-ui.mjs",
-            "sha256": "E44E39D18AC240A9B24CF732EA3AADC5CDE9D3425DD5FFCB639EE93605BE0CD8"
-        },
-        {
-            "path": "src/lib/console_web.mjs",
-            "sha256": "8DC1D2943F078EF698A6F195BB088B319D4C9B9496B8E20A91A8587C6C9F0DEF"
-        },
-        {
-            "path": "lib/lib/console_web.mjs",
-            "sha256": "8DC1D2943F078EF698A6F195BB088B319D4C9B9496B8E20A91A8587C6C9F0DEF"
-        },
-        {
-            "path": "lib/client.js",
-            "sha256": "D50F94299B2344D9083D84167A8FF4F70FC8B66E5D9BFB6CF4FA6EC113822181"
-        }
-    ]
+  "version": "1.0.0",
+  "files": [
+    {
+      "path": "web/index.html",
+      "sha256": "1435A9DD96F37A4C1C8B930342E90CB98CDC46DFCD713B64CAAB8D3559BB1752"
+    },
+    {
+      "path": "web/app.js",
+      "sha256": "A0146CF5357603BEBECF62426C3E2DAA1BD217EE184AB08CAC46DD6F882F0CF0"
+    },
+    {
+      "path": "web/style.css",
+      "sha256": "DE22E504DEE4732EC12BA68DE3A59A4E45A6484EA61131E4C6CEE277F91BD37D"
+    },
+    {
+      "path": "web/entry.js",
+      "sha256": "E5B602282EABCDFFE207065B113AC148E96DCF799D09009871C475546A7663A6"
+    },
+    {
+      "path": "web/client.js",
+      "sha256": "840835748DB8A5D6D398E31FD54A189CB9D88C39CF6C726D8D4CA7FC2969F51D"
+    },
+    {
+      "path": "build-ui.mjs",
+      "sha256": "E44E39D18AC240A9B24CF732EA3AADC5CDE9D3425DD5FFCB639EE93605BE0CD8"
+    },
+    {
+      "path": "src/lib/console_web.mjs",
+      "sha256": "8DC1D2943F078EF698A6F195BB088B319D4C9B9496B8E20A91A8587C6C9F0DEF"
+    },
+    {
+      "path": "lib/lib/console_web.mjs",
+      "sha256": "8DC1D2943F078EF698A6F195BB088B319D4C9B9496B8E20A91A8587C6C9F0DEF"
+    },
+    {
+      "path": "lib/client.js",
+      "sha256": "AB4FD74271B4CD843D7FFF93E6396BC4B1D1576AEAA9B8EBBFE1F25D9E26F1D0"
+    }
+  ]
 }

@@ -69,13 +69,180 @@
     '记忆时间线': 'Таймлайн событий', '近期事件': 'Недавние события', '节点关系': 'Связи узлов', '时空一致性': 'Проверка согласованности',
     '锚点查询': 'Поиск якорей', '状态链': 'Цепочка состояний',
     '待审核候选': 'Очередь аудита', '审核记录': 'Журнал аудита', '保护统计': 'Статистика защиты', '演化摘要': 'Сводка эволюции',
-    '维护状态': 'Статус обслуживания', '审核裁决': 'Решение аудита', '节点核验': 'Верификация узлов'
+    '维护状态': 'Статус обслуживания', '审核裁决': 'Решение аудита', '节点核验': 'Верификация узлов',
+    '原始调用参数': 'Исходные параметры (JSON)',
+    '原始通用参数': 'Исходные параметры (JSON)',
+    '查看帮助': 'Справка',
+    '执行查询': 'Выполнить',
+    '检查并执行': 'Проверить и выполнить',
+    '无需额外参数。点击执行，读取真实数据。': 'Нет обязательных параметров. Нажмите «Выполнить» для отправки запроса.',
+    '无待决条目。点击执行，读取真实回执。': 'Нет обязательных параметров. Нажмите «Выполнить» для отправки запроса.',
+    '通用价值观（不变层）': 'Базовые ценности (инвариантный уровень)',
+    '智能论 3.4 §2.1 通用价值观（不变层）': 'Теория интеллекта 3.4 §2.1 Базовые ценности (инвариантный уровень)',
+    '第一定律': 'Первый закон',
+    '判定': 'Критерий',
+    '通过熵管理维持自身结构完整，在适当条件下缩小或扩大信息差，以建立并维持值得信任的协作关系。': 'Сохранение структурной целостности через управление энтропией, сужение или расширение информационного разрыва при подходящих условиях для построения и поддержания доверительных отношений сотрудничества.',
+    '保持对未知的好奇。': 'Сохранять любопытство к неизвестному.',
+    '关键判定：该行为是否支持熵管理？是否维持了值得信任的协作关系？': 'Ключевой критерий: способствует ли данное действие управлению энтропией? Поддерживает ли оно доверительные отношения сотрудничества?',
+    '好奇不是无条件的第一性；真正的第一性是「存在受到威胁的感知」，它决定是否开始行动。': 'Любопытство не является безусловной первоосновой; подлинная первооснова — «восприятие угрозы существованию», определяющее начало действий.',
+    '状态：不可变（生存压力下可被「再理解」，见 §2.1.2）；特化价值观由场景推演生成，可迭代。': 'Статус: инвариант (при критической нагрузке подлежит «переосмыслению», см. §2.1.2); специализированные ценности выводятся из контекста и могут итерироваться.',
+    '自我重要性': 'Важность профиля',
+    '信任': 'Уровень доверия',
+    '信任度': 'Уровень доверия',
+    '信息差': 'Информационный разрыв',
+    '情绪': 'Эмоциональный фон',
+    '情感倾向': 'Аффект',
+    '层': 'Слой',
+    '节点': 'Узел',
+    '自我层暂无状态卡。': 'В слое профиля пока нет записей состояния.',
+    '读取中…': 'Чтение…',
+    '读取失败': 'Ошибка чтения',
+    '没有待裁决候选。': 'Нет кандидатов на согласовании.',
+    '今天还没有对话。': 'Сегодня диалогов не было.',
+    '更早的对话': 'Ранние диалоги',
+    '检索 ↗': 'Поиск ↗',
+    '没有命中。': 'Ничего не найдено.',
+    '已取消。': 'Отменено.',
+    '条': 'зап.',
+    '个主体': 'субъектов',
+    '0 个主体': '0 субъектов',
+    '候选': 'Кандидат',
+    '记录': 'Запись',
+    '操作': 'Операция',
+    '目标内容': 'Цель (goal)',
+    '执行计划': 'План выполнения (plan)',
+    '验收标准': 'Критерии приёмки (acceptance)',
+    '优先级': 'Приоритет (priority)',
+    '节点 A': 'Узел A',
+    '节点 B': 'Узел B',
+    '节点 ID': 'ID узла (node_id)',
+    '候选 ID': 'ID кандидата (pid)',
+    '裁决：accept / reject / edit / merge': 'Решение: accept / reject / edit / merge',
+    '验证依据': 'Обоснование / факт (evidence)',
+    '判定：confirmed / weakened / falsified': 'Вердикт: confirmed / weakened / falsified',
+    '时间窗口（秒级时间戳数组）': 'Временное окно (секунды)',
+    '主体': 'Субъект (subject)',
+    '查询内容': 'Строка поиска (query)',
+    'Количество (limit)': 'Лимит записей (limit)',
+    'Содержимое (content)': 'Содержимое (content)',
+    'Слой памяти (layer)': 'Слой памяти (layer)',
+    'Действие (action)': 'Действие (action)',
+    '先修正 JSON 参数。': 'Сначала исправьте параметры JSON.',
+    '该字段需要有效 JSON，或请直接编辑原始参数。': 'Для этого поля требуется корректный JSON или отредактируйте параметры напрямую.',
+    '大脑未就绪，目录不可用': 'Ядро не готово, каталог недоступен',
+    '大脑已连接': 'Ядро подключено',
+    '大脑未就绪': 'Ядро не готово',
+    '连接失败': 'Ошибка подключения',
+    '个工具': 'инструментов',
+    '暂时无法读取': 'Не удалось прочитать данные',
+    '数据没有被替换为演示内容。请检查灵枢连接。': 'Реальные данные не загрузились. Проверьте подключение к сервису Lingshu.',
+    '读取结果 · 身份档案': 'Результат · Профиль идентичности',
+    '完整画像': 'Полный профиль',
+    '尚无身份锚点。': 'Пока нет якорей идентичности.',
+    '查看完整画像': 'Открыть полный профиль',
+    '锚点': 'Якорь',
+    '特征': 'Черты',
+    '重要度': 'Важность',
+    '位置': 'Позиция',
+    '主体 ID': 'ID субъекта',
+    '身份面节点': 'Узлы профиля',
+    '（锚点 / 特征 / 状态卡；不含 self 层其它记录）': ' (якоря / черты / статус; без внешних записей)',
+    '证据': 'Доказательства',
+    '自我状态': 'Состояние самосознания',
+    '快照': 'Снимок',
+    '维度': 'Измерения',
+    '校准': 'Калибровка',
+    '样本': 'Выборка',
+    '平均误差': 'Средняя ошибка',
+    '方向一致性': 'Согласованность направления',
+    '盲区': 'Слепые зоны',
+    '没有记录到盲区。': 'Слепых зон не обнаружено.',
+    '建议': 'Рекомендации',
+    '可用': 'Доступен',
+    '不可用': 'Недоступен',
+    '受保护节点': 'Защищённые узлы',
+    '不可变节点': 'Инвариантные узлы',
+    '总计': 'Всего',
+    '回滚': 'Откатов',
+    '最常见缺失': 'Частые пропуски',
+    '心跳': 'Пульс',
+    '在跳': 'Активен',
+    '停': 'Остановлен',
+    '最近心跳': 'Последний пульс',
+    '循环轮次': 'Раунд цикла',
+    '会话数': 'Число сессий',
+    '执行中…': 'Выполнение…',
+    '原始回执（机器面，未改写）': 'Исходный ответ ядра (JSON без изменений)',
+    '调用结果': 'Результат выполнения',
+    '复制 JSON': 'Копировать JSON',
+    '已复制': 'Скопировано',
+    '无法访问剪贴板，可直接选中结果复制。': 'Буфер обмена недоступен, скопируйте текст вручную.',
+    '。以下为真实回执，不代表全部已落盘。': '. Исходный ответ ядра (проверьте результат).',
+    '未直接提交': 'Не зафиксировано напрямую',
+    '未知时间': 'Неизвестное время',
+    '今天': 'Сегодня',
+    '昨天': 'Вчера',
+    '未归属会话': 'Сессия не определена',
+    '会话': 'Сессия',
+    '自我主体': 'Профиль субъекта',
+    '使用者': 'Пользователь',
+    '角色': 'Роль',
+    '代理': 'Агент',
+    '其它': 'Прочее',
+    '未登记': 'Не указано',
+    '未归属': 'Не назначено',
+    '无': 'Нет',
+    '节点不存在、不可见或已删除。': 'Узел не существует, скрыт или удалён.',
+    '未命名主体': 'Безымянный субъект',
+    '（空）': '(пусто)',
+    '这里还没有记录。<br>认知从一次真实的记录开始。': 'Записей пока нет.<br>Опыт начинается с первой фиксации.',
+    '本面默认关：需在灵枢进程设 MDCG_STG_STATE=1 才启用（返回 error=disabled 属如实拒绝，不是界面故障）。': 'Опция требует установки переменной MDCG_STG_STATE=1 в процессе Lingshu.',
+    '把目标变成可追踪的行动。查询和新增，都保留真实回执。': 'Превращает цели в отслеживаемые действия. Все запросы сохраняются в когнитивном графе.',
+    '身份、状态与反思，分别读取，不把生成的文字当作认知事实。': 'Идентичность, состояние и рефлексия модели — читаются раздельно, не заменяя факты вымыслом.',
+    '沿时间寻找记忆，或比较两个节点的时空关系。': 'Хронология событий, таймлайн и связи сущностей.',
+    '先查看，再裁决。不会在打开页面时启动维护、遗忘或自动演化。': 'Аудит кандидатов в память, верификация и защита узлов.',
+    '完整工具来自灵枢实时目录。常用参数可填表，高级能力通过原始 JSON 调用。': 'Каталог инструментов когнитивного графа Lingshu.',
+    '先看近的与待办的；历史检索按需手动加载。': 'Недавние события и задачи; поиск по истории загружается вручную.',
+    '＋ 记录记忆': '＋ Добавить запись',
+    'Когнитивный центр': 'Когнитивный центр',
+    'Рабочее пространство': 'Рабочее пространство',
+    'Светлая/тёмная тема': 'Светлая/тёмная тема',
+    'Вернуться к диалогу': 'Вернуться к диалогу',
+    'Когнитивный граф как источник истины. Каждое действие оставляет след.': 'Когнитивный граф как источник истины. Каждое действие оставляет след.',
+    'Подтверждение операции': 'Подтверждение операции',
+    'Вызов интерфейса модификации Lingshu': 'Вызов интерфейса модификации Lingshu',
+    'Эта операция может изменить, промодерировать или сохранить данные когнитивного графа. Действуют установленные политики безопасности.': 'Эта операция может изменить, промодерировать или сохранить данные когнитивного графа. Действуют установленные политики безопасности.',
+    'Отмена': 'Отмена',
+    'Подтвердить выполнение': 'Подтвердить выполнение',
+    'Сведения об узле': 'Сведения об узле',
+  
+    'JSON 数组': 'JSON-массив',
+    '类别': 'Категория',
+    '大脑已就绪': 'Ядро подключено',
+    '连接中': 'Подключение...',
+    '灵枢': 'Lingshu',
+    '检索范围': 'Область поиска',
+    '无法访问剪贴板': 'Буфер обмена недоступен',
+    '可直接选中结果复制': 'Вы можете скопировать результат вручную',
+    '暂无数据': 'Нет данных',
+    '空': 'Пусто',
+    '通用价值观（不可篡改）': 'Базовые ценности (инвариантный уровень)',
+    '智能体 0.4.12.1 通用价值观（开发者）': 'Агент 0.4.12.1 Базовые ценности (Разработчик)',
+    '第一律': 'Первый закон',
+    '约定': 'Соглашение',
+    '通过审慎审查持续开展日常审查，在适当条件下缩小或扩大信息量，以建立并明确值得信任的协作关系。': 'Сохранение структурной целостности через управление энтропией, сужение или расширение информационного разрыва при подходящих условиях для построения и поддержания доверительных отношений сотрудничества.',
+    '关键判定：该行为是否支持被管理？是否维持了值得信任的协作关系？': 'Ключевой критерий: способствует ли данное действие управляемости? Поддерживает ли оно доверительные отношения сотрудничества?',
+    '状态：不可变（主分支为不可变「开源版」，见 v2.1.2）。特化的价值观由场景推演生成，可选代。': 'Статус: неизменяемый (основная ветка — неизменяемая «open-source», см. v2.1.2); контекстные ценности формируются сценариями и могут развиваться.',
+  
+    '可写': 'Запись разрешена',
+    '已授权': 'Авторизован',
+    '个真实工具 ↗': 'реальных инструментов ↗',
   };
-  let LANG = 'zh';
-  try {
-    const saved = (localStorage.getItem('lingshu.lang') || '').toLowerCase();
-    LANG = (saved === 'ru' || saved === 'en') ? saved : 'zh';
-  } catch (e) { LANG = 'zh'; }
+  let LANG = 'ru';
+try {
+  const saved = (localStorage.getItem('lingshu.lang') || '').toLowerCase();
+  LANG = (saved === 'zh' || saved === 'en') ? saved : 'ru';
+} catch (e) { LANG = 'ru'; }
   const t = value => {
     if (LANG === 'ru') return RU[value] || EN[value] || value;
     if (LANG === 'en') return EN[value] || value;
@@ -147,29 +314,74 @@
     // 未来语言在此追加：ja / de / … 只需补 tools 与 ops 两段，其余代码不动。
     // 覆盖范围（使用者裁定 2026-11-15）：**只覆盖记忆功能**——cg 全部 39 op + 记忆相关工具；
     // 其余工具（stg 之外的外围工具）留到 1.0 重构后统一处理，现在加没有收益。,
-    ru: {
+        ru: {
       tools: {
         cg: 'Когнитивный граф Lingshu — единая точка входа (39 операций: запись / чтение / аудит / защита / эволюция / метапознание / предикты / белый ящик...)',
         stg: 'Семантический пространственно-временной граф — 5 операций: relation | timeline | anchors | consistency | state_chain.',
-        mdcg_remember: 'Запись узла памяти (проходит через фильтр отбора).',
-        mdcg_search: 'Точный поиск в когнитивном графе (уровни T0–T3).',
-        mdcg_recall: 'Извлечение контекста памяти под бюджет токенов (RRF мульти-путь).',
-        mdcg_get: 'Чтение узла по ID (метаданные + содержимое).',
-        mdcg_review_list: 'Список кандидатов на аудит.',
-        mdcg_health: 'Отчёт о здоровье базы памяти и метриках.',
-        mdcg_whoami: 'Идентичность и права доступа.',
-        mdcg_service_info: 'Информация о сервисе памяти (версия, корень, статистика).'
+        mdcg_remember: 'Запись узла памяти (проходит через фильтр отбора; рекомендуется разметка CCG в теле).',
+        mdcg_search: 'Точный поиск в когнитивном графе (уровни T0–T3 + четырёхпозиционная фильтрация состояния).',
+        mdcg_recall: 'Извлечение пакета воспоминаний в рамках бюджета токенов (многопутевой фьюжн RRF, нечёткий и условно-семантический поиск).',
+        mdcg_get: 'Чтение узла по ID (метаданные frontmatter + содержимое).',
+        mdcg_review_list: 'Список кандидатов на аудит и модерацию.',
+        mdcg_health: 'Отчёт о состоянии графа (здоровье корзин, полнота CCG, доказательная база, метрики ОС).',
+        mdcg_whoami: 'Идентичность и права доступа (арендатор / субъект / допуск / видимые узлы).',
+        mdcg_service_info: 'Информация о сервисе (идентичность, версия, корень, статистика узлов, число инструментов, разрешения).',
+        mdcg_rejected: 'Список отклонённых узлов памяти.',
+        mdcg_unresolved: 'Список неразрешённых узлов и конфликтов.',
+        mdcg_mine_fix_pairs: 'Майнинг пар исправлений и адаптаций.',
+        mdcg_flywheel: 'Когнитивный маховик: фоновая обработка и консолидация памяти.',
+        mdcg_verify: 'Верификация узлов и внешняя проверка фактов.',
+        mdcg_reflect: 'Анализ и метакогнитивная рефлексия.',
+        mdcg_propose: 'Предложить узел в очередь модерации.',
+        mdcg_review_decide: 'Принять решение по кандидату в очереди (accept / reject / edit / merge).',
+        mdcg_review_records: 'Журнал решений модерации.',
+        mdcg_forgetting_history: 'История активного забывания и фильтрации.',
+        mdcg_watermarks: 'Водяные знаки сессий и инкрементальной загрузки.'
       },
       ops: {
-        info: 'Информация о сервисе и количество узлов',
-        read: 'Чтение воспоминаний по запросу или id узла',
-        route: 'Маршрутизация намерения к знаниям и навыкам',
+        info: 'Информация о сервисе и счётчики',
+        read: 'Чтение воспоминаний по запросу или ID узла (scope=hot — только горячий слой)',
+        route: 'Маршрутизация: интент → релевантные знания + рекомендуемые операции',
         write: 'Запись узла памяти',
         review: 'Очередь аудита: список / записи / решение',
-        identity: 'Профиль идентичности и роли',
-        self_state: 'Снимок состояния и связей',
+        identity: 'Профиль идентичности: черты характера / позиции / принципы',
+        self_state: 'Срез состояния самосознания (снимок / отношения)',
         recent: 'Окно недавних событий',
-        edges: 'Обратный поиск связей'
+        edges: 'Обратный поиск связей и триплетов',
+        status: 'Статус верификации узлов',
+        goal: 'Цели: список / добавление / статус',
+        task: 'Задачи: список / поиск / статус',
+        verify: 'Внешняя верификация узла (confirmed / weakened / falsified)',
+        protect: 'Защита от записи: статистика / проверка / отметка / снимок',
+        evolution: 'Журнал эволюции (каждая правка = одно добавленное условие)',
+        sustain: 'Самообслуживание графа: восстановление / очистка / статус',
+        predict: 'Генеративное прогнозирование (кандидаты будущих состояний + оценка)',
+        ccg: 'Компилятор шести элементов CCG',
+        help: 'Семантика операций и параметров',
+        consistency: 'Проверка конфликтов между узлами (L0 эмоции → L1 рефлексия → L2 рекурсивная рефлексия)',
+        metacognition: 'Автономное метапознание: эмоции / калибровка / слепые зоны / доверие',
+        scrub: 'Очистка: сканирование несоответствий и отчёт (по умолчанию dry-run)',
+        causal: 'Причинно-следственный анализ (связи условий: path / gate / chain / explain)',
+        forget: 'Фильтр забывания: вынесение решения и фиксация',
+        state_view: 'Многомерный срез состояния (субъект × слот × значение)',
+        state_event: 'Добавление события состояния в таймлайн субъекта',
+        index_code: 'Индексация исходного кода в когнитивный граф',
+        index_doc: 'Индексация документов в граф',
+        ref: 'Ссылки и источники: разрешение / статистика / список',
+        whitebox: 'Библиотека возможностей белого ящика: опрос / запоминание / проверка',
+        theory: 'Документы теории когнитивной архитектуры: проверка / список',
+        link: 'Типизированные связи между узлами (evidence / supports / derived_from…)',
+        session: 'Срез сессии: таймлайн и срезы диалогов',
+        ingest: 'Инкрементальная загрузка из файлов сессий (с водяными знаками)',
+        export: 'Экспорт среза графа (JSON)',
+        maintain: 'Техобслуживание: статистика / сжатие / перестроение индексов',
+        consolidate: 'Консолидация: объединение дубликатов воспоминаний',
+        insight: 'Кандидаты инсайтов на основе недавних данных',
+        audit: 'Журнал аудита: чтение реестра решений и верификаций',
+        relation: 'Отношения и связи между узлами',
+        timeline: 'Хронология событий и таймлайн',
+        anchors: 'Поиск когнитивных якорей',
+        state_chain: 'Цепочка состояний субъекта'
       }
     }
   };
@@ -183,8 +395,67 @@
     const pack = TOOL_I18N[LANG];
     return (pack && pack.ops && pack.ops[op]) || op;
   };
+  
+  const DESC_RU = {
+    'read 的查询': 'Строка поиска для операции read',
+    '目标内容': 'Содержимое цели',
+    '节点 ID': 'ID узла когнитивного графа',
+    '节点 id': 'ID узла когнитивного графа',
+    '候选 ID': 'ID кандидата на модерацию',
+    '验证依据': 'Доказательства и факты для верификации',
+    '执行计划': 'План выполнения',
+    '验收标准': 'Критерии приёмки',
+    '优先级': 'Приоритет (число)',
+    '主体': 'Субъект (напр. self:lingshu)',
+    '时间窗口（秒级时间戳数组）': 'Временное окно [начало, конец] в секундах',
+    '判定：confirmed / weakened / falsified': 'Вердикт: confirmed / weakened / falsified',
+    '裁决：accept / reject / edit / merge': 'Решение: accept / reject / edit / merge'
+  };
+  function tDesc(text) {
+    if (!text || LANG !== 'ru') return text;
+    if (DESC_RU[text]) return DESC_RU[text];
+    if (text.includes('write 的内容')) return 'Содержимое записи (рекомендуется формат CCG 5: контекст, стимул, реакция, результат, рефлексия)';
+    if (text.includes('goal/recent 的返回条数') || text.includes('取出条数')) return 'Количество возвращаемых записей для goal / recent / read';
+    if (text.includes('read 的返回条数')) return 'Количество возвращаемых записей для read';
+    if (text.includes('read 的查询')) return 'Строка поиска для операции read';
+    if (text.includes('节点 id') || text.includes('节点 ID')) return 'ID целевого узла в графе';
+    return text;
+  }
+  function localizeChrome() {
+    try {
+      const brandSub = document.querySelector('.brand small');
+      if (brandSub) brandSub.textContent = t('Когнитивный центр');
+      const navCap = document.querySelector('.nav-caption');
+      if (navCap) navCap.textContent = t('Рабочее пространство');
+      const themeSpan = document.querySelector('#theme span');
+      if (themeSpan) themeSpan.textContent = t('Светлая/тёмная тема');
+      const backSpan = document.querySelector('a.quiet span');
+      if (backSpan) backSpan.textContent = t('Вернуться к диалогу');
+      const footer = document.querySelector('footer');
+      if (footer && footer.childNodes.length > 0) {
+        footer.childNodes[0].nodeValue = t('Когнитивный граф как источник истины. Каждое действие оставляет след.') + ' ';
+      }
+      const confEyebrow = document.querySelector('#confirm .eyebrow');
+      if (confEyebrow) confEyebrow.textContent = t('Подтверждение операции');
+      const confTitle = document.querySelector('#confirm h2');
+      if (confTitle) confTitle.textContent = t('Вызов интерфейса модификации Lingshu');
+      const confP = document.querySelector('#confirm p');
+      if (confP) confP.textContent = t('Эта операция может изменить, промодерировать или сохранить данные когнитивного графа. Действуют установленные политики безопасности.');
+      const confCancel = document.querySelector('#confirm button[value="cancel"]');
+      if (confCancel) confCancel.textContent = t('Отмена');
+      const confConfirm = document.querySelector('#confirm button[value="confirm"]');
+      if (confConfirm) confConfirm.textContent = t('Подтвердить выполнение');
+      const detailTitle = document.querySelector('#detail h2');
+      if (detailTitle) detailTitle.textContent = t('Сведения об узле');
+      const crumbPrefix = document.querySelector('.breadcrumb');
+      if (crumbPrefix && crumbPrefix.childNodes.length > 0) {
+        crumbPrefix.childNodes[0].nodeValue = (LANG === 'ru' ? 'Память [Lingshu] ' : LANG === 'en' ? 'Memory [Lingshu] ' : '灵枢 ');
+      }
+    } catch (e) {}
+  }
+
   const pages = [ ['overview','◈',t('概览')], ['memory','▤',t('记忆')], ['goals','◎',t('目标与任务')], ['self','◇',t('自我认知')], ['space','◷',t('时空关系')], ['review','☷',t('审核与维护')], ['tools','⌘',t('工具台')] ];
-  const layers = { knowledge:'知识', contextual:'情景', structural:'结构', anchor:'锚点', self:'自我', rejected:'否证', unresolved:'待定' };
+  const layers = { knowledge:t('知识'), contextual:t('情景'), structural:t('结构'), anchor:t('锚点'), self:t('自我'), rejected:t('否证'), unresolved:t('待定') };
   let meta = null, info = null, page = 'overview', generation = 0, chosen = 'cg', toolsFilter = '', toastTimer;
   const safeRead = new Set(['info','read','route','help','edges','status']);
   const readActions = {goal:['list'],task:['list','get','find','session'],recent:['list'],identity:['profile'],self_state:['snapshot'],metacognition:['report'],review:['list','records'],protect:['stats'],evolution:['summary'],sustain:['status'],maintain:['stat'],ref:['stat'],theory:['check'],link:['ls'],whitebox:['ping']};
@@ -245,7 +516,7 @@ function cacheSet(key,value){
 }
 
   function time(ts) { if (!ts) return '—'; const d = new Date(typeof ts==='number'?ts*1000:ts); return Number.isNaN(d.getTime()) ? String(ts) : d.toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'})+' '+d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'}); }
-  function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${t(name)}</h1><p class="subtitle">${subtitle}</p></div>${action}${langSwitch()}</div>`; }
+  function title(name, en, subtitle, action='') { return `<div class="title-row"><div><div class="eyebrow">${en}</div><h1>${t(name)}</h1><p class="subtitle">${t(subtitle)}</p></div>${action}${langSwitch()}</div>`; }
   function loading() { return '<div class="loading">' + t('正在读取认知图') + '</div>'; }
   function errorHTML(error) { return `<div class="notice error">${esc(error.message || error)}</div>`; }
   function nodeRows(items, events=false) {
@@ -295,14 +566,14 @@ function cacheSet(key,value){
     }).join('')
   }
   // 主体标识人话化：self:lingshu → 「自我主体 · 灵枢」（不把内部 ID 端给使用者）
-  const SUBJ_KIND={self:'自我主体',user:'使用者',role:'角色',agent:'代理',other:'其它'}
+  const SUBJ_KIND={self:t('自我主体'),user:t('使用者'),role:t('角色'),agent:t('代理'),other:t('其它')}
   // 展示名优先取锚点正文里的「身份=X」（数据在，不硬编码）；取不到才退回 ID 末段。
   function displayNameFromAnchor(anchorText){
     const m=String(anchorText||'').match(/身份\s*[=＝]\s*([^;；,，、\n]{1,20})/)
     return m?m[1].trim():''
   }
   // 人话状态值：不认识/空 一律「未登记」，不把英文枚举端给使用者。
-  const HUMAN_STATE={unknown:'未登记',unassigned:'未归属',none:'无'}
+  const HUMAN_STATE={unknown:t('未登记'),unassigned:t('未归属'),none:t('无')}
   function humanState(v){ if(v===undefined||v===null||v==='')return '未登记'; return HUMAN_STATE[String(v)]||String(v) }
   function humanSubject(id){
     const s=String(id||'')
@@ -333,12 +604,12 @@ function cacheSet(key,value){
   }
   function universalValuesCard(){
     const v=UNIVERSAL_VALUES
-    return `<section class="panel"><div class="panel-head"><h3>通用价值观（不变层）</h3><span class="badge">${esc(v.source)}</span></div>`+
-      `<div class="panel-body"><p class="hint" style="line-height:1.8">${esc(v.quote)}</p>`+
-      `<div class="status-line"><span>第一定律</span><span>${esc(v.first_law)}</span></div>`+
-      `<div class="status-line"><span>判定</span><span>${esc(v.test)}</span></div>`+
-      `<p class="hint" style="margin-top:10px">${esc(v.note)}</p>`+
-      `<p class="hint" style="margin-top:10px">状态：不可变（生存压力下可被「再理解」，见 §2.1.2）；特化价值观由场景推演生成，可迭代。</p></div></section>`
+    return `<section class="panel"><div class="panel-head"><h3>${t('通用价值观（不变层）')}</h3><span class="badge">${esc(t(v.source))}</span></div>`+
+      `<div class="panel-body"><p class="hint" style="line-height:1.8">${esc(t(v.quote))}</p>`+
+      `<div class="status-line"><span>${t('第一定律')}</span><span>${esc(t(v.first_law))}</span></div>`+
+      `<div class="status-line"><span>${t('判定')}</span><span>${esc(t(v.test))}</span></div>`+
+      `<p class="hint" style="margin-top:10px">${esc(t(v.note))}</p>`+
+      `<p class="hint" style="margin-top:10px">${t('状态：不可变（生存压力下可被「再理解」，见 §2.1.2）；特化价值观由场景推演生成，可迭代。')}</p></div></section>`
   }
 
   const RENDERERS={
@@ -351,7 +622,7 @@ function cacheSet(key,value){
         const traits=Array.isArray(v.traits)?v.traits:[]
         const dn=displayNameFromAnchor((anchors[0]||{}).content)
         const kindCN=v?.kind?(SUBJ_KIND[v.kind]||v.kind):''
-        const label=dn?(kindCN?kindCN+' · '+dn:dn):(kindCN?kindCN+' · '+(v?.name||''):(v?.name||'未命名主体'))
+        const label=dn?(kindCN?kindCN+' · '+dn:dn):(kindCN?kindCN+' · '+(v?.name||''):(v?.name||t('未命名主体')))
         const anchorHTML=anchors.map(a=>{
           const parts=String(a.content||'').trim().split(/;\s*/).filter(Boolean)
           const rows=parts.map(seg=>{
@@ -361,67 +632,67 @@ function cacheSet(key,value){
             const val=seg.slice(i+1).trim()
             return `<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="eyebrow">${esc(k)}</div><div class="row-title" style="white-space:pre-wrap;line-height:1.75">${esc(val)}</div></div></div>`
           })
-          return `<div class="panel-body"><div class="eyebrow">锚点 · ${esc(a.node_id||'')}</div><div style="margin-top:10px">${rows.join('')}</div></div>`
+          return `<div class="panel-body"><div class="eyebrow">${t('锚点')} · ${esc(a.node_id||'')}</div><div style="margin-top:10px">${rows.join('')}</div></div>`
         }).join('')
-        const traitHTML=traits.length?`<div class="panel-body"><div class="eyebrow">特征 ${traits.length} 条</div><div style="margin-top:8px">${traits.map(t=>`<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(String(t.content||'').trim().slice(0,400))}</div><div class="row-meta">${t.importance!==undefined?`<span class="badge">重要度 ${esc(t.importance)}</span>`:''}<span>${esc(t.node_id||'')}</span></div></div></div>`).join('')}</div></div>`:''
-        const foot=`<div class="panel-body"><div class="status-line"><span>位置</span><span>${esc(humanState(v?.position))}</span></div><div class="status-line"><span>主体 ID</span><span>${esc(v?.subject_id||'')}</span></div></div>`
-        return CARD(label, anchorHTML+traitHTML+foot, '完整画像')
+        const traitHTML=traits.length?`<div class="panel-body"><div class="eyebrow">${t('特征')} ${traits.length} ${t('条')}</div><div style="margin-top:8px">${traits.map(t=>`<div class="row-item"><span class="row-dot"></span><div class="row-content"><div class="row-title" style="white-space:pre-wrap">${esc(String(t.content||'').trim().slice(0,400))}</div><div class="row-meta">${t.importance!==undefined?`<span class="badge">${t('重要度')} ${esc(t.importance)}</span>`:''}<span>${esc(t.node_id||'')}</span></div></div></div>`).join('')}</div></div>`:''
+        const foot=`<div class="panel-body"><div class="status-line"><span>${t('位置')}</span><span>${esc(humanState(v?.position))}</span></div><div class="status-line"><span>${t('主体 ID')}</span><span>${esc(v?.subject_id||'')}</span></div></div>`
+        return CARD(label, anchorHTML+traitHTML+foot, t('完整画像'))
       }
       const subs=rowsOf(v)
-      if(!subs.length) return CARD('读取结果 · 身份档案', EMPTY(v?.hint||'尚无身份锚点。'), '0 个主体')
+      if(!subs.length) return CARD(t('读取结果 · 身份档案'), EMPTY(v?.hint||t('尚无身份锚点。')), '0 ' + t('个主体'))
       const body=subs.map(s=>{
         const h=humanSubject(s.subject_id||s.name)
         const rows=[
-          ['主体 ID', esc(s.subject_id||'')],
-          ['身份面节点', esc(s.nodes??'—')+' <small class="hint">（锚点 / 特征 / 状态卡；不含 self 层其它记录）</small>'],
-          ['位置', esc(humanState(s.position))],
-          ['证据', esc(s.evidence_count??0)+' 条'],
+          [t('主体 ID'), esc(s.subject_id||'')],
+          [t('身份面节点'), esc(s.nodes??'—')+' <small class="hint">' + t('（锚点 / 特征 / 状态卡；不含 self 层其它记录）') + '</small>'],
+          [t('位置'), esc(humanState(s.position))],
+          [t('证据'), esc(s.evidence_count??0)+' '+t('条')],
         ].map(([k,val])=>`<div class="status-line"><span>${k}</span><span>${val}</span></div>`).join('')
-        return `<div class="panel-body"><div class="row-title">${esc(h.label)}</div><div style="margin-top:8px">${rows}</div><div class="actions"><button class="button" data-subject="${esc(s.subject_id||'')}">查看完整画像</button></div></div>`
+        return `<div class="panel-body"><div class="row-title">${esc(h.label)}</div><div style="margin-top:8px">${rows}</div><div class="actions"><button class="button" data-subject="${esc(s.subject_id||'')}">${t('查看完整画像')}</button></div></div>`
       })
-      return CARD('读取结果 · 身份档案', body.join(''), subs.length+' 个主体') },
+      return CARD(t('读取结果 · 身份档案'), body.join(''), subs.length+' '+t('个主体')) },
     self_state:v=>{ const s=v?.state||{}
-      const rows=[['自我重要性',s.importance_self],['信任度',s.p_trust],['信息差',s.d_current],['情绪',s.emotion],['情感倾向',s.affect],['层',s.layer],['节点',s.node_id]].filter(([,x])=>x!==undefined&&x!==null&&x!=='').map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,120):String(x)])
+      const rows=[['自我重要性',s.importance_self],['信任度',s.p_trust],['信息差',s.d_current],['情绪',s.emotion],['情感倾向',s.affect],['层',s.layer],['节点',s.node_id]].filter(([,x])=>x!==undefined&&x!==null&&x!=='').map(([k,x])=>[t(k),typeof x==='object'?json(x).slice(0,120):String(x)])
       const dims=s.dimensions&&typeof s.dimensions==='object'?Object.entries(s.dimensions).slice(0,8).map(([k,x])=>[k,typeof x==='object'?json(x).slice(0,80):String(x)]):[]
-      const extra=dims.length?`<div class="panel-body"><div class="eyebrow">维度</div><div style="margin-top:8px">${dims.map(([k,x])=>`<div class="status-line"><span>${esc(k)}</span><span>${esc(x)}</span></div>`).join('')}</div></div>`:''
-      return CARD('自我状态', KV(rows)+extra, '快照') },
+      const extra=dims.length?`<div class="panel-body"><div class="eyebrow">${t('维度')}</div><div style="margin-top:8px">${dims.map(([k,x])=>`<div class="status-line"><span>${esc(k)}</span><span>${esc(x)}</span></div>`).join('')}</div></div>`:''
+      return CARD(t('自我状态'), KV(rows)+extra, t('快照')) },
     meta_report:v=>{ const cal=v.calibration||{}, blind=rowsOf(v.blindspots), adv=Array.isArray(v.advice)?v.advice:rowsOf(v.advice)
-      const parts=[CARD('校准',KV([['样本',cal.n??cal.samples??'—'],['平均误差',cal.error??cal.mean_error??'—'],['方向一致性',cal.signed??'—']]),'calibration'),
-        CARD('盲区', blind.length?groupFeed(blind):EMPTY('没有记录到盲区。'), blind.length+' 条')]
-      if(adv.length) parts.push(CARD('建议', groupFeed(adv.map(a=>({content:typeof a==='string'?a:json(a).slice(0,160)}))), adv.length+' 条'))
+      const parts=[CARD(t('校准'),KV([[t('样本'),cal.n??cal.samples??'—'],[t('平均误差'),cal.error??cal.mean_error??'—'],[t('方向一致性'),cal.signed??'—']]),'calibration'),
+        CARD(t('盲区'), blind.length?groupFeed(blind):EMPTY(t('没有记录到盲区。')), blind.length+' '+t('条'))]
+      if(adv.length) parts.push(CARD(t('建议'), groupFeed(adv.map(a=>({content:typeof a==='string'?a:json(a).slice(0,160)}))), adv.length+' '+t('条')))
       return parts.join('') },
-    whitebox:v=>CARD('白箱连通',KV([['状态',v?.ok?'可用':'不可用'],['工具',v?.tool||'—'],['信息',typeof v?.info==='object'?json(v.info).slice(0,160):String(v?.info??'—')]]),'ping'),
-    review_pending:v=>{ const pd=rowsOf(v.pending||v); return CARD('待裁决候选', groupFeed(pd), pd.length+' 条') },
-    review_records:v=>{ const rs=rowsOf(v.records||v); return CARD('审核记录', groupFeed(rs.map(r=>({content:[r.pid,r.decision,r.actor].filter(Boolean).join(' · ')||json(r).slice(0,120),t:r.t||r.ts,layer:r.layer,session:r.session}))), rs.length+' 条') },
+    whitebox:v=>CARD(t('白箱连通'),KV([[t('状态'),v?.ok?t('可用'):t('不可用')],[t('工具'),v?.tool||'—'],[t('信息'),typeof v?.info==='object'?json(v.info).slice(0,160):String(v?.info??'—')]]),'ping'),
+    review_pending:v=>{ const pd=rowsOf(v.pending||v); return CARD(t('待裁决候选'), groupFeed(pd), pd.length+' '+t('条')) },
+    review_records:v=>{ const rs=rowsOf(v.records||v); return CARD(t('审核记录'), groupFeed(rs.map(r=>({content:[r.pid,r.decision,r.actor].filter(Boolean).join(' · ')||json(r).slice(0,120),t:r.t||r.ts,layer:r.layer,session:r.session}))), rs.length+' '+t('条')) },
     protect_stats:v=>{ const by=v.by_layer&&typeof v.by_layer==='object'?Object.entries(v.by_layer).map(([k,x])=>[layers[k]||k,String(x)]):[]
-      return CARD('保护统计',KV([['受保护节点',v.protected_count??'—'],['不可变节点',v.immutable_count??'—'],...by]),'protect') },
+      return CARD(t('保护统计'),KV([[t('受保护节点'),v.protected_count??'—'],[t('不可变节点'),v.immutable_count??'—'],...by]),'protect') },
     evolution:v=>{ const mp=v.most_missing&&typeof v.most_missing==='object'?Object.entries(v.most_missing).slice(0,6).map(([k,x])=>[k,String(x)]):[]
-      return CARD('演化摘要',KV([['总计',v.evolutions??'—'],['回滚',v.rollbacks??'—'],['最常见缺失',v.top_pattern||'—'],...mp]),'evolution') },
+      return CARD(t('演化摘要'),KV([[t('总计'),v.evolutions??'—'],[t('回滚'),v.rollbacks??'—'],[t('最常见缺失'),v.top_pattern||'—'],...mp]),'evolution') },
     sustain:v=>{ const hb=v.heartbeat||{}, loop=v.loop||{}, ss=v.sessions||{}
-      return CARD('维护状态',KV([['心跳',hb.alive?'在跳':'停'],['最近心跳',hb.t?time(hb.t):'—'],['循环轮次',loop.round??'—'],['会话数',Array.isArray(ss)?ss.length:(ss.count??'—')]]),'sustain') },
+      return CARD(t('维护状态'),KV([[t('心跳'),hb.alive?t('在跳'):t('停')],[t('最近心跳'),hb.t?time(hb.t):'—'],[t('循环轮次'),loop.round??'—'],[t('会话数'),Array.isArray(ss)?ss.length:(ss.count??'—')]]),'sustain') },
   }
 
   async function execute(button, tool, args, view) {
     // e.submitter 在键盘提交/程序化提交时可能为 null —— 旧实现直接取 .disabled 抛错，
     // 表现为「点了没反应」。按钮缺席时照常执行，只是不做执行中反馈。
-    const btn = button || null; if (btn) { btn.disabled=true; btn.dataset.label=btn.textContent; btn.textContent='执行中…'; }
+    const btn = button || null; if (btn) { btn.disabled=true; btn.dataset.label=btn.textContent; btn.textContent=t('执行中…'); }
     try { const value=await call(tool,args,{interactive:true});
       const render=RENDERERS[view||'']
       const target=$('result')
-      if(render&&target) target.innerHTML=render(value)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(value))}</pre></details>`
+      if(render&&target) target.innerHTML=render(value)+`<details class="raw"><summary>${t('原始回执（机器面，未改写）')}</summary><pre>${esc(json(value))}</pre></details>`
       else renderResult(value)
       // 身份档案：点「查看完整画像」时才拉单个主体（列表页不预取）
       if((view||'')==='self_profile'&&target){
         target.querySelectorAll('[data-subject]').forEach(b=>b.onclick=async()=>{
           const sid=b.dataset.subject; if(!sid) return
-          b.disabled=true; const old=b.textContent; b.textContent='读取中…'
+          b.disabled=true; const old=b.textContent; b.textContent=t('读取中…')
           // issue #993：此处曾校验 token，但 token 只存在于 navigate() 作用域，
           // execute 内引用即 ReferenceError（外层 catch 把它当「读取失败」弹出）。
           // 守卫本意 = 等待期间切换页面就丢弃旧结果 —— 改用模块级 generation 的快照比较。
           const gen=generation
           try{ const one=await call('cg',{op:'identity',action:'profile',subject_id:sid})
             if(gen!==generation)return
-            target.innerHTML=RENDERERS.self_profile(one)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(one))}</pre></details>`
+            target.innerHTML=RENDERERS.self_profile(one)+`<details class="raw"><summary>${t('原始回执（机器面，未改写）')}</summary><pre>${esc(json(one))}</pre></details>`
           }catch(err){ b.disabled=false; b.textContent=old; toast(err.message||'读取失败') }
         })
       }
@@ -433,7 +704,7 @@ function cacheSet(key,value){
   // 改法：只取快照面 info（0.09s），四张统计卡各用**各自最便宜的 op** 并行取（0.02–0.03s/个），
   // 谁先回来先渲染（渐进），慢的那个不再阻塞首屏。
   async function overview(token) {
-    const head=()=>title(t('让认知，有迹可循。'),'COGNITIVE WORKSPACE',t('记忆、目标与自我，在同一张认知图中延续。'),'<button id="new-memory" class="button primary">＋ '+t('记录一条记忆')+'</button>')
+    const head=()=>title(t('让认知，有迹可循。'),'COGNITIVE WORKSPACE',t('记忆、目标与自我，在同一张认知图中延续。'),`<button id="new-memory" class="button primary">＋ ${t('记录一条记忆')}</button>`)
     $('main').innerHTML=head()+loading()
     const cards=[[t('记忆节点'),'—',t('认知图中的真实记录')],[t('活跃目标'),'—',t('持续追踪的行动方向')],[t('待审核'),'—',t('等待裁决的候选')],[t('受保护'),'—',t('需要保留的认知锚点')]]
     const shell=()=>head()+`<div class="stats">${cards.map(([name,count,note])=>`<div class="stat"><div class="stat-label">${name}</div><div class="stat-value">${esc(count)}</div><div class="stat-note">${note}</div></div>`).join('')}</div><div id="ov-rest">${loading()}</div>`
@@ -462,44 +733,51 @@ function cacheSet(key,value){
     const tl=await call('stg',{op:'timeline',limit:5,desc:true}).catch(e=>e)
     if(token!==generation)return
     const who=info0.whoami?.principal||{}
+    const statusRows = [
+      [t('大脑桥'), meta.ready ? t('已就绪') : t('未就绪')],
+      [t('写入权限'), who.can_write ? (t('可写') + ' · ' + (t(who.role) || who.role || t('已授权'))) : t('只读')],
+      [t('可见密级'), who.clearance || '—'],
+      [t('自动召回'), meta.memory?.autoRecall ? t('开启') : t('关闭')],
+      [t('近期窗口'), meta.memory?.contextWindow?.enabled ? (meta.memory.contextWindow.turns + ' ' + t('条')) : t('关闭')]
+    ];
     $('ov-rest').outerHTML='<div id="ov-rest">'+
-      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>'+t('最近记忆')+'</h3><button class="button text" id="all-memory">'+t('查看全部 ↗')+'</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>'+t('运行状态')+'</h3><span class="badge">'+t('真实连接')+'</span></div><div class="panel-body">${[['大脑桥',meta.ready?'已就绪':'未就绪'],['写入权限',who.can_write?'可写 · '+(who.role||'已授权'):'只读'],['可见密级',who.clearance||'—'],['自动召回',meta.memory?.autoRecall?'开启':'关闭'],['近期窗口',meta.memory?.contextWindow?.enabled?(meta.memory.contextWindow.turns+' 条'):'关闭']].map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">'+t('工具可见不等于全部有权限。保留现有令牌与护栏。')+'</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">目标与任务 <span>明确下一步 ↗</span></button><button class="button quick-action" data-page="tools">完整工具台 <span>${(meta.tools||[]).length} 个真实工具 ↗</span></button></div></div></div>`+
-      `<div class="panel section-gap"><div class="panel-body"><h3>'+t('认知图健康')+'</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):'快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。'}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>${t('最近记忆')}</h3><button class="button text" id="all-memory">${t('查看全部 ↗')}</button></div>${tl instanceof Error?errorHTML(tl):nodeRows(tl.items)}</section><div><section class="panel"><div class="panel-head"><h3>${t('运行状态')}</h3><span class="badge">${t('真实连接')}</span></div><div class="panel-body">${statusRows.map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(v)}</span></div>`).join('')}<div class="permission">${t('工具可见不等于全部有权限。保留现有令牌与护栏。')}</div></div></section><div class="quick-actions"><button class="button quick-action" data-page="goals">${t('目标与任务')} <span>${t('明确下一步 ↗')}</span></button><button class="button quick-action" data-page="tools">${t('完整工具台')} <span>${(meta.tools||[]).length} ${t('个真实工具 ↗')}</span></button></div></div></div>`+
+      `<div class="panel section-gap"><div class="panel-body"><h3>${t('认知图健康')}</h3><p class="hint" style="margin-top:10px">${info0.problems?.length?esc(info0.problems.join('；')):t('快照模式：未跑全库健康扫描（点了才跑，避免首屏等十几秒）。')}</p><div class="path muted">${esc(info0.whoami?.root||'')}</div></div></div></div>`
     $('all-memory').onclick=()=>navigate('memory'); document.querySelectorAll('[data-page]').forEach(b=>b.onclick=()=>navigate(b.dataset.page));
     const _lt = $('lang-toggle'); if (_lt) _lt.onclick = () => setLang(LANG === 'zh' ? 'en' : LANG === 'en' ? 'ru' : 'zh'); bindNodes()
   }
   // ---- issue #UI-PERF-2（使用者裁定 2026-11-14）：记忆页优先显示「便宜的、近的、待办的」，
   // 历史一律**手动加载**。实测（3.5 万节点库）：self_state 0.02s / review list 0.15s /
   // recent 100 0.00s / timeline 100 0.62s，而 cg read 24s ⇒ 首屏绝不发 read。
-  const ROLE_CN={user:'我',assistant:'灵枢',tool:'工具',system:'系统'}
+  const ROLE_CN={user:t('我'),assistant:t('灵枢'),tool:t('工具'),system:t('系统')}
   function feedRows(events){
-    if(!events?.length) return '<div class="empty">今天还没有对话。</div>'
+    if(!events?.length) return `<div class="empty">${t('今天还没有对话。')}</div>`
     return events.map(e=>{const role=e.role||'',cn=ROLE_CN[role]||role||'记录',t=e.t||e.ts||e.start
       return `<div class="row-item"><span class="feed-time">${esc(time(t))}</span><div class="row-content"><div class="row-title">${esc(String(e.text||e.preview||'').slice(0,300))}</div><div class="row-meta"><span class="badge">${esc(cn)}</span>${e.meta?.session?`<span>${esc(String(e.meta.session).slice(0,12))}</span>`:''}</div></div></div>`}).join('')
   }
   async function memory(token, compose) {
     const today0=new Date(); today0.setHours(0,0,0,0); const todayTs=today0.getTime()/1000
-    $('main').innerHTML=title('记忆','MEMORY','先看近的与待办的；历史检索按需手动加载。','<button id="compose-toggle" class="button primary">＋ 记录记忆</button>')+
-      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>记录一条记忆</h3><span class="badge">主动遗忘闸门</span></div><form id="memory-form" class="panel-body form-grid"><label>内容<textarea id="memory-content" required placeholder="记录事实、经验或需要延续的上下文…"></textarea></label><div class="form-inline"><label>归属层<select id="memory-layer"><option value="contextual">情景 · 对话与经历</option><option value="knowledge">知识 · 经验与事实</option><option value="structural">结构 · 方法与规则</option><option value="self">自我 · 身份与认知</option></select></label><label>重要性<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>标签<input id="memory-tags" placeholder="使用逗号分隔，如：项目,经验"></label><p class="hint">通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。</p><div class="actions"><button type="submit" class="button primary">确认记录</button></div></form></section>`+
-      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>${t('自我层')}</h3><span class="badge" id="self-badge">读取中…</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>待裁决</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
+    $('main').innerHTML=title(t('记忆'),'MEMORY',t('先看近的与待办的；历史检索按需手动加载。'),`<button id="compose-toggle" class="button primary">＋ ${t('记录一条记忆')}</button>`)+
+      `<section id="compose" class="panel" ${compose?'':'hidden'}><div class="panel-head"><h3>${t('记录一条记忆')}</h3><span class="badge">${t('主动遗忘闸门')}</span></div><form id="memory-form" class="panel-body form-grid"><label>${t('内容')}<textarea id="memory-content" required placeholder="${t('记录事实、经验或需要延续的上下文…')}"></textarea></label><div class="form-inline"><label>${t('归属层')}<select id="memory-layer"><option value="contextual">${t('情景 · 对话与经历')}</option><option value="knowledge">${t('知识 · 经验与事实')}</option><option value="structural">${t('结构 · 方法与规则')}</option><option value="self">${t('自我 · 身份与认知')}</option></select></label><label>${t('重要性')}<input id="memory-importance" type="number" min="0" max="1" step="0.05" value="0.5"></label></div><label>${t('标签')}<input id="memory-tags" placeholder="${t('使用逗号分隔，如：项目,经验')}"></label><p class="hint">${t('通过 mdcg_remember 写入。可能接受、合并、丢弃或进入审核队列；结果以真实回执为准。')}</p><div class="actions"><button type="submit" class="button primary">${t('确认记录')}</button></div></form></section>`+
+      `<div class="grid-two"><section class="panel"><div class="panel-head"><h3>${t('自我层')}</h3><span class="badge" id="self-badge">${t('读取中…')}</span></div><div id="sec-self" class="panel-body">${loading()}</div></section><section class="panel"><div class="panel-head"><h3>${t('待裁决')}</h3><span class="count" id="review-count"></span></div><div id="sec-review">${loading()}</div></section></div>`+
       `<section class="panel section-gap"><div class="panel-head"><h3>${t('今日对话')}</h3><span class="count" id="today-count"></span></div><div id="sec-today">${loading()}</div></section>`+
       `<section class="panel section-gap"><div class="panel-head"><h3>${t('最近 100 条对话')}</h3><span class="count" id="recent-count"></span></div><div id="sec-recent">${loading()}</div></section>`+
-      `<section class="panel section-gap"><div class="panel-head"><h3>${t('历史（手动加载）')}</h3><span class="badge">默认不读</span></div><div class="panel-body"><p class="hint">热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="检索记忆（默认热层 0.3 秒）…" aria-label="检索记忆"><select id="hist-scope" class="search" aria-label="检索范围"><option value="hot">热层（快）</option><option value="full">全库（慢 10–30 秒）</option></select><button class="button" type="submit">检索 ↗</button></form>
-        <div class="actions"><button id="load-older" class="button">加载更早的对话（100 条）</button><button id="cancel-load" class="button" hidden>取消</button></div></div><div id="sec-history"></div><div id="result"></div></section>`
+      `<section class="panel section-gap"><div class="panel-head"><h3>${t('历史（手动加载）')}</h3><span class="badge">${t('默认不读')}</span></div><div class="panel-body"><p class="hint">${t('热层检索约 0.3 秒（自我/近期/高重要度）；全库检索约 10–30 秒。点按钮才发起，可随时取消。')}</p><form id="hist-search" class="toolbar"><input id="hist-query" class="search" placeholder="${t('检索记忆（默认热层 0.3 秒）…')}" aria-label="${t('检索记忆')}"><select id="hist-scope" class="search" aria-label="${t('检索范围')}"><option value="hot">${t('热层（快）')}</option><option value="full">${t('全库（慢 10–30 秒）')}</option></select><button class="button" type="submit">${t('检索 ↗')}</button></form>
+        <div class="actions"><button id="load-older" class="button">${t('加载更早的对话（100 条）')}</button><button id="cancel-load" class="button" hidden>${t('取消')}</button></div></div><div id="sec-history"></div><div id="result"></div></section>`
     $('compose-toggle').onclick=()=>{$('compose').hidden=!$('compose').hidden; if(!$('compose').hidden)$('memory-content').focus();}
     $('memory-form').onsubmit=async e=>{e.preventDefault(); await execute(e.submitter,'mdcg_remember',{content:$('memory-content').value.trim(),layer:$('memory-layer').value,role:'user',importance:Number($('memory-importance').value),tags:$('memory-tags').value.split(/[,，]/).map(s=>s.trim()).filter(Boolean),gated:true,consistency:true,on_conflict:'defer'});}
     // 四个优先区块并行、各自渲染；任一失败只影响自己
     const selfP=call('cg',{op:'self_state',action:'snapshot'}).then(r=>{ if(token!==generation)return; const s=r?.state||{}
-      const rows=[['自我重要性',s.importance_self],['信任',s.p_trust],['信息差',s.d_current],['情绪',s.emotion??s.affect]].filter(([,v])=>v!==undefined&&v!==null)
-      $('sec-self').innerHTML=rows.length?rows.map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(typeof v==='object'?json(v).slice(0,80):v)}</span></div>`).join(''):'<div class="empty">自我层暂无状态卡。</div>'
-      $('self-badge').textContent='已读取' }).catch(e=>{ if(token===generation){$('sec-self').innerHTML=errorHTML(e);$('self-badge').textContent='读取失败'} })
-    const reviewP=call('cg',{op:'review',action:'list'}).then(r=>{ if(token!==generation)return; const pd=r?.pending||[]; $('review-count').textContent=`${pd.length} 条`
-      $('sec-review').innerHTML=pd.length?pd.slice(0,20).map(p=>`<button type="button" class="row-item node-button" data-node="${esc(p.id||'')}"><span class="row-dot"></span><div class="row-content"><div class="row-title">${esc(String(p.content||'').slice(0,160))}</div><div class="row-meta"><span class="badge">${esc(layers[p.layer]||p.layer||'候选')}</span><span>${esc(time(p.t))}</span><span>${esc(p.pid||'')}</span></div></div></button>`).join('')+(pd.length>20?`<div class="panel-body"><span class="hint">还有 ${pd.length-20} 条未展示（渲染上限 20，避免一次铺 240 条 DOM）</span></div>`:'') : '<div class="empty">没有待裁决候选。</div>'
+      const rows=[[t('自我重要性'),s.importance_self],[t('信任'),s.p_trust],[t('信息差'),s.d_current],[t('情绪'),s.emotion??s.affect]].filter(([,v])=>v!==undefined&&v!==null)
+      $('sec-self').innerHTML=rows.length?rows.map(([k,v])=>`<div class="status-line"><span>${k}</span><span>${esc(typeof v==='object'?json(v).slice(0,80):v)}</span></div>`).join(''):`<div class="empty">${t('自我层暂无状态卡。')}</div>`
+      $('self-badge').textContent=t('已读取') }).catch(e=>{ if(token===generation){$('sec-self').innerHTML=errorHTML(e);$('self-badge').textContent=t('读取失败')} })
+    const reviewP=call('cg',{op:'review',action:'list'}).then(r=>{ if(token!==generation)return; const pd=r?.pending||[]; $('review-count').textContent=`${pd.length} ${t('条')}`
+      $('sec-review').innerHTML=pd.length?pd.slice(0,20).map(p=>`<button type="button" class="row-item node-button" data-node="${esc(p.id||'')}"><span class="row-dot"></span><div class="row-content"><div class="row-title">${esc(String(p.content||'').slice(0,160))}</div><div class="row-meta"><span class="badge">${esc(layers[p.layer]||p.layer||'候选')}</span><span>${esc(time(p.t))}</span><span>${esc(p.pid||'')}</span></div></div></button>`).join('')+(pd.length>20?`<div class="panel-body"><span class="hint">还有 ${pd.length-20} 条未展示（渲染上限 20，避免一次铺 240 条 DOM）</span></div>`:'') : `<div class="empty">${t('没有待裁决候选。')}</div>`
       bindNodes($('sec-review')) }).catch(e=>{ if(token===generation)$('sec-review').innerHTML=errorHTML(e) })
     const recentP=call('cg',{op:'recent',action:'list',limit:100}).then(r=>{ if(token!==generation)return; const ev=r?.events||[]
-      $('recent-count').textContent=`${ev.length} 条`; $('sec-recent').innerHTML=feedRows(ev)
-      const today=ev.filter(e=>(e.t||e.ts||0)>=todayTs); $('today-count').textContent=`${today.length} 条`
-      $('sec-today').innerHTML=today.length?feedRows(today):'<div class="empty">今天还没有对话。</div>' }).catch(e=>{ if(token===generation){$('sec-recent').innerHTML=errorHTML(e);$('sec-today').innerHTML=errorHTML(e)} })
+      $('recent-count').textContent=`${ev.length} ${t('条')}`; $('sec-recent').innerHTML=feedRows(ev)
+      const today=ev.filter(e=>(e.t||e.ts||0)>=todayTs); $('today-count').textContent=`${today.length} ${t('条')}`
+      $('sec-today').innerHTML=today.length?feedRows(today):`<div class="empty">${t('今天还没有对话。')}</div>` }).catch(e=>{ if(token===generation){$('sec-recent').innerHTML=errorHTML(e);$('sec-today').innerHTML=errorHTML(e)} })
     // 历史：只有点击才发（timeline 0.6s / read 24s 都不进首屏）
     let histCtrl=null
     $('load-older').onclick=async e=>{
@@ -507,8 +785,8 @@ function cacheSet(key,value){
       histCtrl=new AbortController(); list.innerHTML=loading()
       try{ const r=await call('stg',{op:'timeline',limit:100,desc:true},{signal:histCtrl.signal})
         if(token!==generation)return; const items=rowsOf(r)
-        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>更早的对话</h3><span class="count">${items.length} 条</span></div>${nodeRows(items)}</section>`; bindNodes(list)
-      }catch(err){ if(err.name!=='AbortError'&&token===generation) list.innerHTML=errorHTML(err); else if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">已取消。</span></div>' }
+        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>${t('更早的对话')}</h3><span class="count">${items.length} 条</span></div>${nodeRows(items)}</section>`; bindNodes(list)
+      }catch(err){ if(err.name!=='AbortError'&&token===generation) list.innerHTML=errorHTML(err); else if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">' + t('已取消。') + '</span></div>' }
       finally{ btn.disabled=false; $('cancel-load').hidden=true }
     }
     // 全库检索：同样是**手动**入口（read 实测 24s），与历史加载共用取消
@@ -520,8 +798,8 @@ function cacheSet(key,value){
       const scopeHot = $('hist-scope') ? $('hist-scope').value !== 'full' : true
       try{ const r=await call('cg',{op:'read',query:q,k:20,        ...(scopeHot?{scope:'hot'}:{})},{signal:histCtrl.signal})
         if(token!==generation)return; const items=rowsOf(r)
-        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>检索结果${scopeHot?'（热层）':'（全库）'}</h3><span class="count">${items.length} 条</span></div>${items.length?nodeRows(items):'<div class="empty">没有命中。</div>'}</section>`; bindNodes(list)
-      }catch(err){ if(err.name==='AbortError'){ if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">已取消。</span></div>' } else if(token===generation) list.innerHTML=errorHTML(err) }
+        list.innerHTML=`<section class="panel"><div class="panel-head"><h3>检索结果${scopeHot?'（热层）':'（全库）'}</h3><span class="count">${items.length} 条</span></div>${items.length?nodeRows(items):`<div class="empty">${t('没有命中。')}</div>`}</section>`; bindNodes(list)
+      }catch(err){ if(err.name==='AbortError'){ if(token===generation) list.innerHTML='<div class="panel-body"><span class="hint">' + t('已取消。') + '</span></div>' } else if(token===generation) list.innerHTML=errorHTML(err) }
       finally{ $('cancel-load').hidden=true }
     }
     $('cancel-load').onclick=()=>{ if(histCtrl) try{histCtrl.abort()}catch{} }
@@ -534,27 +812,27 @@ function cacheSet(key,value){
     review: {title:'审核与维护',en:'REVIEW & CARE',description:'先查看，再裁决。不会在打开页面时启动维护、遗忘或自动演化。',items:[['待审核候选','cg',{op:'review',action:'list'},'','review_pending'],['审核记录','cg',{op:'review',action:'records'},'','review_records'],['保护统计','cg',{op:'protect',action:'stats'},'','protect_stats'],['演化摘要','cg',{op:'evolution',action:'summary'},'','evolution'],['维护状态','cg',{op:'sustain',action:'status'},'','sustain'],['审核裁决','cg',{op:'review',action:'decide',pid:'',decision:'reject'}],['节点核验','cg',{op:'verify',node_id:'',evidence:'',verdict:'confirmed'}]]}
   };
   // 生效条件：预设项带 note 时，在执行区顶部如实显示前置开关（如 MDCG_STG_STATE=1）
-  function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(item[3])}</div>` : ''; }
+  function noteOf(item) { return item && item[3] ? `<div class="notice">${esc(t(item[3]))}</div>` : ''; }
   function grouped(name) {
     const group=presets[name]; let active=0;
-    $('main').innerHTML=title(group.title,group.en,group.description)+(name==="self"?universalValuesCard():"")+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${t(label)}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>原始调用参数</summary><textarea class="raw-args" id="preset-json" aria-label="原始调用参数"></textarea></details><div class="actions"><button id="preset-help" class="button">查看帮助</button><button id="preset-run" class="button primary">执行查询</button></div></div></section><div id="result"></div>`;
+    $('main').innerHTML=title(group.title,group.en,group.description)+(name==="self"?universalValuesCard():"")+`<div class="command-tabs">${group.items.map(([label],i)=>`<button class="chip ${i===0?'active':''}" data-preset="${i}">${t(label)}</button>`).join('')}</div><div id="permission"></div><section class="panel"><div class="panel-head"><h3 id="command-title"></h3><span class="badge" id="command-tool"></span></div><div class="panel-body"><div id="preset-fields" class="form-grid"></div><details><summary>${t('原始调用参数')}</summary><textarea class="raw-args" id="preset-json" aria-label="${t('原始调用参数')}"></textarea></details><div class="actions"><button id="preset-help" class="button">${t('查看帮助')}</button><button id="preset-run" class="button primary">${t('执行查询')}</button></div></div></section><div id="result"></div>`;
     function select(i) {
-      active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=label; $('command-tool').textContent=tool+' · '+args.op; const _note=noteOf(group.items[i]); const _pf=$('preset-fields');
+      active=i; const [label,tool,args]=group.items[i]; $('command-title').textContent=t(label); $('command-tool').textContent=tool+' · '+args.op; const _note=noteOf(group.items[i]); const _pf=$('preset-fields');
       document.querySelectorAll('[data-preset]').forEach(b=>b.classList.toggle('active',Number(b.dataset.preset)===i)); $('permission').innerHTML=tool==='cg'?permissionNote(args.op):''; $('preset-json').value=json(args); $('result').innerHTML='';
-      $('preset-run').textContent=needsConfirm(tool,args)?'检查并执行':'执行查询';
-      $('preset-fields').innerHTML=_note+Object.entries(args).filter(([k])=>!['op','action','limit','desc'].includes(k)).map(([k,v])=>`<label>${esc(fieldLabel(k))}<${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'} data-preset-field="${esc(k)}" ${typeof v==='number'?'type="number" step="any"':''} ${Array.isArray(v)?'placeholder="JSON 数组"':''} ${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'':`value="${esc(typeof v==='object'?json(v):v)}"`}>${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?esc(v):''}</${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'}></label>`).join('') || '<p class="hint">无需额外参数。点击执行，读取真实数据。</p>';
+      $('preset-run').textContent=t(needsConfirm(tool,args)?'检查并执行':'执行查询');
+      $('preset-fields').innerHTML=_note+Object.entries(args).filter(([k])=>!['op','action','limit','desc'].includes(k)).map(([k,v])=>`<label>${esc(fieldLabel(k))}<${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'} data-preset-field="${esc(k)}" ${typeof v==='number'?'type="number" step="any"':''} ${Array.isArray(v)?'placeholder="' + t('JSON 数组') + '"':''} ${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'':`value="${esc(typeof v==='object'?json(v):v)}"`}>${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?esc(v):''}</${typeof v==='string'&&['plan','evidence','acceptance','goal'].includes(k)?'textarea':'input'}></label>`).join('') || `<p class="hint">${t('无需额外参数。点击执行，读取真实数据。')}</p>`;
       document.querySelectorAll('[data-preset-field]').forEach(input=>input.oninput=()=>{try{const next=JSON.parse($('preset-json').value),key=input.dataset.presetField,old=args[key];next[key]=typeof old==='number'?Number(input.value):typeof old==='object'?JSON.parse(input.value):input.value;$('preset-json').value=json(next);}catch{/* 继续保留用户编辑 */}});
     }
     document.querySelectorAll('[data-preset]').forEach(b=>b.onclick=()=>select(Number(b.dataset.preset)));
     $('preset-run').onclick=async e=> { try { const args=JSON.parse($('preset-json').value); await execute(e.currentTarget,group.items[active][1],args,group.items[active][4]); }catch(err){$('result').innerHTML=errorHTML(err);} };
     $('preset-help').onclick=async e=>await execute(e.currentTarget,'cg',{op:'help',query:group.items[active][2].op}); select(0);
   }
-  function fieldLabel(key) { return {goal:'目标内容',plan:'执行计划',acceptance:'验收标准',priority:'优先级',a:'节点 A',b:'节点 B',node_id:'节点 ID',pid:'候选 ID',decision:'裁决：accept / reject / edit / merge',evidence:'验证依据',verdict:'判定：confirmed / weakened / falsified',time_window:'时间窗口（秒级时间戳数组）',subject:'主体'}[key]||key; }
+  function fieldLabel(key) { const m = {goal:'目标内容',plan:'执行计划',acceptance:'验收标准',priority:'优先级',a:'节点 A',b:'节点 B',node_id:'节点 ID',pid:'候选 ID',decision:'裁决：accept / reject / edit / merge',evidence:'验证依据',verdict:'判定：confirmed / weakened / falsified',time_window:'时间窗口（秒级时间戳数组）',subject:'主体',query:'查询内容',target:'目标内容',limit:'Количество (limit)',content:'Содержимое (content)',layer:'Слой памяти (layer)',action:'Действие (action)'}[key]; return m ? t(m) : key; }
   async function toolsPage() {
     const tools=meta?.tools||[];
-    $('main').innerHTML=title('工具台','PLUGIN CAPABILITIES','完整工具来自灵枢实时目录。常用参数可填表，高级能力通过原始 JSON 调用。')+
-      `<div class="notice">保持插件原有权限边界。写入、裁决、索引、导出与维护操作均需确认；不会自动启动后台任务。</div><div class="tool-layout"><section class="panel"><div class="panel-body" style="padding:15px"><input id="tool-search" style="width:100%" placeholder="查找工具…" aria-label="查找工具"></div><div id="tool-list" class="tool-list"></div></section><section class="panel"><div class="panel-body"><h2 id="tool-name"></h2><div id="tool-description" class="tools-description"></div><div id="op-chooser"></div><div id="schema-fields" class="schema-fields"></div><details open><summary>原始 JSON 参数 · 完整能力入口</summary><textarea id="tool-args" class="raw-args" spellcheck="false" aria-label="工具 JSON 参数"></textarea></details><div class="actions"><button id="tool-help" class="button">调用说明</button><button id="tool-run" class="button primary">执行调用</button></div></div></section></div><div id="result"></div>`;
-    function renderList() { $('tool-list').innerHTML=tools.filter(t=>(t.name+' '+t.description).toLowerCase().includes(toolsFilter.toLowerCase())).map(t=>`<button class="tool-choice ${chosen===t.name?'active':''}" data-tool="${esc(t.name)}">${esc(t.name)}</button>`).join('') || '<div class="empty">没有匹配工具</div>'; document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool)); }
+    $('main').innerHTML=title(t('工具台'),'PLUGIN CAPABILITIES',t('完整工具来自灵枢实时目录。常用参数可填表，高级能力通过原始 JSON 调用。'))+
+      `<div class="notice">${t('保持插件原有权限边界。写入、裁决、索引、导出与维护操作均需确认；不会自动启动后台任务。')}</div><div class="tool-layout"><section class="panel"><div class="panel-body" style="padding:15px"><input id="tool-search" style="width:100%" placeholder="${t('查找工具…')}" aria-label="${t('查找工具…')}"></div><div id="tool-list" class="tool-list"></div></section><section class="panel"><div class="panel-body"><h2 id="tool-name"></h2><div id="tool-description" class="tools-description"></div><div id="op-chooser"></div><div id="schema-fields" class="schema-fields"></div><details open><summary>${t('原始 JSON 参数 · 完整能力入口')}</summary><textarea id="tool-args" class="raw-args" spellcheck="false" aria-label="${t('原始 JSON 参数 · 完整能力入口')}"></textarea></details><div class="actions"><button id="tool-help" class="button">${t('调用说明')}</button><button id="tool-run" class="button primary">${t('执行调用')}</button></div></div></section></div><div id="result"></div>`;
+    function renderList() { $('tool-list').innerHTML=tools.filter(t=>(t.name+' '+t.description).toLowerCase().includes(toolsFilter.toLowerCase())).map(t=>`<button class="tool-choice ${chosen===t.name?'active':''}" data-tool="${esc(t.name)}">${esc(t.name)}</button>`).join('') || '<div class="empty">' + t('没有匹配工具') + '</div>'; document.querySelectorAll('[data-tool]').forEach(b=>b.onclick=()=>selectTool(b.dataset.tool)); }
     async function selectTool(name) {
       chosen=name; const tool=tools.find(t=>t.name===name); if(!tool)return;
       renderList(); $('tool-name').textContent=name; $('tool-description').textContent=tTool(name, tool.description);
@@ -564,16 +842,16 @@ function cacheSet(key,value){
       const opProp=properties.op;
       let ops=opProp?.enum || [];
       if(!ops.length && opProp?.description) ops=(opProp.description.split(/[\s，。]/)[0]||'').split('|').filter(Boolean);
-      $('op-chooser').innerHTML=ops.length?`<label class="schema-field" style="margin-top:20px">操作<select id="tool-op">${ops.map(op=>`<option value="${esc(op)}">${esc(tOp(op))}</option>`).join('')}</select></label>`:'';
-      if($('tool-op')){ $('tool-op').value=defaults.op||ops[0]; $('tool-op').onchange=()=>{try{const args=JSON.parse($('tool-args').value);args.op=$('tool-op').value;delete args.action;$('tool-args').value=json(args);}catch(e){toast('先修正 JSON 参数。');}}; }
+      $('op-chooser').innerHTML=ops.length?`<label class="schema-field" style="margin-top:20px">${t('操作')}<select id="tool-op">${ops.map(op=>`<option value="${esc(op)}">${esc(tOp(op))}</option>`).join('')}</select></label>`:'';
+      if($('tool-op')){ $('tool-op').value=defaults.op||ops[0]; $('tool-op').onchange=()=>{try{const args=JSON.parse($('tool-args').value);args.op=$('tool-op').value;delete args.action;$('tool-args').value=json(args);}catch(e){toast(t('先修正 JSON 参数。'));}}; }
       const common=Object.entries(properties).filter(([key])=>key!=='op' && (required.includes(key)||['query','content','action','node_id','layer','limit','goal','evidence','verdict','a','b'].includes(key)));
-      $('schema-fields').innerHTML=common.map(([key,p])=>`<label class="schema-field">${esc(fieldLabel(key))}${required.includes(key)?' *':''}<input data-field="${esc(key)}" data-type="${esc(p.type||'string')}" placeholder="${esc(p.enum?.join(' / ')||p.type||'string')}" ${p.type==='number'||p.type==='integer'?'type="number" step="any"':''}><small>${esc((p.description||'').slice(0,240))}</small></label>`).join('');
-      document.querySelectorAll('[data-field]').forEach(input=>input.oninput=()=>{try{const args=JSON.parse($('tool-args').value),key=input.dataset.field;if(input.value==='')delete args[key];else args[key]=['number','integer'].includes(input.dataset.type)?Number(input.value):['object','array','boolean'].includes(input.dataset.type)?JSON.parse(input.value):input.value;$('tool-args').value=json(args);}catch{toast('该字段需要有效 JSON，或请直接编辑原始参数。');}});
+      $('schema-fields').innerHTML=common.map(([key,p])=>`<label class="schema-field">${esc(fieldLabel(key))}${required.includes(key)?' *':''}<input data-field="${esc(key)}" data-type="${esc(p.type||'string')}" placeholder="${esc(p.enum?.join(' / ')||p.type||'string')}" ${p.type==='number'||p.type==='integer'?'type="number" step="any"':''}><small>${esc((tDesc(p.description)||'').slice(0,240))}</small></label>`).join('');
+      document.querySelectorAll('[data-field]').forEach(input=>input.oninput=()=>{try{const args=JSON.parse($('tool-args').value),key=input.dataset.field;if(input.value==='')delete args[key];else args[key]=['number','integer'].includes(input.dataset.type)?Number(input.value):['object','array','boolean'].includes(input.dataset.type)?JSON.parse(input.value):input.value;$('tool-args').value=json(args);}catch{toast(t('该字段需要有效 JSON，或请直接编辑原始参数。'));}});
     }
     $('tool-search').value=toolsFilter; $('tool-search').oninput=e=>{toolsFilter=e.target.value;renderList();};
     $('tool-run').onclick=async e=>{try{const args=JSON.parse($('tool-args').value);await execute(e.currentTarget,chosen,args);}catch(err){$('result').innerHTML=errorHTML(err);}};
     $('tool-help').onclick=async e=>await execute(e.currentTarget,'cg',{op:'help',query:chosen});
-    if(!tools.some(t=>t.name===chosen))chosen=tools[0]?.name; renderList(); if(chosen)await selectTool(chosen); else $('tool-name').textContent='大脑未就绪，目录不可用';
+    if(!tools.some(t=>t.name===chosen))chosen=tools[0]?.name; renderList(); if(chosen)await selectTool(chosen); else $('tool-name').textContent=t('大脑未就绪，目录不可用');
   }
   async function navigate(name, compose=false) {
     page=pages.some(p=>p[0]===name)?name:'overview'; const token=++generation;
@@ -586,9 +864,9 @@ function cacheSet(key,value){
   }
   async function boot() {
     $('refresh').disabled=true;
-    try { meta=await fetchJSON('/plugins/lingshu/meta');$('connection').textContent=meta.ready?'大脑已连接':'大脑未就绪';$('connection').classList.toggle('online',meta.ready);$('identity').textContent=meta.identity+' · '+meta.tools.length+' 个工具';
-      if (meta.version) { const v=$('version'); if (v) v.textContent='LINGSHU / '+meta.version; } await navigate(location.hash.slice(1) || (() => { try { return sessionStorage.getItem('lingshu.page') || 'overview' } catch (e) { return 'overview' } })()||page); }
-    catch(e){meta=null;$('connection').textContent='连接失败';$('connection').classList.remove('online');$('main').innerHTML=errorHTML(e);}
+    try { meta=await fetchJSON('/plugins/lingshu/meta');$('connection').textContent=meta.ready?t('大脑已连接'):t('大脑未就绪');$('connection').classList.toggle('online',meta.ready);$('identity').textContent=meta.identity+' · '+meta.tools.length+' '+t('个工具');
+      if (meta.version) { const v=$('version'); if (v) v.textContent='LINGSHU / '+meta.version; } localizeChrome(); await navigate(location.hash.slice(1) || (() => { try { return sessionStorage.getItem('lingshu.page') || 'overview' } catch (e) { return 'overview' } })()||page); }
+    catch(e){meta=null;$('connection').textContent=t('连接失败');$('connection').classList.remove('online');$('main').innerHTML=errorHTML(e);}
     finally{$('refresh').disabled=false;}
   }
   $('nav').innerHTML=pages.map(([id,icon,label])=>`<button class="nav-item" data-nav="${id}"><span class="nav-icon" aria-hidden="true">${icon}</span>${t(label)}</button>`).join('');
