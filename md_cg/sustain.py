@@ -53,6 +53,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 
@@ -1644,6 +1646,23 @@ class SustainLoop:
         return self
 
 # 生效条件：name 为该档名、fn 为该档可调用；返回包装函数 wrapped——调用时先写 current_tick={name, started_at, pid} 并刷新戳，调 fn(*a, **kw)，异常记入 last_tick_error={name, error: 类名+摘要（截 200 字符）, t} 并**不重抛**（容忍≠静默；`_run` 的既有 except 保留为兜底），随后清 current_tick、记 last_tick_done={name, t, ok} 并再刷新戳。
+    def _run_tick_hook(self, name):
+        """每档 tick 跑完后的**通用外钩**（无业务语义）：env `MDCG_TICK_HOOK` 指向一个 .py 时，
+        以子进程执行 `python <hook> --tick <name>`，超时 60s，失败**绝不抛**（只影响这一钩，不影响心跳）。
+
+        为什么放在内核外：与记忆内核无关的本地记录（个人状态、外部台账、第三方告警）
+        不该长进内核语义里；内核只提供一个「已经跑完一轮心跳」的时刻。
+        """
+        hook = str(os.environ.get("MDCG_TICK_HOOK") or "").strip()
+        if not hook:
+            return
+        try:
+            subprocess.run([sys.executable, "-X", "utf8", hook, "--tick", str(name)],
+                           capture_output=True, text=True, timeout=60,
+                           env=dict(os.environ, PYTHONUTF8="1"))
+        except Exception:                        # noqa: BLE001
+            pass                                 # 外钩失败不得影响心跳本身
+
     def _wrap_tick(self, name: str, fn):
         """单档 tick 的**进度面包裹**（issue #63）：进/出各留读数，异常不静默。
 
@@ -1672,6 +1691,7 @@ class SustainLoop:
                 self.last_tick_error = {"name": name, "t": time.time(),
                                         "error": "%s: %s" % (type(e).__name__,
                                                              str(e)[:200])}
+            self._run_tick_hook(name)
             self.current_tick = None
             self.last_tick_done = {"name": name, "t": time.time(), "ok": ok_}
             self._flush_progress()

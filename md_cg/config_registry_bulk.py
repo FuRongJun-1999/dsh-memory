@@ -401,6 +401,8 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_NODE_ID', 'env', 'dsh-memory-main', '字符串', '证据写入的节点 id 覆盖（md_cg/evidence.py:94,470）'),
     ('MDCG_READ_FOREIGN_SAMPLE', 'env', 'dsh-memory-main', '采样率（非法回落 0）', '跨租户读取采样（md_cg/mdcos.py:639）'),
     # issue #997：读面瘦身总开关（缺省 1=瘦身；0/false/off 关闭；单次可用 read 的 detail="full"）
+    # issue：心跳外钩（通用，无业务语义）——每档 tick 跑完后执行指定 .py，失败不影响心跳
+    ('MDCG_TICK_HOOK', 'env', 'dsh-memory-main', '文件路径', '心跳外钩脚本路径（md_cg/sustain.py::_run_tick_hook）'),
     ('MDCG_READ_SLIM', 'env', 'dsh-memory-main', '开关', 'read 返回体瘦身总开关（md_cg/mcp_server.py::_slim_read_out）'),
     # issue #997：未登记身份排查提示（缺省静默；1/true/on 才注入排查文案）
     ('MDCG_IDENTITY_HINT', 'env', 'dsh-memory-main', '开关', '未登记身份排查提示开关（src/hooks.ts::identityHint）'),
