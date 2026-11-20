@@ -34,6 +34,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
   index and a **truncated** match preview (10 chars plus total length). The full match is
   deliberately not echoed, since repeating a credential verbatim re-stores it — consistent with
   the existing placeholder design that carries only the rule index, never the original text.
+- **`#997` widespread DEFER on always-on nodes**: returning `DEFER` when the condition does not
+  match is correct anti-pollution behaviour, but evergreen entries (interaction habits, wrap-up
+  routines, safety agreements) were being deferred too, which reads as "the memory is not
+  working". The tutorial gains a subsection on writing effective conditions: broad intent for
+  always-on entries, precise conditions for troubleshooting entries, plus the cost of getting
+  either wrong.
 ### Added: anti-degradation guide + `degrade_guard`
 
 - **`md_cg/degrade_guard.py`** -- deterministic checks for three degradation forms:
