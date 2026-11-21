@@ -84,6 +84,23 @@ def main():
     r4 = dg.source_fixation([('n1', '甲')] * 3 + [('n1', '完全不同的另一段产出文字')])
     ok(r4['degraded'] is False, 'S4 同对象但产出在变 → 不判', r4)
 
+    # ---- B 组：回合级空回合（主判据）+ 真实语料回归锚 ----
+    ok(dg.blank_turn({'thinking': 'x' * 300, 'body_len': 0, 'tool_calls': 0}) is True,
+       'B1 空回合判定为真')
+    ok(dg.blank_turn({'thinking': 'x' * 300, 'body_len': 12, 'tool_calls': 0}) is False,
+       'B2 有正文判假')
+    ok(dg.blank_turn({'thinking': 'x' * 300, 'body_len': 0, 'tool_calls': 3}) is False,
+       'B3 有工具调用判假（正常工具步不算）')
+    ok(dg.blank_turn({'thinking': 'x' * 50, 'body_len': 0, 'tool_calls': 0}) is False,
+       'B4 思考过短判假')
+
+    real = ('执行。\n\n时间：快。\n\n执行。\n\n写。\n\n执行。\n\n时间：快。'
+            '\n\n执行。\n\nOK。\n\n执行。\n\n时间：快。')
+    ok(dg.nag_runs(real) >= 8,
+       'N1 真实退化样本 nag_runs ≥8（修前因空行切断只有 1–2）', dg.nag_runs(real))
+    ok(dg.nag_runs('我今天检查了三个模块的实现，发现锁的获取顺序有问题，需要按地址排序后再加锁。') == 0,
+       'N2 正常文本不误报')
+
     print()
     print('守卫结果：%d 通过 / %d 失败' % (len(PASSED), len(FAILED)))
     return 0 if not FAILED else 1

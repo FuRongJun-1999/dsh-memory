@@ -84,9 +84,22 @@ def cross_turn_sim(texts):
 
 
 def nag_runs(text):
-    """最长「催稿段」长度：连续若干行，每行去标点后 ≤ NAG_LINE_MAX 字。"""
+    """最长「催稿段」长度：连续若干行，每行去标点后 ≤ NAG_LINE_MAX 字（空行不计断）。
+
+    ⚠ **判据口径（2026-11-21 真实语料校准，必读）**：本函数**不能单独当退化判据**。
+    实测（论文编写 · 296 回合）：nag≥3 命中 178 回合 = 60%，其中 153 是正常回合；
+    它真正命中的 25 个，全部落在「空回合」里。
+
+    正确用法：**主判据 = 回合级空回合**（思考 ≥200 字 且 正文 0 字 且 该回合无工具调用），
+    nag 只作为伴随特征与佐证。单用 nag 得到的是 60% 误报。
+    """
     best = run = 0
     for line in (text or "").splitlines():
+        # 空行不打断（2026-11-21 拿真实退化样本校准出来的）：
+        # 实际事故形态是「短句 ⏎ ⏎ 短句 ⏎ ⏎ …」——短句之间夹空行。
+        # 按空行切断会让 25 个空回合只能报出 1–2 段，判据等于漏检。
+        if not line.strip():
+            continue
         s = line.strip().strip("。！!；;，,、")
         if 0 < len(s) <= NAG_LINE_MAX:
             run += 1
@@ -196,3 +209,17 @@ def check_chain(texts, *, requirement="general"):
                 "理由开头唯一率 %d/%d < %.0f%%（句式固化）" % (uniq, total, OPENING_UNIQUE_MIN * 100))
     res["verdict"] = "degraded" if res["failures"] else "ok"
     return res
+
+
+BLANK_TURN_MIN_THINK = 200
+
+
+# 生效条件：turn 为 {'thinking': str, 'body_len': int, 'tool_calls': int} 时，
+# 返回该回合是否属于「空回合」（#996 第四种落点的**主判据**）。
+def blank_turn(turn, min_think=BLANK_TURN_MIN_THINK):
+    if not isinstance(turn, dict):
+        return False
+    th = str(turn.get('thinking') or '')
+    return (len(th) >= min_think
+            and int(turn.get('body_len') or 0) == 0
+            and int(turn.get('tool_calls') or 0) == 0)
