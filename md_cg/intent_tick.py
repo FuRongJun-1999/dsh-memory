@@ -33,6 +33,8 @@ DEFAULT_INTERVAL = 1800.0
 LAYERS = ("unresolved", "goals")
 LOG_NAME = "_intent.jsonl"
 CONSUMED_NAME = "_intent_consumed.json"
+# 同一节点生成这么多次仍无人处置 ⇒ 视为「不是待办」，停止再生成（不是删除，是把决定权交回人）
+MAX_EMIT_PER_NODE = 3
 MAX_SCAN = 4000
 
 _STATS = {"ticks": 0, "picked": 0, "empty": 0}
@@ -166,6 +168,11 @@ def pick(cg):
             if nid in done:
                 continue
             n, last_try = seen.get(nid, (0, 0.0))
+            # 2026-11-21：生成端止损——同一节点已被生成 MAX_EMIT_PER_NODE 次仍未被消费，
+            # 说明它大概率不是「待解问题」（多是已完成工作的记录）。**停止再生成，但不隐去**：
+            # 它仍在库里，人可随时回看；队列不再被它占位。
+            if n >= MAX_EMIT_PER_NODE:
+                continue
             try:
                 la = float((e or {}).get("last_access") or 0.0)
             except (TypeError, ValueError):
