@@ -1646,14 +1646,46 @@ class SustainLoop:
         return self
 
 # 生效条件：name 为该档名、fn 为该档可调用；返回包装函数 wrapped——调用时先写 current_tick={name, started_at, pid} 并刷新戳，调 fn(*a, **kw)，异常记入 last_tick_error={name, error: 类名+摘要（截 200 字符）, t} 并**不重抛**（容忍≠静默；`_run` 的既有 except 保留为兜底），随后清 current_tick、记 last_tick_done={name, t, ok} 并再刷新戳。
+    def _tick_hook_path(self):
+        """外钩路径的取值面（单点）：**配置文件优先，env 兜底**。
+
+        `<root>/_tick_hook.json` ＝ {"path": "...", "enabled": true}
+        为什么不用只认 env：env 改一次要重启一次进程，改配置变成重启成本——
+        实测过一次「设了用户级 env、而运行中的进程读不到，外钩整晚没跑」。
+        配置文件每次 tick 现读（stat 缓存），改完下一分钟就生效。
+        """
+        root = getattr(getattr(self, "cg", None), "root", None)
+        cfg = os.path.join(str(root), "_tick_hook.json") if root else None
+        if cfg:
+            try:
+                st = os.stat(cfg)
+                key = (cfg, st.st_mtime_ns, st.st_size)
+                cached = getattr(self, "_hook_cfg_cache", None)
+                if cached and cached[0] == key:
+                    data = cached[1]
+                else:
+                    with open(cfg, encoding="utf-8") as f:
+                        data = json.load(f)
+                    self._hook_cfg_cache = (key, data)
+                if isinstance(data, dict):
+                    if data.get("enabled") is False:
+                        return ""
+                    p = str(data.get("path") or "").strip()
+                    if p:
+                        return p
+            except (OSError, ValueError, TypeError):
+                pass
+        return str(os.environ.get("MDCG_TICK_HOOK") or "").strip()
+
+    # 生效条件：每档 tick 跑完后调用；返回 None。外钩路径由 _tick_hook_path 单点决定。
     def _run_tick_hook(self, name):
-        """每档 tick 跑完后的**通用外钩**（无业务语义）：env `MDCG_TICK_HOOK` 指向一个 .py 时，
-        以子进程执行 `python <hook> --tick <name>`，超时 60s，失败**绝不抛**（只影响这一钩，不影响心跳）。
+        """每档 tick 跑完后的**通用外钩**（无业务语义）：指向一个 .py 时以子进程执行
+        `python <hook> --tick <name>`，超时 60s，失败**绝不抛**（只影响这一钩，不影响心跳）。
 
         为什么放在内核外：与记忆内核无关的本地记录（个人状态、外部台账、第三方告警）
         不该长进内核语义里；内核只提供一个「已经跑完一轮心跳」的时刻。
         """
-        hook = str(os.environ.get("MDCG_TICK_HOOK") or "").strip()
+        hook = self._tick_hook_path()
         if not hook:
             return
         try:
