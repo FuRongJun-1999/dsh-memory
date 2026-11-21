@@ -403,6 +403,8 @@ ENV_CATEGORY_ROWS = [
     # issue #997：读面瘦身总开关（缺省 1=瘦身；0/false/off 关闭；单次可用 read 的 detail="full"）
     # issue：心跳外钩（通用，无业务语义）——每档 tick 跑完后执行指定 .py，失败不影响心跳
     ('MDCG_TICK_HOOK', 'env', 'dsh-memory-main', '文件路径', '心跳外钩脚本路径（md_cg/sustain.py::_run_tick_hook）'),
+    # 私密域隔离：默认不进检索面；置 1 时放行（跨端阅读者自担）
+    ('MDCG_INCLUDE_PRIVATE', 'env', 'dsh-memory-main', '开关', '私密域（域:私密）放行总开关（md_cg/mcp_server.py::drop_private_domain）'),
     ('MDCG_READ_SLIM', 'env', 'dsh-memory-main', '开关', 'read 返回体瘦身总开关（md_cg/mcp_server.py::_slim_read_out）'),
     # issue #997：未登记身份排查提示（缺省静默；1/true/on 才注入排查文案）
     ('MDCG_IDENTITY_HINT', 'env', 'dsh-memory-main', '开关', '未登记身份排查提示开关（src/hooks.ts::identityHint）'),

@@ -180,6 +180,59 @@ def doc_allow_ids(cg=None, root=None):
     return ids
 
 
+# 私密域（2026-11-21）：默认**不进检索面**。与 doc_ 同构，但语义相反——
+# doc_ 是"太碎、稀释检索"，私密域是"不该被别的端读到"。
+# 开：env MDCG_INCLUDE_PRIVATE=1 或调用方传 include_private。
+PRIVATE_DOMAIN_TAG = "域:私密"
+
+
+# 生效条件：items 为检索结果列表、tags_of 为取标签的可调用、enabled 为真时，
+# 返回 (保留项, 丢弃数)；命中 PRIVATE_DOMAIN_TAG 的条目被剔除。
+# MDCG_INCLUDE_PRIVATE=1 时整体放行（跨端阅读者自己承担）。
+def drop_private_domain(items, tags_of, enabled=True):
+    if not _as_flag(enabled):
+        return list(items or []), 0
+    if str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() in ("1", "true", "on"):
+        return list(items or []), 0
+    kept, dropped = [], 0
+    for it in items or []:
+        try:
+            tags = [str(t) for t in (tags_of(it) or ())]
+        except Exception:                     # noqa: BLE001 —— 读面不因取标签失败而炸
+            tags = []
+        if PRIVATE_DOMAIN_TAG in tags:
+            dropped += 1
+            continue
+        kept.append(it)
+    return kept, dropped
+
+
+# 生效条件：it 为检索结果条目时返回其标签；read 的 results 条目把标签放在 it["node"]。
+def _item_tags(cg, it):
+    if isinstance(it, dict) and isinstance(it.get("node"), dict):
+        it = it["node"]
+    return tags_of_item(cg, it)
+
+
+# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身。
+def _final_out(out, cg, a):
+    include = bool((a or {}).get("include_private"))
+    if isinstance(out, dict):
+        for key in ("pack", "results"):
+            items = out.get(key)
+            if not isinstance(items, list):
+                continue
+            keep, dropped = drop_private_domain(items, lambda it: _item_tags(cg, it),
+                                                enabled=not include)
+            if dropped:
+                out = dict(out)
+                out[key] = keep
+                meta = dict(out.get("meta") or {})
+                meta["private_domain_excluded"] = dropped
+                out["meta"] = meta
+    return _slim_read_out(out, (a or {}).get("detail"))
+
+
 def drop_doc_nodes(items, id_of, enabled=False, allow=None):
     """过滤 doc_ 索引节点（会话日志切片）——**单一判据**，供所有可达路径共用。
 
@@ -3540,7 +3593,7 @@ def _cg_dispatch(cg, a):
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
-            return _slim_read_out(_out, a.get("detail"))
+            return _final_out(_out, cg, a)
         from . import refindex
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
@@ -3697,7 +3750,7 @@ def _cg_dispatch(cg, a):
             for n, s, q2 in res]}
         if _kwarn:
             _out["warning"] = _kwarn
-        return _slim_read_out(_out, a.get("detail"))
+        return _final_out(_out, cg, a)
 
     if op == "audit":
         # 路线 C（2026-10-05，多主体世界模型对齐 v0.1 §4）：证据审计面——
@@ -5623,7 +5676,7 @@ def _dispatch(cg, name, args):
                 _pack["pack"] = _pk
                 _pack["meta"] = _note_doc_filter(_pack.get("meta"), _pk_drop,
                                                  a.get("exclude_doc", False))
-        return _pack
+        return _final_out(_pack, cg, a)
 
     if name == "mdcg_search":
         # ---- 异步检索（2026-10-21）：把「怕超时」变成「先拿工单，过几秒来取」----
@@ -5716,7 +5769,7 @@ def _dispatch(cg, name, args):
                                  {"surface": "mdcg_search", "v": 1}, **_ckw)
             except Exception:
                 pass
-        return _out
+        return _final_out(_out, cg, a)
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")
