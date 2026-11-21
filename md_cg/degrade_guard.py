@@ -120,6 +120,40 @@ def opening_uniqueness(texts, head=8):
     return len(set(heads)), len(heads)
 
 
+SOURCE_REPEAT_MIN = 3      # 同一对象连续被处理这么多次
+SOURCE_SAME = 0.95         # 产出相似度超过此值算「产出没变」
+
+
+# 生效条件：records 为 [(object_id, output_text), ...] 按时间序、pool_varies 为「该对象池本该变化」时，
+# 返回 {"degraded": bool, "reason": str, "streak": int}。
+# 判据来源 #996 第三种落点（源侧固化）；**前提取 yunluo4444 的补充**：
+#   「该对象池本该变化」——定时任务每轮处理同一对象是正常的，不能一律判空转。
+def source_fixation(records, *, pool_varies=True, min_repeat=SOURCE_REPEAT_MIN,
+                    same=SOURCE_SAME):
+    if not pool_varies:
+        return {'degraded': False, 'reason': '对象池本不该变化，不判空转', 'streak': 0}
+    rows = [(str(o), str(t or '')) for o, t in (records or [])]
+    if len(rows) < min_repeat:
+        return {'degraded': False, 'reason': '样本不足', 'streak': len(rows)}
+    last_obj = rows[-1][0]
+    streak = 0
+    for o, _t in reversed(rows):
+        if o != last_obj:
+            break
+        streak += 1
+    if streak < min_repeat:
+        return {'degraded': False, 'reason': '同一对象未连续出现 %d 次' % min_repeat, 'streak': streak}
+    tail = [t for _o, t in rows[-streak:]]
+    base = tail[0]
+    sims = [jaccard(base, t) for t in tail[1:]]
+    worst = min(sims) if sims else 1.0
+    if worst <= same:
+        return {'degraded': False, 'reason': '产出有变化（最低相似度 %.2f）' % worst, 'streak': streak}
+    return {'degraded': True,
+            'reason': '源侧固化：同一对象连续 %d 次，产出相似度最低 %.2f' % (streak, worst),
+            'streak': streak}
+
+
 def check_chain(texts, *, requirement="general"):
     """综合判定一组连续输出是否退化。
 

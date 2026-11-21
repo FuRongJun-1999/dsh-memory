@@ -73,6 +73,17 @@ def main():
         dg.CROSS_TURN_JACCARD = saved
     ok(dg.check_chain(same)['verdict'] == 'degraded', 'M 阈值恢复后重新变红')
 
+    # ---- S 组：源侧固化（#996 第三种落点 + yunluo4444 的 pool_varies 前提）----
+    same = [('n1', '同一行台账文本')] * 4
+    r1 = dg.source_fixation(same)
+    ok(r1['degraded'] is True, 'S1 同对象同产出 → 判空转', r1)
+    r2 = dg.source_fixation(same, pool_varies=False)
+    ok(r2['degraded'] is False, 'S2 池本不该变 → 不判（前提生效）', r2)
+    r3 = dg.source_fixation([('n1', 'a'), ('n2', 'a'), ('n3', 'a')])
+    ok(r3['degraded'] is False, 'S3 对象在变 → 不判', r3)
+    r4 = dg.source_fixation([('n1', '甲')] * 3 + [('n1', '完全不同的另一段产出文字')])
+    ok(r4['degraded'] is False, 'S4 同对象但产出在变 → 不判', r4)
+
     print()
     print('守卫结果：%d 通过 / %d 失败' % (len(PASSED), len(FAILED)))
     return 0 if not FAILED else 1
