@@ -133,6 +133,40 @@ def open_gate(root, name, text, source='', ttl=DEFAULT_TTL, now=None):
     return {'ok': True, 'reason': '已开', 'ttl': float(ttl)}
 
 
+STAMP_MARK = '开闸依据：'
+
+
+# 生效条件：闸开着返回一行证据文本（以 STAMP_MARK 开头）；没开返回 None。
+# 为什么是"留痕"不是"拦截"：代码拦不住一次直写，但能要求每次私密写入带上开闸证据，
+# 事后由 we_time 审计核对——**没证据的私密节点可被发现**，这才是可追责的形态。
+def stamp(root, name, now=None):
+    now = time.time() if now is None else float(now)
+    rec = _read_state(root).get(str(name))
+    if not isinstance(rec, dict):
+        return None
+    try:
+        opened = float(rec.get('opened_at') or 0)
+        ttl = float(rec.get('ttl') or 0)
+    except (TypeError, ValueError):
+        return None
+    if (now - opened) >= ttl:
+        return None
+    return '%s%s / ttl %ds / at %s' % (
+        STAMP_MARK, time.strftime('%Y-%m-%d %H:%M', time.localtime(opened)),
+        int(ttl), time.strftime('%Y-%m-%d %H:%M', time.localtime(now)))
+
+
+# 生效条件：闸开着返回 True；否则抛 GateClosed。给"必须硬拦"的调用点用。
+class GateClosed(RuntimeError):
+    pass
+
+
+def require(root, name, now=None):
+    if not stamp(root, name, now):
+        raise GateClosed('闸未开：%s（先用 open_gate 开，或走 close_gate 复核）' % name)
+    return True
+
+
 def close_gate(root, name, reason='', now=None):
     now = time.time() if now is None else float(now)
     st = _read_state(root)

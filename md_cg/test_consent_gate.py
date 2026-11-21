@@ -79,6 +79,21 @@ def main():
         G.close_gate(root, 'demo', reason='撤回')
         ok(G.is_open(root, 'demo') is False, '③ close 后立即关')
 
+        # ⑤ 开闸证据（stamp / require）：拦不住直写，但能让"没开闸就写"事后可见
+        ok(G.stamp(root, 'demo') is None, '⑤ 闸关时无证据')
+        try:
+            G.require(root, 'demo')
+            ok(False, '⑤ require 闸关时应抛')
+        except G.GateClosed:
+            ok(True, '⑤ require 闸关时抛 GateClosed')
+        G.open_gate(root, 'demo', '某名，某动词', source='user', ttl=60)
+        st = G.stamp(root, 'demo')
+        ok(st is not None and st.startswith(G.STAMP_MARK), '⑤ 开闸后有证据行', st)
+        ok(G.require(root, 'demo') is True, '⑤ require 开闸时通过')
+        import time as _t
+        ok(G.stamp(root, 'demo', now=_t.time() + 120) is None, '⑤ 过期后无证据', )
+        G.close_gate(root, 'demo', reason='测试收尾')
+
         # ④ 不回显口令 + 日志只记事件
         st = G.state(root)
         blob = json.dumps(st, ensure_ascii=False)
