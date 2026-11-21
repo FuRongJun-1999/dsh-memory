@@ -1,4 +1,4 @@
-> **Languages:** 中文 · [English](README.en.md)
+> **Languages:** 中文 · [English](README.en.md) · [Русский](README.ru.md)
 
 <div align="center">
 
