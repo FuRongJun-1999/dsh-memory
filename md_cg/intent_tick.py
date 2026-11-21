@@ -32,6 +32,7 @@ INTERVAL_ENV = "MDCG_INTENT_INTERVAL"
 DEFAULT_INTERVAL = 1800.0
 LAYERS = ("unresolved", "goals")
 LOG_NAME = "_intent.jsonl"
+CONSUMED_NAME = "_intent_consumed.json"
 MAX_SCAN = 4000
 
 _STATS = {"ticks": 0, "picked": 0, "empty": 0}
@@ -112,6 +113,38 @@ def _attempts(cg):
     return seen
 
 
+# 生效条件：cg 有 root 且 <root>/_intent_consumed.json 存在时返回其中 node_id 集合；否则空集。
+# 为什么需要它（2026-11-21 实测）：生产者只写不消费 ⇒ 62 个节点被反复生成 145 条，
+# 一个节点最多重复 15 次。**没有消费面，队列只会涨。**
+def consumed_ids(cg):
+    try:
+        root = getattr(cg, "root", None)
+        if not root:
+            return set()
+        with open(os.path.join(str(root), CONSUMED_NAME), encoding="utf-8") as f:
+            return set(str(x) for x in (json.load(f) or []))
+    except (OSError, ValueError, TypeError):
+        return set()
+
+
+# 生效条件：cg 有 root、nid 非空时把 nid 并入已消费集合，返回最新集合大小。
+def consume(cg, nid, reason=""):
+    root = getattr(cg, "root", None)
+    if not root:
+        raise ValueError("cg 无 root，无法记录消费")
+    cur = consumed_ids(cg)
+    cur.add(str(nid))
+    path = os.path.join(str(root), CONSUMED_NAME)
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        json.dump(sorted(cur), f, ensure_ascii=False, indent=2)
+    if reason:
+        with open(os.path.join(str(root), "_intent_consumed_reasons.jsonl"), "a",
+                  encoding="utf-8", newline="\n") as f:
+            f.write(json.dumps({"t": time.time(), "node_id": str(nid), "reason": str(reason)[:200]},
+                               ensure_ascii=False) + "\n")
+    return len(cur)
+
+
 def pick(cg):
     """挑一条待办：**按「试过最少的优先，同等试过则最久没碰的优先」**。
 
@@ -124,10 +157,13 @@ def pick(cg):
     if not idx:
         return None
     seen = _attempts(cg)
+    done = consumed_ids(cg)
     for layer in LAYERS:
         cand = []
         for nid, e in idx.items():
             if str((e or {}).get("layer") or "") != layer:
+                continue
+            if nid in done:
                 continue
             n, last_try = seen.get(nid, (0, 0.0))
             try:
