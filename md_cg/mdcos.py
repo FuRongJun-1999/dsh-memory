@@ -7715,9 +7715,14 @@ class MdCGSecure(MdCGOS):
             self._maybe_reload_index()
             _ex = (self.index.get("nodes") or {}).get(node_id)
             if _ex is not None:
+                # issue #1006（2026-11-22 复核）：第二支路漏传 skip_gate ⇒ enforce 下
+                # 「新节点能入队、既有节点入不了队」（同一函数、同一身份，只因目标
+                # 节点是否已存在而一过一拒）。入队不落记忆盘，故与上一行同口径跳过
+                # write_gate 一档；层白名单与密级判定**照常**（由 require_layer 执行）。
                 protect.require_layer(self, node_id,
                                       layer=_ex.get("layer") or None,
-                                      sensitivity=_ex.get("sensitivity") or None)
+                                      sensitivity=_ex.get("sensitivity") or None,
+                                      skip_gate=True)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
 # 生效条件：sens 经 _write_sensitivity（id 走基类单点 _goal_nid）解析——#439：未声明且有既有目标 ⇒ 继承其密级、显式声明原样优先、判不了 fail-closed；先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。

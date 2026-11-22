@@ -81,7 +81,13 @@ def main():
         print("== C skip_gate 不得外溢（只有 propose 用）")
         src = open(os.path.join(ROOT, "md_cg", "mdcos.py"), encoding="utf-8").read()
         n_skip = src.count("skip_gate=True")
-        ok(n_skip == 1, "C1 全仓只有一处 skip_gate=True（propose）", n_skip)
+        # issue #1006：propose 里有**两道**层闸（入队面自身 + 既有节点真层真密级复核），
+        # 第二道原先漏传 skip_gate ⇒ enforce 下既有节点入不了队。所以「只有 propose 用」
+        # 这条不变，但处数从 1 变 2——仍要求两处**都**在 propose 体内，别处一律不许有。
+        i_p, i_e = src.find("    def propose("), src.find("    def add_goal(")
+        in_propose = src[i_p:i_e].count("skip_gate=True") if 0 <= i_p < i_e else -1
+        ok(n_skip == 2 and in_propose == 2,
+           "C1 全仓只有 propose 的两道层闸用 skip_gate=True", (n_skip, in_propose))
         sec = open(os.path.join(ROOT, "md_cg", "security.py"), encoding="utf-8").read()
         ok("skip_gate: bool = False" in sec, "C2 require_layer_write 的 skip_gate 缺省 False")
         ok("if skip_gate:" in sec and "return None" in sec, "C3 skip_gate 只跳过闸、不跳过前面两步")
