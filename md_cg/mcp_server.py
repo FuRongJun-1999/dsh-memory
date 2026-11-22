@@ -5831,6 +5831,19 @@ def _dispatch(cg, name, args):
                 if _drop:
                     _pack["pack"] = _kept
                     _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
+                    # issue #1005 ②：剔除后覆盖缺口必须重算——原话轮次若正因
+                    # untrusted 被剔走，「raw_not_included」就是此刻的真话。
+                    try:
+                        from . import coverage as _cov    # noqa: PLC0415
+                        from .mdcos import RRF_K as _RRF_K    # noqa: PLC0415
+                        _g, _c = _cov.gaps(_kept, _pack.get("skipped"),
+                                           _pack.get("tokens_used"),
+                                           _pack.get("budget"),
+                                           query=a.get("query"),
+                                           baseline=1.0 / (_RRF_K + 1))
+                        _pack["coverage_gaps"], _pack["coverage_certified"] = _g, _c
+                    except Exception:            # noqa: BLE001 —— 不拖崩召回面
+                        pass
         except Exception:
             pass
         # issue #653：recall 面此前完全不读 exclude_doc（schema 挂在它身上却不生效）。

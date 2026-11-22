@@ -74,8 +74,12 @@ class RecallMetadataTests(unittest.TestCase):
                     self.assertEqual({k: entry[k] for k in old_fields}, old_fields)
                     self.assertNotIn("truncated", entry)
                 self.assertEqual(out["pack"][0]["metadata"], expected)
+                # issue #1005 ①：判读合同随包下发且**计入** budget_tokens——
+                # 故 tokens_used = 材料 tokens + 合同 tokens（合同关闭时为 0）。
+                # 这里按实际下发的合同正文计量，不写死常量（开关改动不牵连本断言）。
                 self.assertEqual(out["tokens_used"],
-                                 sum(est_tokens(r[0]["content"]) for r in rows))
+                                 sum(est_tokens(r[0]["content"]) for r in rows)
+                                 + est_tokens(out.get("reading_policy") or ""))
                 self.assertEqual(out["skipped"], [])
                 self.assertEqual(out["recent"], [])
                 # 查到适用候选仍可处于存疑态，两种状态不可互相覆写。

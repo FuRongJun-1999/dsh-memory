@@ -408,6 +408,8 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_READ_SLIM', 'env', 'dsh-memory-main', '开关', 'read 返回体瘦身总开关（md_cg/mcp_server.py::_slim_read_out）'),
     # issue #997：未登记身份排查提示（缺省静默；1/true/on 才注入排查文案）
     ('MDCG_IDENTITY_HINT', 'env', 'dsh-memory-main', '开关', '未登记身份排查提示开关（src/hooks.ts::identityHint）'),
+    # issue #1005 ①：判读合同随 pack 下发（缺省开；0/false/off 关闭），计入 budget_tokens
+    ('MDCG_READING_POLICY', 'env', 'dsh-memory-main', '开关（缺省开）', '判读合同随包下发（md_cg/reading_policy.py::enabled）'),
     # 热层陈旧宽限（缺省 120 秒；0=严格：陈旧即回落主库；非有限值/解析失败一律回落缺省）
     ('MDCG_HOT_STALE_OK_S', 'env', 'dsh-memory-main', '秒（float，缺省 120；0=严格）', '热层陈旧宽限阈值（md_cg/mcp_server.py:2928）'),
     # issue #1003：活签名上限（LRU 淘汰）；0/负值=不设上限（老行为）

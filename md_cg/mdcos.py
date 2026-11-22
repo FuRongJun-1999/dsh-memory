@@ -3249,10 +3249,50 @@ class MdCGOS(MdCG):
         # 需要**按主题归并**的序列（不是全表一张）。这里用已有字段做廉价归并：
         # 优先 frontmatter.bucket（条件桶 cond_<topic>_<hash> 天然是主题轴），其次首个 tag。
         timeline_groups = self._pack_timeline_groups(pack)
+        # ===== issue #1005 ①②：随包下发判读合同 + 如实报覆盖缺口 =====
+        # ① 合同计入预算（不从预算外额外送）：按合同自身 token 数从**尾部**（最低分）
+        #    裁掉等量条目，保证「材料 + 合同」总量不超 budget_tokens。
+        # ② 缺口只看装包结果自带信号（不额外检索、不读盘）：缺什么如实说，
+        #    未认证 ≠ 错，只表示「调用方该自己判断材料够不够」。
+        policy_text, coverage_gaps, coverage_certified = "", [], True
+        try:
+            from . import coverage as _coverage
+            from . import reading_policy as _policy
+            policy_text = _policy.payload()
+            if policy_text:
+                _ptok = est_tokens(policy_text)
+                if used + _ptok <= budget_tokens:
+                    used += _ptok
+                else:
+                    # 只裁「材料尾巴」（保底留 1 条）：合同是判读约束，不是拿来把材料挤空的。
+                    # 裁之前先算可行性——裁到只剩 1 条仍装不下，就把尾巴**原样放回**再丢合同，
+                    # 不许出现「合同没进包、材料却少了」这种两头空（budget_tokens=20 就是这样）。
+                    _back = []
+                    while pack and len(pack) > 1 and used + _ptok > budget_tokens:
+                        _tail = pack.pop()
+                        _back.append(_tail)
+                        used -= int(_tail.get("tokens") or 0)
+                    if used + _ptok > budget_tokens:
+                        for _tail in reversed(_back):
+                            pack.append(_tail)
+                            used += int(_tail.get("tokens") or 0)
+                        # 不装作写进了预算：丢掉合同，并把这件事记在 meta 里（可审计）。
+                        meta["reading_policy_skipped"] = "budget_too_small"
+                        policy_text = ""
+                    else:
+                        used += _ptok
+            coverage_gaps, coverage_certified = _coverage.gaps(
+                pack, skipped, used, budget_tokens, query=query,
+                baseline=1.0 / (RRF_K + 1))
+        except Exception:            # noqa: BLE001 —— 判读面不拖崩装包
+            policy_text, coverage_gaps, coverage_certified = "", [], True
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates, "timeline": timeline,
-                "timeline_groups": timeline_groups}
+                "timeline_groups": timeline_groups,
+                "reading_policy": policy_text,
+                "coverage_gaps": coverage_gaps,
+                "coverage_certified": coverage_certified}
 
 
 
