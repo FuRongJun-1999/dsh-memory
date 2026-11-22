@@ -16,7 +16,7 @@ jsonl，但转换器此前不在仓库内（只有消费端）——本脚本把
 
 跑法：
     python -X utf8 scripts/gen_longmemeval_eval_data.py \
-        --src D:/program/AEIS/data/external/longmemeval_s_cleaned.json
+        --src <私有运行时根>/data/external/longmemeval_s_cleaned.json
 """
 import argparse
 import io

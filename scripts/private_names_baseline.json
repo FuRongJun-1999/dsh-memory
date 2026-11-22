@@ -5,7 +5,7 @@
  ],
  "_scan_surface": "git ls-files（排除本守卫三件）",
  "totals": {
-  "AEIS": 1218
+  "AEIS": 1217
  },
  "files": {
   ".codebuddy/rules/lingshu-discipline/RULE.mdc": {
@@ -373,9 +373,6 @@
   },
   "scripts/gen_config_registry.py": {
    "AEIS": 6
-  },
-  "scripts/gen_longmemeval_eval_data.py": {
-   "AEIS": 1
   },
   "scripts/sync_zcode_session.py": {
    "AEIS": 1
