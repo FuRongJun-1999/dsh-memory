@@ -5166,24 +5166,48 @@ def _search_job_gc(now=None, reserve=0):
             _SEARCH_JOBS.pop(_k, None)
 
 
+# 生效条件：cg 为当前调用实例；取不到 principal 时返回全 None 指纹（比对不因此放行）。
+def _search_job_owner(cg):
+    """取当前**请求级**身份指纹（issue #1011-2）。"""
+    p = getattr(cg, "principal", None)
+    return {"token_id": getattr(p, "token_id", None),
+            "unit": getattr(p, "unit", None),
+            "actor": getattr(p, "actor", None),
+            "session": getattr(cg, "session", None)}
+
+
 def _search_job_submit(cg, args, defer_s):
     """提交异步检索：返回工单，不等待检索完成。"""
-    import random as _rnd
+    import secrets as _sec
     import threading as _th
     import time as _t
     with _SEARCH_JOBS_LOCK:
         _search_job_gc(reserve=1)      # 给自己预留一格，插入后不超过上限
-        jid = "sjob_%d_%04d" % (int(_t.time() * 1000), _rnd.randint(0, 9999))
+        # issue #1011-2：原 `sjob_<ms>_<randint(0,9999)>` 只有 1 万个取值且时间可猜，
+        # 而工单里装着检索结果（可能含高权令牌才看得到的条目）⇒ 换成 128 位随机。
+        jid = "sjob_" + _sec.token_hex(16)
         rec = {"job_id": jid, "status": "pending", "created": _t.time(),
                "query": args.get("query"), "result": None, "error": None,
-               "elapsed_s": None}
+               "elapsed_s": None, "owner": _search_job_owner(cg)}
         _SEARCH_JOBS[jid] = rec
     payload = {k: v for k, v in args.items() if k not in ("defer_s", "job_id")}
 
     def _run():
         _t0 = _t.time()
         try:
-            out = call_tool(cg, "mdcg_search", payload)
+            # 后台线程没有调用方的 TLS 覆盖值 ⇒ 必须按**提交者**身份重建作用域，
+            # 否则它跑的是进程基身份（比提交者宽，等于越权）。
+            _sp = _search_job_owner(cg)
+            _scope = getattr(cg, "scoped_scope", None)
+            if callable(_scope) and _sp.get("actor") is not None:
+                from .security import Principal as _P
+                with _scope(principal=_P(actor=_sp["actor"],
+                                         unit=_sp.get("unit"),
+                                         session=_sp.get("session")),
+                            session=_sp.get("session")):
+                    out = call_tool(cg, "mdcg_search", payload)
+            else:
+                out = call_tool(cg, "mdcg_search", payload)
             with _SEARCH_JOBS_LOCK:
                 rec["status"] = "done"
                 rec["result"] = out
@@ -5201,8 +5225,12 @@ def _search_job_submit(cg, args, defer_s):
                     % (int(defer_s) if defer_s else 10)}
 
 
-def _search_job_result(jid):
-    """取异步检索结果：pending 原样回报，done 带 result，error 带 error。"""
+def _search_job_result(jid, cg=None):
+    """取异步检索结果：pending 原样回报，done 带 result，error 带 error。
+
+    issue #1011-2：工单绑定**提交者身份**（token_id/unit/actor/session）——非提交者取结果
+    一律拒绝。修前任何能报出 job_id 的调用方都能读走别人的检索结果（含高权可见条目）。
+    """
     with _SEARCH_JOBS_LOCK:
         _search_job_gc()
         rec = _SEARCH_JOBS.get(str(jid))
@@ -5210,6 +5238,10 @@ def _search_job_result(jid):
             return {"job_id": str(jid), "status": "unknown",
                     "error": "未知或已过期的 job_id（工单保留 %d 秒）" % int(_SEARCH_JOB_TTL)}
         snap = dict(rec)
+    if cg is not None and "owner" in snap:
+        if _search_job_owner(cg) != snap.get("owner"):
+            return {"job_id": str(jid), "status": "forbidden", "ok": False,
+                    "error": "job_id 不属于当前身份（工单绑定提交者 token/unit/session）"}
     out = {"job_id": snap["job_id"], "status": snap["status"],
            "elapsed_s": snap.get("elapsed_s")}
     if snap["status"] == "done":
@@ -5259,9 +5291,18 @@ def call_tool(cg, name, args):
     # 的授权；与上方「session 不参与任何 ops 裁决」的原设计意图一致）。
     if scope is p and not sess:
         return _dispatch(cg, name, a)
+    # issue #1011-2：**不得就地改写共享实例**。原注释「单线程 stdin 循环：无并发竞争」
+    # 已被 `_search_job_submit`（defer_s>0 的后台线程在同一个 cg 上再调 call_tool）
+    # 与 `_ensure_hot_async` 推翻：两线程交错时高权 scope 会被覆盖、finally 互相写脏，
+    # 表现为权限串台 / 会话泄漏。改用线程作用域：只改本线程覆盖值，退出精确还原。
+    _scoped = getattr(cg, "scoped_scope", None)
+    if callable(_scoped):
+        with _scoped(principal=scope, session=(sess or scope.session)):
+            return _dispatch(cg, name, a)
+    # 兜底（旧 cg 对象无 scoped_scope 时）：按原语义就地改写并还原。
     saved_p, saved_s = cg.principal, getattr(cg, "session", None)
     had_s = hasattr(cg, "session")
-    cg.principal = scope             # 单线程 stdin 循环：无并发竞争
+    cg.principal = scope
     if had_s:
         cg.session = sess or scope.session
     try:
@@ -5886,7 +5927,7 @@ def _dispatch(cg, name, args):
         # 就会整单失败。异步面不改检索语义：后台线程跑的是**同一个** call_tool，
         # 只是把「等待」从客户端挪到工单上。默认关（不带 defer_s 即同步）。
         if a.get("job_id"):
-            return _search_job_result(str(a.get("job_id")))
+            return _search_job_result(str(a.get("job_id")), cg)
         try:
             _defer = float(a.get("defer_s") or 0)
         except (TypeError, ValueError):

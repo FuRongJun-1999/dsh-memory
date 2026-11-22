@@ -24,8 +24,56 @@ import json
 import math
 import os
 import re
+import threading
 import time
 import uuid
+
+#: issue #1011-2：`scoped_scope(session=...)` 的「未指定」哨兵——用它区分「不改会话」
+#: 与「显式把会话置空」（None 是合法值：跨会话视图）。
+_SCOPE_UNSET = object()
+
+
+# 生效条件：`with cg.scoped_scope(principal=..., session=...)` 进出时由 MdCGOS 构造——
+# 只改**当前线程**的覆盖值，退出时精确还原（含原本无覆盖的情形）。
+class _ScopeCtx:
+    def __init__(self, owner, principal=None, session=_SCOPE_UNSET):
+        self._owner = owner
+        self._principal = principal
+        self._session = session
+
+    def __enter__(self):
+        tls = self._owner._scope_tls
+        self._prev_p = getattr(tls, "principal", None)
+        self._prev_s = getattr(tls, "session", None)
+        self._prev_s_set = getattr(tls, "session_set", False)
+        if self._principal is not None:
+            tls.principal = self._principal
+        if self._session is not _SCOPE_UNSET:
+            tls.session = self._session
+            tls.session_set = True
+        return self._owner
+
+    def __exit__(self, *exc):
+        tls = self._owner._scope_tls
+        if self._principal is not None:
+            if self._prev_p is None:
+                try:
+                    del tls.principal
+                except AttributeError:
+                    pass
+            else:
+                tls.principal = self._prev_p
+        if self._session is not _SCOPE_UNSET:
+            if self._prev_s_set:
+                tls.session = self._prev_s
+            else:
+                for _a in ("session", "session_set"):
+                    try:
+                        delattr(tls, _a)
+                    except AttributeError:
+                        pass
+        return False
+
 
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, fold_accents,
                     _optional_asset,
@@ -857,6 +905,9 @@ class MdCGOS(MdCG):
         # 同名握手断链（实测 TypeError: MdCGOS.__init__() got an unexpected
         # keyword argument 'async_flush'）。None = 随 env（含本层自有缺省）。
         super().__init__(root, autoflush=autoflush, async_flush=async_flush)
+        # issue #1011-2：请求级身份作用域（线程局部）。基值仍在实例上，
+        # `cg.principal = X` 改的是基值（旧调用方语义不变），`scoped_scope()` 只改本线程。
+        self._scope_tls = threading.local()
         self.actor = actor
         self.audit_log = os.path.join(self.root, "_audit.jsonl")
         self.audit_archive = os.path.join(self.root, self.AUDIT_ARCHIVE)
@@ -868,6 +919,20 @@ class MdCGOS(MdCG):
         # 本字段存「代码授权」——由 review_decide 的双单元复核判定（_dual_review_verdict）
         # 在判 ok 时登记，键=目标节点 id、300s 内有效、用一次即作废。见 review_evidence.py。
         self._review_grant = None
+        # ---------- 请求级身份作用域（issue #1011-2）----------
+        # 病灶：`mcp_server.call_tool` 把 `cg.principal` / `cg.session` 就地改写再还原，
+        # 而 `defer_s>0` 的后台检索线程在**同一个 cg 实例**上并发调 call_tool ⇒
+        # 线程 A 的高权 scope 被线程 B 覆盖、finally 互相写脏（权限串台/会话泄漏）。
+        # 处置：principal/session 做成属性，读优先本线程覆盖值，未覆盖回落实例基值。
+        # 基值缺省 None（与旧行为一致：纯 MdCGOS 上 `principal` 原本不存在，
+        # 由 MdCGSecure 显式赋值；mcp_server 对 None 走「不做请求级收窄」分支）。
+        # **不得覆盖子类先设的值**：MdCGSecure.__init__ 在 super().__init__ **之前**
+        # 就赋了 `self.principal`，此处无条件置 None 会把它清掉（S1 实测 AttributeError）。
+        if "_principal_base" not in self.__dict__:
+            self._principal_base = None
+        if "_session_base" not in self.__dict__:
+            self._session_base = None
+        self._session_base = None
         self.trash_dir = os.path.join(self.root, self.TRASH)
         os.makedirs(self.hippocampus, exist_ok=True)
         os.makedirs(self.trash_dir, exist_ok=True)
@@ -938,6 +1003,34 @@ class MdCGOS(MdCG):
     # ================= 6. payload-free 审计 =================
 
 # 生效条件：当 op 与 node_id 传入时，构造含 t/op/id/actor/session（session 经 _attribution_session_of(self, sens) 取用——纯 MdCGOS 无钩子时回落 getattr(self,"session",None)，与改动前逐位一致）并合并 meta 的记录，尝试轮转后追加到 self.audit_log；追加过程中的 OSError 被吞掉；
+# ---------- 请求级身份作用域（issue #1011-2）----------
+# 生效条件：读 `cg.principal` / `cg.session` 时——本线程有覆盖值则返回它，否则返回实例基值。
+    @property
+    def principal(self):
+        tls = self.__dict__.get("_scope_tls")
+        v = getattr(tls, "principal", None) if tls is not None else None
+        return v if v is not None else self.__dict__.get("_principal_base")
+
+    @principal.setter
+    def principal(self, value):
+        self.__dict__["_principal_base"] = value
+
+    @property
+    def session(self):
+        tls = self.__dict__.get("_scope_tls")
+        if tls is not None and getattr(tls, "session_set", False):
+            return getattr(tls, "session", None)
+        return self.__dict__.get("_session_base")
+
+    @session.setter
+    def session(self, value):
+        self.__dict__["_session_base"] = value
+
+# 生效条件：需要在一段代码内以某身份/会话执行时（并发安全的请求级收窄）——进入时写本线程覆盖，退出精确还原。
+    def scoped_scope(self, principal=None, session=_SCOPE_UNSET):
+        """请求级作用域：只影响**本线程**，不写实例基值、不需要加锁。"""
+        return _ScopeCtx(self, principal, session)
+
     def _audit(self, op: str, node_id: str, sens=None, **meta):
         """只记事件与载荷哈希，绝不记录内容（payload-free）。
 
@@ -7190,6 +7283,13 @@ class MdCGSecure(MdCGOS):
 # 生效条件：传入 root 时 principal 为假值（None 等）则新建 Principal()，以 self.principal.actor 作 actor 调父类 MdCGOS.__init__(root, actor=..., **kw)，再设 self.session = self.principal.session 并执行 self._init_crypto(master_key)（master_key 缺省 None）。
     def __init__(self, root: str, principal: Principal = None,
                  master_key=None, **kw):
+        # issue #1011-2：**请求级身份必须是线程作用域，不能是实例属性**。
+        # 病灶：`mcp_server.call_tool` 把 `cg.principal` / `cg.session` 就地改写再还原，
+        # 而 `defer_s>0` 的后台检索线程在**同一个 cg 实例**上并发调 call_tool ⇒
+        # 线程 A 的高权 scope 被线程 B 覆盖、finally 互相写脏（权限串台/会话泄漏）。
+        # 处置：principal/session 改成属性，读优先取本线程的覆盖值（TLS），未覆盖才回落
+        # 实例基值。写入 `cg.principal = X` 仍写基值（旧调用方语义不变）。
+        self._scope_tls = threading.local()
         self.principal = principal or Principal()
         self.kek = None
         self.dek = None
@@ -7207,6 +7307,7 @@ class MdCGSecure(MdCGOS):
         self._init_crypto(master_key)
 
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
+
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
     def _init_crypto(self, master_key=None):
