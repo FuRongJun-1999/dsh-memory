@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 # 功能名：分层写入严格度闸（情景层可放宽 · 知识/结构/自我逐层加严 · 复核证据要求）
-# 生效条件：MDCG_WRITE_GATE=warn|enforce 时经 security.require_layer_write 生效；off（缺省）时完全不介入
+# 生效条件：MDCG_WRITE_GATE=warn|enforce 时经 security.require_layer_write 生效；off 时完全不介入（**缺省是 enforce**，见 gate_mode）
 # 子功能：①LAYER_TIERS 四档严格度 ②REQUIRED_REVIEWERS 每档所需复核单元 ③review_channels() 读可用复核通道（hive/subagent/team）④decide_write() 产出 allow/require_review/deny ⑤无任何复核通道时仅情景类层（tier 0）可直写，其余 deny
 # 执行：写入路径 → require_layer_write → decide_write(layer, reviewers, channels, mode) → off 放行 / warn 记录并放行 / enforce 阻断
 # 验证方式：md_cg/test_writegate_tiers.py（四档矩阵、无通道放宽、单通道不足、双单元齐备、自我层需人工、warn 不阻断、enforce 阻断、off 不介入）
@@ -17,7 +17,9 @@
   · `can_write` / `layers_allow` / `clearance` 仍是硬权限；本模块只在有写权限
     的前提下，再按层追加**程序性**要求。
 
-三档开关（MDCG_WRITE_GATE）：off（缺省，零介入）/ warn（记录并放行）/ enforce（阻断）。
+三档开关（MDCG_WRITE_GATE）：off（零介入）/ warn（记录并放行）/ enforce（阻断）——**缺省是 enforce**。
+⚠️ 缺省 enforce + 未声明 MDCG_REVIEW_CHANNELS ⇒ 按 REQ 表只允许写 tier 0（情景层），知识层及以上一律拒；
+要放宽请显式设 MDCG_WRITE_GATE=warn（记录不拦）或 off（完全不介入）。
 """
 import os
 
@@ -56,10 +58,11 @@ _warned = {"mode": False}
 
 # 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值返回 off 并首次告警。
 def gate_mode(environ=None):
-    """当前闸档位（off / warn / enforce，缺省 warn）。非法值 fail-open 到 off 并告警一次。"""
+    """当前闸档位（off / warn / enforce，缺省 enforce）。非法值 fail-open 到 off 并告警一次。"""
     env = os.environ if environ is None else environ
-    # 2026-11-17 使用者裁定：闸门默认**开**（warn）——会判定、会留痕、返回体可见，
-    # 但不硬拦；要硬拦设 MDCG_WRITE_GATE=enforce。此前默认 off ⇒ 分档模型形同虚设。
+    # 2026-11-17 使用者裁定：闸门默认**开**（enforce）——会判定、会留痕、返回体可见，
+    # 且无复核通道时阻断知识层及以上（tier ≥ 1）。要放宽设 MDCG_WRITE_GATE=warn
+    # （记录不拦）或 off（完全不介入）。此前默认 off ⇒ 分档模型形同虚设。
     raw = str(env.get(GATE_ENV) or "enforce").strip().lower()
     if raw in ("off", "warn", "enforce"):
         return raw
