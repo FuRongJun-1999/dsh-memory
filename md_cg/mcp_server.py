@@ -4126,7 +4126,7 @@ def _cg_dispatch(cg, a):
                                 redteam=a.get("redteam"), issues=a.get("issues"),
                                 override=bool(a.get("override")),
                                 reviewed_by=a.get("reviewed_by"),
-                                decided_by=a.get("decided_by"))
+                                decided_by=a.get("decided_by"), _untrusted_review=True)
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
@@ -6046,7 +6046,7 @@ def _dispatch(cg, name, args):
                                 redteam=a.get("redteam"), issues=a.get("issues"),
                                 override=bool(a.get("override")),
                                 reviewed_by=a.get("reviewed_by"),
-                                decided_by=a.get("decided_by"))
+                                decided_by=a.get("decided_by"), _untrusted_review=True)
 
     if name == "mdcg_review_records":
         nid = a.get("node_id")
