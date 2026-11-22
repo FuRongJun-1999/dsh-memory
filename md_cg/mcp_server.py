@@ -214,8 +214,8 @@ def _item_tags(cg, it):
     return tags_of_item(cg, it)
 
 
-# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身。
-def _final_out(out, cg, a):
+# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身（slim=False 时不瘦身）。
+def _final_out(out, cg, a, slim=False):
     include = bool((a or {}).get("include_private"))
     if isinstance(out, dict):
         for key in ("pack", "results"):
@@ -230,6 +230,11 @@ def _final_out(out, cg, a):
                 meta = dict(out.get("meta") or {})
                 meta["private_domain_excluded"] = dropped
                 out["meta"] = meta
+    # issue #1010：瘦身只对**声明了可摘遥测的读面**（read）生效。recall / search 的契约里
+    # 点名要 `meta.bm25`、`provenance`、逐条 id/正文/untrusted/引用字段——把它们的返回体
+    # 也过一遍 keep-list，等于让契约与实现各说一套（test_bm25 / test_p2_mcp 红）。
+    if not slim:
+        return out
     return _slim_read_out(out, (a or {}).get("detail"))
 
 
@@ -1491,13 +1496,28 @@ def _k_warning(k):
 # 关法与例外：MDCG_READ_SLIM=0 全局关闭；detail="full" 单次取全量。
 # 为什么保留 detail="full" 而不是只留 env：排查「为什么这条没命中」要看 path_fingerprint，
 # 只给 env 等于让人为了看一眼去改全局状态。
-_READ_SLIM_DROP_TOP = ("bm25", "path_fingerprint", "skipped", "provenance",
+# issue #1010：`skipped` 是 read(pack) 形态的**契约必填**（protocol.py 的 required 里点了名），
+# 曾与遥测块一起被摘 ⇒ test_protocol B7 红。契约字段一律不进摘除表，瘦身只摘**调试/遥测**。
+_READ_SLIM_DROP_TOP = ("bm25", "path_fingerprint", "provenance",
                        "timeline_groups", "paths", "path_truncation")
 _READ_SLIM_DROP_META = ("bm25", "path_fingerprint", "provenance", "paths", "path_truncation")
 _READ_SLIM_KEEP_FM = ("layer", "tags", "importance", "created_at",
                       "verification_state", "sensitivity", "protected")
+# issue #1010：白名单曾漏掉**契约/安全字段**（untrusted 安全标记、excerpt 摘录元数据、
+# ref/ref_kind 引用、usable/relaxed/code 严格条件回执、metadata/provenance 出处）⇒ 9 项守护
+# 测试红。判据不是「猜字段」而是「谁在契约/安全面被点名」，故按来源分组列出。
 _READ_SLIM_KEEP_ITEM = ("id", "content", "state", "score", "tokens", "verification_state",
-                        "truncated", "next_offset", "note", "reason")
+                        "truncated", "next_offset", "note", "reason",
+                        # 安全标记（test_untrusted_enforcement U3：透出 untrusted=True）
+                        "untrusted", "sensitivity",
+                        # 摘录与出处（test_query_excerpt / test_p2_mcp）
+                        "excerpt", "metadata", "provenance", "created_at_date", "content_dated",
+                        # 引用面（test_p28_refcheck）
+                        "ref", "ref_kind",
+                        # 严格条件回执（test_issue722）
+                        "usable", "relaxed", "code", "hint",
+                        # 命中理由与族别（判读面常用）
+                        "family", "layer", "tags")
 
 
 # 生效条件：out 为 read 面返回体、detail 为调用方 detail 参数时，返回瘦身后的副本；
@@ -3703,7 +3723,7 @@ def _cg_dispatch(cg, a):
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
-            return _final_out(_out, cg, a)
+            return _final_out(_out, cg, a, slim=True)
         from . import refindex
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
@@ -5858,7 +5878,7 @@ def _dispatch(cg, name, args):
                 _pack["pack"] = _pk
                 _pack["meta"] = _note_doc_filter(_pack.get("meta"), _pk_drop,
                                                  a.get("exclude_doc", False))
-        return _final_out(_pack, cg, a)
+        return _final_out(_pack, cg, a, slim=False)
 
     if name == "mdcg_search":
         # ---- 异步检索（2026-10-21）：把「怕超时」变成「先拿工单，过几秒来取」----
@@ -5951,7 +5971,7 @@ def _dispatch(cg, name, args):
                                  {"surface": "mdcg_search", "v": 1}, **_ckw)
             except Exception:
                 pass
-        return _final_out(_out, cg, a)
+        return _final_out(_out, cg, a, slim=False)
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")

@@ -1689,8 +1689,12 @@ class SustainLoop:
         if not hook:
             return
         try:
+            # issue #1010（md_cg.test_subproc_encoding）：text=True 而不声明 encoding 会按
+            # 平台缺省（Windows=GBK）解码外钩输出，钩子吐非 GBK 字节即 UnicodeDecodeError。
+            # 统一显式 UTF-8 + errors="replace"（与工作纪律第 15 条同口径）。
             subprocess.run([sys.executable, "-X", "utf8", hook, "--tick", str(name)],
                            capture_output=True, text=True, timeout=60,
+                           encoding="utf-8", errors="replace",
                            env=dict(os.environ, PYTHONUTF8="1"))
         except Exception:                        # noqa: BLE001
             pass                                 # 外钩失败不得影响心跳本身

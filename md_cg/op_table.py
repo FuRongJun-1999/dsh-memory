@@ -1060,6 +1060,10 @@ _GENERIC_PARAMS = (
         "check_strength",
         "condition_space",
         "context",
+        # issue #1010：`detail` 是 read 面的通用入参（full=取全量），此前只在 dispatch 里
+        # 存在、没登记进表 ⇒ 三向对账「未覆盖=['detail']」红，且 read(detail="full") 的
+        # 文档面等于不存在。通用面入参不属任何单 op，故登记在本表。
+        "detail",
         "end_operator",
         "end_time",
         "force",
