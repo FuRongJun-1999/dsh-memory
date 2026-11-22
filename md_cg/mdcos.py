@@ -864,6 +864,10 @@ class MdCGOS(MdCG):
         self.hippocampus = os.path.join(self.root, self.HIPPOCAMPUS)
         self.inbox_log = os.path.join(self.hippocampus, "inbox.jsonl")
         self.decisions_log = os.path.join(self.hippocampus, "decisions.jsonl")
+        # issue #1009 第 5 项（2026-11-22 使用者裁定）：reviewed_by 是**声明**不是证据。
+        # 本字段存「代码授权」——由 review_decide 的双单元复核判定（_dual_review_verdict）
+        # 在判 ok 时登记，键=目标节点 id、300s 内有效、用一次即作废。见 review_evidence.py。
+        self._review_grant = None
         self.trash_dir = os.path.join(self.root, self.TRASH)
         os.makedirs(self.hippocampus, exist_ok=True)
         os.makedirs(self.trash_dir, exist_ok=True)
@@ -4639,6 +4643,22 @@ class MdCGOS(MdCG):
             if _chk.get("ok") is not True:
                 return _chk
 
+        # issue #1009 第 5 项（2026-11-22 使用者裁定）：复核单元只认证据。裁决路径的
+        # 证据是**本次裁决本身**——它是代码路径产出的、可复核的记录（提案人≠裁决人已判、
+        # 红队/再审批/判据只读门已过、裁决随后落 decisions.jsonl 带 record_hash）。
+        # 故此处发一张限时、绑目标、一次性授权给紧随其后的落盘 add()。
+        # 直写路径（不经裁决）拿不到本授权，只能靠台账里**另一 actor** 的记录——那正是
+        # 要堵的自证面。要更严可开 MDCG_REVIEW_DUAL_CHECK=1，让单元真的由代码核过。
+        _decl_units = []
+        for _raw in (reviewed_by or ()):
+            _u = _norm_review_unit(_raw)
+            if _u and _u not in _decl_units:
+                _decl_units.append(_u)
+        self._review_grant = {"units": tuple(_decl_units),
+                              "pid": pid, "target": item.get("id"),
+                              "t": time.time(),
+                              "dual_checked": bool(_dual_check_required())}
+
         # 三档自治批次②（设计 §四）：**变更单**（kind=mutation）走**独立执行桥**
         # ——在既有前置闸（已判/verify_readonly/再审批/红队门控）之后、既有
         # accept/edit/merge/noop 链之前。proposal（含存量无 kind 条目）一律不
@@ -7631,6 +7651,62 @@ class MdCGSecure(MdCGOS):
             "写入 %r 未声明 sensitivity，而既有节点密级判不了（缺/非法）——"
             "fail-closed 拒绝，不回落缺省档（issue #297）" % (node_id,))
 
+# 生效条件：claims 非空且 layer 落在写闸 tier>=1 时核验证据；tier 0 与空声明原样返回（闸本就不看复核单元）
+    def _verified_reviewers(self, claims, node_id, layer):
+        """把 reviewed_by 的**声明**核成**证据**（issue #1009 第 5 项，2026-11-22 使用者裁定）。
+
+        裁定原话：「算，但只算带明确证据的。依赖人去复核是不可能去做到的。只能是确定性规则，
+        和代码化的结果。」
+
+        证据只有两条码化来源（见 md_cg/review_evidence.py）：
+          ① 台账证据——decisions.jsonl 里另一 actor 的窗口内记录且带 record_hash，再按单元
+             取该记录实际做了什么（reflect=红队 pass 或 accept/edit 无 issues；verify=verify_hash 非空）；
+          ② 代码授权——本进程里 _dual_review_verdict 判过 ok 后登记的一次性、绑目标、限时授权。
+        human 无证据源，一律不认（tier 3 因此在 enforce 下缺可满足路径，属有意的 fail-closed）。
+
+        未采信的声明一律**丢弃**而不是原样下传：闸只认证据，不认自述。
+        """
+        if not claims:
+            return claims
+        try:
+            from .writegate import LAYER_TIERS
+            tier = LAYER_TIERS.get(str(layer or "knowledge"), 1)
+        except Exception:            # noqa: BLE001 —— 拿不到档位按最严处理
+            tier = 1
+        if tier < 1:
+            return claims
+        from . import review_evidence as _re
+        try:
+            res = _re.verify_claims(claims, ledger_path=self.decisions_log,
+                                    actor=getattr(self, "actor", "") or "",
+                                    node_id=node_id,
+                                    grant=getattr(self, "_review_grant", None))
+        except Exception as exc:     # noqa: BLE001 —— 证据判定失败即 fail-closed
+            try:
+                self._audit("reviewer_evidence_error", node_id or "",
+                            error=type(exc).__name__)
+            except Exception:
+                pass
+            res = {"accepted": [], "rejected": [
+                {"unit": str(c), "why": "证据判定异常（fail-closed）"}
+                for c in claims], "grant_used": False}
+        if res.get("grant_used"):
+            self._review_grant = None          # 一次性授权，用完即作废
+        if res.get("rejected"):
+            try:
+                self._audit("reviewer_claims_rejected", node_id or "",
+                            units=[str(r.get("unit")) for r in res["rejected"]],
+                            why=[str(r.get("why"))[:120] for r in res["rejected"]])
+            except Exception:        # noqa: BLE001 —— 留痕失败不改变判决
+                pass
+            import sys as _sys
+            _k = tuple(sorted(str(r.get("unit")) for r in res["rejected"]))
+            _seen = globals().setdefault("_RV_WARNED", set())
+            if _k not in _seen:
+                _seen.add(_k)
+                _sys.stderr.write("[writegate] 复核声明未采信：%s（%s）\n"
+                                  % ("/".join(_k), str(res["rejected"][0].get("why"))[:120]))
+        return tuple(res.get("accepted") or ())
 # 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**、新节点回落 DEFAULT_SENSITIVITY、既有节点密级判不了则 fail-closed 抛 AccessDenied），再 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
@@ -7650,6 +7726,9 @@ class MdCGSecure(MdCGOS):
             # 的元数据。若留在 kw 里，它会经 super().add(**kw) 落进 frontmatter
             # （实测：`test_i50c` 的 B1 逐键对拍报出 `reviewed_by: null` 的白名单外差异）。
             _reviewers = kw.pop("reviewed_by", None)
+            # issue #1009 第 5 项：声明必须落成证据才进闸（使用者 2026-11-22 裁定），
+            # 否则任何调用方只要报一句 reviewed_by=[反思单元,验证单元] 就能自证复核。
+            _reviewers = self._verified_reviewers(_reviewers, node_id, layer)
             self.principal.require_layer_write(layer, sens, reviewers=_reviewers)
             self._attribution(kw, sens)
             # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方

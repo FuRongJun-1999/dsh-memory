@@ -115,13 +115,52 @@ def main():
             ok(False, "E1 无 reviewed_by 直写 knowledge 应被拒", "竟然成功了")
         except Exception as e:  # noqa: BLE001
             ok("分层复核闸" in str(e), "E1 无 reviewed_by 直写 knowledge 仍被拒（闸未被削弱）", str(e)[:60])
-        # knowledge 是 1 档（只需 reflect）⇒ 给了 reflect **本就该通过**，这是档位正确的证据。
+        # 2026-11-22 使用者裁定（issue #1009 第 5 项）：「算，但只算带明确证据的。依赖人去复核
+        # 是不可能去做到的。只能是确定性规则，和代码化的结果。」⇒ 直写路径上 reviewed_by 是**声明**，
+        # 没有台账证据/代码授权就不进闸。本用例原断言「只给 reflect 就通过」正是被裁定堵掉的自证面，
+        # 故翻转：**没有证据 ⇒ 拒**。
         try:
             nid2 = cg.add("probe_direct2", "probe content D", layer="knowledge",
                           reviewed_by=["reflect"])
-            ok(bool(nid2), "E2 只给 reflect 直写 knowledge **通过**（1 档语义正确）", nid2)
+            ok(False, "E2 只声明 reflect、无代码化证据 → 直写 knowledge 应被拒", nid2)
         except Exception as e:  # noqa: BLE001
-            ok(False, "E2 只给 reflect 直写 knowledge 应通过（1 档）", "%s: %s" % (type(e).__name__, str(e)[:60]))
+            ok("分层复核闸" in str(e),
+               "E2 只声明 reflect、无代码化证据 → 直写 knowledge 被拒（证据纪律已生效）",
+               str(e)[:80])
+        # E3 反证：台账里存在**另一 actor** 的窗口内证据时，同一写入应当放行。
+        import json as _json, time as _time
+        _ledger = os.path.join(cg.hippocampus, "decisions.jsonl")
+        with open(_ledger, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps({
+                "t": _time.time(), "pid": "prop_evidence", "decision": "accept",
+                "status": "accepted", "actor": "codebuddy", "issues": [],
+                "verify_hash": "deadbeef", "record_hash": "cafebabe",
+                "record_node_id": "rev_evidence_r1"}, ensure_ascii=False) + "\n")
+        try:
+            nid3 = cg.add("probe_direct3", "probe content E", layer="knowledge",
+                          reviewed_by=["reflect"])
+            ok(bool(nid3), "E3 台账里有另一 actor 的证据 → 同一写入放行（证据链可用）", nid3)
+        except Exception as e:  # noqa: BLE001
+            ok(False, "E3 台账证据应放行直写", "%s: %s" % (type(e).__name__, str(e)[:60]))
+        # E4 同一 actor 自证的台账记录不算证据。
+        with open(_ledger, "a", encoding="utf-8") as _f:
+            _f.write(_json.dumps({
+                "t": _time.time(), "pid": "prop_self", "decision": "accept",
+                "status": "accepted", "actor": str(cg.actor or "designer"), "issues": [],
+                "record_hash": "cafebabe2", "record_node_id": "rev_self_r1"},
+                ensure_ascii=False) + "\n")
+        # 只留「本 actor 自己那条」，把另一 actor 的证据行删掉
+        _lines = open(_ledger, encoding="utf-8").read().splitlines()
+        _keep = [l for l in _lines if '"prop_evidence"' not in l]
+        with open(_ledger, "w", encoding="utf-8") as _f:
+            _f.write("\n".join(_keep) + "\n")
+        try:
+            cg.add("probe_direct4", "probe content F", layer="knowledge",
+                   reviewed_by=["reflect"])
+            ok(False, "E4 只有本 actor 自己的记录 → 直写应被拒（自证不算复核）", "竟然成功了")
+        except Exception as e:  # noqa: BLE001
+            ok("分层复核闸" in str(e), "E4 只有本 actor 自己的记录 → 直写被拒（自证不算复核）",
+               str(e)[:70])
         cg.close()
     finally:
         shutil.rmtree(T, ignore_errors=True)

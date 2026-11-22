@@ -391,6 +391,7 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_REVIEW_CHANNELS', 'env', 'dsh-memory-main', '清单', '可用复核通道声明 hive/subagent/team（空＝未声明，非能力缺失；md_cg/writegate.py:75）'),
     ('MDCG_REVIEW_DUAL_CHECK', 'env', 'dsh-memory-main', '开关', '裁决双单元复核闸（缺省关；须反思+验证单元；裁决者身份只认 self.actor；md_cg/mdcos.py:4498）'),
     ('MDCG_WRITE_GATE', 'env', 'dsh-memory-main', '枚举', '分层写入严格度闸 off/warn/enforce（缺省 enforce；非法值 fail-closed 回落 enforce；md_cg/writegate.py:71）'),
+    ('MDCG_REVIEW_EVIDENCE_WINDOW_S', 'env', 'dsh-memory-main', '秒数', '复核措辞的证据窗口：台账记录须在此窗口内才算复核证据（缺省 7 天；非法/非正回落缺省；md_cg/review_evidence.py:60）'),
     ('MDCG_BM25_BLOCK_MAX', 'env', 'dsh-memory-main', '整数', 'BM25 分块上限（md_cg/bm25.py:295,317）'),
     ('MDCG_BM25_BUILD_WORKERS', 'env', 'dsh-memory-main', '整数', 'BM25 构建并发（md_cg/bm25.py:94）'),
     ('MDCG_BM25_POOL_CACHE', 'env', 'dsh-memory-main', '开关', 'BM25 池缓存（md_cg/bm25.py:68）'),
