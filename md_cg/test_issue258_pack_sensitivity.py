@@ -32,6 +32,9 @@
   S9  反陈化：三处收口的**理由**在源码里。
   S10 修复前原形：git log -S 定位引入提交取父版本；**未提交时回落 HEAD**
       （不假设 HEAD 处于某历史状态——项目方在 #277 踩过该坑）。
+      **历史被截断时 SKIP 而不是 FAIL**：浅克隆（shallow）里引入提交的父版本
+      取不到、HEAD 又已含修复 ⇒ 本仓**无法证明**「修复前原形」。此时报 SKIP 并
+      写明原因；把「证明不了」当成「不成立」是假红，反过来当成「成立」是假绿。
 
 运行：python -X utf8 -m md_cg.test_issue258_pack_sensitivity
       python -X utf8 -m md_cg.test_issue258_pack_sensitivity --mutate
@@ -330,23 +333,37 @@ def _prepatch_src():
         return subprocess.run(list(a), cwd=_REPO, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=60)
-    lg = _g("git", "log", "-S_item_sensitivity", "--format=%H", "--",
+    lg = _g("git", "log", "-S", "_item_sensitivity", "--format=%H", "--",
             "md_cg/evidence.py")
+    shas = []
     if lg.returncode == 0:
         shas = [x.strip() for x in (lg.stdout or "").splitlines() if x.strip()]
-        if shas:
-            src = _g("git", "show", shas[-1] + "^:md_cg/evidence.py")
+        for sha in reversed(shas):                 # git log 新→旧；引入提交在最早那端
+            src = _g("git", "show", sha + "^:md_cg/evidence.py")
             if src.returncode == 0:
-                return src.stdout, "引入提交 %s 的父版本" % shas[-1][:8]
+                return src.stdout, "引入提交 %s 的父版本" % sha[:8]
     src = _g("git", "show", "HEAD:md_cg/evidence.py")
     if src.returncode != 0:
         return None, "git show HEAD rc=%s" % src.returncode
-    return src.stdout, "HEAD（本改动尚未提交）"
+    head_src = src.stdout
+    # HEAD 已含修复 ⇒ 它不是「修复前原形」。历史完整时上面已取到父版本，走不到这里；
+    # 走到这里说明父版本不可取（典型：浅克隆）⇒ 本仓无法证明，SKIP 而非 FAIL。
+    _marks = ("_item_sensitivity", '"sensitivity": _node_sensitivity', "archive_skipped")
+    _has_fix = any(m in head_src for m in _marks)
+    if _has_fix:
+        _sh = _g("git", "rev-parse", "--is-shallow-repository").stdout.strip()
+        return None, "skip:引入提交父版本不可取（%s），且 HEAD 已含修复" % (
+            "浅克隆" if _sh == "true" else "历史不可达")
+    return head_src, "HEAD（本改动尚未提交）"
 
 
 def s10():
     print("== S10 修复前原形（提交前/后都稳定）==")
     t, how = _prepatch_src()
+    if t is None and how.startswith("skip:"):
+        print("  SKIP S10 无法取「修复前原形」：%s" % how[5:])
+        print("       （不下「成立」也不下「不成立」的结论：本仓历史不足以证明）")
+        return
     if t is None:
         _check("S10 取修复前源失败：%s" % how, False)
         return
