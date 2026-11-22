@@ -2218,6 +2218,15 @@ class MdCG:
         # （临界区只有 dict 拷贝/清空，**不含任何 IO**——否则写路径会被后台落盘
         # 堵住，等于把异步改回同步）。
         self._dirty_lock = threading.RLock()
+        # issue #1011-1：**落盘窗口**与**在飞批次**。
+        # 病灶：`_flush_locked` 先清空 `_dirty` 再写分片；若并发/外部进程恰在此窗口触发
+        # `_maybe_reload_index`，重载从磁盘读回旧条目（`_dirty` 已空、无本批可重放），
+        # 覆写写入被永久回退；又因 `_index_signature` 刻意排除本进程分片，
+        # 写完后的探测永远看不见这次变化 ⇒ 不自愈。
+        # 处置：窗口内置位 `_flush_window`（重载让路，下次探测再判）+ 留存 `_flush_inflight`
+        # （已从脏集摘走但尚未落盘的记录；重载若已越过让路点，也必须把它们叠回去）。
+        self._flush_window = False
+        self._flush_inflight = {}
         self._dirty = _DirtyDict()
         # N230：把数据根交给脏集——标脏时按 entry["path"] 落「逐字见证」
         # （见 _DirtyDict._note_witness / MdCG._dirty_entry_superseded）。
@@ -2731,6 +2740,11 @@ class MdCG:
             if _now - _last < _min_iv:
                 return False
             self._sig_probe_ts = _now
+        # issue #1011-1：**落盘窗口内不重载**。窗口里 `_dirty` 已清空、分片尚未写完，
+        # 此刻从磁盘读回的索引缺本批记录；而签名刻意排除本进程分片，写完后的探测
+        # 再也看不见这次变化 ⇒ 覆写写入被永久回退（不自愈）。让路一轮，下次探测再判。
+        if getattr(self, "_flush_window", False):
+            return False
         sig = self._index_signature()
         if sig == self._index_sig:
             return False
@@ -2762,6 +2776,16 @@ class MdCG:
                     self._dirty.superseded_ids.add(nid)
                 continue
             idx["nodes"][nid] = e
+        # issue #1011-1 兜底：若重载**已越过**让路点（窗口在它读盘之后才开启），
+        # 本批已从脏集摘走、盘面又还没写 ⇒ 必须把它们叠回去，否则同样丢覆写。
+        # 在飞批次比盘面新（它是本进程刚接受的写入），故直接覆盖。
+        with self._dirty_lock:
+            _inflight = dict(getattr(self, "_flush_inflight", {}) or {})
+        for _nid, _e in _inflight.items():
+            if _e is None:
+                idx["nodes"].pop(_nid, None)
+            else:
+                idx["nodes"][_nid] = _e
         self._dirty_replay_superseded = superseded
         idx["buckets"] = self._count_buckets(idx["nodes"])
         self.index = idx
@@ -2898,7 +2922,14 @@ class MdCG:
 
 # 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 且 self._snapshot_trusted(该快照) 为真时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象、schema 不符或**指纹不符（#409）**时不作基底——损坏/schema 不符降级 self._scan_nodes() 全库扫描（宁重扫勿清池），仅指纹不符改以本进程内存索引 self.index["nodes"] 的副本为基底；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225：与 _load_index **同一实现**），随后**重放之前**过**完整性闸** self._covers_disk（#409：基底路径集合 == 盘面 .md 路径集合且条数相等；**闸在重放之前**——日志条目按合作写者协议是权威写入记录、允许指向盘外路径，见守卫 E3/E6），不过即以 self._scan_nodes() 换基底（宁重扫勿写缺账快照），再对最终基底**恰好重放一次**；落盘（_fingerprint 恒为 self._dir_fingerprint()，**只在过闸之后**写）并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
-        with FileLock(self.index_path):
+        with FileLock(self.index_path) as _lk:
+            # issue #1011-4：`FileLock` 缺省非 strict（超时放行）。compact 的临界区里有
+            # `ShardedLog.clear()`，未持锁就继续 = 与他进程追加互踩（记录随分片被删）。
+            # 这里不放行也不抛：**跳过本轮压紧**是安全退路（_index.json 只是旧一代快照，
+            # 下次 close/compact 再来），丢数据才是不可逆。
+            if not getattr(_lk, "acquired", False):
+                self._compact_skipped_locked = getattr(self, "_compact_skipped_locked", 0) + 1
+                return
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
             scan_fallback = False
             if os.path.exists(self.index_path):
@@ -3095,18 +3126,34 @@ class MdCG:
             superseded = set(self._dirty.superseded_ids)
             # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
             self._dirty.clear()
+            # issue #1011-1：窗口起点（与清空在同一把锁内 ⇒ 重载要么看见清空前态，
+            # 要么看见窗口位，不会看见「已清空但未置位」的缝）。
+            self._flush_window = True
+            self._flush_inflight = dict(batch)
         try:
             self._flush_batch(batch, superseded)
         except BaseException:
             with self._dirty_lock:
-                for _nid, _e in batch:
-                    if _nid not in self._dirty:
-                        self._dirty[_nid] = _e
                 # #677 C 复核：`_dirty.clear()` 会连 superseded_ids 一起清（见 _DirtyDict），
                 # 失败回填若不恢复它，下一轮会把「已判陈旧」的记录当新记录写进分片
                 # ⇒ 旧版本覆盖新版本（内容错误，比重复更严重）。
-                self._dirty.superseded_ids |= superseded
+                # issue #1011-2：但**不得**把「窗口内已被新写入覆盖」的 id 也标陈旧——
+                # 若某 id 在本批落盘期间又进了新版本，再把老 id 记进 superseded，下一次
+                # `_flush_batch` 会按 `nid not in superseded` 把**新版本**一起丢掉。
+                # 判据必须取**回填之前**的脏集快照：回填本身会把本批条目写回 `_dirty`，
+                # 用回填后的 keys 判会把「正在判陈旧的这批」自己也算成新版本（test_issue677 B5）。
+                _arrived = set(self._dirty.keys())
+                for _nid, _e in batch:
+                    if _nid not in self._dirty:
+                        self._dirty[_nid] = _e
+                self._dirty.superseded_ids |= {n for n in superseded
+                                               if n not in _arrived}
             raise
+        finally:
+            # issue #1011-1：落盘窗口**无条件**关闭——否则一次失败会让后续所有重载永久让路。
+            with self._dirty_lock:
+                self._flush_window = False
+                self._flush_inflight = {}
 
 # 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
     def _flush_batch(self, batch, superseded):
