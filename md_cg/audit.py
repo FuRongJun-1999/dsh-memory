@@ -372,6 +372,27 @@ def _rule_check(text, rules, kind="text"):
 
 
 # 生效条件：rules 为 None 时回落 load_rulebook()；对 rules["forbidden"] 经 _policy_list 取值（非列表取值当空列表，不按字符建规则）去空后的每条模式求出全部命中跨度，按跨度合并（重叠/相邻者合并、占位符取其中**最先声明**那条规则的序号）后整段替换为「[已过滤:禁表#i]」，返回替换后的文本；非法正则跳过不抛错；无命中时原样返回 text。
+_HIT_PREVIEW_RE = re.compile(r"(命中片段「)[^」]*(」)")
+
+
+# 生效条件：text 为字符串且含 #997 的「命中片段「…」」回显时，把片段替换成占位；无该形态（含非字符串）原样返回。
+def strip_hit_preview(text, placeholder="[已隐去]"):
+    """把证据里的**命中片段回显**换成占位符——落进负记忆之前用（2026-11-22 实测）。
+
+    为什么需要：`check_policy` 为帮写入方定位撞了哪条规则，在 evidence 里回显命中片段的前 10 字
+    （#997）。这个回显给**调用方**没问题（正文本来就在他手里），但 REJECT 分支把同一段 evidence
+    原样交给 `cg.add_rejected` 落盘 ⇒ 凭据前 10 字以「截断残片」形式进了 rejected/，
+    #43「命中片段不得随负记忆落盘」被绕开一条。确定性证据（2026-11-22）：
+    `python -X utf8 -m md_cg.test_rejected_redact` 的 R2 在 `rejected/rej_*.md` 里命中 `tk_01234`，
+    该片段正是 evidence 中「tk_0123456…」的前缀；R2 的其余通路（正文脱敏后截断）本来是绿的。
+
+    口径：占位后仍保留「共 N 字符」，规则序号与长度都在，审计可用；原文一格不留。
+    """
+    if not isinstance(text, str) or "命中片段「" not in text:
+        return text
+    return _HIT_PREVIEW_RE.sub(lambda m: m.group(1) + placeholder + m.group(2), text)
+
+
 def redact_forbidden(text, rules=None):
     """把命中禁止规则的片段替换成占位符——负记忆（rejected）落盘前用。
 

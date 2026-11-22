@@ -1498,9 +1498,13 @@ def _k_warning(k):
 # 只给 env 等于让人为了看一眼去改全局状态。
 # issue #1010：`skipped` 是 read(pack) 形态的**契约必填**（protocol.py 的 required 里点了名），
 # 曾与遥测块一起被摘 ⇒ test_protocol B7 红。契约字段一律不进摘除表，瘦身只摘**调试/遥测**。
-_READ_SLIM_DROP_TOP = ("bm25", "path_fingerprint", "provenance",
+# issue #1011 附带（2026-11-22 全量门禁实测）：`bm25` 曾进这张表 ⇒ `test_bm25` 的 stdio 用例红在
+# `packed["meta"]["bm25"]` KeyError（`test_bm25.py:229`，同一用例不带 budget_tokens 的 id=2 却是绿的）。
+# 判据与 #1010 的契约字段同一条：**谁被既有守卫钉住，谁就不进摘除表**——bm25 诊断块是「这条路真跑了、
+# 真 hydration 到 N 条」的唯一可观测证据，几行数字不值当拿掉判别力。
+_READ_SLIM_DROP_TOP = ("path_fingerprint", "provenance",
                        "timeline_groups", "paths", "path_truncation")
-_READ_SLIM_DROP_META = ("bm25", "path_fingerprint", "provenance", "paths", "path_truncation")
+_READ_SLIM_DROP_META = ("path_fingerprint", "provenance", "paths", "path_truncation")
 _READ_SLIM_KEEP_FM = ("layer", "tags", "importance", "created_at",
                       "verification_state", "sensitivity", "protected")
 # issue #1010：白名单曾漏掉**契约/安全字段**（untrusted 安全标记、excerpt 摘录元数据、

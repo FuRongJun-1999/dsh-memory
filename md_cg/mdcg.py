@@ -32,6 +32,11 @@ import threading
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews, fsutil, freshness)
 from . import timeanchor as _timeanchor
+# issue #1011 附带（#43 缺口，2026-11-22）：负记忆落盘前要掩掉证据里的「命中片段」回显——
+# 那段 10 字预览是给**调用方**定位用的，随 add_rejected 原样透传会以「截断残片」形式进 rejected/
+# （test_rejected_redact R2 实测命中）。占位后仍保留规则序号与字符数，审计不缺料。
+from .audit import strip_hit_preview as _strip_hit_preview
+from .audit import redact_forbidden as _redact_forbidden
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -4596,7 +4601,15 @@ class MdCG:
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
+        # issue #1011 附带（#43 缺口）：拒因里的「命中片段」是给调用方定位的**原文预览**，
+        # 不得随负记忆落盘——正文、frontmatter 的 rejection_reason、索引条目三处同口径掩掉。
+        # 幂等判据仍在**掩盖前**的原文上算（否则同一假设换了预览长度会被当成新假设）。
         nid = self._rejected_nid(hypothesis)
+        # 三道归一（#43 的负记忆入口单点）：先掩预览回显，再按禁表做替换——
+        # 「假设」与「拒因」都是调用方自由文本，MCP 的 op=rejected 会把它原样送进来，
+        # 凭据可能直接躺在假设里（不是预览形态），所以两道都要过。
+        hypothesis = _redact_forbidden(_strip_hit_preview(hypothesis))
+        reason = _redact_forbidden(_strip_hit_preview(reason))
         if self._node_exists(nid):
             return nid  # 幂等：重复证伪不重复记录
         content = (f"# 假设：{hypothesis}\n"
