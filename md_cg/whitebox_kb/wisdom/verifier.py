@@ -630,6 +630,15 @@ _ESCAPE_ATTRS = frozenset({
     "__mro__", "__baseclasses__",
     "__dict__", "__getattribute__", "__reduce__", "__reduce_ex__",
     "__code__", "__closure__", "__func__", "__loader__", "__spec__",
+    # issue #1009 第 5 项：**帧/生成器/协程/回溯**取道。这类属性名不带 dunder，
+    # 原判据完全没覆盖——实测 `(g:=gen()).gi_frame.f_back.f_back.f_globals` 可取到
+    # 宿主模块 globals，再经下标拿 builtins（`['os'].remove(...)` 删掉了沙箱外文件）。
+    # 取证：unit 表 JSON 对下列名称零命中（仅本文件与文档提及），故列入不误伤单元。
+    "gi_frame", "gi_code", "gi_yieldfrom", "gi_running",
+    "cr_frame", "cr_code", "cr_await", "cr_origin",
+    "ag_frame", "ag_code", "ag_await",
+    "f_back", "f_globals", "f_locals", "f_builtins", "f_code", "f_trace",
+    "tb_frame", "tb_next", "tb_lasti", "tb_lineno",
 })
 
 
