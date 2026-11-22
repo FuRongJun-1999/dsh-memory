@@ -45,6 +45,13 @@ from .fsutil import FileLock, atomic_write
 STATE_FILE = "_writelimit.json"
 RATE_WINDOW = 60.0            # 频率窗口（秒）
 RATE_MAX = 8                  # 窗口内同 (layer, role) 最大写入数
+#: issue #1001：sigs 原本只增不减——窗口外的签名 _window_stamp 恒返 None，对判定零贡献，
+#: 却让**每一次记忆写入**多付一次随条数线性增长的 JSON 解析（issue 实测 3604 条 89.49 ms/次，
+#: 剔到窗口内 224 条后 3.32 ms）。超过此阈值才在落盘前顺手回收（小台账不值得每次多扫一遍）。
+#: 取值推导（复审 P3）：稳态规模 = 活条目 + (阈值, 阈值+1]，故上界由阈值决定；单条扫描 ≈ 1.5 µs，
+#: 256 条扫一遍 ≈ 0.4 ms，而同等规模 json.dumps 已 ≈ 1.5 ms、issue 目标态（224 条）_load 为 3.32 ms
+#: ⇒ 阈值取 256 时，回收成本不到它省下的解析成本的 1/3。
+SIGS_GC_MIN = 256
 CONVERGE_WINDOW = 86400.0     # 同构聚合窗口（秒，24h）
 MAX_CONTENT = 200             # 参与同构聚合的内容长度上限（字符）
 MIN_SKELETON = 4              # 模板骨架最短长度（防「好的/收到」误聚）
@@ -155,20 +162,74 @@ def _load(cg) -> dict:
 
 
 # 生效条件：调用方传入 cg 与 st 且**已持有** _state_path(cg) 的跨进程锁时，以 atomic_write 原子覆写台账（不再加锁，避免自我阻塞）。
-def _save_locked(cg, st: dict) -> None:
+def _sig_dead(rec, now, window=None) -> bool:
+    """该签名记账是否「在 now 单调不减的前提下确定不会再被命中」（issue #1001）。
+
+    窗口之外的戳 _window_stamp 恒返 None ⇒ 既不提供限流（那是 rate 的职责）也不提供去重
+    （窗口外本来就不去重），纯死重。清理前后 check() 的判定面等价（窗口外本来不聚合）。
+
+    **只判「确定死」**：非 dict 记账、非数值戳、NaN、以及 now - t >= window 的旧戳。
+    **未来戳保留**：那是时钟回拨/并发写在账上留下的痕，等 now 追上去仍可能被 _window_stamp
+    命中；提前扔掉是丢信息（_window_stamp 剔除未来戳是**判据**，这里保留是**回收**，两回事）。
+
+    边界（复审 P3）：等价性只在 now 单调不减时成立——若时钟**向后跳** D 秒，已回收的条目
+    年龄会重回窗口内，该次同构聚合降级为「放行 + 重新预占位」（不产生错误结论，只丢一次去重）。
+    这与「保留未来戳」是同一件事的两面，故两侧都按保守方向取值。
+    """
+    if not isinstance(rec, dict):
+        return True
+    t = rec.get("t")
+    if isinstance(t, bool) or not isinstance(t, (int, float)):
+        return True
+    t = float(t)
+    # NaN 与 ±inf 都永死：json.load 会把手写的 1e400 / Infinity 读成 inf，而
+    # now - inf = -inf 恒 < window ⇒ 既不回收也不命中，正好违背 #1001 的「有界」（复审 P3）。
+    if t != t or t == float("inf") or t == float("-inf"):
+        return True
+    return (now - t) >= (window if window is not None else CONVERGE_WINDOW)
+
+
+def _prune_sigs(st: dict, now=None, min_sigs=None) -> int:
+    """落盘前顺手回收窗口外签名（issue #1001）。返回删除条数。
+
+    成本已量：3604 条扫一遍 5.42 ms，而 json.dumps 同样 3604 条 49.11 ms ⇒ 净赚；
+    但 200 条量级时扫一遍与省下的解析同量级，故设阈值 SIGS_GC_MIN（参数可覆盖）。
+    """
+    sigs = st.get("sigs")
+    if not isinstance(sigs, dict):
+        return 0
+    limit = SIGS_GC_MIN if min_sigs is None else int(min_sigs)
+    if len(sigs) <= limit:
+        return 0
+    now = time.time() if now is None else float(now)
+    dead = [k for k, v in sigs.items() if _sig_dead(v, now)]
+    for k in dead:
+        sigs.pop(k, None)
+    return len(dead)
+
+
+# 生效条件：调用方传入 cg 与 st 且**已持有** _state_path(cg) 的跨进程锁时，以 atomic_write 原子覆写台账（不再加锁，避免自我阻塞）；落盘前按 SIGS_GC_MIN 阈值顺手回收窗口外签名（issue #1001，判定面等价）。
+def _save_locked(cg, st: dict, now=None) -> None:
     """临界区内落盘（issue #354 [P2-17]）：调用方已持锁，此处不再取锁。
 
     `FileLock` 在 Windows 上锁同一字节范围、POSIX 换 fd 亦互斥 ⇒ 同进程第二次
     获取会自我阻塞到超时；故「读改写」事务必须把落盘拆成无锁版本。
+
+    issue #1001：这里也是**唯一**的落盘点，故签名回收放在此处单点完成——任何写入路径
+    （check / record_accepted / 将来新增）都自动获得回收，不会漏。
+
+    now：回收窗口的参照时刻。调用方**必须**把锁内算好的 now 传进来——否则回放/测试
+    显式传历史 now 时，用墙钟判死会误删「相对回放时刻仍活」的记账（判据与回收须同一条时间轴）。
     """
+    _prune_sigs(st, now=now)
     atomic_write(_state_path(cg), json.dumps(st, ensure_ascii=False, sort_keys=True))
 
 
 # 生效条件：调用方传入 cg 与 st，无任何早退守卫，一经调用即以 json.dumps(st, ensure_ascii=False, sort_keys=True) 在 _state_path(cg) 的 FileLock 内原子写入。
-def _save(cg, st: dict) -> None:
+def _save(cg, st: dict, now=None) -> None:
     p = _state_path(cg)
     with FileLock(p):
-        _save_locked(cg, st)
+        _save_locked(cg, st, now)   # now 前传：漏传就按墙钟判死，回放会误删（复审 P2-2）
 
 
 # 生效条件：作为 `with` 使用；以 strict=True 的 FileLock 独占 _state_path(cg)，获锁超时抛 TimeoutError（不无锁放行）。
@@ -263,7 +324,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
         if len(win) >= RATE_MAX:
             win.append(now)
             st["rate"][key] = win[-RATE_MAX * 4:]
-            _save_locked(cg, st)
+            _save_locked(cg, st, now)
             return {"verdict": "DEFER", "limiter": "rate", "reason":
                     f"ratelimit:{key}:>{RATE_MAX}in{int(RATE_WINDOW)}s"}
         # 2) 同构聚合（加密级跳过签名——见 _is_encrypted_level，issue #313）
@@ -285,7 +346,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
                         # forgetting 闸门「确定性内部冗余 → DROP 先于 MERGE」
                         # 纪律；同模板但内容不同才走聚合（那才是流水治理）
                         _push_rate(st, key, now)
-                        _save_locked(cg, st)
+                        _save_locked(cg, st, now)
                         return {"verdict": "DROP", "limiter": "exact_dup",
                                 "target": rec["nid"],
                                 "reason": f"exact_dup_of:{rec['nid']}"}
@@ -293,7 +354,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
                     rec["last"] = now
                     st["sigs"][sig] = rec
                     _push_rate(st, key, now)
-                    _save_locked(cg, st)
+                    _save_locked(cg, st, now)
                     return {"verdict": "CONVERGE", "limiter": "converge",
                             "target": rec["nid"], "sig": sig[:40], "n": rec["n"],
                             # issue #148：把两侧密级带出闸门，供审计与上层判据复用
@@ -307,7 +368,7 @@ def check(cg, content, layer="contextual", role=None, node_id=None,
                                "sk": sig[:60],
                                "sens": sensitivity}      # issue #148：声明密级随签名记账
         _push_rate(st, key, now)
-        _save_locked(cg, st)
+        _save_locked(cg, st, now)
         return None
 
 
@@ -331,7 +392,7 @@ def record_accepted(cg, node_id, content, now=None, sensitivity=None) -> None:
             st["sigs"][sig] = {"nid": node_id, "t": now, "n":
                                int((rec or {}).get("n") or 1), "sk": sig[:60],
                                "sens": sensitivity}  # issue #148：声明密级随签名记账
-            _save_locked(cg, st)
+            _save_locked(cg, st, now)
 
 
 # 生效条件：cg.get(target) 为假值返回 {"ok": False, "error": "target_missing"}；随后以节点真层/敏感度过 protect.guard_overwrite（层闸 + 保护闸，override 为真时先快照 + 审计）；通过后按 forgetting.aggregate_line（单点）把新正文里目标还没有的行追加为聚合行、fm["merge_count"]=int(fm.get("merge_count") or 0)+1 后 _write_node 落盘（重要性不变），并把 session/actor 归属并列记进 fm（forgetting.note_source）；返回 {"ok": True, "merge_count": 新值, "content_sink": 去向, "source": 归属}。
@@ -579,7 +640,13 @@ def stats(cg) -> dict:
     st = _load(cg)
     live_sigs = sum(1 for r in st["sigs"].values()
                     if isinstance(r, dict) and r.get("nid"))
+    now = time.time()
+    dead = sum(1 for r in st["sigs"].values() if _sig_dead(r, now))
     return {"enabled": enabled(), "sigs_tracked": len(st["sigs"]),
             "sigs_live": live_sigs,
+            # issue #1001：死重条数外露——阈值 SIGS_GC_MIN 之下不会自动清，
+            # 面板据此能看出「台账该瘦身了」，不必只靠手工量文件大小
+            "sigs_dead": dead,
+            "sigs_gc_threshold": SIGS_GC_MIN,
             "rate_keys": len(st["rate"]),
             "state_file": STATE_FILE}
