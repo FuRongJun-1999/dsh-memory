@@ -51,7 +51,14 @@ RATE_MAX = 8                  # 窗口内同 (layer, role) 最大写入数
 #: 取值推导（复审 P3）：稳态规模 = 活条目 + (阈值, 阈值+1]，故上界由阈值决定；单条扫描 ≈ 1.5 µs，
 #: 256 条扫一遍 ≈ 0.4 ms，而同等规模 json.dumps 已 ≈ 1.5 ms、issue 目标态（224 条）_load 为 3.32 ms
 #: ⇒ 阈值取 256 时，回收成本不到它省下的解析成本的 1/3。
+#: issue #1001：sigs 原本只增不减——窗口外的签名 _window_stamp 恒返 None，对判定零贡献，
 SIGS_GC_MIN = 256
+#: issue #1003：阈值只收死重，**活条目本身没有上界**——RATE_MAX=8/60s 允许 11520 条/日/role，
+#: 本机实测最坏态 check() 全程 27.8 ms/次、每次写全量落盘 2.3 MB（解析 0.8 µs/条 + 落盘主导）。
+#: 故给活条目加 LRU 上限：超限时按「最近一次命中」淘汰最旧，台账定位从「24h 内所有不同模板的
+#: 完整记忆」收成「近期热模板的 LRU 缓存」。丢一次 CONVERGE 只多一条节点（不是数据错误），
+#: 而真实库实测只有个位数活签名 ⇒ 正常使用永不触发。0/负值 = 不设上限（老行为）。
+SIGS_MAX = 1024
 CONVERGE_WINDOW = 86400.0     # 同构聚合窗口（秒，24h）
 MAX_CONTENT = 200             # 参与同构聚合的内容长度上限（字符）
 MIN_SKELETON = 4              # 模板骨架最短长度（防「好的/收到」误聚）
@@ -162,6 +169,38 @@ def _load(cg) -> dict:
 
 
 # 生效条件：调用方传入 cg 与 st 且**已持有** _state_path(cg) 的跨进程锁时，以 atomic_write 原子覆写台账（不再加锁，避免自我阻塞）。
+def _sigs_max() -> int:
+    """活签名上限（issue #1003）。MDCG_SIGS_MAX 覆盖，0/负值 = 不设上限。"""
+    raw = os.environ.get("MDCG_SIGS_MAX")
+    if raw is None or not str(raw).strip():
+        return SIGS_MAX
+    try:
+        return int(str(raw).strip())
+    except (TypeError, ValueError):
+        return SIGS_MAX
+
+
+def _recency(rec) -> float:
+    """该记账「最近一次命中」的时间戳（issue #1003 淘汰排序键）。
+
+    CONVERGE 命中会刷新 rec['last']，故 last 比首次登记 t 更贴近热度；**last 坏型只是回落**
+    到 t（不该因一个字段坏就把活记账判成最旧），**两者都不可用时才返回 -inf**（最旧，先淘）。
+    返回 -inf（最旧，优先被淘汰）。非 dict / 非数值 / NaN / ±inf 一律按不可用处理——
+    与 _sig_dead 的类型口径同面（坏型不该被当成「最新」保下来）。
+    """
+    if not isinstance(rec, dict):
+        return float("-inf")
+    for key in ("last", "t"):
+        v = rec.get(key)
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            continue
+        v = float(v)
+        if v != v or v in (float("inf"), float("-inf")):
+            continue
+        return v
+    return float("-inf")
+
+
 def _sig_dead(rec, now, window=None) -> bool:
     """该签名记账是否「在 now 单调不减的前提下确定不会再被命中」（issue #1001）。
 
@@ -190,7 +229,7 @@ def _sig_dead(rec, now, window=None) -> bool:
 
 
 def _prune_sigs(st: dict, now=None, min_sigs=None) -> int:
-    """落盘前顺手回收窗口外签名（issue #1001）。返回删除条数。
+    """落盘前顺手回收窗口外签名（#1001）+ 活条目超限按 LRU 淘汰（#1003）。返回删除条数。
 
     成本已量：3604 条扫一遍 5.42 ms，而 json.dumps 同样 3604 条 49.11 ms ⇒ 净赚；
     但 200 条量级时扫一遍与省下的解析同量级，故设阈值 SIGS_GC_MIN（参数可覆盖）。
@@ -199,13 +238,26 @@ def _prune_sigs(st: dict, now=None, min_sigs=None) -> int:
     if not isinstance(sigs, dict):
         return 0
     limit = SIGS_GC_MIN if min_sigs is None else int(min_sigs)
-    if len(sigs) <= limit:
+    cap = _sigs_max()
+    # issue #1003：上限生效时，触发阈值取两者较小者——否则 cap 小于阈值时永远进不来。
+    trigger = limit if cap <= 0 else min(limit, cap)
+    if len(sigs) <= trigger:
         return 0
     now = time.time() if now is None else float(now)
     dead = [k for k, v in sigs.items() if _sig_dead(v, now)]
     for k in dead:
         sigs.pop(k, None)
-    return len(dead)
+    removed = len(dead)
+    # issue #1003：活条目 LRU 淘汰——先收死重再收最旧，保证落盘规模有界。
+    # 排序键用「最近一次命中」（last 优先于 t）：被反复命中的模板即便登记得早也留下。
+    if cap > 0 and len(sigs) > cap:
+        keep = {k for k, _v in sorted(sigs.items(), key=lambda kv: _recency(kv[1]),
+                                       reverse=True)[:cap]}
+        evict = [k for k in sigs if k not in keep]
+        for k in evict:
+            sigs.pop(k, None)
+        removed += len(evict)
+    return removed
 
 
 # 生效条件：调用方传入 cg 与 st 且**已持有** _state_path(cg) 的跨进程锁时，以 atomic_write 原子覆写台账（不再加锁，避免自我阻塞）；落盘前按 SIGS_GC_MIN 阈值顺手回收窗口外签名（issue #1001，判定面等价）。
@@ -648,5 +700,7 @@ def stats(cg) -> dict:
             # 面板据此能看出「台账该瘦身了」，不必只靠手工量文件大小
             "sigs_dead": dead,
             "sigs_gc_threshold": SIGS_GC_MIN,
+            # issue #1003：活条目上限外露——面板能看出「是否已经顶到上限在丢去重」
+            "sigs_max": _sigs_max(),
             "rate_keys": len(st["rate"]),
             "state_file": STATE_FILE}
