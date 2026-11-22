@@ -1780,6 +1780,17 @@ def _file_digest(fp: str):
         return None
 
 
+# 生效条件：`_flush_batch` 在 `FileLock(index_path)` 未获取（非 strict 的 10 s 超时）时抛出；
+# 由 `_flush_locked` 的 `except BaseException` 路径接住——整批退回脏集、并补一次唤醒做有界重试。
+class FlushLockBusy(RuntimeError):
+    """索引入口锁未获 ⇒ 本批不写盘（issue #1011-1 第 4 点）。
+
+    为什么不沿用「非 strict 放行」：compact/rebuild 的临界区是 `read_all → clear`，
+    未持锁的 append 落在两者之间就会被 clear 抹掉——节点在盘、索引不可见（9·12 病灶）。
+    退让一轮的代价是多等一次（数据留在内存脏集里，不丢），比丢记录便宜。
+    """
+
+
 # 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更；setitem 的值为含非空 path 字符串的 dict 时把该 path 记入 path_gen（值为当时的 write_gen）且不动 broad_gen，值为其它形态（含 None tombstone）或经 delitem/pop/popitem/setdefault/update 变更时把 broad_gen 置为当时的 write_gen，clear() 缺省（flush 收尾）只使 write_gen 自增、不改写 path_gen/broad_gen，clear(broad=True)（rebuild_index 收尾）同时把 broad_gen 置为当时的 write_gen。
 class _DirtyDict(dict):
     """写代际哨兵字典（批次 23，issue #31 D-4 / v20 报告）：任何变更使
@@ -3148,6 +3159,14 @@ class MdCG:
                         self._dirty[_nid] = _e
                 self._dirty.superseded_ids |= {n for n in superseded
                                                if n not in _arrived}
+                # issue #1011-1（第 4 点）：本批已退回脏集 ⇒ 必须补一次唤醒，否则没人再标脏时
+                # 这批会一直搁在内存里（锁等待本身已耗掉一个 timeout，不构成紧循环）。
+                _ev = getattr(self, "_flush_evt", None)
+                if _ev is not None:
+                    try:
+                        _ev.set()
+                    except Exception:                # noqa: BLE001
+                        pass
             raise
         finally:
             # issue #1011-1：落盘窗口**无条件**关闭——否则一次失败会让后续所有重载永久让路。
@@ -3163,7 +3182,16 @@ class MdCG:
         # 记录随分片被删，节点「在盘但索引不可见」（9·12 病灶：3 实例并发，
         # apply 留痕 7590 vs 盘面 ~1036 的成因链之一）。锁内 append 后，
         # 后续 clear 必然已包含本批记录。
-        with FileLock(self.index_path):
+        with FileLock(self.index_path) as _index_lock:
+            # issue #1011-1（第 4 点，2026-11-22）：`FileLock` 缺省非 strict —— 10 s 超时后
+            # **照常 append** 会让本批落进 compact/rebuild 的「read_all → clear」临界区之间，
+            # 随后被 clear 抹掉（节点在盘但索引不可见，9·12 病灶的成因链）。改为「拿不到锁就
+            # 不写」：整批退回脏集（由 `_flush_locked` 的解包路径保留，它本来就有失败回填语义），
+            # 并靠 `_flush_locked` 的补唤醒做有界重试。
+            if not getattr(_index_lock, "acquired", False):
+                self._flush_lock_busy = getattr(self, "_flush_lock_busy", 0) + 1
+                raise FlushLockBusy(
+                    "索引锁 %.0fs 未获，本批退回脏集待重试" % float(_index_lock.timeout))
             if self._log is None:
                 self._log = ShardedLog(self.index_log_dir)
             # N212：登记本进程分片（代际签名排除用）——必须在 append 之前落定，

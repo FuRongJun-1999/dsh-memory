@@ -164,12 +164,63 @@ def g4_compact_skips_without_lock():
        "G4 未获锁时跳过压紧（计数留痕）", repr(getattr(cg, "_compact_skipped_locked", 0)))
 
 
+def g5_flush_defers_when_lock_busy():
+    """落盘拿不到索引锁 ⇒ 本批**退回脏集**（不写盘、不丢），计数留痕，且补唤醒等重试。"""
+    cg, _root = _fresh("g5")
+    # 显式开后台落盘：补唤醒只在**异步模式**有意义（同步模式下重试发生在下一次显式 flush，
+    # 没有事件可置；G5d 二者都照实断言，不假装）。
+    cg._async_flush_forced = True
+    cg.add("seed_5", "v1", tags=["v1"], layer="knowledge")
+    cg.flush()
+    cg._request_flush()                      # 让 _flush_evt 真的建出来
+    cg.add("seed_5", "v2", tags=["v2"], layer="knowledge", override=True)
+    import md_cg.mdcg as _M
+    _orig = _M.FileLock
+    _ev = cg._flush_evt
+    if _ev is not None:
+        _ev.clear()                       # 先清，才能证明「补唤醒」真的发生了
+    class _NeverAcquired:
+        def __init__(self, *a, **k):
+            self.acquired = False
+            self.timeout = 10.0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    _M.FileLock = _NeverAcquired
+    raised = None
+    try:
+        cg.flush()
+    except _M.FlushLockBusy as exc:
+        raised = exc
+    finally:
+        _M.FileLock = _orig
+    ok(raised is not None, "G5a 未获索引锁 ⇒ 显式 FlushLockBusy（不再静默放行写盘）",
+       repr(raised))
+    ok("seed_5" in cg._dirty, "G5b 本批退回脏集（数据不丢，下一轮重试）",
+       list(cg._dirty.keys()))
+    ok(getattr(cg, "_flush_lock_busy", 0) == 1, "G5c 退让计数留痕（可观测）",
+       repr(getattr(cg, "_flush_lock_busy", None)))
+    ok(_ev is not None and _ev.is_set(), "G5d 补一次唤醒（无人再标脏也不会搁浅）",
+       repr(None if _ev is None else _ev.is_set()))
+    # 对照臂：锁正常时这一批照常落盘，且盘面拿到的是 v2（不是 v1）
+    cg.flush()
+    idx = cg._load_index()
+    _e = idx["nodes"].get("seed_5") or {}
+    ok("v2" in (_e.get("tags") or []), "G5e 对照：锁正常时重试落盘成功、盘面为最新版本",
+       repr((_e.get("tags") or [])))
+
+
 def main():
     print("issue #1011 并发一致性守卫")
     g1_reload_yields_to_flush_window()
     g2_rollback_keeps_newer_version()
     g3_reload_replays_inflight()
     g4_compact_skips_without_lock()
+    g5_flush_defers_when_lock_busy()
     print("守卫结果：%d 通过 / %d 失败" % (_ok, _bad))
     return 1 if _bad else 0
 
