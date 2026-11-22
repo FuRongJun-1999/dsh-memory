@@ -61,9 +61,32 @@ token 数。可选 `recent` 事件窗口保持原结构。`tokens_used` 自 issu
 注入面剔走 untrusted 条目后，`coverage_gaps` 会**重算**：原话轮次若正因 untrusted
 被剔走，`raw_not_included` 就是此刻的真话。
 
+## issue #1005 补充①：标题卡模式（`card_mode`）
+
+`recall(..., card_mode=True)`（缺省关，行为逐位不变）把 pack 条目压成**标题卡**：
+标题（正文首个非空行，截 60 字）/ 标签 / 日期 / 正文体量 / 取用方式
+（`cg(op=get, node_id=…)`）。正文留在库里按需二次取。
+
+动机来自测评端四臂复测：memu-memory 的 name/id/tag 卡让**同样预算铺开更多候选**，
+而灵枢的 pack 是正文直铺，预算先被长材料吃满（19 题材料覆盖只有 60.9%）。
+
+实测（6 条长记忆、同一库、同一预算）：
+
+| budget_tokens | 正文直铺 pack | 卡模式 pack |
+|---|---:|---:|
+| 400 | 1 条（3 条被跳过） | **5 条（0 跳过）** |
+| 600 | 3 条 | **6 条** |
+| 200 / 260 | 1–2 条 | 1–2 条（**无收益**） |
+
+小预算下没有收益：判读合同（196 token）先占住预算，卡省下的空间不够再装一条。
+这是这条改动的**真实边界**，别把它当成普适提速。
+
+卡只换呈现、不换召回：卡模式前后 pack 的 id 序列一致（守卫 C6 断言）。
+
 验证方式：
 
 ```sh
+python -X utf8 -m md_cg.test_recall_card_mode
 python -X utf8 -m md_cg.test_recall_reading_policy
 python -X utf8 -m md_cg.test_recall_metadata
 python -X utf8 -m md_cg.test_p2_mcp

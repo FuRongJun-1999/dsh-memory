@@ -5798,6 +5798,8 @@ def _dispatch(cg, name, args):
                              recent_limit=int(a.get("recent_limit") or 10),
                              query_expand=_make_query_expand(a.get("expand")),
                              session=a.get("session"),
+                             # issue #1005 补充①：标题卡（缺省关，行为逐位不变）
+                             card_mode=bool(a.get("card_mode")),
                              validity=a.get("validity"))
 
         _pack = _run_recall(paths)

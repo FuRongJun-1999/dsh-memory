@@ -73,6 +73,11 @@ _FIX_RE = re.compile(
     re.I | re.M)
 
 RRF_K = 60          # RRF 常数
+# issue #1005 补充①（测评端 2026-11-22 复测）：**标题卡**的标题截断长度。
+# 动机：21 题里的材料覆盖 60.9%，相当一部分是「预算被长材料吃满 ⇒ 条目根本进不来」。
+# 标题卡只带定位信息（标题/标签/日期/正文体量 + 取用方式），正文按需二次取，
+# 同一预算下能铺开更多候选（memu-memory 的 name/id/tag 卡即此形）。
+CARD_TITLE_MAX = 60
 # 每路能贡献多少候选（融合循环里的 `[:cap]` 截断）——**单一真源**（issue #139 R-2）：
 # `md_cg.bm25.LIMIT` 与 search_rrf 的融合 / 仅召回两处切片都引用本常量。
 RRF_PATH_TERM_CAP = 50
@@ -2921,6 +2926,40 @@ class MdCGOS(MdCG):
         from .topicagg import aggregate as _agg      # noqa: PLC0415 —— 聚合实现单点
         return _agg(pack, query, min_members=min_members, max_groups=max_groups)
 
+    @staticmethod
+    def card_of(node, content=None):
+        """把一条记忆压成**标题卡**（issue #1005 补充①）。
+
+        生效条件：`recall(..., card_mode=True)`（缺省关，行为逐位不变）。
+        卡内只放定位信息——标题（正文首个非空行）/ 标签 / 日期 / 正文体量 / 取用方式；
+        **不判定内容是否相关**（那是检索面的事），也**不截断事实**（正文按需取）。
+        返回卡的正文；调用方据此计 token 并装包。
+        """
+        text = (content if content is not None else (node.get("content") or "")).strip()
+        title = ""
+        for line in text.splitlines():
+            line = line.strip().lstrip("#").strip()
+            if line:
+                title = line[:CARD_TITLE_MAX]
+                break
+        fm = node.get("frontmatter") or {}
+        tags = fm.get("tags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        date = ""
+        for key in ("created_at_date", "valid_from", "created_at", "t"):
+            if fm.get(key):
+                date = str(fm[key])[:10]
+                break
+        parts = ["【卡】" + (title or "(无标题)")]
+        if tags:
+            parts.append("标签: " + ", ".join(str(x) for x in list(tags)[:6]))
+        if date:
+            parts.append("日期: " + date)
+        parts.append("正文 %d token，取用：cg(op=get, node_id=%s)"
+                     % (est_tokens(text), node.get("id")))
+        return "\n".join(parts)
+
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
@@ -2930,7 +2969,7 @@ class MdCGOS(MdCG):
                validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
                start_time=None, end_time=None, start_operator=None,
                end_operator=None, time_axis=None, view=None,
-               excerpt_strategy: str = "prefix", now=None):
+               excerpt_strategy: str = "prefix", now=None, card_mode: bool = False):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -3021,6 +3060,9 @@ class MdCGOS(MdCG):
         min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
         for node, score, qual, prov in items:
             content = node.get("content") or ""
+            if card_mode:
+                # 标题卡：先压成卡再计 token ⇒ 同一预算能装进更多条目（issue #1005 补充①）。
+                content = self.card_of(node, content)
             t = est_tokens(content)
             truncated = False
             excerpt = None
@@ -3073,6 +3115,8 @@ class MdCGOS(MdCG):
                      "tokens": t, "content": content,
                      "frontmatter": node.get("frontmatter"),
                      "provenance": prov, "metadata": metadata}
+            if card_mode:
+                entry["card"] = True
             if truncated:
                 entry["truncated"] = True
             if excerpt is not None:
