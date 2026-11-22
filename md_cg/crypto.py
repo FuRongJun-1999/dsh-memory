@@ -313,8 +313,38 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
         return None
     key = secrets.token_bytes(KEY_LEN)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(_b64e(key))
+    # issue #1009 第 5 项：首建主密钥曾用裸 open(path, "w") 写完再 chmod——
+    #   ① POSIX 上存在「已可读、尚未 0600」的窗口；
+    #   ② 两个进程并发首启会各写一把 KEK，后写者覆盖前者，先写者加密的数据成孤儿。
+    # 改为 O_CREAT|O_EXCL 原子独占创建（mode 在创建瞬间生效），并用缓冲区 fchmod 兜底：
+    # 拿不到独占权（FileExistsError）就**读回已有那把**，绝不覆盖。
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        # 并发首启：别人先建好了，用它那一把（覆盖会毁掉对方已加密的数据）。
+        with open(path, "r", encoding="utf-8") as f:
+            return _b64d(f.read().strip())
+    except OSError as e:
+        raise CryptoError(f"主密钥文件创建失败：{path}：{type(e).__name__}: {e}") from e
+    try:
+        try:
+            os.fchmod(fd, 0o600)
+        except (AttributeError, OSError):
+            pass                       # Windows 无 fchmod 语义，落到下面的 chmod 兜底
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(_b64e(key))
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+    except BaseException:
+        # 写失败不留半截密钥文件（否则下次启动读到空文件 → 解不开既有数据）。
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
+        raise
     # issue #326-⑤：收敛失败**不静默**（进 PERM_WARNINGS），也不阻断启动；
     # Windows 语义限制见 _tighten_perms 的注释（不得据返回值宣称已隔离）。
     _tighten_perms(path)
