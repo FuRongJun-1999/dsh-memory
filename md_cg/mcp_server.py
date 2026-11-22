@@ -2870,22 +2870,101 @@ def _time_intent_boost(res, q):
 #: `hottier.search` 只 load 不 ensure，全包无 ensure 调用点 ⇒ 恒 available=False，
 #: 于是 read 恒走主库分支，注入面按热层形态取值就永远拿不到（跨会话 knowledge 从未浮现）。
 #: 修法：首次用到热层时**后台建一次**，本轮先走主库（不阻塞），下一轮自然命中。
-_HOT_BUILD = {"started": False, "done": False, "error": None}
+#: 2026-11-22（#1002 回归修复）：原实现是**进程级终态位**——建过一次就永远 return False，
+#: 于是热层陈旧后没有任何入口会重建。改成「运行位 + 冷却位」：陈旧可再次触发，但有冷却防抖。
+_HOT_BUILD = {"started": False, "done": False, "error": None,
+              "running": False, "last": 0.0, "builds": 0, "fails": 0}
+_HOT_BUILD_COOLDOWN = 20.0      # 秒：两次重建尝试的最小间隔
+_HOT_STALE_OK = 120.0           # 秒：陈旧但未超此值仍可直答（附 meta.stale=true），后台重建
+                                # 0 = 严格模式（陈旧即回落主库）；env MDCG_HOT_STALE_OK_S 可调
+
+
+def _hot_state(cg):
+    """热层判据单点：返回 (是否存在, 是否新鲜, 热层内容)。
+
+    调用点不许各写一份「只判存在」的版本——#1002 的根因正是如此，is_fresh 的正确判据无人读。
+    热层三份 JSON 合计 ~13 MB、单次 load 实测 ~100 ms，故**只 load 一次**，把结果交给
+    is_fresh / search 复用（实测：各 load 一次会把读路径拖慢一倍）。
+    """
+    try:
+        from . import hottier as _ht
+        h = _ht.load(getattr(cg, "root", "") or "")
+        if not h:
+            return False, False, None
+        try:
+            return True, bool(_ht.is_fresh(cg, hot=h)), h
+        except Exception:
+            return True, False, h
+    except Exception:
+        return False, False, None
+
+
+def _age_of(hot):
+    """热层构建距今秒数。**说不清就返回 inf**，不读盘——用调用方已 load 的 hot。
+
+    built_at 缺失/为 0（旧格式 meta、手工损坏、未来精简字段）时，若直接做减法会得到
+    time.time() ≈ 1.79e9 的有限值：既污染 meta.built_age_s，又让「超宽限」恒真。
+    故显式判非有限与 <=0，一律 inf（= 老到说不清，按最老处理）。
+    """
+    import math
+    import time
+    try:
+        b = float(((hot or {}).get("meta") or {}).get("built_at") or 0.0)
+    except (TypeError, ValueError):
+        return float("inf")
+    if not math.isfinite(b) or b <= 0.0:
+        return float("inf")
+    return max(0.0, time.time() - b)
+
+
+def _hot_stale_ok():
+    """陈旧宽限（秒）。env 优先，缺省 _HOT_STALE_OK。
+
+    非有限值（inf/nan/1e999）与解析失败**一律回落缺省**：float("inf") 不抛异常，
+    若不夹紧，一个环境变量就能把「陈旧超宽限即回落主库」这道闸静默关掉（复审 P0-1 后半）。
+    """
+    import math
+    try:
+        v = float(os.environ.get("MDCG_HOT_STALE_OK_S", _HOT_STALE_OK))
+    except (TypeError, ValueError):
+        return _HOT_STALE_OK
+    if not math.isfinite(v) or v < 0:
+        return _HOT_STALE_OK
+    return v
 
 
 def _ensure_hot_async(cg):
-    """后台构建热层（幂等）。返回是否本次启动了构建。"""
+    """后台构建热层（可重入：陈旧会再次触发；冷却期与运行中不重复）。
+
+    返回是否本次启动了构建。hottier.ensure 自己判新鲜，故这里不 force。
+    """
     import threading
-    if _HOT_BUILD["started"]:
+    import time
+    if _HOT_BUILD["running"]:
         return False
+    now = time.time()
+    try:
+        if now - float(_HOT_BUILD["last"] or 0.0) < _HOT_BUILD_COOLDOWN:
+            return False
+    except (TypeError, ValueError):
+        pass
+    _HOT_BUILD["last"] = now
+    _HOT_BUILD["running"] = True
+    _HOT_BUILD["done"] = False          # 新一轮启动即失效旧 done，否则 wait 会读到残留态
     _HOT_BUILD["started"] = True
     def _job():
         try:
             from . import hottier as _ht
             _ht.ensure(cg)
             _HOT_BUILD["done"] = True
+            _HOT_BUILD["builds"] = int(_HOT_BUILD.get("builds") or 0) + 1
+            _HOT_BUILD["fails"] = 0          # 成功即清零
+            _HOT_BUILD["error"] = None
         except Exception as exc:      # noqa: BLE001 —— 热层失败不得影响读路径
             _HOT_BUILD["error"] = "%s: %s" % (type(exc).__name__, exc)
+            _HOT_BUILD["fails"] = int(_HOT_BUILD.get("fails") or 0) + 1
+        finally:
+            _HOT_BUILD["running"] = False
     threading.Thread(target=_job, name="mdcg-hot-build", daemon=True).start()
     return True
 
@@ -2906,28 +2985,55 @@ def _try_hot_first(cg, a, q):
             return None
         from . import hottier as _ht
         k = _int_arg(a, "k", 20)
-        # 热层未构建 ⇒ 后台建一次，本轮回落主库（PR #983 根因：从无 ensure 调用点）
-        if not _ht.load(getattr(cg, "root", "") or ""):
-            if not _HOT_BUILD["started"]:
-                try:
-                    _ensure_hot_async(cg)
-                except Exception:
-                    pass
-            return None
-        res = _ht.search(cg, q, k=k)
+        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
+        # 2026-11-22（#1002）：判据从「存在」改成「新鲜」。is_fresh 一直在正确返回 False，
+        # 只是没人读它——于是陈旧热层会直答「形状对、时间窗过期」的结果（比查不到更难发现）。
+        _exists, _fresh, _hot = _hot_state(cg)
+        _age = _age_of(_hot) if _exists else None
+        _rebuild = False
+        if not _exists or not _fresh:
+            try:
+                # 不存在 ⇒ 首建；陈旧 ⇒ 再建（冷却防抖，非进程终态）
+                _rebuild = bool(_ensure_hot_async(cg))
+            except Exception:
+                pass
+            if not _exists:
+                return None                # 首建：本轮回落主库（PR #983 口径不变）
+            # scope=hot 是**使用者明示「只看热层」**（UI 首屏）——那种场合 30 秒白屏比陈旧更糟，
+            # 故不拦，但必须自曝陈旧度（下面的 stale/built_age_s/hint）。
+            # 重建连续失败（≥3 次）⇒ 不再打回主库：否则热层一旦确定性失败，每次 read 都吃
+            # 24 秒主库，比「旧答案」更糟（#1002 复审 P1-1）。改为**带标注的陈旧直答**。
+            _degraded = int(_HOT_BUILD.get("fails") or 0) >= 3
+            if (not _hot_only) and (not _degraded) and _age is not None and _age > _hot_stale_ok():
+                return None                # 陈旧超宽限：宁可慢一轮，不给过期答案
+        _stale = bool(_exists and not _fresh)
+        _degraded = bool(_stale and int(_HOT_BUILD.get("fails") or 0) >= 3)
+        import math
+        _age_s = None
+        try:
+            if _age is not None and math.isfinite(float(_age)):
+                _age_s = round(float(_age), 1)
+        except (TypeError, ValueError):
+            _age_s = None
+        _age_txt = ("%.0f 秒" % _age_s) if _age_s is not None else "未知时长"
+        # 冷却期/未启动时不能说「重建中」（复审 P3：不自夸）
+        _tail = ("，且后台重建连续失败，这是带标注的旧快照" if _degraded
+                 else ("，后台重建中" if _rebuild else "，重建待冷却或未能启动"))
+        _hint_stale = ("命中本地热层（**已陈旧 %s**%s；要最新请 hot_first=false 查主库）"
+                       % (_age_txt, _tail))
+        res = _ht.search(cg, q, k=k, hot=_hot)   # 复用已 load 的热层（省一次 ~100 ms）
         items = res.get("items") or []
         meta = res.get("meta") or {}
         top = max([float(i.get("hot_score") or 0) for i in items] or [0.0])
         # scope=hot（2026-11-14，UI 明示「只看热层」）：跳过分数门槛，**宁给弱结果也不查主库**。
         # 用于 UI 首屏：用户要的是「立刻有东西看」，弱命中比 30 秒白屏好；
         # meta.hot_only + hint 明示范围，避免被误读为全库结果。
-        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
         _browse = False
         if _hot_only and not items:
             # 首屏浏览模式：查询词在热层无命中时，**按热层优先级出一批**（自我/锚点/近期/高重要度），
             # 而不是让 UI 白屏 30 秒。meta.mode=browse 明示这不是检索命中。
             try:
-                _h = _ht.load(cg.root) or {}
+                _h = _hot or {}
                 _nodes = list((_h.get("nodes") or {}).values())
                 _w = {"self": 0.5, "anchor": 0.4}
                 _nodes.sort(key=lambda n: (_w.get(str(n.get("layer") or ""), 0.0)
@@ -2949,8 +3055,18 @@ def _try_hot_first(cg, a, q):
                 "meta": {"hot_only": _hot_only, "mode": ("browse" if _browse else "match"),
                          "hot_first": {"used": True, "hits": len(items), "top": top,
                                        "candidates": meta.get("candidates"),
-                                       "built_at": meta.get("built_at")}},
-                "hint": "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库"}
+                                       "built_at": meta.get("built_at"),
+                                       # #1002：陈旧度必须外露——使用者要能看出「这份热层多老」
+                                       "stale": _stale,
+                                       # None 而非 inf：json.dumps 会写出裸 token Infinity，
+                                       # 那不是合法 JSON，JS 侧 JSON.parse 直接抛错（复审 P0-1）
+                                       "built_age_s": (_age_s if _age_s is not None else None),
+                                       "stale_reason": ("rebuild_failed" if _degraded
+                                                        else ("stale_window" if _stale else None)),
+                                       # 宽限值外露：调用方可自己算「这次陈旧算不算越界」
+                                       "grace_s": _hot_stale_ok()}},
+                "hint": (_hint_stale if _stale else
+                         "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库")}
     except Exception:
         return None   # 热层任何异常都回落主库，不影响读路径
 
@@ -3456,16 +3572,10 @@ def _cg_dispatch(cg, a):
                                         for n, s, q2 in _tres0]}
             except Exception:
                 pass
-        # 热层懒建（2026-11-17）：与路由无关——理论/自指查询会绕过热层
+        # 热层懒建/续建（2026-11-17 起；2026-11-22 #1002：判据从「存在」改「新鲜」，并去掉重复粘贴）
         try:
-            from . import hottier as _ht0
-            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
-                _ensure_hot_async(cg)
-        except Exception:
-            pass
-        try:
-            from . import hottier as _ht0
-            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
+            _e0, _f0, _h0 = _hot_state(cg)
+            if not _e0 or not _f0:
                 _ensure_hot_async(cg)
         except Exception:
             pass

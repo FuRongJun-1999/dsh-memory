@@ -258,7 +258,7 @@ def _root_of(x):
     return x if isinstance(x, str) else str(getattr(x, "root", "") or "")
 
 
-def is_fresh(x, ttl_s=None) -> bool:
+def is_fresh(x, ttl_s=None, hot=None) -> bool:
     """热层是否新鲜（2026-11-14 重写）。
 
     判据优先级：
@@ -269,7 +269,9 @@ def is_fresh(x, ttl_s=None) -> bool:
          **只用于兜底**，避免在拿不到指纹时每次重建（实测每轮多 3 秒）。
     """
     root = _root_of(x)
-    h = load(root)
+    # hot 可传入已 load 的结果：热层三份 JSON 合计 ~13 MB，单次 load 实测 ~100 ms，
+    # 判「新鲜」与「检索」若各 load 一次，读路径会被判据本身拖慢一倍（2026-11-22 实测）。
+    h = hot if hot is not None else load(root)
     if not h:
         return False
     meta = h["meta"] or {}
@@ -304,10 +306,13 @@ def ensure(cg, force=False, **kw):
     return dict(build(cg, **kw), reused=False)
 
 
-def search(cg, query: str, *, k: int = 10, root: str = "") -> dict:
-    """热层词法检索。返回 {items, meta}；未命中返回空列表（不抛错）。"""
+def search(cg, query: str, *, k: int = 10, root: str = "", hot=None) -> dict:
+    """热层词法检索。返回 {items, meta}；未命中返回空列表（不抛错）。
+
+    hot：可传入已 load 的热层，避免重复反序列化（单次 ~100 ms，见 is_fresh 注释）。
+    """
     root = root or getattr(cg, "root", "")
-    h = load(root)
+    h = hot if hot is not None else load(root)
     if not h:
         return {"items": [], "meta": {"available": False}}
     q = tokens(query)
