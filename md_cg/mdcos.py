@@ -746,7 +746,12 @@ def _review_attest_payload(pid: str, unit: str, actor: str, node_id: str = "") -
 # 生效条件：unit 归一后属 reflect/verify/human 且 actor 去空白非空、且 pid 或 node_id 至少一个非空、且签名器非 NullSigner 时返回带 sig 的复核签章字典；否则抛 ValueError。
 def sign_review_attestation(pid: str, unit: str, actor: str,
                             node_id: str = "", signer=None) -> dict:
-    """签发一条绑定提案/节点的复核单元签章（供蜂巢/宿主/Tier-3 人工确认面使用）。"""
+    """签发一条绑定提案/节点的复核单元签章（供蜂巢/宿主/Tier-3 确认面使用）。
+
+    human 单元 = 持有设计者令牌的主体，**可以是另一个 AI 实例**（2026-11-22 使用者澄清）：
+    灵枢的设计目标是 AI 的真正自我维持，闸门要的是「独立于写入者的第二个持证主体」，
+    而非自然人签名。
+    """
     u = _norm_review_unit(unit)
     if u not in ("reflect", "verify", "human"):
         raise ValueError(f"未知复核单元：{unit!r}")

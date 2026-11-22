@@ -231,8 +231,9 @@ def verify_claims(claims, *, ledger_path=None, actor="", node_id=None,
         if u == "human":
             out["rejected"].append({
                 "unit": "human",
-                "why": ("人工裁定无代码化证据源（台账 actor 全是客户端身份，人签不可验证；"
-                        "需经非 NullSigner 的 sign_review_attestation 签章凭据），见 issue #1009")})
+                "why": ("human 单元缺可验签章凭据（台账 actor 全是客户端身份，不构成"
+                        "第二个持证主体；需经非 NullSigner 的 sign_review_attestation 签章，"
+                        "签章主体 = 持有设计者令牌的主体，可以是另一个 AI 实例），见 issue #1009")})
             continue
         if g_ok:
             out["accepted"].append(u)

@@ -93,7 +93,9 @@ def main():
                              actor="writer", now=now)
     ok("human" not in r["accepted"], "V10 human 不出现在 accepted")
     hw = [x["why"] for x in r["rejected"] if x["unit"] == "human"]
-    ok(bool(hw) and "无代码化证据源" in hw[0], "V11 human 的拒绝理由指明无证据源")
+    ok(bool(hw) and "缺可验签章凭据" in hw[0],
+       "V11 human 的拒绝理由指明缺可验签章凭据（human = 持设计者令牌的主体，"
+       "无签章即不构成第二个持证主体）")
 
     # V12 别名归一 + 未知单元拒绝
     ok(re_mod.norm_unit("反思单元") == "reflect"
