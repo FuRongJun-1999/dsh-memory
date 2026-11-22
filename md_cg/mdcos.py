@@ -8202,6 +8202,29 @@ class MdCGSecure(MdCGOS):
                 if uv.get("reason") != "unverified_self_attestation":
                     unverified_crypto.append(uv)
 
+        # 2026-11-22 使用者裁定（原话「也只有自我层，结构层不行，这是需要外部协作确认的」）：
+        # 结构层（tier 2）的 human 必须是**外部协作确认**——进程内默认 signer（hmac-local）
+        # 签的 human 章在结构层一律不采信。理由：结构层是规则/契约/判据面，若这条也能自签，
+        # 任何能跑代码的调用方都能重写闸门本身；自我层（tier 3）不受此限——AI 的验证单元
+        # 拿到证据就能做，代价由自我层自己承担。
+        if tier == 2 and proof_map.get("human"):
+            try:
+                from . import signer as _sg
+                _local_signers = {str(_sg.DEFAULT_SIGNER), "null", "unknown"}
+            except Exception:            # noqa: BLE001 —— 拿不到签名器清单按最严处理
+                _local_signers = {"hmac-local", "null", "unknown"}
+            _h_proof = proof_map.get("human") or {}
+            if str(_h_proof.get("signer") or "unknown") in _local_signers:
+                proof_map.pop("human", None)
+                claims_for_verify = [c for c in claims_for_verify
+                                     if not (isinstance(c, str)
+                                             and _norm_review_unit(c) == "human")]
+                unverified_crypto.append({
+                    "unit": "human",
+                    "reason": ("structural_needs_external_signer（结构层需外部协作确认："
+                               "human 章须由部署侧工程 signer 产出，进程内 hmac-local 不算）"),
+                })
+
         from . import review_evidence as _re
         auth_actor = self._authenticated_actor()
         try:

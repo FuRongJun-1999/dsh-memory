@@ -45,11 +45,23 @@ LAYER_TIERS = {
     "anchor": 3,       # 锚点层：不可遗忘的身份锚（失忆=毁灭性）
 }
 
-#: 每档在「有复核通道」时必须具备的复核单元；tier 3 额外要求人工裁定。
+#: 每档在「有复核通道」时必须具备的复核单元。
+#:
+#: 2026-11-22 使用者裁定（原话）：「复核验证让 ai 的验证单元拿到证据做是可以。
+#: 也只有自我层，结构层不行，这是需要外部协作确认的。……所以修改自我，是必须谨慎的。」
+#: ⇒ 两档的 human 单元**来源不同**：
+#:   · tier 3（self / anchor，自我层·锚点层）：进程内签章即可——AI 的验证单元拿到证据
+#:     就能做，代价与风险由自我层自己承担（谨慎 ≠ 不可达）；
+#:   · tier 2（structural，结构层）：human 必须是**外部协作确认**——签章须由部署侧配置的
+#:     工程 signer（MDCG_SIGNER / MDCG_SIGNER_MODULE）产出，进程内默认 hmac-local 不算。
+#:     理由：结构层是规则、契约与判据面，改它等于改「谁可以写什么」的判据本身；
+#:     若这条也能自签，任何能跑代码的调用方都能重写闸门自己。
+#: 该来源差异由 MdCGOS._resolve_write_reviewers 的 structural 过滤落实（见
+#: test_issue1009_structural_external.py）。
 REQUIRED_REVIEWERS = {
     0: (),
     1: ("reflect",),
-    2: ("reflect", "verify"),
+    2: ("reflect", "verify", "human"),
     3: ("reflect", "verify", "human"),
 }
 

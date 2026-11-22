@@ -453,13 +453,38 @@ def main():
         # ==============================================================
         print("== D: 正对照（统一三源 proof ∪ ledger ∪ grant 与 Tier-3 人工签章救回）")
         # ==============================================================
-        # D1: Tier-2 structural with distinct reflect + verify tokens over MCP (proof)
+        # D1a: Tier-2 structural with仅双令牌、无外部协作确认 ⇒ 拒
+        # （2026-11-22 使用者裁定：「也只有自我层，结构层不行，这是需要外部协作确认的」）
         pid_d1 = cg_alice_tok.propose("d1_struct", _CCG_BODY + " D1", layer="structural")
-        r_d1 = mcp_server.call_tool(cg_bob_tok, "mdcg_review_decide", {
-            "pid": pid_d1, "decision": "accept",
-            "decided_by": "audit-alias",
-            "reviewed_by": [{"token": tok_reflect_ok}, {"token": tok_verify_ok}],
-        })
+        d1a_blocked = False
+        try:
+            mcp_server.call_tool(cg_bob_tok, "mdcg_review_decide", {
+                "pid": pid_d1, "decision": "accept",
+                "reviewed_by": [{"token": tok_reflect_ok}, {"token": tok_verify_ok}],
+            })
+        except AccessDenied as exc:
+            d1a_blocked = "human" in str(exc) or "分层复核闸" in str(exc)
+        ok(d1a_blocked and cg_bob_tok.get("d1_struct") is None,
+           "D1a 结构层仅合法双令牌（无外部协作确认）仍被写门控拒绝")
+
+        # D1b: Tier-2 structural + 工程侧 signer 签的 human 章 ⇒ 通过（外部协作确认）
+        from md_cg import signer as _sg_mod
+        if "eng-ext" not in _sg_mod.list_signers()["signers"]:
+            class _ExtSigner(_sg_mod.HmacLocalSigner):
+                name = "eng-ext"
+            _sg_mod.register_signer(
+                "eng-ext", lambda key_file=None: _ExtSigner(key=b"eng-ext-test-key"))
+        os.environ["MDCG_SIGNER"] = "eng-ext"
+        try:
+            _human_d1 = sign_review_attestation(pid_d1, "human", "eng-op")
+            r_d1 = mcp_server.call_tool(cg_bob_tok, "mdcg_review_decide", {
+                "pid": pid_d1, "decision": "accept",
+                "decided_by": "audit-alias",
+                "reviewed_by": [{"token": tok_reflect_ok},
+                                {"token": tok_verify_ok}, _human_d1],
+            })
+        finally:
+            os.environ["MDCG_SIGNER"] = "hmac-local"
         dec_text = open(cg_bob_tok.decisions_log, encoding="utf-8").read()
         d1_recs = [r for r in cg_bob_tok.decisions() if r.get("pid") == pid_d1]
         d1_node = cg_bob_tok.get("d1_struct")
@@ -467,10 +492,10 @@ def main():
            and d1_node is not None
            and bool(d1_recs) and d1_recs[-1].get("actor") == "bob"
            and d1_recs[-1].get("decided_by_claimed") == "audit-alias"
-           and len(d1_recs[-1].get("verified_reviewers") or []) == 2
+           and len(d1_recs[-1].get("verified_reviewers") or []) >= 2
            and tok_reflect_ok not in dec_text and tok_verify_ok not in dec_text
            and "reviewed_by" not in (d1_node.get("frontmatter") or {}),
-           "D1 合法独立 reflect+verify 令牌通过结构层裁决，actor=bob、令牌不落盘", r_d1)
+           "D1b 结构层双令牌 + 工程侧 signer 人工章通过裁决，actor=bob、令牌不落盘", r_d1)
 
         # D2: Tier-3 self with valid reflect+verify tokens + raw unsigned 'human' -> still denied!
         d2_blocked = False

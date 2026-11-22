@@ -53,12 +53,17 @@ def main():
     ok(w.decide_write('knowledge', reviewers=[], channels=('hive',),
                       mode='enforce')['decision'] == 'require_review',
        'C2 知识层缺反思 ⇒ require_review')
-    ok(w.decide_write('structural', reviewers=['reflect'], channels=('subagent',),
-                      mode='enforce')['missing'] == ['verify'],
-       'C3 结构层缺验证单元被点名')
+    ok(set(w.decide_write('structural', reviewers=['reflect'],
+                          channels=('subagent',), mode='enforce')['missing'])
+       == {'verify', 'human'},
+       'C3 结构层缺验证单元与人工确认均被点名')
     ok(w.decide_write('structural', reviewers=['reflect', 'verify'],
+                      channels=('subagent',), mode='enforce')['decision'] == 'require_review',
+       'C4 结构层双单元齐备仍不够（2026-11-22 裁定：结构层须外部协作确认 ⇒ 还要 human）')
+    ok(w.decide_write('structural', reviewers=['reflect', 'verify', 'human'],
                       channels=('subagent',), mode='enforce')['decision'] == 'allow',
-       'C4 结构层双单元齐备 ⇒ allow')
+       'C4b 结构层三单元齐备 ⇒ allow（human 的外部来源由 mdcos 层过滤，见 '
+       'test_issue1009_structural_external）')
     ok(w.decide_write('self', reviewers=['reflect', 'verify'], channels=('team',),
                       mode='enforce')['decision'] == 'require_review',
        'C5 自我层双单元仍不够（须人工裁定）')
