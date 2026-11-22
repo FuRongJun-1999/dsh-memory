@@ -144,7 +144,7 @@ _TABLE_ROWS = (
     ("sleep", "gitdir", "", "unset", "空 → state_root()/sleep/lib.git"),
     ("sleep", "shadow", "", "unset", "空 → state_root()/sleep/shadow"),
     ("sleep", "scrub_apply", "1", "on",
-     "第④步去污染**实改**闸（缺省关：只盘点不落盘）"),
+     "第④步去污染**实改**闸（缺省开：真实落盘；置 0 退回只盘点）"),
     ("sustain", "auto_heal", True, "on", "自愈档"),
     ("sustain", "auto_scrub", True, "on", "自净档"),
     ("sustain", "auto_evolve", True, "on", "演化档"),
