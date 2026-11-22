@@ -462,7 +462,7 @@ TOOLS = [
                           k=_p("integer", "候选上限"), context=_p("object", "当前情境条件空间"),
                           include_work=_p("boolean", "是否含工具输出/命令/编辑（默认否）"),
                           fuzzy=_p("boolean", "启用第 5 路模糊召回（分级隶属度，默认否）"),
-                          bm25=_p("boolean", "用 BM25 倒排词频评分替换词法路（默认否；仍经可见性与门控）"),
+                          bm25=_p("boolean", "用 BM25 倒排词频评分替换词法路（缺省按查询脚本自适应：纯英文走 bm25、含汉字走 lexical；显式 true/false 强制覆盖。仍经可见性与门控）"),
                          semantic=_p("boolean", "启用第 6 路条件空间结构化匹配"
                                                "（白箱语义路：CCG 生效条件 + condition_space "
                                                "四槽，不适用条件命中即剔除；默认否）"),
@@ -5357,6 +5357,45 @@ def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
             else None)
 
 
+#: CJK 判据（查询里出现任一汉字即视为中文查询）。
+_CJK_RE = None
+
+
+def _has_cjk(text):
+    """查询是否含汉字（bm25 的 CJK 分词是「连续汉字 = 一个 token」，见 md_cg/bm25.py）。"""
+    global _CJK_RE
+    if _CJK_RE is None:
+        import re
+        _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+    return bool(_CJK_RE.search(text or ""))
+
+
+# 生效条件：query 可为任意字符串（None/空串按「无汉字」处理）、flag ∈ {None, True, False}、has_rrf 为布尔；返回是否使用 bm25 路；不做 IO、不看环境变量。
+def recall_use_bm25(query, flag=None, has_rrf=True):
+    """`mdcg_recall` 的 bm25 路取用判据（唯一单点，供守卫断言，issue #999）。
+
+    实测依据（两处，方向相反，故不能全局翻开关）：
+      * **英文**：LongMemEval-S 419 题（只索引 user turn）缺省六路 R@5 0.4916，
+        把 lexical 换成 bm25 后 0.8234（+33.2pp）；
+      * **中文**：CJK 探针（memory-bench-1000）lexical prefix 100% / mid 99.2%，
+        同口径 bm25 只有 89.2% / 92.5% —— 因为 `md_cg/bm25.py` 的 _WORDS 把
+        「一段连续汉字」当**一个 token**（不做中文分词），查询的汉字段必须与
+        正文某段逐字相同才命中；lexical 路子串匹配，天然适配中文。
+
+    判据：缺省按**查询脚本**自适应（各走各的最优路），显式传参可强制覆盖：
+      flag=None → 纯拉丁查询用 bm25，含汉字的用 lexical；
+      flag=True → 强制 bm25；flag=False → 强制 lexical。
+    has_rrf=False（cg 无 search_rrf）时恒 False——回退路径必须仍能召回。
+    """
+    if not has_rrf:
+        return False
+    if flag is not None:
+        return bool(flag)
+    if not (query or "").strip():
+        return False          # 空查询：没有词可打分，别白建一次 bm25 索引
+    return not _has_cjk(query)
+
+
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
 # issue #86（2026-10-09 DSH 端）：**令牌运行期复检**。
 # 背景：令牌只在服务启动时 verify_token 一次（_identity），之后全程用缓存的
@@ -5692,10 +5731,13 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        # recall 面保持词法默认：其「缺省六路」与 sum/max 融合口径都是**已登记契约**
-        # （test_time_core_lint G8b/G8c、test_p3 A2）。BM25 默认开只落在检索面
-        # （mdcg_search / cg(op=read) 回退），recall 仍 opt-in。
-        use_bm25 = bool(a.get("bm25")) and hasattr(cg, "search_rrf")
+        # issue #999（2026-11）：bm25 不再一刀切 opt-in，而是**按查询脚本自适应**——
+        # 判据单点在 recall_use_bm25()，那里写着两处实测（英文 +33.2pp、中文 -7~11pp）
+        # 与「为什么不能全局翻开关」。中文查询仍落到缺省六路（paths=None），
+        # 故「缺省六路」与 sum/max 融合口径这两条已登记契约
+        # （test_time_core_lint G8b/G8c、test_p3 A2）对中文调用逐字不变。
+        use_bm25 = recall_use_bm25(a.get("query"), a.get("bm25"),
+                                   hasattr(cg, "search_rrf"))
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
@@ -5738,23 +5780,38 @@ def _dispatch(cg, name, args):
         # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
         # recall 是**进上下文**的通路，故此处把带 untrusted 标记的条目剔出 pack，
         # 并在 meta 记数。检索面（mdcg_search）仍可查见它们——查得到但不进提示词。
-        _pack = cg.recall(a.get("query", ""),
-                         # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
-                         budget_tokens=int(a["budget_tokens"])
-                         if a.get("budget_tokens") is not None else 1200,
-                         max_item_tokens=int(a["max_item_tokens"])
-                         if a.get("max_item_tokens") is not None
-                         else _DEFAULT_MAX_ITEM,
-                         excerpt_strategy=a.get("excerpt_strategy") or "prefix",
-                         k=_int_arg(a, "k", 20), context=a.get("context"),
-                         include_work=bool(a.get("include_work")),
-                         paths=paths, fusion=fusion,
-                         goal_text=a.get("goal"),
-                         include_recent=bool(a.get("include_recent")),
-                         recent_limit=int(a.get("recent_limit") or 10),
-                         query_expand=_make_query_expand(a.get("expand")),
-                         session=a.get("session"),
-                         validity=a.get("validity"))
+        def _run_recall(_paths):
+            # 生效条件：_paths 为路名元组或 None（None=mdcos 缺省六路）；返回 cg.recall 的召回包。
+            return cg.recall(a.get("query", ""),
+                             # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
+                             budget_tokens=int(a["budget_tokens"])
+                             if a.get("budget_tokens") is not None else 1200,
+                             max_item_tokens=int(a["max_item_tokens"])
+                             if a.get("max_item_tokens") is not None
+                             else _DEFAULT_MAX_ITEM,
+                             excerpt_strategy=a.get("excerpt_strategy") or "prefix",
+                             k=_int_arg(a, "k", 20), context=a.get("context"),
+                             include_work=bool(a.get("include_work")),
+                             paths=_paths, fusion=fusion,
+                             goal_text=a.get("goal"),
+                             include_recent=bool(a.get("include_recent")),
+                             recent_limit=int(a.get("recent_limit") or 10),
+                             query_expand=_make_query_expand(a.get("expand")),
+                             session=a.get("session"),
+                             validity=a.get("validity"))
+
+        _pack = _run_recall(paths)
+        # issue #999 兜底：脚本自适应把 bm25 选上时（bm25 缺省=按脚本判），若该路在
+        # 本库上一条都召不回（索引未建/词表不含该语言/索引损坏），退回 lexical 再跑
+        # 一次——宁可慢一倍，也不要「换了个更强的路结果召回归零」。显式 bm25=true/false
+        # 不走兜底：那是使用者明确要求的口径，静默改道等于骗人。
+        if (use_bm25 and a.get("bm25") is None
+                and isinstance(_pack, dict) and not (_pack.get("pack") or [])):
+            _lex = tuple("lexical" if _p == "bm25" else _p for _p in (paths or ()))
+            _pack2 = _run_recall(_lex)
+            if isinstance(_pack2, dict) and (_pack2.get("pack") or []):
+                _pack = _pack2
+                _pack.setdefault("meta", {})["bm25_fallback"] = "lexical"
         # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
         # recall 是进上下文的通路，故把带 untrusted 标记的条目剔出 pack 并记数；
         # 检索面（mdcg_search）仍可查见——查得到，但不进提示词。

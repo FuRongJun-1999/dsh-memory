@@ -56,6 +56,7 @@ llm-adapter-poc/
 # md_cg 运行时数据与产物（可重跑 migrate 再生，不入库）
 /_md_cg_p*/
 /_md_cg_membench/
+/_md_cg_membench_*/
 /_md_cg_eval_*/
 /wisdom-book-cloud-new.db
 /md_cg/__pycache__/
