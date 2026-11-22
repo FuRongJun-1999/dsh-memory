@@ -7,6 +7,7 @@ postings; first builds still read every eligible Markdown source file.
 """
 from __future__ import annotations
 
+from bisect import bisect_left, insort
 from collections import Counter, OrderedDict, defaultdict, deque
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -14,6 +15,7 @@ import hashlib
 import heapq
 from itertools import islice
 import math
+from operator import itemgetter
 import os
 import re
 import time
@@ -206,6 +208,28 @@ def _build_reads(cg, entries, report, stream):
                     release(entry, existed)
 
 
+class _RevStr:
+    """Reverse-ordered string wrapper for min-heap eviction of largest doc_id."""
+    __slots__ = ("s",)
+
+    def __init__(self, s):
+        self.s = s
+
+    def __lt__(self, other):
+        return self.s > other.s
+
+    def __gt__(self, other):
+        return self.s < other.s
+
+    def __eq__(self, other):
+        return self.s == other.s
+
+
+_CURSOR_KEY = itemgetter(0, 2)
+_ORIG_KEY = itemgetter(2)
+_FLOAT_EPS = 2.220446049250313e-16
+
+
 class BM25Index:
     def __init__(self):
         self.clear()
@@ -221,7 +245,10 @@ class BM25Index:
         self.version = 0
         self.rank_version = -1
         self.block_paths = self.ordinals = self.block_best = None
+        self.block_best_suffix = None
+        self.best_tie_blocks = ()
         self.term_blocks = OrderedDict()
+        self.term_block_meta = {}
         self.block_updates = {}
         self.block_dirty = {}
         self.block_holes = 0
@@ -243,13 +270,17 @@ class BM25Index:
                 del self.post[term]
                 del self.terms[term]
                 self.term_blocks.pop(term, None)
+                self.term_block_meta.pop(term, None)
                 self.block_dirty.pop(term, None)
 
     def _reset_blocks(self):
         """Discard only derived bounds/layout, retaining current TF statistics."""
         self.block_paths = self.ordinals = self.block_best = None
+        self.block_best_suffix = None
+        self.best_tie_blocks = ()
         self.rank_version = -1
         self.term_blocks.clear()
+        self.term_block_meta.clear()
         self.block_updates.clear()
         self.block_dirty.clear()
         self.block_holes = 0
@@ -414,25 +445,75 @@ class BM25Index:
         self.block_policy.move_to_end(term)
         return self.block_policy[term]
 
+    def _term_meta(self, blocks):
+        sorted_ids = sorted(blocks)
+        min_len_by_tf = {}
+        block_best = self.block_best
+        for block, (_bitmap, pairs) in blocks.items():
+            b_tie = block_best[block]
+            for tf, length in pairs:
+                prev = min_len_by_tf.get(tf)
+                if (prev is None or length < prev[0]
+                        or (length == prev[0] and b_tie < block_best[prev[1]])):
+                    min_len_by_tf[tf] = (length, block)
+        return [sorted_ids, min_len_by_tf]
+
     def _blocks(self, posting, term, report=None):
         cached = self.term_blocks.get(term)
         if cached is not None:
-            for block in self.block_dirty.pop(term, ()):
-                start = block * BLOCK_SIZE
-                paths = self.block_paths[start:start + BLOCK_SIZE]
-                bitmap, pairs = 0, set()
-                for bit, path in enumerate(paths):
-                    tf = posting.get(path) if path is not None else None
-                    if tf is not None:
-                        bitmap |= 1 << bit
-                        pairs.add((tf, self.docs[path][2]))
-                if bitmap:
-                    cached[block] = (bitmap, tuple(pairs))
-                else:
-                    cached.pop(block, None)
-                if report is not None:
-                    report["block_repaired_blocks"] += 1
-                    report["block_update_slots"] += len(paths)
+            dirty_blocks = self.block_dirty.pop(term, ())
+            if dirty_blocks:
+                meta = self.term_block_meta.get(term)
+                sorted_ids = meta[0] if meta is not None else None
+                min_len_by_tf = meta[1] if meta is not None else None
+                recompute_min = False
+                block_best = self.block_best
+                for block in dirty_blocks:
+                    old_entry = cached.get(block)
+                    if old_entry is not None and min_len_by_tf is not None and not recompute_min:
+                        for tf, length in old_entry[1]:
+                            prev = min_len_by_tf.get(tf)
+                            if prev is not None and (prev[1] == block or prev[0] == length):
+                                recompute_min = True
+                                break
+                    start = block * BLOCK_SIZE
+                    paths = self.block_paths[start:start + BLOCK_SIZE]
+                    bitmap, pairs = 0, set()
+                    for bit, path in enumerate(paths):
+                        tf = posting.get(path) if path is not None else None
+                        if tf is not None:
+                            bitmap |= 1 << bit
+                            pairs.add((tf, self.docs[path][2]))
+                    if bitmap:
+                        cached[block] = (bitmap, tuple(pairs))
+                        if sorted_ids is not None and old_entry is None:
+                            insort(sorted_ids, block)
+                        if min_len_by_tf is not None and not recompute_min:
+                            b_tie = block_best[block]
+                            for tf, length in cached[block][1]:
+                                prev = min_len_by_tf.get(tf)
+                                if (prev is None or length < prev[0]
+                                        or (length == prev[0] and b_tie < block_best[prev[1]])):
+                                    min_len_by_tf[tf] = (length, block)
+                    else:
+                        cached.pop(block, None)
+                        if sorted_ids is not None and old_entry is not None:
+                            pos = bisect_left(sorted_ids, block)
+                            if pos < len(sorted_ids) and sorted_ids[pos] == block:
+                                del sorted_ids[pos]
+                    if report is not None:
+                        report["block_repaired_blocks"] += 1
+                        report["block_update_slots"] += len(paths)
+                if recompute_min and meta is not None:
+                    new_min = {}
+                    for b_id, (_bm, b_pairs) in cached.items():
+                        b_tie = block_best[b_id]
+                        for tf, length in b_pairs:
+                            prev = new_min.get(tf)
+                            if (prev is None or length < prev[0]
+                                    or (length == prev[0] and b_tie < block_best[prev[1]])):
+                                new_min[tf] = (length, b_id)
+                    meta[1] = new_min
             self.term_blocks.move_to_end(term)
             return cached
         if report is not None:
@@ -447,8 +528,10 @@ class BM25Index:
         blocks = {block: (bitmap, tuple(pairs)) for block, (bitmap, pairs) in blocks.items()}
         if len(posting) >= BLOCK_THRESHOLD:
             self.term_blocks[term] = blocks
+            self.term_block_meta[term] = self._term_meta(blocks)
             while len(self.term_blocks) > BLOCK_CACHE_TERMS:
                 evicted, _ = self.term_blocks.popitem(last=False)
+                self.term_block_meta.pop(evicted, None)
                 self.block_dirty.pop(evicted, None)
         return blocks
 
@@ -468,6 +551,7 @@ class BM25Index:
                                    for p in self.block_paths[i:i + BLOCK_SIZE])
                                for i in range(0, len(self.block_paths), BLOCK_SIZE)]
             self.term_blocks.clear()
+            self.term_block_meta.clear()
             self.block_dirty.clear()
             self.block_holes = 0
             if report is not None:
@@ -507,49 +591,354 @@ class BM25Index:
                     self.block_best[block] = best
             if report is not None:
                 report["block_layout_touched"] += len(touched)
+        num_blocks = len(self.block_best)
+        suffix = [None] * num_blocks
+        if num_blocks:
+            cur = self.block_best[-1]
+            suffix[-1] = cur
+            for i in range(num_blocks - 2, -1, -1):
+                val = self.block_best[i]
+                if val < cur:
+                    cur = val
+                suffix[i] = cur
+        self.block_best_suffix = suffix
+        self.best_tie_blocks = tuple(heapq.nsmallest(
+            4, range(num_blocks), key=self.block_best.__getitem__))
         self.block_updates.clear()
         self.rank_version = self.version
 
-    def _rank_blocks(self, terms, avg_length, report):
-        """Exact top 50 with per-block score bounds and deterministic ties.
+    def _count_matched_and_blocks(self, term_infos):
+        """Exact matching document and block counts, even when WAND prunes blocks."""
+        if len(term_infos) == 1:
+            posting, _blocks, sorted_ids = term_infos[0]
+            return len(posting), len(sorted_ids)
+        primary = max(term_infos, key=lambda item: len(item[0]))
+        p0, b0, ids0 = primary
+        if len(p0) == len(self.docs):
+            return len(self.docs), len(ids0)
+        others = [item for item in term_infos if item is not primary]
+        if len(others) == 1:
+            p1, b1, ids1 = others[0]
+            if len(p1) <= len(ids1) * 4:
+                matched = len(p0) + sum(1 for path in p1 if path not in p0)
+                total_blocks = len(ids0) + sum(1 for b in ids1 if b not in b0)
+                return matched, total_blocks
+            extra_docs = 0
+            extra_blocks = 0
+            b0_get = b0.get
+            for b, (bits1, _pairs) in b1.items():
+                e0 = b0_get(b)
+                if e0 is None:
+                    extra_docs += bits1.bit_count()
+                    extra_blocks += 1
+                else:
+                    extra_docs += (bits1 & ~e0[0]).bit_count()
+            return len(p0) + extra_docs, len(ids0) + extra_blocks
+        other_postings = sum(len(item[0]) for item in others)
+        other_blocks = sum(len(item[2]) for item in others)
+        if other_postings <= other_blocks * 2 and other_postings <= 512:
+            extra_paths = set()
+            extra_b = set()
+            for p_o, _b_o, ids_o in others:
+                extra_paths.update(p_o)
+                extra_b.update(ids_o)
+            matched = len(p0) + sum(1 for path in extra_paths if path not in p0)
+            total_blocks = len(ids0) + sum(1 for b in extra_b if b not in b0)
+            return matched, total_blocks
+        other_bits = {}
+        for _p_o, b_o, _ids_o in others:
+            for b, (bm, _pairs) in b_o.items():
+                other_bits[b] = other_bits.get(b, 0) | bm
+        extra_docs = 0
+        extra_blocks = 0
+        b0_get = b0.get
+        for b, bits_o in other_bits.items():
+            e0 = b0_get(b)
+            if e0 is None:
+                extra_docs += bits_o.bit_count()
+                extra_blocks += 1
+            else:
+                extra_docs += (bits_o & ~e0[0]).bit_count()
+        return len(p0) + extra_docs, len(ids0) + extra_blocks
 
-        Bounds take the maximum of the actual (TF, length) pairs in each block,
-        using the same floating-point operations as exhaustive scoring. Taking
-        a maximum, then summing in query-term order, cannot understate any
-        document's computed score. Bitmaps count all matches, even pruned ones.
+    def _rank_blocks(self, terms, avg_length, report):
+        """Exact top 50 via Block-Max WAND pivot-skipping and deterministic ties.
+
+        Each term keeps its block IDs in sorted order and exact global upper
+        bound U_t derived from per-TF minimum lengths using the same float
+        operations as exhaustive scoring. WAND advances cursors via bisect_left
+        past blocks whose combined U_t cannot reach theta, checks exact
+        per-block bounds in query-term order, and preserves exact match counts.
         """
         self._prepare_block_paths(report)
-        bounds, matches = defaultdict(float), defaultdict(int)
-        for posting, idf, term in terms:
-            for block, (bitmap, pairs) in self._blocks(posting, term, report).items():
-                bounds[block] += max(idf * tf * (K1 + 1.0) /
-                    (tf + K1 * (1.0 - B + B * length / avg_length))
-                    for tf, length in pairs)
-                matches[block] |= bitmap
-        report.update(matched=sum(bits.bit_count() for bits in matches.values()),
-                      blocks=len(bounds), blocks_skipped=0, scored_documents=0,
-                      algorithm="exact_block_max")
-        key = lambda row: (-row[1], -self.docs[row[0]][3], self.docs[row[0]][4])
-        best = []
-        for block in sorted(bounds, key=lambda b: (-bounds[b], *self.block_best[b])):
-            if len(best) == LIMIT and (-bounds[block], *self.block_best[block]) > key(best[-1]):
-                report["blocks_skipped"] += 1
+        orig_cursors = []
+        term_infos = []
+        argmax_blocks = []
+        block_best = self.block_best
+        for orig_idx, (posting, idf, term) in enumerate(terms):
+            t_blocks = self._blocks(posting, term, report)
+            meta = self.term_block_meta.get(term)
+            if meta is None:
+                meta = self._term_meta(t_blocks)
+            sorted_ids, min_len_by_tf = meta
+            if not sorted_ids:
                 continue
-            bits, rows = matches[block], []
+            upper = -1.0
+            arg_block = sorted_ids[0]
+            for tf, (min_len, b_id) in min_len_by_tf.items():
+                val = idf * tf * (K1 + 1.0) / (
+                    tf + K1 * (1.0 - B + B * min_len / avg_length))
+                if val > upper or (val == upper and block_best[b_id] < block_best[arg_block]):
+                    upper = val
+                    arg_block = b_id
+            orig_cursors.append([sorted_ids[0], 0, orig_idx, upper,
+                                 sorted_ids, t_blocks, posting, idf])
+            term_infos.append((posting, t_blocks, sorted_ids))
+            argmax_blocks.append((upper, arg_block, sorted_ids, t_blocks, orig_idx))
+        if not orig_cursors:
+            report.update(matched=0, blocks=0, blocks_skipped=0,
+                          scored_documents=0, blocks_evaluated=0,
+                          wand_pivot_skips=0, algorithm="exact_block_max")
+            return []
+        matched, total_blocks = self._count_matched_and_blocks(term_infos)
+        report.update(matched=matched, blocks=total_blocks, blocks_skipped=0,
+                      scored_documents=0, algorithm="exact_block_max")
+        key = lambda row: (-row[1], -self.docs[row[0]][3], self.docs[row[0]][4])
+        num_terms = len(orig_cursors)
+        heap = []
+        best = []
+        theta = None
+        theta_score = -1.0
+        theta_wand = -1.0
+        scored_blocks = set()
+        blocks_scored = 0
+        blocks_evaluated = 0
+        wand_pivot_skips = 0
+        block_paths = self.block_paths
+        docs = self.docs
+
+        k1 = K1
+        b_coef = B
+        one_minus_b = 1.0 - B
+        k1_p1 = K1 + 1.0
+
+        def score_block(block, aligned_terms, bits):
+            nonlocal best, theta, theta_score, theta_wand, blocks_scored
+            blocks_scored += 1
+            scored_blocks.add(block)
+            base = block * BLOCK_SIZE
+            visits = 0
+            scored = 0
+            changed = False
+            full = len(heap) == LIMIT
+            t_score = theta_score
+            t_key = theta
+            post_idfs = [(c[6].get, c[7]) for c in aligned_terms]
             while bits:
                 low = bits & -bits
-                path = self.block_paths[block * BLOCK_SIZE + low.bit_length() - 1]
-                norm = K1 * (1.0 - B + B * self.docs[path][2] / avg_length)
+                path = block_paths[base + low.bit_length() - 1]
+                if path is None:
+                    bits ^= low
+                    continue
+                doc = docs[path]
+                norm = k1 * (one_minus_b + b_coef * doc[2] / avg_length)
                 score = 0.0
-                for posting, idf, _term in terms:
-                    tf = posting.get(path)
+                for p_get, idf in post_idfs:
+                    tf = p_get(path)
                     if tf is not None:
-                        score += idf * tf * (K1 + 1.0) / (tf + norm)
-                        report["posting_visits"] += 1
-                rows.append((path, score))
+                        score += idf * tf * k1_p1 / (tf + norm)
+                        visits += 1
+                scored += 1
+                if not full:
+                    heapq.heappush(heap, (score, doc[3], _RevStr(doc[4]), path))
+                    changed = True
+                    if len(heap) == LIMIT:
+                        full = True
+                        w = heap[0]
+                        t_score = w[0]
+                        t_key = (-w[0], -w[1], w[2].s)
+                elif score >= t_score:
+                    cand_key = (-score, -doc[3], doc[4])
+                    if cand_key < t_key:
+                        heapq.heapreplace(heap, (score, doc[3], _RevStr(doc[4]), path))
+                        changed = True
+                        w = heap[0]
+                        t_score = w[0]
+                        t_key = (-w[0], -w[1], w[2].s)
                 bits ^= low
-            report["scored_documents"] += len(rows)
-            best = heapq.nsmallest(LIMIT, best + rows, key=key)
+            report["posting_visits"] += visits
+            report["scored_documents"] += scored
+            if changed:
+                best = sorted(((p, s) for s, _imp, _rid, p in heap), key=key)
+                if full:
+                    theta = t_key
+                    theta_score = t_score
+                    if num_terms <= 2:
+                        theta_wand = theta_score
+                    else:
+                        g = num_terms * _FLOAT_EPS
+                        theta_wand = (math.nextafter(theta_score * (1.0 - 2.0 * g), -math.inf)
+                                      if g < 0.25 else 0.0)
+
+        def seed_block(b):
+            nonlocal blocks_evaluated
+            if b in scored_blocks or math.isinf(block_best[b][0]):
+                return False
+            aligned = []
+            bits = 0
+            for c in orig_cursors:
+                entry = c[5].get(b)
+                if entry is not None:
+                    aligned.append(c)
+                    bits |= entry[0]
+            if not bits:
+                return False
+            blocks_evaluated += 1
+            score_block(b, aligned, bits)
+            return True
+
+        # Seed a small bounded set of high-bound / best-tie blocks to establish
+        # a tight threshold theta before WAND sweeps remaining blocks.
+        max_seeds = min(16, max(3, total_blocks // 4))
+        seeds_used = 0
+        top_upper, top_arg_block, top_ids, top_map, top_orig_idx = max(
+            argmax_blocks, key=lambda item: (item[0], -len(item[2])))
+        rest_upper = sum(c[3] for c in orig_cursors if c[2] != top_orig_idx)
+        if len(best) < LIMIT and seeds_used < max_seeds:
+            if seed_block(top_arg_block):
+                seeds_used += 1
+        for b in self.best_tie_blocks:
+            if seeds_used >= max_seeds:
+                break
+            if len(best) >= LIMIT and block_best[b] >= (theta[1], theta[2]):
+                break
+            if b in top_map and seed_block(b):
+                seeds_used += 1
+        if seeds_used < max_seeds and len(top_ids) < total_blocks:
+            for b in top_ids:
+                if seeds_used >= max_seeds:
+                    break
+                if len(best) >= LIMIT and theta_score > rest_upper:
+                    break
+                if seed_block(b):
+                    seeds_used += 1
+        if len(best) < LIMIT or theta_score <= rest_upper:
+            for b in self.best_tie_blocks:
+                if seeds_used >= max_seeds:
+                    break
+                if len(best) >= LIMIT and (theta_score > rest_upper or block_best[b] >= (theta[1], theta[2])):
+                    break
+                if seed_block(b):
+                    seeds_used += 1
+
+        bounds = {}
+        if scored_blocks:
+            cursors = []
+            for c in orig_cursors:
+                pos = c[1]
+                ids = c[4]
+                n_ids = len(ids)
+                while pos < n_ids and ids[pos] in scored_blocks:
+                    pos += 1
+                if pos < n_ids:
+                    c[1] = pos
+                    c[0] = ids[pos]
+                    cursors.append(c)
+        else:
+            cursors = list(orig_cursors)
+        block_best_suffix = self.block_best_suffix
+        rem_bound_dirty = True
+        rem_bound = 0.0
+        while cursors and blocks_scored < total_blocks:
+            if len(cursors) > 1:
+                cursors.sort(key=_CURSOR_KEY)
+            if len(best) == LIMIT:
+                min_block = cursors[0][0]
+                if rem_bound_dirty:
+                    if len(cursors) == 1:
+                        rem_bound = cursors[0][3]
+                    elif len(cursors) == 2:
+                        rem_bound = cursors[0][3] + cursors[1][3]
+                    else:
+                        rem_bound = 0.0
+                        for c in sorted(cursors, key=_ORIG_KEY):
+                            rem_bound += c[3]
+                    rem_bound_dirty = False
+                if (-rem_bound, *block_best_suffix[min_block]) > theta:
+                    wand_pivot_skips += sum(len(c[4]) - c[1] for c in cursors)
+                    break
+                acc = 0.0
+                pivot_idx = -1
+                for idx_c, c in enumerate(cursors):
+                    acc += c[3]
+                    if acc >= theta_wand:
+                        pivot_idx = idx_c
+                        break
+                if pivot_idx < 0:
+                    wand_pivot_skips += sum(len(c[4]) - c[1] for c in cursors)
+                    break
+            else:
+                pivot_idx = 0
+            pivot_block = cursors[pivot_idx][0]
+            while pivot_idx + 1 < len(cursors) and cursors[pivot_idx + 1][0] == pivot_block:
+                pivot_idx += 1
+            if cursors[0][0] < pivot_block:
+                next_cursors = []
+                for c in cursors:
+                    if c[0] < pivot_block:
+                        old_pos = c[1]
+                        ids = c[4]
+                        pos = bisect_left(ids, pivot_block, old_pos + 1)
+                        if pos < len(ids):
+                            wand_pivot_skips += pos - old_pos
+                            c[1] = pos
+                            c[0] = ids[pos]
+                            next_cursors.append(c)
+                        else:
+                            wand_pivot_skips += len(ids) - old_pos
+                    else:
+                        next_cursors.append(c)
+                if len(next_cursors) != len(cursors):
+                    rem_bound_dirty = True
+                cursors = next_cursors
+                continue
+            block = pivot_block
+            if block not in scored_blocks and not math.isinf(block_best[block][0]):
+                # Every cursor in cursors[:pivot_idx + 1] has c[0] == block,
+                # so sorting by _CURSOR_KEY=(c[0], c[2]) already guarantees
+                # ascending original query-term order (c[2]).
+                aligned = cursors[:pivot_idx + 1]
+                bounds[block] = 0.0
+                bits = 0
+                for c in aligned:
+                    bitmap, pairs = c[5][block]
+                    bounds[block] += max(c[7] * tf * k1_p1 /
+                        (tf + k1 * (one_minus_b + b_coef * length / avg_length))
+                        for tf, length in pairs)
+                    bits |= bitmap
+                blocks_evaluated += 1
+                if len(best) == LIMIT and (-bounds[block], *self.block_best[block]) > key(best[-1]):
+                    report["blocks_skipped"] += 1
+                else:
+                    score_block(block, aligned, bits)
+            next_cursors = []
+            for c in cursors:
+                if c[0] == block:
+                    pos = c[1] + 1
+                    ids = c[4]
+                    if pos < len(ids):
+                        c[1] = pos
+                        c[0] = ids[pos]
+                        next_cursors.append(c)
+                else:
+                    next_cursors.append(c)
+            if len(next_cursors) != len(cursors):
+                rem_bound_dirty = True
+            cursors = next_cursors
+
+        report["blocks_skipped"] = total_blocks - blocks_scored
+        report["blocks_evaluated"] = blocks_evaluated
+        report["wand_pivot_skips"] = wand_pivot_skips
         return best
 
 
