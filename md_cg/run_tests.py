@@ -67,7 +67,14 @@ _LOG_DIR = os.environ.get("MDCG_TESTLOG_DIR") or os.path.join(
 #: 已有同口径剔除（同名单同日期），而 README 指定的包内入口 python -m md_cg.run_tests
 #: 跑同一批守卫——本文件补同口径，避免两条入口对同一守卫给出相反结论。
 #: env 权威本身是 issue #128 的刻意设计，本条不改变产品行为，只在测试环境剔除。
-_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION")
+_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION",
+                      # issue #1011 附带（2026-11-22 实测）：`MDCG_TICK_HOOK` 是**运维注入**，
+                      # 常驻循环每档 tick 都会起一个 `python <hook> --tick <name>` 子进程（实测
+                      # 约 0.5 s）⇒ 0.05 s 级间隔的节奏类守卫（p41 演化巡检 / sustain_bounded /
+                      # p14 / p15 / heartbeat_ledger）被拖成「只跑过 beat 一档」而判红。
+                      # 那是宿主机 env 的副作用，不是被测行为：剔除后五条全部转绿（逐条实测）。
+                      # 需要外钩的守卫自己显式设 env（仓内现无这样的用例）。
+                      "MDCG_TICK_HOOK")
 _STRIP_UPPER = frozenset(_k.upper() for _k in _SESSION_ENV_STRIP)
 
 

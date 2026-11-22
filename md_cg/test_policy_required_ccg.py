@@ -77,8 +77,13 @@ FORBIDDEN = r"FORBIDDEN_TOKEN_[A-Z]{3}"
 FORBIDDEN_HIT = "FORBIDDEN_TOKEN_XYZ"
 
 # 改动前行为（required 对所有 kind 生效、缺项截断前 3 且无 detail、hint 单文案）下应为红的项
-EXPECTED_RED = ("G2b", "G2c", "G2d", "G3b", "G3c", "G4a", "G4b", "G4c",
-                "G5a", "G8b", "G8c")
+# 2026-11-22 同步（issue #1010 收尾实测）：issue #997 给「缺少必需要素」补了 tail（已识别要素 /
+# 未识别行）与 detail.recognized/unrecognized_lines，据此新增的三条断言（G2b2/G2b3/G2b4）在**旧行为**
+# 下同样为红——红集从 11 项变 14 项，而本常量当时没跟改 ⇒ test_autonomy_modes 的 J 组
+# 「红项集合 == 预期」腿一直红。实测基线红集：G2b, G2b2, G2b3, G2b4, G2c, G2d, G3b, G3c,
+# G4a, G4b, G4c, G5a, G8b, G8c（14 项，逐项与断言定义一一对应；判别力只增不减）。
+EXPECTED_RED = ("G2b", "G2b2", "G2b3", "G2b4", "G2c", "G2d", "G3b", "G3c",
+                "G4a", "G4b", "G4c", "G5a", "G8b", "G8c")
 
 _BASELINE_FILES = {"audit": "md_cg/audit.py", "writepipe": "md_cg/writepipe.py"}
 
@@ -90,10 +95,16 @@ _BASELINE_MUTATIONS = {
          "req_active = bool(required) and (not kinds or str(kind) in kinds)",
          "req_active = bool(required)"),
         ("缺失清单形态",
+         # 2026-11-22 同步（issue #1010 收尾实测 ANCHOR-MISS）：issue #997 给这条拒绝回显加了两项
+         # ——`tail`（已识别要素 / 未识别行预览）与 detail 里的 recognized/unrecognized_lines。
+         # 原锚点是 #997 **之前**的返回形态，audit.py 一改即 ANCHOR-MISS（fail-closed 退出 2，
+         # 连带 test_autonomy_modes 的 J 组子进程腿一起红）。锚点只跟着「现实现」走，
+         # 变异目标（旧行为）保持不变——判别力不变，只是对齐当前实现。
          '            return (REJECT,\n'
-         '                    "缺少必需要素：%s（补齐后重写即可，本条未入库）"\n'
-         '                    % "、".join(missing),\n'
-         '                    {"missing": missing, "missing_patterns": missing_patterns})',
+         '                    "缺少必需要素：%s%s（补齐后重写即可，本条未入库）"\n'
+         '                    % ("、".join(missing), tail),\n'
+         '                    {"missing": missing, "missing_patterns": missing_patterns,\n'
+         '                     "recognized": present, "unrecognized_lines": odd})',
          '            return (REJECT,\n'
          '                    "缺少必需要素：%s" % "、".join(missing_patterns[:3]),\n'
          '                    None)'),

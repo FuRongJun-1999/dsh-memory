@@ -25,3 +25,10 @@ scripts/git-hooks/* text eol=lf
 # 拒绝安装（Windows 默认 core.autocrlf=true 时必现；2026-10-27 实测：工作树 9/9 不符、
 # LF 化后 9/9 相符）。故 payload 全树钉 LF。
 ui/minimal/payload/** text eol=lf
+
+# 数据溯源目录（issue #607 实测，2026-11-22）：md_cg/data/opencc/ 下文件带**字节级溯源**
+# （PROVENANCE.json 记 sha256；test_issue607_trad_fold_table 的 T2b 逐位比对）。
+# 索引里是 LF（git ls-files --eol 实测 i/lf），但 Windows core.autocrlf=true 会把工作树
+# 转成 CRLF（实测 w/crlf、109582 字节 vs 104520）⇒ sha256 必然失配、T2b 假红。
+# 与上面 payload / sh 同款处置：该目录在 checkout 时钉死 LF。
+md_cg/data/opencc/** text eol=lf

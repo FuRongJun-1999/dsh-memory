@@ -8,6 +8,11 @@
 """
 import json
 import os
+
+# issue #1011 附带（2026-11-22）：E3 靠 0.05~0.3 s 级间隔等一次 heal 真跑；宿主机 env 若挂着
+# MDCG_TICK_HOOK（运维注入，每次 tick 一个 python 子进程约 0.5 s），heal 会被饿掉 ⇒ heals=[] 假红。
+os.environ.pop("MDCG_TICK_HOOK", None)
+
 import shutil
 import tempfile
 import time

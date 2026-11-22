@@ -219,6 +219,11 @@ def _prepatch_src():
     intro = shas[-1]                      # 最早那次引入
     src = _g("git", "show", intro + "^:md_cg/evidence.py")
     if src.returncode != 0:
+        _sh = _g("git", "rev-parse", "--is-shallow-repository").stdout.strip()
+        # 本仓是浅克隆 ⇒ 引入提交的父版本不在对象库，**不是**产品缺陷；HEAD 又是修复后版本，
+        # 不能冒充「修复前原形」（本文件 docstring 已明确禁用 HEAD）。按仓内先例 SKIP。
+        if _sh == "true":
+            return None, "skip:浅克隆，%s 的父版本不可取" % intro[:8]
         return None, "git show %s^ rc=%s（根提交？）" % (intro[:8], src.returncode)
     return src.stdout, ""
 
@@ -226,6 +231,10 @@ def _prepatch_src():
 def p9():
     print("== P9 缺陷曾真实存在（核对修复前源码原形）==")
     t, err = _prepatch_src()
+    if t is None and str(err).startswith("skip:"):
+        print("  SKIP P9 无法取「修复前源码原形」：%s" % err[5:])
+        print("       （本仓历史不足以证明；既不下「成立」也不下「不成立」的结论）")
+        return
     if t is None:
         ok(False, "P9 取修复前源失败：%s" % err)
         return

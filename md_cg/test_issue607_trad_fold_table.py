@@ -51,9 +51,18 @@ def main():
     prov_p = os.path.join(DATA, "opencc", "PROVENANCE.json")
     prov = json.load(io.open(prov_p, encoding="utf-8"))
     raw = io.open(os.path.join(DATA, "opencc", "TSCharacters.txt"), "rb").read()
-    sha = hashlib.sha256(raw).hexdigest()
+    # 2026-11-22（实测）：sha256 的身份是**内容**，不是工作树的行尾。本仓 Windows 侧
+    # core.autocrlf=true，checkout 会把该文件转成 CRLF（实测 109582 字节 vs 索引 104520），
+    # 直接对工作树字节取哈希必然失配 —— 那是 checkout 形态，不是「许可证不可追溯」。
+    # 故按**规范形态（LF）**取哈希，并对 PROVENANCE.bytes 同口径核一次（两条互相咬合）。
+    canonical = raw.replace(b"\r\n", b"\n")
+    sha = hashlib.sha256(canonical).hexdigest()
     ok(prov.get("sha256") == sha == cov.get("source_sha256"),
-       "T2b 源文件哈希与 PROVENANCE 一致", (prov.get("sha256", "")[:12], sha[:12]))
+       "T2b 源文件（LF 规范形态）哈希与 PROVENANCE 一致",
+       (prov.get("sha256", "")[:12], sha[:12]))
+    ok(prov.get("bytes") == len(canonical),
+       "T2b2 PROVENANCE.bytes 与规范形态字节数一致（同一形态下自洽）",
+       (prov.get("bytes"), len(canonical)))
 
     c = cov.get("coverage") or {}
     total = cov.get("rows_total")
