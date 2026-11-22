@@ -36,7 +36,7 @@ async function readBody(req) {
 // issue #699 第二层（2026-11-04）：503 分不清「服务没注入」与「已注册未就绪」。
 // 第 5 参 probeConnection 用 `ctx.get(name, false)` 做诊断：strict=false 时即便 fiber 未就绪
 // 也能看到 impl 存在 ⇒ 可区分 not_injected / not_ready。诊断失败不影响主判据。
-export function createConsoleHandler(mdcg, config, assets, getConnection, probeConnection) {
+export function createConsoleHandler(mdcg, config, assets, getConnection, probeConnection, logger = null) {
   const connectionOf = typeof getConnection === 'function' ? getConnection : () => getConnection
   const probeOf = typeof probeConnection === 'function' ? probeConnection : null
   const csrf = randomBytes(32).toString('hex');
@@ -82,9 +82,15 @@ export function createConsoleHandler(mdcg, config, assets, getConnection, probeC
       const origin = req.headers.origin;
       const host = req.headers.host;
       // 桌面 dsh-app 代理移除 Origin，宿主 admission 仍验证浏览器登录。
-      if ((origin && new URL(origin).host !== host && origin !== 'dsh-app://app') || req.headers['sec-fetch-site'] === 'cross-site') return reply(res, 403, { error: '仅允许同源界面调用' });
+      let originOk = !origin || origin === 'dsh-app://app';
+      if (!originOk) {
+        try { originOk = new URL(origin).host === host; } catch { originOk = false; }
+      }
+      if (!originOk || req.headers['sec-fetch-site'] === 'cross-site') return reply(res, 403, { error: '仅允许同源界面调用' });
       const supplied = String(req.headers['x-lingshu-csrf'] ?? '');
-      if (supplied.length !== csrf.length || !timingSafeEqual(Buffer.from(supplied), Buffer.from(csrf))) return reply(res, 403, { error: '页面凭证已过期，请刷新页面' });
+      const suppliedBuf = Buffer.from(supplied, 'utf8');
+      const csrfBuf = Buffer.from(csrf, 'utf8');
+      if (suppliedBuf.length !== csrfBuf.length || !timingSafeEqual(suppliedBuf, csrfBuf)) return reply(res, 403, { error: '页面凭证已过期，请刷新页面' });
       if (!String(req.headers['content-type']).startsWith('application/json')) return reply(res, 415, { error: '需要 application/json' });
       const body = await readBody(req);
       if (!body || typeof body.tool !== 'string' || !body.args || typeof body.args !== 'object' || Array.isArray(body.args)) return reply(res, 400, { error: '工具参数格式不正确' });
@@ -107,7 +113,7 @@ export function createConsoleHandler(mdcg, config, assets, getConnection, probeC
         if (raw.isError) return reply(res, 422, { error: text || '灵枢拒绝此次操作' });
         try { result = JSON.parse(text); } catch { result = text; }
       }
-      try { ctx?.logger?.info?.('dsh-memory: ui-call ' + _label + ' '
+      try { logger?.info?.('dsh-memory: ui-call ' + _label + ' '
         + ((Date.now() - _t0) / 1000).toFixed(2) + 's ready=' + String(!!mdcg?.isReady())) } catch {}
       reply(res, 200, { ok: true, result: redact(result) });
     } catch (error) { reply(res, error.status ?? 500, { error: String(error.message ?? error) }); }
@@ -128,7 +134,7 @@ export function installConsoleWeb(ctx, config, disposers, mdcg) {
     };
     // issue #699：传**取值函数**（每次请求实时取），不再把挂载瞬间的值闭包固化。
     const handler = createConsoleHandler(mdcg, config, assets, () => ctx.get('connection'),
-      () => ({ any: !!ctx.get('connection', false) }));
+      () => ({ any: !!ctx.get('connection', false) }), ctx.logger);
     for (const path of ['/lingshu', '/lingshu/', '/plugins/lingshu']) disposers.push(web.register({ kind: path === '/plugins/lingshu' ? 'prefix' : 'exact', path, handler }));
     disposers.push(web.tapIndex(html => html.includes('data-lingshu-entry') ? html : html.replace('</body>', '<script data-lingshu-entry src="/plugins/lingshu/entry.js"></script></body>')));
     ctx.logger.info('dsh-memory: 极简灵枢控制台已挂载 /lingshu（复用唯一大脑桥）');
