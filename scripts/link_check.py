@@ -38,6 +38,12 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK = re.compile(r"\]\(([^)\s]+?)(?:\s+\"[^\"]*\")?\)")
 SKIP_SCHEMES = ("http://", "https://", "mailto:", "tel:", "data:", "#")
 NON_PATH_CHARS = "[]*<>{}"
+#: 不纳入链接门禁的路径前缀（**数据不是文档**）：
+#: experiments/handoff/blind* 是盲测样本——模型在没有仓库读权限时产出的原文，里面引用的
+#: `docs/...` 指的是「被改写的那份 README 所在仓」的路径，按样本文件所在目录解析必然断开
+#: （实测 14 个样本、267 条）。把这些当断链修，等于要求模型改写的原文符合本仓目录结构，
+#: 既改不到也不该改；因此按前缀整目录排除，与 _strip_code_spans 排除代码示例同一口径。
+SKIP_PREFIXES = ("experiments/handoff/blind/", "experiments/handoff/blind_v3/")
 
 
 # 生效条件：用必需形参 args 追加到 ["git","-c","core.quotepath=false"] 后在模块常量 REPO 目录下执行（capture_output=True、text、encoding=utf-8、errors=replace、shell=False），返回 (r.stdout or "") 逐行 strip 后的非空行列表——r.stdout 为 None 或空串时返回 []，且不检查返回码。
@@ -135,9 +141,13 @@ def scan():
     allowed = _allowlist()
     broken, untracked, non_path = [], [], []
     n_ok = n_allowed = 0
+    skipped = []
     for rel in files:
         path = os.path.join(REPO, rel)
         if not os.path.isfile(path):
+            continue
+        if "/".join(rel.split(os.sep)).startswith(SKIP_PREFIXES):
+            skipped.append(rel)
             continue
         with open(path, encoding="utf-8", errors="replace") as f:
             text = f.read()
@@ -164,7 +174,8 @@ def scan():
             else:
                 n_ok += 1
     return {"files": files, "broken": broken, "untracked": untracked,
-            "non_path": non_path, "ok": n_ok, "allowed": n_allowed}
+            "non_path": non_path, "ok": n_ok, "allowed": n_allowed,
+            "skipped": skipped}
 
 
 # 生效条件：无必需形参，取 scan() 结果后，若 res["broken"] 或 res["untracked"] 任一为非空列表则打印断链结论并返回 1，二者皆为空列表时打印全部可达结论并返回 0（另有非路径条目仅计数打印，不影响返回值）。
@@ -173,8 +184,9 @@ def main():
     n = res["ok"] + res["allowed"] + len(res["broken"]) + len(res["untracked"])
     print("扫描受管 md：%d 个；判定链接：%d 条（跳过非路径形态 %d 条）"
           % (len(res["files"]), n, len(res["non_path"])))
-    print("  OK=%d  ALLOWED=%d  BROKEN=%d  UNTRACKED=%d"
-          % (res["ok"], res["allowed"], len(res["broken"]), len(res["untracked"])))
+    print("  OK=%d  ALLOWED=%d  BROKEN=%d  UNTRACKED=%d  SKIPPED=%d"
+          % (res["ok"], res["allowed"], len(res["broken"]), len(res["untracked"]),
+             len(res.get("skipped") or [])))
     for rel, line, raw, c in res["broken"]:
         print("  [BROKEN]    %s:%d -> %s  (解析=%s)" % (rel, line, raw, c))
     for rel, line, raw, c in res["untracked"]:
