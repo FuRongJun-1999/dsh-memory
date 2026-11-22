@@ -56,9 +56,14 @@ REQUIRED_REVIEWERS = {
 _warned = {"mode": False}
 
 
-# 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值返回 off 并首次告警。
+# 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值 fail-closed 回落 enforce 并首次告警。
 def gate_mode(environ=None):
-    """当前闸档位（off / warn / enforce，缺省 enforce）。非法值 fail-open 到 off 并告警一次。"""
+    """当前闸档位（off / warn / enforce，缺省 enforce）。非法值 **fail-closed 到 enforce** 并告警一次。
+
+    issue #1009 第 5 项：此前非法值 fail-open 到 "off"——用户把 MDCG_WRITE_GATE 拼成
+    enforced / strict / 1 / true 就把整个写门控静默关掉（default 是 enforce，拼错反而最宽）。
+    闸门是治理面，「看不懂的配置」只能往严的方向错，不能往松的方向错。
+    """
     env = os.environ if environ is None else environ
     # 2026-11-17 使用者裁定：闸门默认**开**（enforce）——会判定、会留痕、返回体可见，
     # 且无复核通道时阻断知识层及以上（tier ≥ 1）。要放宽设 MDCG_WRITE_GATE=warn
@@ -69,8 +74,10 @@ def gate_mode(environ=None):
     if not _warned["mode"]:
         _warned["mode"] = True
         import sys
-        sys.stderr.write("[writegate] %s=%r 非法（只认 off/warn/enforce），按 off 处理" % (GATE_ENV, raw))
-    return "off"
+        sys.stderr.write("[writegate] %s=%r 非法（只认 off/warn/enforce），按 enforce 处理"
+                         "（fail-closed：拼错的配置不能把闸门关掉；要放宽请显式写 warn/off）\n"
+                         % (GATE_ENV, raw))
+    return "enforce"
 
 
 # 生效条件：environ 缺省取 os.environ；解析 MDCG_REVIEW_CHANNELS，返回去重后的小写通道名元组（空段忽略）。
