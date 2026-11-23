@@ -148,6 +148,57 @@ TAG_AFFINITY_EXTRA = 0.05   # 第 2 个及以后命中 tag 的累加步长（防
 # 不在名单内，行为逐位不变。
 _RANK_ABSTAIN_PATHS = ("entity",)
 
+# ---- issue #1005 补充②（测评端 2026-11-23 实测）：配额并集融合 ---------------
+# 现场：29 条候选 / 22 题 / 同一判分器下只换召回——加权 RRF(0.5/0.5) 77.3%、
+# RRF(0.7/0.3) 81.8%，而「各取前 4 再合并」的配额并集 86.4%。机理可解释：
+# 一路排 1、另一路排 20 的条目，融合后掉出前 8；而并集保证两路最好的候选都在。
+# 故小库上 RRF 的加权会互相稀释，并集更稳。约束：候选池变大后并集会把长尾
+# 一起铺开、挤掉强路共识项，所以**只在池子小于阈值时启用**，超出回退 RRF。
+UNION_Q_DEFAULT = 4          # 每路取前 q 进并集
+UNION_MAX_CANDIDATES = 200   # 候选池超过此规模则回退 RRF（小库才是并集的场合）
+
+
+def union_fuse(ranked_ids, q=None, path_order=None):
+    """配额式并集：每路取前 q，按「路内名次」逐轮交错，首次出现者定序。
+
+    生效条件：ranked_ids 是 {路名: [nid, ...]}（已按本路名次排好序）。
+    返回 (order, scores, prov)：
+      order  = [(nid, path, rank)]，交错后的最终顺序；同 nid 只留首次出现的位次。
+      scores = {nid: 1/(1+pos)}——严格递减，下游 `-score` 排序即等于本顺序。
+      prov   = {nid: [{path, rank, union: True}]}，含该 nid 在**各路** q 窗口内的名次。
+    不适用条件：不做分数级融合（并集只吃名次，不走 1/(K+rank) 加权）；
+        单路输入时退化为该路前 q 的顺序，与 RRF 单路口径不同（融合口径按调用方选）。
+    """
+    q = int(UNION_Q_DEFAULT if q is None else q)
+    if q <= 0:
+        return [], {}, {}
+    names = [n for n in (path_order if path_order is not None else list(ranked_ids))
+             if ranked_ids.get(n)]
+    order, seen = [], set()
+    for r in range(q):
+        for name in names:
+            ids = ranked_ids[name]
+            if r >= len(ids):
+                continue
+            nid = ids[r]
+            if nid in seen:
+                continue
+            seen.add(nid)
+            order.append((nid, name, r + 1))
+    scores = {nid: 1.0 / (1.0 + i) for i, (nid, _p, _r) in enumerate(order)}
+    prov = {}
+    for nid, _name, _rank in order:
+        entry = []
+        for name in names:
+            try:
+                rr = ranked_ids[name].index(nid) + 1
+            except ValueError:
+                continue
+            if rr <= q:
+                entry.append({"path": name, "rank": rr, "union": True})
+        prov[nid] = entry
+    return order, scores, prov
+
 
 def _tag_affinity(tags, query: str) -> float:
     """实体路的匹配强度（> 0 才算命中）。纯函数、可复算、零 IO。
@@ -2465,6 +2516,7 @@ class MdCGOS(MdCG):
                           "temporal"),
                    record: bool = True, query_expand=None,
                    path_weights=None, recall_only=None, fusion: str = "sum",
+                   union_q=None, union_max_candidates=None,
                    goal_text=None, judge_ranking: bool = False,
                    session=None, branch=None, validity=None,
                    early_stop_threshold=None,
@@ -2578,7 +2630,10 @@ class MdCGOS(MdCG):
         _cache_extra = {
             "include_work": bool(include_work), "roles": roles,
             "paths": tuple(paths or ()), "path_weights": path_weights,
-            "recall_only": recall_only, "fusion": fusion,
+            "recall_only": recall_only,
+            # union/auto 的 q 与阈值同样改排序 ⇒ 一并入键（否则两种 q 互相命中缓存）。
+            "fusion": (fusion if fusion not in ("union", "auto") else
+                       (fusion, union_q, union_max_candidates)),
             "judge": bool(judge), "judge_ranking": bool(judge_ranking),
             "goal_text": goal_text, "context": context,
             "early_stop_threshold": early_stop_threshold,
@@ -2697,6 +2752,7 @@ class MdCGOS(MdCG):
 
         # 排序 + RRF 融合
         rrf, prov = {}, {}
+        union_info = None
         per_path = {}
         ro = set(recall_only or ())
         no_rank_signal = []          # 名次不可信的路（分数无判别力，见循环内判据）
@@ -2772,6 +2828,49 @@ class MdCGOS(MdCG):
                     entry["chain"] = chain_prov[nid]["chain"]
                     entry["conditions"] = chain_prov[nid]["conditions"]
                 prov.setdefault(nid, []).append(entry)
+        # 配额并集（issue #1005 补充②）：每路取前 q 后按路内名次交错，**替换** RRF 分。
+        # 只在 ≥2 路有候选时启用（单路没有可稀释的竞争，落回既有口径）；候选池
+        # 超过阈值则回退 RRF——大库上并集会把长尾一起铺开、挤掉强路共识项。
+        # "auto" = 按库规模自动选：池 ≤ 阈值走并集、超出走 RRF（测评端建议的
+        # 「小库默认」形态；本仓缺省仍是既有的 sum/max，不静默翻默认）。
+        if fusion in ("union", "auto"):
+            _u_ids = {n: [nd["id"] for nd, _s in lst]
+                      for n, lst in ranked.items() if n not in ro and lst}
+            _u_pool = sum(len(v) for v in _u_ids.values())
+            # 阈值与 q 只走**参数面**（不读环境变量）：本仓的 env 读取面有登记门禁
+            # （scripts/test_check_config_env_registry.py），未登记的新 env 即 FAIL；
+            # 要开成环境变量须同时补登记表/校验器/文档三处，交由需要时再提。
+            _u_max_raw = (UNION_MAX_CANDIDATES if union_max_candidates is None
+                          else union_max_candidates)
+            try:
+                _u_max = int(_u_max_raw)
+            except (TypeError, ValueError):
+                _u_max = UNION_MAX_CANDIDATES
+            # 显式 0 不得被 or 吞成缺省（函数层 q<=0 返回空是**有意的**判据）；
+            # 非法 q（0/负数/非数字）一律**不启用并集**：fail-safe 回退既有 RRF。
+            # 照搬 q 去清空 rrf/prov 会得到「配置笔误 ⇒ 静默空结果」。
+            _u_q_raw = UNION_Q_DEFAULT if union_q is None else union_q
+            try:
+                _u_q = int(_u_q_raw)
+            except (TypeError, ValueError):
+                _u_q = 0
+            if _u_q < 1:
+                union_info = {"enabled": False, "reason": "invalid_q",
+                              "q": _u_q_raw, "pool": _u_pool, "max": _u_max}
+            elif len(_u_ids) >= 2 and _u_pool <= _u_max:
+                _u_order, _u_scores, _u_prov = union_fuse(_u_ids, q=_u_q)
+                rrf.clear()
+                rrf.update(_u_scores)
+                prov.clear()
+                prov.update(_u_prov)
+                union_info = {"enabled": True, "q": _u_q,
+                              "paths": sorted(_u_ids), "size": len(_u_order),
+                              "pool": _u_pool}
+            else:
+                union_info = {"enabled": False,
+                              "reason": ("single_path" if len(_u_ids) < 2
+                                         else "pool_too_large"),
+                              "pool": _u_pool, "max": _u_max}
         for name in ro:                     # 仅召回：补候选，不改排序
             for rank, (node, _s) in enumerate((ranked.get(name) or [])[:RRF_PATH_TERM_CAP], 1):
                 nid = node["id"]
@@ -2948,6 +3047,9 @@ class MdCGOS(MdCG):
         # 会变，破坏「关闭时逐位不变」。
         _cred_meta = ({"rank_credibility": dict(sorted(_cred_detail.items()))}
                       if _cred_detail else {})
+        # issue #1005 补充②：并集口径**仅在显式 fusion="union" 时落键**——
+        # 缺省路径的 meta 与 path_fingerprint 逐位不变（既有对拍不受影响）。
+        _union_meta = ({"union": union_info} if union_info is not None else {})
         _fp_selection = {
             "scanned": stat["scanned"],
             "gates": sorted((gates or {}).keys()) or None,
@@ -2955,7 +3057,7 @@ class MdCGOS(MdCG):
             "judge_ranking": bool(judge and judge_ranking),
             "judge_filtered": filtered,
             "early_stopped": early_stopped,
-            "no_rank_signal": sorted(no_rank_signal), **_cred_meta}
+            "no_rank_signal": sorted(no_rank_signal), **_cred_meta, **_union_meta}
         _path_fp = build_path_fingerprint(selection=_fp_selection,
                                           recursion=_fp_recursion,
                                           paths=_fp_paths)
@@ -2982,6 +3084,7 @@ class MdCGOS(MdCG):
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
                          "no_rank_signal": sorted(no_rank_signal), **_cred_meta,
+                         **_union_meta,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov,
@@ -3091,6 +3194,7 @@ class MdCGOS(MdCG):
                          "provenance": prov,
                          "path_truncation": path_truncation,
                          "path_fingerprint": _path_fp, **_tf_meta,
+                         **_union_meta,
                          **_gates_meta, **_bnd_meta, **_index_meta, **_ta_meta}
 
     # ================= 7. budget-driven pack =================
