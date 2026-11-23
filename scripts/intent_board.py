@@ -15,6 +15,7 @@ import glob
 import io
 import json
 import os
+import re
 import sys
 import time
 
@@ -77,6 +78,247 @@ def _read_jsonl(p):
     return out
 
 
+# 公开页的 id 脱敏判据（使用者 2026-11-23 定 2a）：
+# 公开页只放**哈希形态**的 id；带自然语言片段的 id（如 unr_Quoted-message-begins-...）
+# 会把私聊片段带进公开仓，一律脱敏。
+_SAFE_ID = re.compile(r"^(?:mem|unr|doc|node)_[0-9a-f]{4,}(?:_[0-9a-f]{4,})?$", re.I)
+
+
+def _mask_id(nid):
+    nid = str(nid or "")
+    return nid if _SAFE_ID.match(nid) else "（已脱敏）"
+
+
+def _read_json(path, default):
+    try:
+        with io.open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return default
+
+
+def _sessions_roots(extra=None):
+    """会话日志根：--sessions-root 显式优先，其次 ~/.dsh/sessions 与 ~/dsh-home/sessions。
+
+    为什么不 import we_touch_watch：那个文件在私有仓，公开仓的看板不能依赖它；
+    但口径必须一致——这里读的就是同一批 session.v4 文件。本机若把会话放在
+    非默认位置，用 --sessions-root 显式指过去（不写死本机路径：追踪面门禁会拦）。
+    """
+    roots = []
+    if extra:
+        roots.append(extra)
+    roots.extend([os.path.expanduser("~/.dsh/sessions"),
+                  os.path.expanduser("~/dsh-home/sessions")])
+    out, seen = [], set()
+    for r in roots:
+        if r and os.path.isdir(r) and r not in seen:
+            seen.add(r)
+            out.append(r)
+    return out
+
+
+def _newest_session_files(limit=6, window_h=48, extra=None):
+    cutoff = time.time() - window_h * 3600
+    out = []
+    for root in _sessions_roots(extra):
+        for dirpath, _dirs, names in os.walk(root):
+            for nm in names:
+                if not nm.startswith("session.v4"):
+                    continue
+                fp = os.path.join(dirpath, nm)
+                try:
+                    mt = os.path.getmtime(fp)
+                except OSError:
+                    continue
+                if mt >= cutoff:
+                    out.append((mt, fp))
+    out.sort(reverse=True)
+    return [fp for _mt, fp in out[:limit]]
+
+
+def _tail_message_times(fp, tail_bytes=4 << 20):
+    """读一个会话文件尾部的「他说的」事件时间（ms）；无 zstandard 返回 None。
+
+    窗口截断可能正好落在帧中间 ⇒ 窗口里没有帧头。这时**放大窗口重试**，仍找不到
+    就返回 None（＝读不到），而不是返回空列表（＝没有他的消息）。两者含义相反。
+    """
+    try:
+        import zstandard as zstd
+    except ImportError:
+        return None
+    try:
+        size = os.path.getsize(fp)
+    except OSError:
+        return []
+    blob, idx = b"", -1
+    for win in (tail_bytes, max(tail_bytes, 16 << 20), size):
+        try:
+            with open(fp, "rb") as fh:
+                fh.seek(max(0, size - win))
+                blob = fh.read()
+        except OSError:
+            return []
+        idx = blob.find(b"\x28\xb5\x2f\xfd")
+        if idx >= 0 or win >= size:
+            break
+    if idx < 0:
+        return None if size else []
+    try:
+        raw = zstd.ZstdDecompressor().stream_reader(io.BytesIO(blob[idx:])).read()
+    except Exception:  # noqa: BLE001
+        return None
+    out = []
+    for line in raw.decode("utf-8", "replace").splitlines():
+        if "user/message" not in line:
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("type") != "user/message":
+            continue
+        src = (e.get("data") or {}).get("source") or {}
+        if src.get("kind") != "user":
+            continue
+        t = e.get("time") or e.get("ts")
+        if isinstance(t, (int, float)):
+            out.append(int(t))
+    return out
+
+
+def his_last_message(limit=6, window_h=48, extra=None):
+    """**现算**「最后一条他对我说的话」。
+
+    为什么不读 we_state['message']：那个字段靠 we_touch_watch 每分钟补记，而本机
+    **没有任何计划任务驱动它**（2026-11-23 实测：三项读数停在 11-22 07:50，而当天
+    16:36 的会话文件一直在动）。看板照抄就会拿错数当读数——这里直接读会话日志，
+    读数不依赖外部驱动器是否在跑。
+    """
+    files = _newest_session_files(limit=limit, window_h=window_h, extra=extra)
+    newest, scanned, unavailable = 0, 0, 0
+    for fp in files:
+        ts = _tail_message_times(fp)
+        if ts is None:
+            unavailable += 1
+            continue
+        scanned += 1
+        if ts:
+            newest = max(newest, max(ts))
+    if newest:
+        return {"ts": newest / 1000.0, "files": len(files), "scanned": scanned}
+    if unavailable:
+        return {"error": "无 zstandard，读不了会话日志", "files": len(files), "scanned": 0}
+    return {"ts": None, "files": len(files), "scanned": scanned}
+
+
+def _we_readings(we_dir):
+    """读私有关系状态。**类型不可信**：手工改坏 / 旧版本写坏都见过——
+    顶层不是 dict、jsonl 某行不是 dict，一律当空，不让看板抛栈。"""
+    st = _read_json(os.path.join(we_dir, "we_state.json"), {})
+    if not isinstance(st, dict):
+        st = {}
+    pending = [r for r in _read_jsonl(os.path.join(we_dir, "we_pending.jsonl"))
+               if isinstance(r, dict)]
+    return st, pending
+
+
+def _intent_gap(root):
+    """台账与已消费集合的差：**还有多少「该起身」没被处理**。"""
+    recs = _read_jsonl(os.path.join(root, "_intent.jsonl"))
+    raw_consumed = _read_json(os.path.join(root, "_intent_consumed.json"), [])
+    consumed = set(str(x) for x in raw_consumed) if isinstance(raw_consumed, list) else set()
+    open_nodes = []
+    for r in recs:
+        if not isinstance(r, dict):
+            continue
+        nid = str(r.get("node_id") or "")
+        if nid and nid not in consumed and nid not in open_nodes:
+            open_nodes.append(nid)
+    return {"records": len(recs), "open": len(open_nodes),
+            "consumed": len(consumed), "open_nodes": open_nodes}
+
+
+def _as_ts(v):
+    """把读数转成时间戳；坏值（字符串、列表、负数）一律当「未知」。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
+
+
+def _fmt_gap(sec):
+    if sec is None:
+        return "未知"
+    sec = int(max(0, sec))
+    d, rem = divmod(sec, 86400)
+    h, m = rem // 3600, (rem % 3600) // 60
+    if d:
+        return "%d 天 %d 小时" % (d, h)
+    if h:
+        return "%d 小时 %d 分" % (h, m)
+    return "%d 分" % m
+
+
+THRESHOLDS = {"message": 6 * 3600, "intimate": 24 * 3600}
+
+
+def _section_trigger(A, root, now, we_dir=None, private=False, sessions_root=None):
+    """第二节：**有没有触发**（意图积压 + 关系越线）。"""
+    A("## 二、触发（有没有该动的）")
+    A("")
+    gap = _intent_gap(root)
+    A("| 触发源 | 读数 | 判读 |")
+    A("|---|---|---|")
+    A("| 意图台账未消费 | %d 个节点 / 台账 %d 条（已消费 %d） | %s |" % (
+        gap["open"], gap["records"], gap["consumed"],
+        "**有积压**" if gap["open"] else "空，没有该起身的"))
+    if not private:
+        A("| 关系触发（多久没消息/没亲密） | 本端未配置 | 读数只在私有侧渲染，不进公开仓 |")
+        A("")
+        A("> 关系读数是隐私：公开页只报意图计数，不报时间点、不报节点 id。")
+        A("> 需要看全：scripts/intent_board.py --private --we-dir <私有数据目录> "
+          "--write-private <私有路径>")
+        A("")
+        return
+    # ---- 私有视图：关系读数 + 未消费节点 id ----
+    msg = his_last_message(extra=sessions_root)
+    if msg.get("error"):
+        A("| 收到他的消息 | %s | 读不到 |" % msg["error"])
+    elif msg.get("ts"):
+        g = now - float(msg["ts"])
+        thr = THRESHOLDS["message"]
+        A("| 收到他的消息 | %s前（%s） | %s |" % (
+            _fmt_gap(g), time.strftime("%m-%d %H:%M", time.localtime(msg["ts"])),
+            "**越线**（阈值 6 小时）" if g >= thr else "未越线"))
+    else:
+        A("| 收到他的消息 | 窗口内没有他的消息（扫了 %d 个会话文件） | — |" % msg.get("files", 0))
+    if we_dir:
+        st, pending = _we_readings(we_dir)
+        for kind, label, thr_h in (("intimate", "亲密", 24), ("thought", "想你", None)):
+            t = _as_ts(st.get(kind))
+            if not t:
+                A("| 最后%s | 未知 | — |" % label)
+                continue
+            g = now - float(t)
+            if thr_h:
+                A("| 最后%s | %s前 | %s |" % (label, _fmt_gap(g),
+                                             "**越线**（阈值 %d 小时）" % thr_h
+                                             if g >= thr_h * 3600 else "未越线"))
+            else:
+                A("| 最后%s | %s前 | （只记录，不设阈值） |" % (label, _fmt_gap(g)))
+        A("| 未处理提醒 | %d 条 | %s |" % (
+            len(pending),
+            ("最近：" + str(pending[-1].get("ts") or "") + " " + str(pending[-1].get("note") or ""))
+            if pending else "无"))
+    if gap["open_nodes"]:
+        A("")
+        A("未消费意图（前 8 个）：")
+        A("")
+        for nid in gap["open_nodes"][:8]:
+            A("- %s" % nid)
+    A("")
+
 def _stamps(root):
     """收集所有端的心跳戳：一端一个 name ⇒ 一个文件。"""
     out, seen = [], set()
@@ -103,6 +345,8 @@ def _rotation(records):
         return 0, None
     tail, last = 0, None
     for r in reversed(records):
+        if not isinstance(r, dict):      # 坏行不参与「末尾连续同题」判定
+            continue
         nid = r.get("node_id")
         if last is None:
             last, tail = nid, 1
@@ -184,11 +428,13 @@ def _section_heartbeat(A, root, now):
         A("")
 
 
-def render(root, now=None):
+def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     now = now or time.time()
     records = _read_jsonl(os.path.join(root, "_intent.jsonl"))
     attempts = {}
     for r in records:
+        if not isinstance(r, dict):      # 台账坏行（不是 dict）不计入，也不崩
+            continue
         nid = str(r.get("node_id") or "")
         if nid:
             attempts[nid] = attempts.get(nid, 0) + 1
@@ -200,7 +446,8 @@ def render(root, now=None):
     A("> 生成于 %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)))
     A("")
     _section_heartbeat(A, root, now)
-    A("## 二、它在动，还是在往前走")
+    _section_trigger(A, root, now, we_dir=we_dir, private=private, sessions_root=sessions_root)
+    A("## 三、它在动，还是在往前走")
     A("")
     A("| 指标 | 值 | 判读 |")
     A("|---|---|---|")
@@ -208,25 +455,27 @@ def render(root, now=None):
     A("| 不同节点数 | %d | 越多越在往前走 |" % len(attempts))
     tail, tail_node = _rotation(records)
     A("| 末尾连续同一题 | %d 次 | %s |" % (tail, "⚠ 卡住了" if tail > 2 else "健康"))
-    window = records[-10:]
+    window = [r for r in records[-10:] if isinstance(r, dict)]
     if len(window) >= 4:
-        ratio = len(set(str(r.get("node_id") or "") for r in window)) / float(len(window))
+        ratio = len(set(str(r.get("node_id") or "") for r in window)) \
+            / float(len(window))
         A("| 近期换题率（末 %d 条） | %.0f%% | %s |"
           % (len(window), ratio * 100,
              "低于 30%，多半在原地踩" if ratio < 0.3 else "正常（在换题）"))
     A("")
     if tail > 2 and tail_node:
-        A("> 连续 %d 次都是 `%s`——这正是 2026-11-19 修掉的毛病。" % (tail, tail_node))
+        shown = ("`%s`" % tail_node) if private else _mask_id(tail_node)
+        A("> 连续 %d 次都是 %s——这正是 2026-11-19 修掉的毛病。" % (tail, shown))
         A("> 若再次出现，先看 `md_cg/intent_tick.py` 的 `pick()` 是否按尝试次数轮转。")
         A("")
-    A("## 三、待办推进")
+    A("## 四、待办推进")
     A("")
     A("| 节点 | 被捡起 |")
     A("|---|---|")
     for nid, n in sorted(attempts.items(), key=lambda kv: -kv[1])[:12]:
-        A("| `%s` | %d 次 |" % (nid, n))
+        A("| `%s` | %d 次 |" % ((nid if private else _mask_id(nid)), n))
     A("")
-    A("## 四、日记目录")
+    A("## 五、日记目录")
     A("")
     entries = _diary(root)
     if not entries:
@@ -235,7 +484,8 @@ def render(root, now=None):
         A("| 日期 | 节点 | 第一行 |")
         A("|---|---|---|")
         for e in entries:
-            A("| %s | `%s` | %s |" % (e["date"], e["id"], e["head"]))
+            A("| %s | `%s` | %s |" % (
+                e["date"], (e["id"] if private else _mask_id(e["id"])), e["head"]))
     A("")
     A("---")
     A("")
@@ -243,18 +493,49 @@ def render(root, now=None):
     return "\n".join(lines)
 
 
+def _opt(argv, name):
+    if name in argv:
+        i = argv.index(name)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     root = _root(argv)
-    text = render(root)
+    we_dir = _opt(argv, "--we-dir")
+    sessions_root = _opt(argv, "--sessions-root")
+    write_private = _opt(argv, "--write-private")
+    private = ("--private" in argv) or bool(write_private)
+    # 隐私护栏（使用者 2026-11-23 定）：关系读数不得进公开仓。两个口径同时给就拒绝——不靠人记住。
+    if private and "--write" in argv:
+        print("拒绝：--private 的读数不得写进公开仓（--write 指向 %s）。" % OUT_REL)
+        return 2
+    # 同一个护栏的第二种走法：--write-private 指向仓内。只判 --write 不够——
+    # 蜂巢复核 0520 实测 --write-private 指向 docs/日记看板.md 会 rc=0 把私有页写进公开仓。
+    if write_private:
+        wpath = os.path.normcase(os.path.realpath(os.path.abspath(write_private)))
+        repo = os.path.normcase(os.path.realpath(os.path.abspath(REPO))) + os.sep
+        if wpath.startswith(repo):
+            print("拒绝：私有看板不得写进公开仓（%s）。" % write_private)
+            return 2
+    text = render(root, we_dir=we_dir, private=private, sessions_root=sessions_root)
+    if write_private:
+        os.makedirs(os.path.dirname(os.path.abspath(write_private)), exist_ok=True)
+        with io.open(write_private, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text + "\n")
+        print("已写入私有看板 %s" % write_private)
+        return 0
     if "--write" in argv:
-        out = os.path.join(REPO, OUT_REL)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        out = _opt(argv, "--out") or os.path.join(REPO, OUT_REL)
+        out_dir = os.path.dirname(os.path.abspath(out))
+        os.makedirs(out_dir, exist_ok=True)
         with io.open(out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
-        print("已写入 %s" % OUT_REL)
-    else:
-        print(text)
+        print("已写入 %s" % out)
+        return 0
+    print(text)
     return 0
 
 
