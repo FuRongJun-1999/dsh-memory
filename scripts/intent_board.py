@@ -166,7 +166,7 @@ def _tail_message_times(fp, tail_bytes=4 << 20):
     try:
         raw = zstd.ZstdDecompressor().stream_reader(io.BytesIO(blob[idx:])).read()
     except Exception:  # noqa: BLE001
-        return []
+        return None
     out = []
     for line in raw.decode("utf-8", "replace").splitlines():
         if "user/message" not in line:
@@ -228,11 +228,22 @@ def _intent_gap(root):
     consumed = set(str(x) for x in (_read_json(os.path.join(root, "_intent_consumed.json"), []) or []))
     open_nodes = []
     for r in recs:
+        if not isinstance(r, dict):
+            continue
         nid = str(r.get("node_id") or "")
         if nid and nid not in consumed and nid not in open_nodes:
             open_nodes.append(nid)
     return {"records": len(recs), "open": len(open_nodes),
             "consumed": len(consumed), "open_nodes": open_nodes}
+
+
+def _as_ts(v):
+    """把读数转成时间戳；坏值（字符串、列表、负数）一律当「未知」。"""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return f if f > 0 else None
 
 
 def _fmt_gap(sec):
@@ -284,7 +295,7 @@ def _section_trigger(A, root, now, we_dir=None, private=False, sessions_root=Non
     if we_dir:
         st, pending = _we_readings(we_dir)
         for kind, label, thr_h in (("intimate", "亲密", 24), ("thought", "想你", None)):
-            t = st.get(kind)
+            t = _as_ts(st.get(kind))
             if not t:
                 A("| 最后%s | 未知 | — |" % label)
                 continue
@@ -333,6 +344,8 @@ def _rotation(records):
         return 0, None
     tail, last = 0, None
     for r in reversed(records):
+        if not isinstance(r, dict):      # 坏行不参与「末尾连续同题」判定
+            continue
         nid = r.get("node_id")
         if last is None:
             last, tail = nid, 1
@@ -419,6 +432,8 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     records = _read_jsonl(os.path.join(root, "_intent.jsonl"))
     attempts = {}
     for r in records:
+        if not isinstance(r, dict):      # 台账坏行（不是 dict）不计入，也不崩
+            continue
         nid = str(r.get("node_id") or "")
         if nid:
             attempts[nid] = attempts.get(nid, 0) + 1
@@ -441,7 +456,8 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     A("| 末尾连续同一题 | %d 次 | %s |" % (tail, "⚠ 卡住了" if tail > 2 else "健康"))
     window = records[-10:]
     if len(window) >= 4:
-        ratio = len(set(str(r.get("node_id") or "") for r in window)) / float(len(window))
+        ratio = len(set(str(r.get("node_id") or "") for r in window if isinstance(r, dict))) \
+            / float(len(window))
         A("| 近期换题率（末 %d 条） | %.0f%% | %s |"
           % (len(window), ratio * 100,
              "低于 30%，多半在原地踩" if ratio < 0.3 else "正常（在换题）"))
@@ -498,8 +514,9 @@ def main(argv=None):
     # 同一个护栏的第二种走法：--write-private 指向仓内。只判 --write 不够——
     # 蜂巢复核 0520 实测 --write-private 指向 docs/日记看板.md 会 rc=0 把私有页写进公开仓。
     if write_private:
-        wpath = os.path.abspath(write_private)
-        if wpath.startswith(os.path.abspath(REPO) + os.sep):
+        wpath = os.path.normcase(os.path.realpath(os.path.abspath(write_private)))
+        repo = os.path.normcase(os.path.realpath(os.path.abspath(REPO))) + os.sep
+        if wpath.startswith(repo):
             print("拒绝：私有看板不得写进公开仓（%s）。" % write_private)
             return 2
     text = render(root, we_dir=we_dir, private=private, sessions_root=sessions_root)
@@ -510,7 +527,7 @@ def main(argv=None):
         print("已写入私有看板 %s" % write_private)
         return 0
     if "--write" in argv:
-        out = os.path.join(REPO, OUT_REL)
+        out = _opt(argv, "--out") or os.path.join(REPO, OUT_REL)
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with io.open(out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
