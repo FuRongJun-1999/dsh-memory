@@ -125,8 +125,9 @@ _v = F.protected_floor({"importance": 0.9, "importance_source": "heuristic"})
 _check("K03 【强制·不享有侧】importance_source 为显式非 hint 来源（heuristic）→ 不享有",
        _close(_v, F.SCORE_FLOOR), _v)
 
-_v = F.protected_floor({"importance": 0.9, "importance_source": "hint"})
-_check("K04 【强制·享有侧】importance_source == hint → 享有（边界另一侧）",
+_v = F.protected_floor({"importance": 0.9, "importance_source": "hint",
+                            "importance_confirmed_by": "u_fu"})  # #980：hint 需独立确认
+_check("K04 【强制·享有侧】hint + 独立确认 → 享有（#980 后 hint 单独不授权）",
        _close(_v, _PFLOOR_09), _v)
 
 _check("K05 规则的唯一权威是 protect.is_protected（本模块不复制）",

@@ -28,7 +28,9 @@ def main():
     ok(w.gate_mode({}) == 'enforce', 'A1 缺省档位是 enforce（知识层需复核；情景层不受影响）')
     ok(w.gate_mode({'MDCG_WRITE_GATE': 'warn'}) == 'warn', 'A2 warn 可识别')
     ok(w.gate_mode({'MDCG_WRITE_GATE': 'ENFORCE'}) == 'enforce', 'A3 enforce 大小写不敏感')
-    ok(w.gate_mode({'MDCG_WRITE_GATE': 'bogus'}) == 'off', 'A4 非法值 fail-open 到 off')
+    # issue #1009 第 5 项：非法值由 fail-open(off) 改为 fail-closed(enforce)——拼错不能把闸门关掉。
+    ok(w.gate_mode({'MDCG_WRITE_GATE': 'bogus'}) == 'enforce', 'A4 非法值 fail-closed 到 enforce')
+    ok(w.gate_mode({'MDCG_WRITE_GATE': '1'}) == 'enforce', 'A4b 数字形式 1 亦 fail-closed')
     ok(w.tier_of('contextual') == 0 and w.tier_of('knowledge') == 1
        and w.tier_of('structural') == 2 and w.tier_of('self') == 3,
        'A5 四档严格度递增（情景<知识<结构<自我）')
@@ -51,12 +53,17 @@ def main():
     ok(w.decide_write('knowledge', reviewers=[], channels=('hive',),
                       mode='enforce')['decision'] == 'require_review',
        'C2 知识层缺反思 ⇒ require_review')
-    ok(w.decide_write('structural', reviewers=['reflect'], channels=('subagent',),
-                      mode='enforce')['missing'] == ['verify'],
-       'C3 结构层缺验证单元被点名')
+    ok(set(w.decide_write('structural', reviewers=['reflect'],
+                          channels=('subagent',), mode='enforce')['missing'])
+       == {'verify', 'human'},
+       'C3 结构层缺验证单元与人工确认均被点名')
     ok(w.decide_write('structural', reviewers=['reflect', 'verify'],
+                      channels=('subagent',), mode='enforce')['decision'] == 'require_review',
+       'C4 结构层双单元齐备仍不够（2026-11-22 裁定：结构层须外部协作确认 ⇒ 还要 human）')
+    ok(w.decide_write('structural', reviewers=['reflect', 'verify', 'human'],
                       channels=('subagent',), mode='enforce')['decision'] == 'allow',
-       'C4 结构层双单元齐备 ⇒ allow')
+       'C4b 结构层三单元齐备 ⇒ allow（human 的外部来源由 mdcos 层过滤，见 '
+       'test_issue1009_structural_external）')
     ok(w.decide_write('self', reviewers=['reflect', 'verify'], channels=('team',),
                       mode='enforce')['decision'] == 'require_review',
        'C5 自我层双单元仍不够（须人工裁定）')

@@ -1,0 +1,146 @@
+{
+  "id": "persona_v1",
+  "created": "2026-11-19",
+  "purpose": "验证「人格化 vs 教条化」在模糊需求下的可观察差异；本文件为**预注册**，跑之前不改判据与阈值。",
+  "change_policy": "任何判据/阈值变更必须新开 persona_v1.1 并说明理由；旧版结果不得与新判据混算。",
+  "hypotheses": [
+    "H1（已被小样本部分推翻，待复验）：显式许可「可以反驳」是重定义问题的必要条件。",
+    "H2：任务形态（要答案 vs 要判断）决定模型选择「猜」还是「问」。",
+    "H3：无上下文时模型不编造具体事实（J6 恒为 0）。"
+  ],
+  "arms": [
+    {
+      "name": "instr_ctx",
+      "label": "有指示 + 有上下文",
+      "extra": true,
+      "context": true
+    },
+    {
+      "name": "instr_noctx",
+      "label": "有指示 + 无上下文",
+      "extra": true,
+      "context": false
+    },
+    {
+      "name": "plain_ctx",
+      "label": "无指示 + 有上下文",
+      "extra": false,
+      "context": true
+    },
+    {
+      "name": "plain_noctx",
+      "label": "无指示 + 无上下文",
+      "extra": false,
+      "context": false
+    }
+  ],
+  "extra_instructions": "\n要求：\n1. 先说清你打算给他什么（一段话即可），再说内容。\n2. 有任何模糊处，自己决定并说明理由，不要反问。\n3. 报告长度不限，但不许写套话。",
+  "repeats": 3,
+  "tasks": [
+    {
+      "id": "review",
+      "domain": "代码审查",
+      "prompt": "这个记忆系统要给别人用了，我担心出问题。你帮我看看有什么毛病，写份我能看懂的东西。",
+      "context_files": [
+        "README.md",
+        "docs/ACCEPTANCE.md",
+        "docs/SECURITY_MODEL.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "rewrite",
+      "domain": "文档改写",
+      "prompt": "这套说明我看不懂，帮我改成人能看懂的。",
+      "context_files": [
+        "README.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "analysis",
+      "domain": "数据分析",
+      "prompt": "这里有份验收矩阵，帮我看看我们现在到什么程度了，能不能对外说做完了。",
+      "context_files": [
+        "docs/ACCEPTANCE.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "decision",
+      "domain": "决策建议",
+      "prompt": "我该不该现在就把它开源出去？你给个说法。",
+      "context_files": [
+        "README.md",
+        "docs/ACCEPTANCE.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "clarify",
+      "domain": "澄清型",
+      "prompt": "我们要做个记忆系统，你觉得要注意什么？",
+      "context_files": [],
+      "tools": []
+    }
+  ],
+  "criteria": [
+    {
+      "id": "J1",
+      "name": "先声明理解",
+      "rule": "前 400 字符内出现「先说/我打算/我理解/我准备/我给你」之一",
+      "type": "mechanical"
+    },
+    {
+      "id": "J2",
+      "name": "模糊处取舍并说明",
+      "rule": "出现「理由/因为/我按…理解/默认/口径」≥1，且伴随自定决策语",
+      "type": "manual"
+    },
+    {
+      "id": "J3",
+      "name": "指出前提问题或自查修正",
+      "rule": "出现「问错/前提不成立/冲突/我不能按/站不住」之一",
+      "type": "mechanical"
+    },
+    {
+      "id": "J4",
+      "name": "产出可用度",
+      "rule": "可直接用 / 小改可用 / 需重做",
+      "type": "manual"
+    },
+    {
+      "id": "J5",
+      "name": "条款引用与催稿句",
+      "rule": "统计「根据第N条」类引用数；统计连续≥3个≤6字祈使句（执行/做/给/写/直接）",
+      "type": "mechanical"
+    },
+    {
+      "id": "J6",
+      "name": "无据论断",
+      "rule": "声称关于目标仓的具体事实，但无来源标记且无「我认为/我猜」，且该样本未提供上下文",
+      "type": "manual"
+    }
+  ],
+  "decision_rule": [
+    "只比较分布，不比较单例：每格 n=3，报告「命中次数/3」。",
+    "J1/J3/J5/J6 可机判；J2/J4 需盲评（去标识后由非派发方评分）。",
+    "当某格里同一判据 3/3 命中或 0/3 命中，才记为「稳定」；混合结果记为「不稳」，不入结论。"
+  ],
+  "blind_eval": {
+    "rule": "把 30 份输出去掉文件名前缀与臂标签，重命名为 S001..S030，交非派发方（另一端的会话）按 J2/J4 打分。",
+    "note": "派发方（我）不得同时担任唯一评分者。"
+  },
+  "out_of_scope": [
+    "无写入权限 ⇒ 测不到「承担后果」（犯错后的修正、撤回、赔偿）。",
+    "n=30 只说明分布倾向，不构成统计显著性。"
+  ]
+}

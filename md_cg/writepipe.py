@@ -727,6 +727,29 @@ def _gate_audit(ctx):
 
 
 # 生效条件：ctx["a"]["consistency"] 为假值时返回 None；on_conflict 缺键或假值回落 "defer"，仅当 verdict=REJECT 且 on_conflict=reject（返回 moved_to="conflict_rejected"）或 verdict∈{REJECT,BLINDSPOT} 且 on_conflict=defer（转 review_queue，去重命中时改写 hint）才拦截，其余 on_conflict 取值返回 None；
+# 生效条件：MDCG_VALUES_GATE=off 时返回 None；层档位 < 2 返回 None；未声明条款返回 None；
+# 否则调 values_gate.check 并把结论写入 ctx["values_verdict"]。enforce 档 deny 时短路。
+def _gate_values(ctx):
+    """价值观闸（v0.4 首次接线，2026-11-17）：结构/自我/锚点层须能指回已声明条款。
+
+    判据两条（可机械判定，不做语义裁决）：禁止项命中 ⇒ deny；指不回任何条款 ⇒ flag。
+    缺省 observe：只记读数、不拦——与写入闸同一策略（先观察再收紧）。
+    """
+    from . import values_gate as _vg
+    if _vg.gate_mode() == "off":
+        return None
+    cg = ctx["cg"]
+    a = ctx["a"]
+    verdict = _vg.check(cg, a, a.get("content", ""))
+    if not verdict:
+        return None
+    ctx["values_verdict"] = verdict
+    if verdict.get("mode") == "enforce" and verdict.get("decision") == "deny":
+        return {"ok": False, "verdict_state": "REJECT",
+                "reason": verdict.get("reason"),
+                "hint": "命中已声明价值观的禁止项。若判定有误，应修正条款（条款也可修正），不要绕过闸。"}
+    return None
+
 def _gate_consistency(ctx):
     """冲突闸：节点间自动冲突检测（三级决策）。
 
@@ -983,6 +1006,10 @@ def _gate_gated(ctx):
            "gate": res, "verdict": ctx["verdict"]}
     if ctx.get("cvd") is not None:
         out["consistency"] = ctx["cvd"]
+    # 价值观闸读数（v0.4，2026-11-17）：**只透出判定，不改变写入语义**——
+    # observe 档下它不拦任何东西，但人得看得见「这条能不能指回条款」。
+    if ctx.get("values_verdict"):
+        out["values"] = ctx["values_verdict"]
     if v == "MERGE":
         out["moved_to"] = "merged_into:" + str(res.get("merged_into"))
     elif v in ("DROP", "DEFER"):
@@ -1433,6 +1460,7 @@ def install_default_gates(pipe):
     pipe.register_before("condspace", condgate.before_hook())
     pipe.register_before("audit", _gate_audit)
     pipe.register_before("consistency", _gate_consistency)
+    pipe.register_before("values", _gate_values)
     pipe.register_before("gated", _gate_gated)
     # 档位闸**链尾**（三档自治批次②，设计 §三 硬约束②）：既有资格闸全部通过
     # 之后、链尾执行器落盘之前——档位只决定「立即落」还是「出变更单」，不参与

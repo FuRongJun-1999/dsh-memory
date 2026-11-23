@@ -1,0 +1,12 @@
+{
+ "arm": "closed",
+ "task": "c6_n",
+ "domain": "双副本/neg",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0305",
+ "ok": true,
+ "text": "第 5 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795135629.619372
+}

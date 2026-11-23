@@ -53,6 +53,8 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
+import sys
 import threading
 import time
 
@@ -1527,6 +1529,11 @@ class SustainLoop:
                                       if sleep_scrub_apply is None
                                       else sleep_scrub_apply)
         self.last_sleep = None
+        # 第七档：主动队列（2026-11-18）。间隔/档位取自 intent_tick 的**单一真源**读取器，
+        # 本处不写第二份缺省字面量。
+        from . import intent_tick as _intent
+        self.intent_interval = float(_intent.interval())
+        self.last_intent = None
         self.sleeps = []
         self.sleep_round = 0
         self.task_running = False
@@ -1551,6 +1558,7 @@ class SustainLoop:
         self.current_tick = None
         self.last_tick_done = None
         self.last_tick_error = None
+        self.last_tick_hook_error = None
         self._ticks_wrapped = False          # 六档进度面包装的幂等标记
         self._started_at = None
         self._th = None
@@ -1597,10 +1605,11 @@ class SustainLoop:
 
 # 生效条件：无入参；返回进度三字段 dict（current_tick / last_tick_done / last_tick_error；None 值由 write_stamp 丢弃）——写戳与 status 读取的唯一取值面。
     def _progress_fields(self) -> dict:
-        """进度三字段（写点与读取的**单一取值面**）。"""
+        """进度字段（写点与读取的**单一取值面**；None 值由 write_stamp 丢弃）。"""
         return {"current_tick": self.current_tick,
                 "last_tick_done": self.last_tick_done,
-                "last_tick_error": self.last_tick_error}
+                "last_tick_error": self.last_tick_error,
+                "last_tick_hook_error": self.last_tick_hook_error}
 
 # 生效条件：以 write_stamp(self.name, self.d, task_running=self.task_running, root=self.cg.root, uptime=... if self._started_at else 0.0, **进度三字段) 刷新既有心跳戳（原子替换）；写失败静默（与心跳同纪律）——进度面缺失是已知边界（写失败时 status 的当前档读数退化为 null）。
     def _flush_progress(self):
@@ -1639,6 +1648,256 @@ class SustainLoop:
         return self
 
 # 生效条件：name 为该档名、fn 为该档可调用；返回包装函数 wrapped——调用时先写 current_tick={name, started_at, pid} 并刷新戳，调 fn(*a, **kw)，异常记入 last_tick_error={name, error: 类名+摘要（截 200 字符）, t} 并**不重抛**（容忍≠静默；`_run` 的既有 except 保留为兜底），随后清 current_tick、记 last_tick_done={name, t, ok} 并再刷新戳。
+    _HOOK_STRIP_EXACT = frozenset({
+        "MDCG_MASTER_KEY", "MDCG_TOKEN", "MDCG_TOKEN_FILE", "MDCG_ADMIN_TOKEN",
+        "MDCG_LEGACY_ENV_ADMIN", "MDCG_LEGACY_ENV_AUTH",
+        "DEEPSEEK_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY",
+        "GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN",
+    })
+    _HOOK_SECRET_PARTS = ("KEY", "TOKEN", "SECRET", "PASS", "AUTH", "CRED", "ADMIN")
+
+    @staticmethod
+    def _validate_tick_hook_detail(raw_path: str, *, base_dirs=()):
+        """校验外钩路径（SEC-02）：拒绝标志注入(-c 等)、路径穿越、非正则 .py 文件。
+
+        返回 `(realpath, err_cls, reason)`；通过时 `err_cls == reason == ""`。
+        """
+        import stat as _stat
+        p = str(raw_path or "").strip()
+        if not p:
+            return "", "ValueError", "empty_path"
+        if "\x00" in p or "\n" in p or "\r" in p:
+            return "", "ValueError", "invalid_chars"
+        if p.startswith("-"):
+            return "", "ValueError", "flag_injection"
+        if ".." in p.replace("\\", "/").split("/"):
+            return "", "ValueError", "path_traversal"
+        try:
+            if not os.path.isabs(p) and base_dirs:
+                cand_p = None
+                for _bd in base_dirs:
+                    _try_p = os.path.join(_bd, p)
+                    if os.path.lexists(_try_p):
+                        cand_p = _try_p
+                        break
+                if cand_p is None:
+                    cand_p = os.path.abspath(p) if os.path.lexists(os.path.abspath(p)) else os.path.join(base_dirs[0], p)
+            else:
+                cand_p = os.path.abspath(p)
+            real = os.path.realpath(cand_p)
+            if real.startswith("-") or os.path.basename(real).startswith("-"):
+                return "", "ValueError", "flag_injection"
+            if os.path.splitext(real)[1].lower() != ".py":
+                return "", "ValueError", "not_py_file"
+            st = os.stat(real)
+            if not _stat.S_ISREG(st.st_mode):
+                return "", "ValueError", "not_regular_file"
+            return real, "", ""
+        except FileNotFoundError:
+            return "", "FileNotFoundError", "not_found"
+        except OSError as exc:
+            return "", type(exc).__name__, "stat_error"
+
+    @classmethod
+    def _validate_tick_hook(cls, raw_path: str) -> str:
+        """校验外钩路径（SEC-02）：拒绝标志注入(-c 等)、路径穿越、非正则 .py 文件；返回 realpath 或 ''。"""
+        real, _ecls, _ereas = cls._validate_tick_hook_detail(raw_path)
+        return real
+
+    @staticmethod
+    def _path_within_dir(cand: str, base_dir: str) -> bool:
+        """判定规范化后的文件路径 cand 是否严格落在目录 base_dir 内（防兄弟目录前缀碰撞）。"""
+        if not cand or not base_dir:
+            return False
+        try:
+            c = os.path.normcase(os.path.realpath(cand))
+            b = os.path.normcase(os.path.realpath(base_dir))
+            if not os.path.isdir(b):
+                return False
+            return os.path.commonpath([b, c]) == b and c != b
+        except (OSError, ValueError):
+            return False
+
+    def _record_tick_hook_error(self, err_cls: str, reason: str, path: str = "",
+                                *, tick: str = None, source: str = "hook",
+                                detail: str = "") -> None:
+        """记录外钩拒绝或执行失败原因到 `self.last_tick_hook_error`（容忍≠静默）。"""
+        p_show = str(path or "")[:300]
+        if detail:
+            msg = "%s(%s): %s — %s" % (err_cls, reason, p_show, str(detail)[:200])
+        else:
+            msg = "%s(rejected:%s): %s" % (err_cls, reason, p_show)
+        self.last_tick_hook_error = {
+            "t": time.time(),
+            "name": tick,
+            "source": source,
+            "reason": reason,
+            "path": p_show,
+            "error": msg[:400],
+        }
+
+    @classmethod
+    def _tick_hook_env(cls) -> dict:
+        """外钩子进程 env（SEC-02）：剥离所有密钥/令牌/凭证环境变量，防止外钩读取主密钥与令牌。"""
+        out = {}
+        for k, v in os.environ.items():
+            ku = str(k).upper()
+            if ku in cls._HOOK_STRIP_EXACT:
+                continue
+            if ku.startswith("MDCG_") and any(tok in ku for tok in cls._HOOK_SECRET_PARTS):
+                continue
+            out[k] = v
+        out["PYTHONUTF8"] = "1"
+        return out
+
+    def _tick_hook_path(self, *, _tick: str = None):
+        """外钩路径的取值面（单点 · SEC-02 加固）：**配置文件优先，env 兜底**。
+
+        `<root>/_tick_hook.json` ＝ {"path": "...", "enabled": true}
+        为什么配置文件优先：env 改一次要重启一次进程，配置文件每次 tick 现读（stat 缓存），
+        改完下一分钟即生效。
+        安全约束（保住全部加固项且绝不静默）：
+          · 配置文件中的 `path` 须为常规 `.py` 文件，拒绝 `-` 开头、`..`、控制字符、
+            非常规文件、非 `.py` 后缀；
+          · 且其 `realpath` 须落在 `<cg.root>` 内，或落在 `MDCG_TICK_HOOK` 指定的目录内
+            （或与 `MDCG_TICK_HOOK` 指定的单个 `.py` 文件一致）；
+          · `_tick_hook.json` 的 `enabled=false` 可动态暂停（免重启，不算错误）；
+          · 任何一次拒绝都会写入 `self.last_tick_hook_error`（类名 + 原因 + 路径），
+            绝不静默丢弃。
+        """
+        root = getattr(getattr(self, "cg", None), "root", None)
+        root_real = ""
+        if root:
+            try:
+                _rr = os.path.realpath(os.path.abspath(str(root)))
+                if os.path.isdir(_rr):
+                    root_real = _rr
+            except OSError:
+                root_real = ""
+
+        env_raw = str(os.environ.get("MDCG_TICK_HOOK") or "").strip()
+        env_file = ""
+        env_dir = ""
+        env_err = None
+        if env_raw:
+            if "\x00" in env_raw or "\n" in env_raw or "\r" in env_raw:
+                env_err = ("ValueError", "invalid_chars")
+            elif env_raw.startswith("-"):
+                env_err = ("ValueError", "flag_injection")
+            elif ".." in env_raw.replace("\\", "/").split("/"):
+                env_err = ("ValueError", "path_traversal")
+            else:
+                try:
+                    _ed = os.path.realpath(os.path.abspath(env_raw))
+                    if os.path.isdir(_ed):
+                        env_dir = _ed
+                except OSError:
+                    env_dir = ""
+                if not env_dir:
+                    _ef, _ecls, _ereas = self._validate_tick_hook_detail(env_raw)
+                    if _ef:
+                        env_file = _ef
+                    else:
+                        env_err = (_ecls, _ereas)
+
+        cfg = os.path.join(str(root), "_tick_hook.json") if root else None
+        if cfg:
+            cfg_exists = False
+            data = None
+            try:
+                st = os.stat(cfg)
+                cfg_exists = True
+                key = (cfg, st.st_mtime_ns, st.st_size)
+                cached = getattr(self, "_hook_cfg_cache", None)
+                if cached and cached[0] == key:
+                    data = cached[1]
+                else:
+                    with open(cfg, encoding="utf-8") as f:
+                        data = json.load(f)
+                    self._hook_cfg_cache = (key, data)
+            except FileNotFoundError:
+                cfg_exists = False
+            except (OSError, ValueError, TypeError) as exc:
+                self._record_tick_hook_error(
+                    type(exc).__name__, "config_error", cfg,
+                    tick=_tick, source="config", detail=str(exc))
+                return ""
+            if cfg_exists:
+                if not isinstance(data, dict):
+                    self._record_tick_hook_error(
+                        "TypeError", "config_not_object", cfg,
+                        tick=_tick, source="config")
+                    return ""
+                if data.get("enabled") is False:
+                    return ""
+                p = str(data.get("path") or "").strip()
+                if p:
+                    base_dirs = tuple(d for d in (root_real, env_dir) if d)
+                    cand, ecls, ereas = self._validate_tick_hook_detail(
+                        p, base_dirs=base_dirs)
+                    if not cand:
+                        self._record_tick_hook_error(
+                            ecls, ereas, p, tick=_tick, source="config")
+                        return ""
+                    allowed = False
+                    if root_real and self._path_within_dir(cand, root_real):
+                        allowed = True
+                    elif env_file and os.path.normcase(cand) == os.path.normcase(env_file):
+                        allowed = True
+                    elif env_dir and self._path_within_dir(cand, env_dir):
+                        allowed = True
+                    if allowed:
+                        return cand
+                    self._record_tick_hook_error(
+                        "PermissionError", "outside_allowed_roots", p,
+                        tick=_tick, source="config")
+                    return ""
+
+        if env_file:
+            return env_file
+        if env_err is not None:
+            self._record_tick_hook_error(
+                env_err[0], env_err[1], env_raw, tick=_tick, source="env")
+        return ""
+
+    # 生效条件：每档 tick 跑完后调用；返回 None。外钩路径由 _tick_hook_path 单点决定。
+    def _run_tick_hook(self, name):
+        """每档 tick 跑完后的**通用外钩**（无业务语义）：指向一个经校验的 .py 时以子进程执行
+        `python -X utf8 -- <hook> --tick <name>`，剥离密钥 env，超时 60s，失败**绝不抛**；
+        任何拒绝或执行失败均写入 `self.last_tick_hook_error`（容忍≠静默）。
+
+        为什么放在内核外：与记忆内核无关的本地记录（个人状态、外部台账、第三方告警）
+        不该长进内核语义里；内核只提供一个「已经跑完一轮心跳」的时刻。
+        """
+        import re as _re
+        tick_name = str(name or "").strip()
+        hook = self._tick_hook_path(_tick=tick_name or None)
+        if not hook:
+            return
+        if not _re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", tick_name):
+            self._record_tick_hook_error(
+                "ValueError", "invalid_tick_name", hook,
+                tick=tick_name or None, source="hook",
+                detail="tick=%r" % (name,))
+            return
+        try:
+            cp = subprocess.run(
+                [sys.executable, "-X", "utf8", "--", hook, "--tick", tick_name],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                stdin=subprocess.DEVNULL, timeout=60,
+                env=self._tick_hook_env())
+            if cp.returncode != 0:
+                err_tail = ((cp.stderr or cp.stdout or "").strip().splitlines() or [""])[-1][:180]
+                self._record_tick_hook_error(
+                    "RuntimeError", "nonzero_exit", hook,
+                    tick=tick_name, source="hook",
+                    detail="rc=%d%s" % (cp.returncode, (": " + err_tail) if err_tail else ""))
+        except Exception as exc:                 # noqa: BLE001
+            self._record_tick_hook_error(
+                type(exc).__name__, "exec_error", hook,
+                tick=tick_name, source="hook", detail=str(exc))
+            # 外钩失败不得影响心跳本身
+
     def _wrap_tick(self, name: str, fn):
         """单档 tick 的**进度面包裹**（issue #63）：进/出各留读数，异常不静默。
 
@@ -1667,6 +1926,7 @@ class SustainLoop:
                 self.last_tick_error = {"name": name, "t": time.time(),
                                         "error": "%s: %s" % (type(e).__name__,
                                                              str(e)[:200])}
+            self._run_tick_hook(name)
             self.current_tick = None
             self.last_tick_done = {"name": name, "t": time.time(), "ok": ok_}
             self._flush_progress()
@@ -1749,6 +2009,7 @@ class SustainLoop:
         next_evolve = time.time() + self.evolve_interval
         next_tidy = time.time() + self.tidy_interval
         next_sleep = time.time() + self.sleep_interval
+        next_intent = time.time() + self.intent_interval
         while not self._stop.is_set():
             now = time.time()
             if own_beat and now >= next_beat:
@@ -1787,6 +2048,13 @@ class SustainLoop:
                 except Exception:
                     pass                       # 睡眠周期失败不中断常驻
                 next_sleep = now + self.sleep_interval
+            # 第七档：主动队列（2026-11-18）——没人提问时也要起身。
+            if now >= next_intent:
+                try:
+                    self._tick_intent()
+                except Exception:
+                    pass                   # 主动队列失败不中断常驻
+                next_intent = now + self.intent_interval
             self._stop.wait(_POLL)
 
     # ---- D1：心跳独立线程（缺省关）----
@@ -1806,6 +2074,17 @@ class SustainLoop:
                 pass                             # 心跳失败不中断常驻
 
 # 生效条件：以 apply=self.auto_tidy 调 writelimit.tidy_contextual(self.cg, actor="sustain_tidy")，把 t/scanned/groups/members/applied_count/auto_tidy 记入 self.last_tidy 与 tidys（仅保留最近 20 条），随后调 _tick_conformance()；auto_tidy 为假时只盘点不落盘；
+    def _tick_intent(self):
+        """主动队列（2026-11-18）：无人提问时取一条**自己留下的**待办，留一行台账。
+
+        只读库 + 追加 `_intent.jsonl`；**不写记忆**——无人值守时对库做写操作风险不对等，
+        边界写在 `md_cg/intent_tick.py` 的模块 docstring 里。
+        """
+        from . import intent_tick
+        rec = intent_tick.step(self.cg, actor="sustain_intent")
+        self.last_intent = rec
+        return rec
+
     def _tick_tidy(self):
         """整理巡检（contextual 流水治理·读侧）：同构组聚合 + 成员降权。
 
@@ -1996,6 +2275,7 @@ class SustainLoop:
                 cur["running_s"] = None
         last_done = self.last_tick_done or (st or {}).get("last_tick_done")
         last_err = self.last_tick_error or (st or {}).get("last_tick_error")
+        last_hook_err = self.last_tick_hook_error or (st or {}).get("last_tick_hook_error")
         return {"name": self.name, "running": bool(self._th
                                                    and self._th.is_alive()),
                 "pid": os.getpid(),
@@ -2026,10 +2306,11 @@ class SustainLoop:
                 "sleeps": self.sleeps[-5:],
                 "last_conformance": self.last_conformance,
                 # 活体进度面（issue #63）：此刻在哪档 / 上一档完成 / 上一档错误
-                # / 超限告警（只上报，不杀线程）。
+                # / 外钩拒绝与执行错误 / 超限告警（只上报，不杀线程）。
                 "current_tick": cur,
                 "last_tick_done": last_done,
                 "last_tick_error": last_err,
+                "last_tick_hook_error": last_hook_err,
                 "stale_tick": self._stale_tick(cur),
                 "peers": peers(self.d),
                 "sessions": self.ledger.summary()}

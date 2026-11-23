@@ -476,15 +476,41 @@ _GEN_SAFE_BUILTINS = {name: getattr(__import__("builtins"), name)
                           "TypeError", "ValueError", "ZeroDivisionError")}
 
 
-# 生效条件：code 为 LLM 返回或 channel_b_queue.json 产出的 Python 源码文本；ast.parse 失败抛原语法异常，ast.walk 命中 Import/ImportFrom 节点、Name.id 属 _GEN_BANNED_NAMES、Attribute.attr 以下划线双端包夹或属 ("system","popen") 任一即抛 ValueError（不执行）；全部通过则以 {"__builtins__": _GEN_SAFE_BUILTINS} 为命名空间 exec 编译产物并返回该 ns（其中含源码定义的函数）。
+# 属性面**白名单**（issue #1009 第 5 项）。此前用 denylist（dunder 前缀 + system/popen），
+# 实测可逃：`g().gi_frame.f_back.f_back.f_globals['os'].remove(path)` —— `gi_frame` /
+# `f_back` / `f_globals` 都不在名单里，取到宿主模块后**任意**属性调用（实测在沙箱内删掉了
+# 沙箱外的文件）。属性名是开放集合，denylist 永远漏；纯计算只需要下面这些，改默认拒。
+_GEN_SAFE_ATTRS = frozenset({
+    # 列表 / 序列
+    "append", "extend", "insert", "pop", "remove", "clear", "copy",
+    "index", "count", "sort", "reverse",
+    # 字典
+    "get", "keys", "values", "items", "update", "setdefault",
+    # 集合
+    "add", "discard", "union", "intersection", "difference",
+    "symmetric_difference", "issubset", "issuperset",
+    # 字符串 / 字节
+    "join", "split", "rsplit", "splitlines", "strip", "lstrip", "rstrip",
+    "replace", "lower", "upper", "title", "capitalize", "casefold",
+    "startswith", "endswith", "find", "rfind", "format", "zfill",
+    "ljust", "rjust", "center", "isdigit", "isalpha", "isalnum",
+    "isspace", "isupper", "islower", "encode", "decode",
+    # 数值
+    "bit_length", "is_integer",
+})
+
+
+# 生效条件：code 为 LLM 返回或 channel_b_queue.json 产出的 Python 源码文本；ast.parse 失败抛原语法异常，ast.walk 命中 Import/ImportFrom 节点、Name.id 属 _GEN_BANNED_NAMES、Attribute.attr 以双下划线包夹或不属 _GEN_SAFE_ATTRS 白名单 任一即抛 ValueError（不执行）；全部通过则以 {"__builtins__": _GEN_SAFE_BUILTINS} 为命名空间 exec 编译产物并返回该 ns（其中含源码定义的函数）。
 def _safe_exec_gen(code: str) -> dict:
     """LLM 产出代码的受限 exec：AST denylist + 内建收窄（P1-7，批次 26）。
 
     拒绝（ValueError，不执行）：
       · import 面——Import / ImportFrom 节点（禁 os/subprocess 前置）；
       · 危险内建名调用——_GEN_BANNED_NAMES（执行/IO/反射/进程面）；
-      · 反射逃逸链——dunder 属性访问（__class__/__globals__/__subclasses__…）
-        与 os.system/popen 类敏感属性；
+      · 属性面——**只认 `_GEN_SAFE_ATTRS` 白名单**（列表/字典/集合/字符串/数值的纯计算方法）。
+        此前是 denylist（只拦 dunder + system/popen），实测可经
+        `gi_frame.f_back.f_back.f_globals['os']` 拿到宿主模块后任意调用；属性名是开放集合，
+        白名单是这一事实下的唯一稳妥解法；
       · Lambda/推导式中的同名调用同样被 walk 覆盖（AST 全遍历）。
     执行命名空间 `__builtins__` 收窄到纯计算内建——即使 denylist 漏项，
     ns 里也没有 open/import 可拿。
@@ -499,10 +525,11 @@ def _safe_exec_gen(code: str) -> dict:
             raise ValueError(f"沙箱拒绝受限名 {node.id}"
                              f"（行 {getattr(node, 'lineno', '?')}）")
         if isinstance(node, ast.Attribute):
-            if node.attr.startswith("__") or node.attr in ("system", "popen"):
-                raise ValueError(f"沙箱拒绝受限属性 .{node.attr}"
+            if node.attr.startswith("__") or node.attr not in _GEN_SAFE_ATTRS:
+                raise ValueError(f"沙箱拒绝属性 .{node.attr}"
                                  f"（行 {getattr(node, 'lineno', '?')}）"
-                                 "——反射逃逸链入口")
+                                 "——属性面只认纯计算白名单（_GEN_SAFE_ATTRS）；"
+                                 "帧/模块/反射类属性一律不放行（issue #1009）")
     ns = {"__builtins__": _GEN_SAFE_BUILTINS}
     exec(compile(code, "<gen>", "exec"), ns)   # noqa: S102——沙箱内（见上）
     return ns

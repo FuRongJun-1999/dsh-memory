@@ -1,0 +1,12 @@
+{
+ "arm": "plain",
+ "task": "lineart_swap",
+ "domain": "lineart",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0522",
+ "ok": true,
+ "text": "B",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795142768.4418323
+}

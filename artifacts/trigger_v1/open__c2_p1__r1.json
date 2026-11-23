@@ -1,0 +1,12 @@
+{
+ "arm": "open",
+ "task": "c2_p1",
+ "domain": "全面处理/pos",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0342",
+ "ok": true,
+ "text": "第 5 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795136603.5575063
+}

@@ -336,8 +336,12 @@ function cacheSet(key,value){
         target.querySelectorAll('[data-subject]').forEach(b=>b.onclick=async()=>{
           const sid=b.dataset.subject; if(!sid) return
           b.disabled=true; const old=b.textContent; b.textContent='读取中…'
+          // issue #993：此处曾校验 token，但 token 只存在于 navigate() 作用域，
+          // execute 内引用即 ReferenceError（外层 catch 把它当「读取失败」弹出）。
+          // 守卫本意 = 等待期间切换页面就丢弃旧结果 —— 改用模块级 generation 的快照比较。
+          const gen=generation
           try{ const one=await call('cg',{op:'identity',action:'profile',subject_id:sid})
-            if(token!==generation)return
+            if(gen!==generation)return
             target.innerHTML=RENDERERS.self_profile(one)+`<details class="raw"><summary>原始回执（机器面，未改写）</summary><pre>${esc(json(one))}</pre></details>`
           }catch(err){ b.disabled=false; b.textContent=old; toast(err.message||'读取失败') }
         })

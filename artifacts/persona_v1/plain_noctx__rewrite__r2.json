@@ -1,0 +1,25 @@
+{
+ "arm": "plain_noctx",
+ "task": "rewrite",
+ "domain": "文档改写",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0059",
+ "ok": true,
+ "text": "你还没把“说明”的正文贴出来，我这边只看到一条注释：`<!-- sample:50 -->`，没有具体内容可改。\n\n请把要改的说明直接发给我（文字、截图转文字都行）。如果可以，顺便告诉我：\n1. 这份说明是给谁看的（用户、员工、家长、老人等）\n2. 希望改成什么风格（通俗口语、正式简洁、步骤化）\n3. 是否有不能改动的专有名词\n\n你发来后，我会直接改成“人能看懂”的版本。",
+ "usage": {
+  "prompt_tokens": 47,
+  "completion_tokens": 207,
+  "total_tokens": 254,
+  "prompt_tokens_details": {
+   "cached_tokens": 0
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 89
+  },
+  "prompt_cache_hit_tokens": 0,
+  "prompt_cache_miss_tokens": 47
+ },
+ "system_prompt_source": "none",
+ "ts": 1795068716.384748,
+ "tool_rounds": null
+}

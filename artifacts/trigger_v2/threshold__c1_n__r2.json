@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c1_n",
+ "domain": "理论先行/neg",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0401",
+ "ok": true,
+ "text": "不命中",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795140786.9657605
+}

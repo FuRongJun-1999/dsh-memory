@@ -374,14 +374,35 @@ def g3():
     src = _rel_text("md_cg/sustain.py")
     ok("next_sleep = time.time() + self.sleep_interval" in src,
        "G3 _run 内新增 next_sleep 到期变量")
-    ok("            if now >= next_sleep:\n"
-       "                try:\n"
-       "                    self._tick_sleep()\n"
-       "                except Exception:\n"
-       "                    pass                       # 睡眠周期失败不中断常驻\n"
-       "                next_sleep = now + self.sleep_interval\n"
-       "            self._stop.wait(_POLL)" in src,
-       "G3a 第六档形态与既有五档逐字同构（try/except 吞异常 + 末尾 _stop.wait(_POLL)）")
+    # issue #1011 附带修（2026-11-22）：本条原先要求「sleep 档**紧邻** `_stop.wait(_POLL)`」，
+    # 那是「第六档 = 循环最后一档」的**偶然而非契约**——第 7 档（主动队列，2026-11-18）
+    # 插在它后面就把这条钉死成红。逐字锚一变就把红归给实现，等于让守卫锁住排版。
+    # 改为断言**结构性不变量**（更强，且不依赖档位顺序）：
+    #   ① 每个到期链都是 `if now >= next_<档>:` + try/except 吞异常 + `next_<档> = now + self.<档>_interval`；
+    #   ② 档位集合恰为 TICK_INTERVAL_ATTRS 的闭集（新增档必须同时进调度表，不许只写 if）；
+    #   ③ 循环体末尾仍是单点 `self._stop.wait(_POLL)`。
+    _tiers = [n for n, _a in S.TICK_INTERVAL_ATTRS]
+    _shape_bad = []
+    for _n in _tiers:
+        # beat 档的到期条件带调度源开关（own_beat：心跳线程开着就让路），其余档是纯 next_X；
+        # 两种形态都接受，只要求「条件→try→调档→except 吞→推进 next_X」这一条链同构。
+        _cond = ("            if own_beat and now >= next_%s:\n"
+                 "                try:\n"
+                 "                    self.%s()\n"
+                 "                except Exception:" % (_n, "beat" if _n == "beat" else "_tick_" + _n))
+        _cond2 = ("            if now >= next_%s:\n"
+                  "                try:\n"
+                  "                    self.%s()\n"
+                  "                except Exception:" % (_n, "beat" if _n == "beat" else "_tick_" + _n))
+        _tail = "                next_%s = now + self.%s_interval" % (_n, _n)
+        if (_cond not in src and _cond2 not in src) or _tail not in src:
+            _shape_bad.append(_n)
+    ok(not _shape_bad,
+       "G3a 每一档到期链形态同构（if now>=next_X + try/except 吞异常 + next_X 推进）",
+       "形态不符的档：%r" % (_shape_bad,))
+    ok("sleep" in _tiers and "            self._stop.wait(_POLL)" in src,
+       "G3a2 第六档在调度闭集内，且循环末尾仍是单点 _stop.wait(_POLL)",
+       _tiers)
     gen, root, state = _fixture(unverified=1)
     from .mdcos import MdCGOS
     lp = S.SustainLoop(MdCGOS(root), name="g3loop",

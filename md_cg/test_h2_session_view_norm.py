@@ -15,7 +15,7 @@
 ----
 A 端到端：MCP 写一条声明了 DSH 形态 session 的记忆 → 落盘值是归一值，
   再用**原始声明值**读回来必须命中（H2 的核心断言）
-B 归一真源唯一：读侧消费的确实是 `mcp_server._normalize_session`
+B 归一真源唯一：读侧消费的确实是 `session_norm.normalize_session`（#994 下沉后）
   （哨兵替换法——防后续有人在 stg 里重写一把尺，那必然造出第三种不等值）
 C 三态视图不回归：None / "" / "*" 仍跨会话；具体非 DSH 值仍精确匹配
 D fail-soft：会话根不可读（OSError）时读写两侧都保原值，仍能读回
@@ -36,9 +36,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
+from md_cg import mcp_server as ms
 from md_cg.mdcos import MdCGSecure
 from md_cg.security import DEFAULT_SENSITIVITY, Principal
-from md_cg import mcp_server as ms
+import md_cg.session_norm as sn
 
 PASS = 0
 FAILS = []
@@ -120,12 +121,12 @@ def test_b(root, sessions_root):
     print("\n[B] 读侧消费 mcp_server 真源（不重写一把尺）")
     old = os.environ.get(ENV_KEY)
     os.environ[ENV_KEY] = sessions_root
-    orig = ms._normalize_session
+    orig = sn.normalize_session
     try:
         cg = MdCGSecure(root, principal=_p("alice", "sess_A"))
-        ms._normalize_session = lambda raw: "SENTINEL_" + str(raw)
+        sn.normalize_session = lambda raw: "SENTINEL_" + str(raw)
         out = _timeline(cg, "probe")
-        check("B1 具体值经 mcp_server._normalize_session（哨兵可见）",
+        check("B1 具体值经 session_norm.normalize_session（哨兵可见；#994 真源已下沉）",
               out.get("session") == "SENTINEL_probe", out.get("session"))
         star = _timeline(cg, "*")
         check("B2 \"*\" 不经归一（跨会话开关是不变量）",
@@ -134,7 +135,7 @@ def test_b(root, sessions_root):
         check("B3 空串不经归一（缺省语义不变量）",
               blank.get("session") is None, blank.get("session"))
     finally:
-        ms._normalize_session = orig
+        sn.normalize_session = orig
         if old is None:
             os.environ.pop(ENV_KEY, None)
         else:

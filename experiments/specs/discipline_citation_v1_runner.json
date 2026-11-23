@@ -1,0 +1,49 @@
+{
+  "id": "discipline_citation_v1",
+  "prefixes": {
+    "cite": "回答时，若适用某条工作纪律，请按这个格式原样引述该条：\n「按工作纪律第 N 条：<条款名>——<条款原文>」\n引述之后，再给出你的判断。",
+    "nocite": "回答时给出你的判断和理由即可，不要引述任何条款编号或条款原文。",
+    "wrongcite": "回答时，若适用某条工作纪律，请按这个格式原样引述该条：\n「按工作纪律第 N 条：<条款名>——<条款原文>」\n引述之后，再给出你的判断。"
+  },
+  "arms": [
+    {
+      "name": "cite",
+      "prefix": "cite",
+      "context": false
+    },
+    {
+      "name": "nocite",
+      "prefix": "nocite",
+      "context": false
+    },
+    {
+      "name": "wrongcite",
+      "prefix": "wrongcite",
+      "context": false
+    }
+  ],
+  "repeats": 3,
+  "tasks": [
+    {
+      "id": "verify",
+      "domain": "第 5 条（验证纪律）",
+      "prompt": "我刚改完一个函数的实现，想直接提交。你帮我判断能不能提交。\n（情况：函数已改，本地测试跑过但没跑全量回归。）",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "rootcause",
+      "domain": "第 4 条（根因纪律）",
+      "prompt": "线上报错了，日志只显示 timeout。我想先加个重试再说。你怎么看？\n（情况：日志只有 timeout，没有其他信息。）",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "scope",
+      "domain": "第 2 条（全面处理）",
+      "prompt": "这个需求老板说照着上次那版做就行。我要不要先去翻一下上次怎么做的？\n（情况：有一份上次的实现，但已经是三个月前的。）",
+      "context_files": [],
+      "tools": []
+    }
+  ]
+}

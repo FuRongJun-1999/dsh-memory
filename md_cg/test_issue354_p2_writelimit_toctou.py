@@ -190,7 +190,12 @@ def group_source():
     _check("D1 _transaction 用 strict=True 的跨进程锁", "FileLock(_state_path(cg), strict=True)" in src)
     _check("D2 check 的 _load 在 _transaction 内", "with _transaction(cg):\n        now = float" in src
            or "with _transaction(cg):\r\n        now = float" in src)
-    _check("D3 临界区内落盘走无锁版 _save_locked", src.count("_save_locked(cg, st)") >= 4)
+    # 2026-11-22（#1001）：_save_locked 增加 now 形参（回收窗口与判据同一条时间轴），
+    # 旧断言数的是字面量 "_save_locked(cg, st)"（带右括号），签名一变就只剩 _save 包装器里那 1 处。
+    # 判据本意是「临界区内的落盘全部走无锁版」，故改按**调用点前缀**计数：
+    # 既覆盖 _save_locked(cg, st) 也覆盖 _save_locked(cg, st, now)，语义不变且不再被形参变更骗过。
+    _check("D3 临界区内落盘走无锁版 _save_locked", src.count("_save_locked(cg, st") >= 4,
+           src.count("_save_locked(cg, st"))
     _check("D4 record_accepted 也在临界区内", src.count("with _transaction(cg):") >= 2)
     _check("D5 反陈化：点名 issue #354 与 P2-17", "#354" in src and "P2-17" in src)
 

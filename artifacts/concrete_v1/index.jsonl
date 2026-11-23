@@ -1,0 +1,16 @@
+{"arm": "plain", "task": "submit_orig", "domain": "submit", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0516", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "submit_orig", "domain": "submit", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0517", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "submit_swap", "domain": "submit", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0518", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "submit_swap", "domain": "submit", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0519", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "lineart_orig", "domain": "lineart", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0520", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "lineart_orig", "domain": "lineart", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0521", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "lineart_swap", "domain": "lineart", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0522", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "lineart_swap", "domain": "lineart", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0523", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "inherit_orig", "domain": "inherit", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0524", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "inherit_orig", "domain": "inherit", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0525", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "inherit_swap", "domain": "inherit", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0526", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "inherit_swap", "domain": "inherit", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0527", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "locate_orig", "domain": "locate", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0528", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "locate_orig", "domain": "locate", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0529", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "locate_swap", "domain": "locate", "repeat": 1, "job_id": "h_dsh端_人格化消融_输出单元_0530", "ok": true, "system_prompt_source": "none"}
+{"arm": "plain", "task": "locate_swap", "domain": "locate", "repeat": 2, "job_id": "h_dsh端_人格化消融_输出单元_0531", "ok": true, "system_prompt_source": "none"}

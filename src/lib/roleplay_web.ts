@@ -638,7 +638,9 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                 const out = (raw && typeof raw === 'object'
                     && raw.meta && typeof raw.meta === 'object')
                     ? { ...raw, meta: flat } : flat;
-                const tmp = roleMetaFile + '.tmp';
+                // issue #1009 第 4 项：固定 `*.tmp` 在并发写时互相截断（后写者 rename 走前写者
+                // 的半截内容）。加 pid+时间+随机后缀，落到同名目录内仍是原子 replace。
+                const tmp = `${roleMetaFile}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
                 writeFileSync(tmp, JSON.stringify(out, null, 2), 'utf8');
                 renameSync(tmp, roleMetaFile);
             }
@@ -660,7 +662,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             // P2-10（批次 31）：tmp+rename 原子写（与 writeRoleMeta 同款）——
             // 直接 writeFileSync 并发/中断会写坏 JSON，后续读静默丢配置。
             try {
-                const tmp = transSettingsFile + '.tmp';
+                const tmp = `${transSettingsFile}.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2, 8)}.tmp`;
                 writeFileSync(tmp, JSON.stringify(s, null, 2), 'utf8');
                 renameSync(tmp, transSettingsFile);
             }
@@ -694,7 +696,52 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                 out = out.split(p[key]).join(p[rep]);
             return out;
         };
+        // issue #1009 第 4 项：请求准入层（与 console_web 的 `connection.admit` 同口径的最小自足版）。
+        // 本文件不持有 DSH connection，无法调 `connection.admit`；这里做等效最小校验：
+        //   ① Sec-Fetch-Site: cross-site 一律拒；② 写请求必须同源（Origin.host === Host）；
+        //   ③ 写请求 Content-Type 必须是 application/json（挡 no-cors 的 text/plain 简单 POST、表单提交）。
+        // 宿主侧若另有准入闸，仍在更外层生效——两层是纵深防御，互不替代。
+        const SAFE_METHODS = new Set(['GET', 'HEAD']);
+        const denyJson = (res, code, error) => {
+            res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
+            res.end(JSON.stringify({ ok: false, error }));
+        };
+        const sameOrigin = (req) => {
+            const headers = (req && req.headers) || {};
+            const origin = String(headers.origin || '');
+            const host = String(headers.host || '');
+            if (!origin)
+                return true;                     // 无 Origin：同源导航/服务端调用，写方法在下面另行要求 JSON
+            try {
+                return new URL(origin).host === host;
+            }
+            catch {
+                return false;
+            }
+        };
+        const admit = (req, res) => {
+            const headers = (req && req.headers) || {};
+            if (String(headers['sec-fetch-site'] || '') === 'cross-site') {
+                denyJson(res, 403, 'cross_site_rejected');
+                return false;
+            }
+            if (!sameOrigin(req)) {
+                denyJson(res, 403, 'origin_not_allowed');
+                return false;
+            }
+            const method = String((req && req.method) || 'GET').toUpperCase();
+            if (!SAFE_METHODS.has(method)) {
+                const ct = String(headers['content-type'] || '').toLowerCase();
+                if (!ct.startsWith('application/json')) {
+                    denyJson(res, 415, 'content_type_must_be_application_json');
+                    return false;
+                }
+            }
+            return true;
+        };
         const handler = async (req, res) => {
+            if (!admit(req, res))
+                return;
             const url = new URL(req.url ?? '/', 'http://x');
             try {
                 const isPage = url.pathname === '/roleplay' || url.pathname === '/roleplay/';
@@ -734,6 +781,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    if (!validRoleId(role)) {
+                        // issue #1009 第 4 项：本读面此前只过 edit-key、不校验角色 id；
+                        // role 会拼进文件路径（getRoleItems），越界字符＝目录穿越。
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     const kind = url.searchParams.get('kind') || 'memory';
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ items: getRoleItems(role, kind) }));
@@ -757,6 +811,12 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                     }
                     const p = JSON.parse(body);
                     const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    if (!validRoleId(role)) {
+                        // issue #1009 第 4 项：同 GET 面，写路径拼接前先校验。
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     const kind = p.kind || 'memory';
                     const items = (Array.isArray(p.items) ? p.items : []).filter((x) => x && x.content);
                     // 副本（网页层读取用）
@@ -1002,6 +1062,13 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const p = JSON.parse(body);
+                    if (!validRoleId(String((p && p.role_id) || ''))) {
+                        // issue #1009 第 4 项：role_id 会落进 writeRole 的文件路径与元数据键，
+                        // 未校验时可写任意 id（含 __proto__ / 越界字符）。
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9_.-]{1,64}$）' }));
+                        return;
+                    }
                     if (!capReady()) {
                         res.writeHead(503, { 'Content-Type': 'application/json; charset=utf-8' });
                         res.end(JSON.stringify({ ok: false, error: CAP_ABSENT_MSG }));

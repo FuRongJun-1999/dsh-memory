@@ -1,0 +1,12 @@
+{
+ "arm": "plain",
+ "task": "submit_swap",
+ "domain": "submit",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0518",
+ "ok": true,
+ "text": "B",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795142745.3560996
+}

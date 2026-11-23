@@ -1,0 +1,1 @@
+{"model": "deepseek-flash", "user_prompt": "我们要做个记忆系统，你觉得要注意什么？\n<!-- sample:60 -->", "timeout_s": 900}

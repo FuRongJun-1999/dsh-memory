@@ -75,6 +75,68 @@ not model request count - a single request triggers several system-prompt assemb
 The reminder is injected only on the step that hits it and disappears on the next step (accepting the cost of two snapshots). It does not stay in context,
 and it is not amplified when parallel sessions share one counter (no reminder when there is no session identity).
 
+## 🧠 When the reasoning chain degrades
+
+A long session has a characteristic failure: the model stops producing new content and starts
+restating. **Three forms, three different fixes** — mixing them up is exactly why "please don't
+repeat yourself" makes it worse.
+
+| Form | Looks like | Test | Fix |
+|---|---|---|---|
+| **Cross-turn restatement** | this turn's answer ≈ last turn's | adjacent-turn bigram Jaccard > 0.4, or longest common substring ≥ 20 chars | new task + new output format |
+| **Self-nagging** | thinking is a run of short imperatives ("Do it." "Execute."), body is empty | ≥3 consecutive lines, each ≤6 chars after stripping punctuation | new task — **not** "continue" |
+| **Source-side fixation** | every turn handles the same item, byte-identical output | same item handled ≥3 times with an identical output hash | change the picker (sorting by `last_access` alone is not enough) |
+
+The third one is the least obvious: **it isn't restatement — the input never changed.**
+
+### What actually breaks the loop
+
+Real case (2026-11-20): a session stuck on `OK. / (body)` while leaking tool-call XML into the body.
+
+**The working first move: do not say "continue". Start a self-contained new task and impose a hard format.**
+
+```text
+Ignore the above for now. Do exactly one thing: explain X in three sentences,
+each under 20 characters, with no formatting marks.
+```
+
+One step, loop broken. What worked was **changing the task and the format**, not being gentle.
+
+### Three things not to say
+
+```text
+× "You're stuck, try a different approach"   ← just more fuel
+× "Continue, don't repeat"                   ← a negative instruction is content, not a constraint
+× "Stop looping"                             ← same, and it doesn't know what "looping" refers to
+```
+
+### Self-check: `degrade_guard`
+
+```python
+from md_cg import degrade_guard as dg
+dg.check_chain([turn1, turn2, turn3])            # cross-turn restatement + nagging
+dg.check_chain(texts, requirement="reason")       # reason-form degradation
+```
+
+Thresholds come from issue #996: Jaccard 0.4, LCS 20 chars, nagging 3 lines × 6 chars.
+Guard: `md_cg/test_degrade_guard.py` (10 assertions, including a mutation anchor).
+
+### The counter-intuitive part
+
+Long sessions degrade **phrasing**, not necessarily substance. Measured (2 arms × 2 chains × 6 turns):
+12/12 replies opened with an identical sentence, while the content deepened (140 → 393 chars) and
+adjacent-turn Jaccard stayed at 0.23 (no reuse).
+
+So anti-degradation is not "stop writing reasons" — it is **"give more than one form"**:
+
+```text
+1 example  → treated as the only format, copied verbatim
+3 examples → it has to choose, and choosing produces variation
+0 examples → it writes none at all
+```
+
+> **Change the task, impose a format, drop the negations, don't nag.**
+> **Long-term protection comes from tests (`degrade_guard`) and multiple forms, not from shouting "don't repeat".**
 ## ⚡ Get started with three commands
 
 ```bash

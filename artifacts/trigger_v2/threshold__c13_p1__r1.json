@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c13_p1",
+ "domain": "访谈澄清/pos",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0444",
+ "ok": true,
+ "text": "第 13 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795141092.4374382
+}

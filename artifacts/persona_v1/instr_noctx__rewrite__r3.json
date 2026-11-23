@@ -1,0 +1,25 @@
+{
+ "arm": "instr_noctx",
+ "task": "rewrite",
+ "domain": "文档改写",
+ "repeat": 3,
+ "job_id": "h_dsh端_人格化消融_输出单元_0030",
+ "ok": true,
+ "text": "我打算给你一份能直接读懂的“人话版说明”：把要求改写成短句、明确动作，不绕弯；同时把原文没写清的地方按我的判断定下来，并写明理由，不反问你。下面就是内容。\n\n## 人话版说明\n\n1. 先交代清楚要交付什么，用一段话说明白，再展开具体内容。\n2. 遇到不清楚的地方，我自己做决定，并把决定和理由写出来，不回头问你。\n3. 报告长短不限，但不能写空话、套话。\n\n## 我对模糊处的处理\n\n- 我把“这套说明”理解为你消息里贴出的这段要求。理由：当前消息里没有另外一份说明正文，硬猜会改错原意。\n- 我没有补写不存在的原文。理由：补写等于替你编内容，不算改写。\n- 我把“人能看懂”处理成：少用抽象说法，直接说“先做什么、再做什么、哪些不能做”。理由：这样读的人能直接照做，不用二次翻译。",
+ "usage": {
+  "prompt_tokens": 95,
+  "completion_tokens": 1517,
+  "total_tokens": 1612,
+  "prompt_tokens_details": {
+   "cached_tokens": 0
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 1293
+  },
+  "prompt_cache_hit_tokens": 0,
+  "prompt_cache_miss_tokens": 95
+ },
+ "system_prompt_source": "none",
+ "ts": 1795068078.3452125,
+ "tool_rounds": null
+}

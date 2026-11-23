@@ -1,0 +1,25 @@
+{
+ "arm": "plain_noctx",
+ "task": "rewrite",
+ "domain": "文档改写",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0058",
+ "ok": true,
+ "text": "可以帮你改。不过你这条消息里只有一行占位注释：\n\n`<!-- sample:49 -->`\n\n没有看到具体的“说明”正文。请把需要改写的说明直接粘贴过来（文字或截图转文字都行），并告诉我：\n\n1. 这套说明是给谁看的？（普通用户 / 老人 / 新员工 / 客户等）\n2. 要不要保留专业术语？\n3. 希望改成“简短版”还是“详细一步一步版”？\n4. 是否保留原文结构（标题、步骤、注意事项）？\n\n你把原文发来后，我可以直接帮你改成通俗、清楚、能照着做的版本。",
+ "usage": {
+  "prompt_tokens": 47,
+  "completion_tokens": 304,
+  "total_tokens": 351,
+  "prompt_tokens_details": {
+   "cached_tokens": 0
+  },
+  "completion_tokens_details": {
+   "reasoning_tokens": 170
+  },
+  "prompt_cache_hit_tokens": 0,
+  "prompt_cache_miss_tokens": 47
+ },
+ "system_prompt_source": "none",
+ "ts": 1795068712.2815535,
+ "tool_rounds": null
+}
