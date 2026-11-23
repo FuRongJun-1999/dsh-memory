@@ -2633,9 +2633,7 @@ class MdCGOS(MdCG):
             "recall_only": recall_only,
             # union/auto 的 q 与阈值同样改排序 ⇒ 一并入键（否则两种 q 互相命中缓存）。
             "fusion": (fusion if fusion not in ("union", "auto") else
-                       (fusion, union_q, union_max_candidates,
-                        os.environ.get("MDCG_UNION_Q"),
-                        os.environ.get("MDCG_UNION_MAX_CANDIDATES"))),
+                       (fusion, union_q, union_max_candidates)),
             "judge": bool(judge), "judge_ranking": bool(judge_ranking),
             "goal_text": goal_text, "context": context,
             "early_stop_threshold": early_stop_threshold,
@@ -2839,13 +2837,19 @@ class MdCGOS(MdCG):
             _u_ids = {n: [nd["id"] for nd, _s in lst]
                       for n, lst in ranked.items() if n not in ro and lst}
             _u_pool = sum(len(v) for v in _u_ids.values())
-            _u_max = int(os.environ.get("MDCG_UNION_MAX_CANDIDATES",
-                                         union_max_candidates or UNION_MAX_CANDIDATES))
+            # 阈值与 q 只走**参数面**（不读环境变量）：本仓的 env 读取面有登记门禁
+            # （scripts/test_check_config_env_registry.py），未登记的新 env 即 FAIL；
+            # 要开成环境变量须同时补登记表/校验器/文档三处，交由需要时再提。
+            _u_max_raw = (UNION_MAX_CANDIDATES if union_max_candidates is None
+                          else union_max_candidates)
+            try:
+                _u_max = int(_u_max_raw)
+            except (TypeError, ValueError):
+                _u_max = UNION_MAX_CANDIDATES
             # 显式 0 不得被 or 吞成缺省（函数层 q<=0 返回空是**有意的**判据）；
             # 非法 q（0/负数/非数字）一律**不启用并集**：fail-safe 回退既有 RRF。
             # 照搬 q 去清空 rrf/prov 会得到「配置笔误 ⇒ 静默空结果」。
-            _u_q_raw = union_q if union_q is not None else os.environ.get(
-                "MDCG_UNION_Q", UNION_Q_DEFAULT)
+            _u_q_raw = UNION_Q_DEFAULT if union_q is None else union_q
             try:
                 _u_q = int(_u_q_raw)
             except (TypeError, ValueError):

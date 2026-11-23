@@ -114,10 +114,9 @@ def main():
     ok(set(info_e.get("paths") or []) == {"lexical", "entity"},
        "meta 如实报参与并集的路（%r）" % (info_e.get("paths"),))
     ok(len(res_e) >= 2, "并集把两路的最优候选都带进结果（%d 条）" % len(res_e))
-    os.environ["MDCG_UNION_MAX_CANDIDATES"] = "0"
     res_t, meta_t = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
-                                   judge=False, record=False, fusion="union")
-    os.environ.pop("MDCG_UNION_MAX_CANDIDATES", None)
+                                   judge=False, record=False, fusion="union",
+                                   union_max_candidates=0)
     info_t = (meta_t or {}).get("union") or {}
     eq(info_t.get("reason"), "pool_too_large",
        "池超阈值时回退 RRF 并写明 reason=pool_too_large")
@@ -127,10 +126,9 @@ def main():
     eq([r[1] for r in res_e], _expect,
        "并集分数按位次严格递减（替换 RRF 之和，不是叠加）")
     # 配置笔误护栏：q=0 不得清空结果。
-    os.environ["MDCG_UNION_Q"] = "0"
     _rq, _mq = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
-                              judge=False, record=False, fusion="union")
-    os.environ.pop("MDCG_UNION_Q", None)
+                              judge=False, record=False, fusion="union",
+                              union_q=0)
     _iq = (_mq or {}).get("union") or {}
     eq(_iq.get("reason"), "invalid_q", "q=0 判非法并回退（不静默清空结果）")
     ok(len(_rq) >= 1, "q=0 时结果仍非空（fail-safe，%d 条）" % len(_rq))
@@ -144,10 +142,9 @@ def main():
                               judge=False, record=False, fusion="auto")
     ok(((_ma or {}).get("union") or {}).get("enabled") is True,
        "fusion='auto' 在小库上等同并集")
-    os.environ["MDCG_UNION_MAX_CANDIDATES"] = "0"
     _rb, _mb = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
-                              judge=False, record=False, fusion="auto")
-    os.environ.pop("MDCG_UNION_MAX_CANDIDATES", None)
+                              judge=False, record=False, fusion="auto",
+                              union_max_candidates=0)
     eq(((_mb or {}).get("union") or {}).get("reason"), "pool_too_large",
        "fusion='auto' 超阈值自动回退 RRF（不静默改排序）")
 
