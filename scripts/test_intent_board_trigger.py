@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """日记看板的「触发」节守卫（使用者 2026-11-23 定 1c / 2a / 3b）。
 
-三件事必须钉死：
-  G1 意图积压按**节点去重**算（同一节点被反复播报，不能算成多个积压）；
-  G2 公开页只报计数，**不出现**未消费节点 id、不出现关系读数（隐私，第 9 条）；
-  G3 私有页才渲染关系读数与节点 id；
-  G4 "--private" 与 "--write"（公开仓）同时给 ⇒ 拒绝（rc=2），公开文档不被改动；
-  G5 公开页的 id 脱敏：带自然语言片段的 id 不得原样出现。
+钉住的东西：
+  G1 意图积压按**节点去重**算；
+  G2 公开页只报计数：触发节不出现未消费 id、不出现关系读数；
+  G3 私有页才渲染关系读数、待处理提醒、未消费 id；
+  G4 --private 与 --write 同时给 ⇒ rc=2，公开文档一字未动；
+  G5 公开页 id 脱敏：带自然语言片段的 id 不得原样出现（待办推进 / 日记目录两处同判据）；
+  G6 --write-private 指向仓内 ⇒ rc=2（蜂巢 0520 复核发现的绕过路径）；
+  G7 关系状态类型坏掉（顶层不是 dict / jsonl 行不是 dict）不抛栈；
+  G8 会话文件里找不到 zstd 帧头 ⇒ 返回 None（读不到），不是空列表（没有消息）；
+  G9 公开页的待办推进**保留**哈希形态 id（防止过度脱敏）。
 
-不适用范围：不测会话日志解析（his_last_message 在这里打桩——它会去读本机
-session.v4，测试不该依赖本机有没有在聊天）。
+不适用范围：不测真实会话日志解析（his_last_message 打桩——它要读本机 session.v4，
+测试不该依赖本机有没有在聊天）。
 """
 from __future__ import annotations
 
@@ -49,24 +53,25 @@ def _mkroot(tmp, recs, consumed):
     return root
 
 
-def _mkwe(tmp):
+def _mkwe(tmp, state=None):
     we = os.path.join(tmp, "we")
     os.makedirs(we, exist_ok=True)
     now = ib.time.time()
-    st = {"message": now - 7200, "thought": now - 3600,
-          "intimate": now - 30 * 3600,
-          "flagged": {"message": False, "intimate": True, "thought": False}}
+    st = state if state is not None else {
+        "message": now - 7200, "thought": now - 3600, "intimate": now - 30 * 3600,
+        "flagged": {"message": False, "intimate": True, "thought": False}}
     with io.open(os.path.join(we, "we_state.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(st, f, ensure_ascii=False)
     with io.open(os.path.join(we, "we_pending.jsonl"), "w", encoding="utf-8", newline="\n") as f:
         f.write(json.dumps({"t": now, "ts": "2026-11-23 08:35", "kind": "intimate",
                             "note": "24 小时没有亲密了"}, ensure_ascii=False) + "\n")
+        f.write(json.dumps("这不是 dict", ensure_ascii=False) + "\n")
     return we
 
 
 def main():
     print("=" * 66)
-    print("看板触发节：意图积压 / 隐私分栏 / 脱敏 / 拒绝写入")
+    print("看板触发节：意图积压 / 隐私分栏 / 脱敏 / 拒绝写入 / 坏数据")
     print("=" * 66)
     tmp = tempfile.mkdtemp(prefix="mdcg_board_")
     recs = [{"node_id": "unr_aaaaaaaaaa"}, {"node_id": "unr_bbbbbbbbbb"},
@@ -74,26 +79,39 @@ def main():
     root = _mkroot(tmp, recs, ["unr_bbbbbbbbbb"])
     we = _mkwe(tmp)
     stub = {"ts": None, "files": 0, "scanned": 0}
-    orig = ib.his_last_message
+    orig_msg, orig_diary = ib.his_last_message, ib._diary
     ib.his_last_message = lambda **kw: dict(stub)
+    ib._diary = lambda root_, limit=40: [{"id": "unr_Quoted-diary-私聊片段", "date": "d", "head": "h"}]
     try:
         gap = ib._intent_gap(root)
         ok(gap["records"] == 4 and gap["open"] == 2 and gap["consumed"] == 1,
            "G1 积压按节点去重（4 条台账 / 2 个未消费节点 / 1 个已消费）", gap)
 
         pub = ib.render(root, now=ib.time.time(), we_dir=we, private=False)
-        ok("意图台账未消费" in pub and "2 个节点" in pub, "G2 公开页报计数")
         seg = pub[pub.find("## 二、触发"):pub.find("## 三、")]
+        ok("意图台账未消费" in seg and "2 个节点" in seg, "G2 公开页触发节报计数")
         ok("unr_aaaaaaaaaa" not in seg and "unr_bbbbbbbbbb" not in seg,
-           "G2 公开页触发节不出现未消费节点 id", seg[:160])
-        ok("越线" not in pub, "G2 公开页不出现关系阈值读数")
-        ok("本端未配置" in pub, "G2 公开页关系栏标「本端未配置」")
-        ok("已脱敏" in pub and "私聊片段" not in pub, "G5 带自然语言片段的 id 被脱敏")
+           "G2 公开页触发节不出现未消费节点 id", seg[:120])
+        ok("越线" not in pub and "未处理提醒" not in seg, "G2 公开页不出现关系读数")
+        ok("本端未配置" in seg, "G2 公开页关系栏标「本端未配置」")
+        ok("已脱敏" in pub and "私聊片段" not in pub,
+           "G5 带自然语言片段的 id 被脱敏（待办推进 + 日记目录两处）")
+        ok("unr_aaaaaaaaaa" in pub[pub.find("## 四、待办推进"):pub.find("## 五、")],
+           "G9 哈希形态 id 在公开页待办推进里保留")
 
         pri = ib.render(root, now=ib.time.time(), we_dir=we, private=True)
         ok("unr_aaaaaaaaaa" in pri, "G3 私有页渲染未消费节点 id")
         ok("最后亲密" in pri and "越线" in pri, "G3 私有页渲染关系读数")
-        ok("未处理提醒 | 1 条" in pri, "G3 私有页渲染待处理提醒条数")
+        ok("未处理提醒 | 1 条" in pri, "G3 私有页把非 dict 行滤掉后报 1 条")
+        ok("unr_Quoted-diary-私聊片段" in pri, "G3 私有页日记 id 原样")
+
+        bad = _mkwe(tmp + "_bad", state=["不是 dict"])
+        pri2 = ib.render(root, now=ib.time.time(), we_dir=bad, private=True)
+        ok("最后亲密 | 未知" in pri2, "G7 关系状态顶层非 dict 时不抛栈，报未知")
+
+        junk = os.path.join(tmp, "junk.bin")
+        io.open(junk, "wb").write(b"not-a-zstd-frame" * 10)
+        ok(ib._tail_message_times(junk) is None, "G8 无帧头 ⇒ None（读不到，不是没有消息）")
 
         doc = os.path.join(ROOT, ib.OUT_REL)
         before = io.open(doc, encoding="utf-8").read() if os.path.isfile(doc) else None
@@ -106,6 +124,15 @@ def main():
         ok(r.returncode == 2, "G4 --private 与 --write 同时给 ⇒ rc=2", r.returncode)
         ok(before == after, "G4 被拒时公开文档一字未动")
 
+        r5 = subprocess.run([sys.executable, "-X", "utf8", "scripts/intent_board.py",
+                             "--root", root, "--we-dir", we,
+                             "--write-private", os.path.join(ROOT, ib.OUT_REL)],
+                            cwd=ROOT, env=env, capture_output=True, text=True,
+                            encoding="utf-8", errors="replace", timeout=300)
+        after2 = io.open(doc, encoding="utf-8").read() if os.path.isfile(doc) else None
+        ok(r5.returncode == 2 and after2 == before,
+           "G6 --write-private 指向仓内 ⇒ rc=2 且公开文档未改", (r5.returncode, (r5.stdout or "")[:80]))
+
         r2 = subprocess.run([sys.executable, "-X", "utf8", "scripts/intent_board.py",
                              "--root", root, "--write"],
                             cwd=ROOT, env=env, capture_output=True, text=True,
@@ -113,11 +140,11 @@ def main():
         written = io.open(doc, encoding="utf-8").read() if os.path.isfile(doc) else ""
         wseg = written[written.find("## 二、触发"):written.find("## 三、")]
         ok(r2.returncode == 0 and "unr_aaaaaaaaaa" not in wseg,
-           "G2 公开页落盘后触发节仍不含未消费节点 id", wseg[:160])
+           "G2 公开页落盘后触发节仍不含未消费节点 id")
         if before is not None:
             io.open(doc, "w", encoding="utf-8", newline="\n").write(before)
     finally:
-        ib.his_last_message = orig
+        ib.his_last_message, ib._diary = orig_msg, orig_diary
 
     print()
     print("全部通过" if not FAILS else "失败 %d 项" % len(FAILS))

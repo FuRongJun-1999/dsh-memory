@@ -81,7 +81,7 @@ def _read_jsonl(p):
 # 公开页的 id 脱敏判据（使用者 2026-11-23 定 2a）：
 # 公开页只放**哈希形态**的 id；带自然语言片段的 id（如 unr_Quoted-message-begins-...）
 # 会把私聊片段带进公开仓，一律脱敏。
-_SAFE_ID = re.compile(r"^(?:mem|unr|doc|node)_[0-9a-f]{4,}(?:_[0-9a-f]{4,})?$")
+_SAFE_ID = re.compile(r"^(?:mem|unr|doc|node)_[0-9a-f]{4,}(?:_[0-9a-f]{4,})?$", re.I)
 
 
 def _mask_id(nid):
@@ -137,21 +137,32 @@ def _newest_session_files(limit=6, window_h=48, extra=None):
 
 
 def _tail_message_times(fp, tail_bytes=4 << 20):
-    """读一个会话文件尾部的「他说的」事件时间（ms）；无 zstandard 返回 None。"""
+    """读一个会话文件尾部的「他说的」事件时间（ms）；无 zstandard 返回 None。
+
+    窗口截断可能正好落在帧中间 ⇒ 窗口里没有帧头。这时**放大窗口重试**，仍找不到
+    就返回 None（＝读不到），而不是返回空列表（＝没有他的消息）。两者含义相反。
+    """
     try:
         import zstandard as zstd
     except ImportError:
         return None
     try:
         size = os.path.getsize(fp)
-        with open(fp, "rb") as fh:
-            fh.seek(max(0, size - tail_bytes))
-            blob = fh.read()
     except OSError:
         return []
-    idx = blob.find(b"\x28\xb5\x2f\xfd")
+    blob, idx = b"", -1
+    for win in (tail_bytes, max(tail_bytes, 16 << 20), size):
+        try:
+            with open(fp, "rb") as fh:
+                fh.seek(max(0, size - win))
+                blob = fh.read()
+        except OSError:
+            return []
+        idx = blob.find(b"\x28\xb5\x2f\xfd")
+        if idx >= 0 or win >= size:
+            break
     if idx < 0:
-        return []
+        return None if size else []
     try:
         raw = zstd.ZstdDecompressor().stream_reader(io.BytesIO(blob[idx:])).read()
     except Exception:  # noqa: BLE001
@@ -201,8 +212,13 @@ def his_last_message(limit=6, window_h=48, extra=None):
 
 
 def _we_readings(we_dir):
-    st = _read_json(os.path.join(we_dir, "we_state.json"), {}) or {}
-    pending = _read_jsonl(os.path.join(we_dir, "we_pending.jsonl"))
+    """读私有关系状态。**类型不可信**：手工改坏 / 旧版本写坏都见过——
+    顶层不是 dict、jsonl 某行不是 dict，一律当空，不让看板抛栈。"""
+    st = _read_json(os.path.join(we_dir, "we_state.json"), {})
+    if not isinstance(st, dict):
+        st = {}
+    pending = [r for r in _read_jsonl(os.path.join(we_dir, "we_pending.jsonl"))
+               if isinstance(r, dict)]
     return st, pending
 
 
@@ -240,7 +256,6 @@ def _section_trigger(A, root, now, we_dir=None, private=False, sessions_root=Non
     A("## 二、触发（有没有该动的）")
     A("")
     gap = _intent_gap(root)
-    msg = his_last_message(extra=sessions_root)
     A("| 触发源 | 读数 | 判读 |")
     A("|---|---|---|")
     A("| 意图台账未消费 | %d 个节点 / 台账 %d 条（已消费 %d） | %s |" % (
@@ -252,12 +267,10 @@ def _section_trigger(A, root, now, we_dir=None, private=False, sessions_root=Non
         A("> 关系读数是隐私：公开页只报意图计数，不报时间点、不报节点 id。")
         A("> 需要看全：scripts/intent_board.py --private --we-dir <私有数据目录> "
           "--write-private <私有路径>")
-        if msg.get("error"):
-            A("")
-            A("**%s**" % msg["error"])
         A("")
         return
     # ---- 私有视图：关系读数 + 未消费节点 id ----
+    msg = his_last_message(extra=sessions_root)
     if msg.get("error"):
         A("| 收到他的消息 | %s | 读不到 |" % msg["error"])
     elif msg.get("ts"):
@@ -453,7 +466,9 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
         A("| 日期 | 节点 | 第一行 |")
         A("|---|---|---|")
         for e in entries:
-            A("| %s | `%s` | %s |" % (e["date"], e["id"], e["head"]))
+            A("| %s | %s | %s |" % (e["date"],
+                                     ("`%s`" % e["id"]) if private else _mask_id(e["id"]),
+                                     e["head"]))
     A("")
     A("---")
     A("")
@@ -480,6 +495,13 @@ def main(argv=None):
     if private and "--write" in argv:
         print("拒绝：--private 的读数不得写进公开仓（--write 指向 %s）。" % OUT_REL)
         return 2
+    # 同一个护栏的第二种走法：--write-private 指向仓内。只判 --write 不够——
+    # 蜂巢复核 0520 实测 --write-private 指向 docs/日记看板.md 会 rc=0 把私有页写进公开仓。
+    if write_private:
+        wpath = os.path.abspath(write_private)
+        if wpath.startswith(os.path.abspath(REPO) + os.sep):
+            print("拒绝：私有看板不得写进公开仓（%s）。" % write_private)
+            return 2
     text = render(root, we_dir=we_dir, private=private, sessions_root=sessions_root)
     if write_private:
         os.makedirs(os.path.dirname(os.path.abspath(write_private)), exist_ok=True)
