@@ -121,6 +121,24 @@ def main():
     info_t = (meta_t or {}).get("union") or {}
     eq(info_t.get("reason"), "pool_too_large",
        "池超阈值时回退 RRF 并写明 reason=pool_too_large")
+    # 并集是**替换**而非叠加：分数必须是 1/(1+pos) 的序列，不是两路 RRF 之和。
+    ok(len(res_e) >= 2, "并集模式下结果非空（%d 条）" % len(res_e))
+    _expect = [round(1.0 / (1.0 + i), 6) for i in range(len(res_e))]
+    eq([r[1] for r in res_e], _expect,
+       "并集分数按位次严格递减（替换 RRF 之和，不是叠加）")
+    # 配置笔误护栏：q=0 不得清空结果。
+    os.environ["MDCG_UNION_Q"] = "0"
+    _rq, _mq = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
+                              judge=False, record=False, fusion="union")
+    os.environ.pop("MDCG_UNION_Q", None)
+    _iq = (_mq or {}).get("union") or {}
+    eq(_iq.get("reason"), "invalid_q", "q=0 判非法并回退（不静默清空结果）")
+    ok(len(_rq) >= 1, "q=0 时结果仍非空（fail-safe，%d 条）" % len(_rq))
+    # 缓存键含 union 口径：同参数第二次调用命中缓存且 meta 仍带 union 键。
+    _r2, _m2 = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
+                              judge=False, record=False, fusion="union")
+    ok("union" in (_m2 or {}), "热缓存命中时 meta 仍带 union 键（不丢口径）")
+
     # "auto"：小库自动走并集、超阈值自动回退——同一个入口按库规模分档。
     _ra, _ma = cg2.search_rrf("量子", k=5, paths=("lexical", "entity"),
                               judge=False, record=False, fusion="auto")

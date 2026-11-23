@@ -2630,7 +2630,12 @@ class MdCGOS(MdCG):
         _cache_extra = {
             "include_work": bool(include_work), "roles": roles,
             "paths": tuple(paths or ()), "path_weights": path_weights,
-            "recall_only": recall_only, "fusion": fusion,
+            "recall_only": recall_only,
+            # union/auto 的 q 与阈值同样改排序 ⇒ 一并入键（否则两种 q 互相命中缓存）。
+            "fusion": (fusion if fusion not in ("union", "auto") else
+                       (fusion, union_q, union_max_candidates,
+                        os.environ.get("MDCG_UNION_Q"),
+                        os.environ.get("MDCG_UNION_MAX_CANDIDATES"))),
             "judge": bool(judge), "judge_ranking": bool(judge_ranking),
             "goal_text": goal_text, "context": context,
             "early_stop_threshold": early_stop_threshold,
@@ -2836,8 +2841,19 @@ class MdCGOS(MdCG):
             _u_pool = sum(len(v) for v in _u_ids.values())
             _u_max = int(os.environ.get("MDCG_UNION_MAX_CANDIDATES",
                                          union_max_candidates or UNION_MAX_CANDIDATES))
-            _u_q = int(os.environ.get("MDCG_UNION_Q", union_q or UNION_Q_DEFAULT))
-            if len(_u_ids) >= 2 and _u_pool <= _u_max:
+            # 显式 0 不得被 or 吞成缺省（函数层 q<=0 返回空是**有意的**判据）；
+            # 非法 q（0/负数/非数字）一律**不启用并集**：fail-safe 回退既有 RRF。
+            # 照搬 q 去清空 rrf/prov 会得到「配置笔误 ⇒ 静默空结果」。
+            _u_q_raw = union_q if union_q is not None else os.environ.get(
+                "MDCG_UNION_Q", UNION_Q_DEFAULT)
+            try:
+                _u_q = int(_u_q_raw)
+            except (TypeError, ValueError):
+                _u_q = 0
+            if _u_q < 1:
+                union_info = {"enabled": False, "reason": "invalid_q",
+                              "q": _u_q_raw, "pool": _u_pool, "max": _u_max}
+            elif len(_u_ids) >= 2 and _u_pool <= _u_max:
                 _u_order, _u_scores, _u_prov = union_fuse(_u_ids, q=_u_q)
                 rrf.clear()
                 rrf.update(_u_scores)
@@ -3064,6 +3080,7 @@ class MdCGOS(MdCG):
                          "judge_filtered": filtered,
                          "early_stopped": early_stopped,
                          "no_rank_signal": sorted(no_rank_signal), **_cred_meta,
+                         **_union_meta,
                          "expand_source": fuzzy_source,
                          "goal_used": goal_used,
                          "provenance": prov,
