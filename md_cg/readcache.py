@@ -333,6 +333,9 @@ def clear(cg) -> int:
     if bm25_index is not None:
         bm25_index.clear()
     cg._bm25_candidate_pool = None
+    forgetting_index = getattr(cg, "_forgetting_bigram_index", None)
+    if forgetting_index is not None:
+        forgetting_index.clear()
     for attr in ("_read_cache", "_norm_bigrams_cache", "_positive_body_cache"):
         c = getattr(cg, attr, None)
         if c:

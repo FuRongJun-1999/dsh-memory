@@ -49,6 +49,7 @@ import time
 
 from . import lifecycle, nodefile, protect
 from . import crypto
+from . import fsutil as _fsutil
 from . import security as _security
 from .fsutil import append_jsonl, atomic_write, publish, read_jsonl
 from .mdcg import bigrams
@@ -203,7 +204,418 @@ def self_coverage(cg, node_id, content):
     return round(_coverage(bigrams(payload(content)), body), 4)
 
 
-# 生效条件：先按 cg.index 的 nodes 求出同层候选集（剔除 nid==exclude；layer 为真值时只收 str(layer 字段 or "")==layer 的节点）并记 candidate_total；content 经 payload/bigrams 得空集合时直接返回零值 best（max=0.0、with=None、compared=0，**不带 truncated 键**）；否则**循环外经 cg._maybe_reload_index() 单探一次**（N276：无该方法/不可调用的载体跳过，环内回落原 cg.get(nid)），按索引序遍历候选，cg.get(nid, probe=False)（无探活面的载体回落 cg.get(nid)）抛异常/返回假值、或该节点 content 的 bigrams 为空则跳过，每计入一个节点后若 n>=limit 立即 break（故 limit 为 0 或负数时只比较首项即停），返回覆盖度最大者 best（无覆盖度提升时不更新 with/jaccard，compared 为实际计入数）。**截断必须可观测**（issue #358）：若 break 发生在候选集耗尽之前（scanned<candidate_total），best 追加 candidate_total（同层候选总数真值）与 truncated=True；未截断时两键**不出现**——正常写入报文与改动前逐位一致（保住 test_mode_parity 的 Q 组对拍）。
+def _redundancy_access_key(cg):
+    """Access-scope + DEK fingerprint witness for the forgetting bigram cache.
+
+    Any change to the DEK (lock/unlock/rotate) or principal identity/clearance/
+    session/role/admin/expiry MUST invalidate all cached payload bigrams so
+    encrypted or inaccessible nodes are never served stale.
+    """
+    dek = getattr(cg, "dek", None)
+    if isinstance(dek, (bytes, bytearray, memoryview)):
+        dek_fp = hashlib.sha256(bytes(dek)).digest()
+    elif dek:
+        dek_fp = hashlib.sha256(str(dek).encode("utf-8")).digest()
+    else:
+        dek_fp = None
+    principal = getattr(cg, "principal", None)
+    if principal is None:
+        return (dek_fp, None)
+    expires = getattr(principal, "expires_at", None)
+    expired = bool(expires and expires <= time.time())
+    layers_allow = getattr(principal, "layers_allow", None)
+    if isinstance(layers_allow, (list, set, frozenset, tuple)):
+        layers_key = tuple(sorted(str(x) for x in layers_allow))
+    else:
+        layers_key = layers_allow
+    return (
+        dek_fp,
+        expired,
+        getattr(principal, "tenant", None),
+        getattr(principal, "actor", None),
+        getattr(principal, "session", None),
+        getattr(principal, "clearance", None),
+        getattr(principal, "role", None),
+        bool(getattr(principal, "can_admin", False)),
+        bool(getattr(principal, "can_write", False)),
+        layers_key,
+    )
+
+
+def _can_use_bigram_index(cg):
+    """Exact incremental bigram index eligibility check.
+
+    Eligible ONLY for real cache-backed engines (`_read_cache` + `_DirtyDict`
+    with write_gen/path_gen/broad_gen + dict `index["nodes"]`). Falls back
+    cleanly to the linear path for mock/stub `cg` objects, `MDCG_READ_CACHE=0`,
+    or instances whose `get`/`_readable`/`_open_content` methods were
+    monkey-patched.
+    """
+    dirty = getattr(cg, "_dirty", None)
+    if (not hasattr(cg, "_read_cache")
+            or dirty is None
+            or not hasattr(dirty, "write_gen")
+            or not hasattr(dirty, "path_gen")
+            or not hasattr(dirty, "broad_gen")):
+        return False
+    inst_dict = getattr(cg, "__dict__", None)
+    if isinstance(inst_dict, dict):
+        if ("get" in inst_dict or "_readable" in inst_dict
+                or "_open_content" in inst_dict):
+            return False
+    idx = getattr(cg, "index", None)
+    return isinstance(idx, dict) and isinstance(idx.get("nodes"), dict)
+
+
+class _LayerBigramIndex:
+    """Per-layer incremental inverted bigram index for exact `redundancy()`.
+
+    Maintains `bigram -> set(nid)` postings and `nid -> payload bigrams` for
+    all readable non-empty nodes in one layer (or all layers when `layer_key`
+    is `""`). `doc_pos` mirrors `cg.index["nodes"]` insertion order so tie-
+    breaking matches the linear scan's strict `cov > best["max"]`.
+    """
+
+    __slots__ = (
+        "layer_key",
+        "initialized",
+        "write_gen",
+        "total_nodes_seen",
+        "layer_nids",
+        "doc_pos",
+        "docs",
+        "doc_meta",
+        "skipped",
+        "retry_nids",
+        "postings",
+    )
+
+    def __init__(self, layer_key):
+        self.layer_key = layer_key
+        self.initialized = False
+        self.write_gen = -1
+        self.total_nodes_seen = -1
+        self.layer_nids = set()
+        self.doc_pos = {}
+        self.docs = {}
+        self.doc_meta = {}
+        self.skipped = {}
+        self.retry_nids = set()
+        self.postings = {}
+
+    def _remove_doc(self, nid):
+        grams = self.docs.pop(nid, None)
+        self.doc_pos.pop(nid, None)
+        self.doc_meta.pop(nid, None)
+        if grams is None:
+            return
+        postings = self.postings
+        for g in grams:
+            p = postings.get(g)
+            if p is not None:
+                p.discard(nid)
+                if not p:
+                    del postings[g]
+
+    def _add_doc(self, nid, pos, grams, meta):
+        self.docs[nid] = grams
+        self.doc_pos[nid] = pos
+        self.doc_meta[nid] = meta
+        postings = self.postings
+        for g in grams:
+            p = postings.get(g)
+            if p is None:
+                postings[g] = {nid}
+            else:
+                p.add(nid)
+
+    def sync(self, cg, raw_nodes, dirty):
+        # Capture write_gen before snapshotting raw_nodes so any concurrent
+        # write during sync advances dirty.write_gen past cur_gen and forces
+        # the next call to re-sync rather than serving stale postings.
+        cur_gen = dirty.write_gen
+        if (self.initialized
+                and self.write_gen == cur_gen
+                and self.total_nodes_seen == len(raw_nodes)
+                and not self.retry_nids):
+            return
+
+        # W7 G1a concurrency guard: snapshot live nodes dict before iterating.
+        nodes_snap = dict(raw_nodes)
+        layer_key = self.layer_key
+        path_gen = dirty.path_gen
+
+        new_layer_nids = set()
+        docs = self.docs
+        doc_pos = self.doc_pos
+        doc_meta = self.doc_meta
+        skipped = self.skipped
+        retry_nids = self.retry_nids
+
+        pos = 0
+        for nid, entry in nodes_snap.items():
+            e = entry or {}
+            if layer_key and str(e.get("layer") or "") != layer_key:
+                continue
+            new_layer_nids.add(nid)
+            path = e.get("path")
+            sens = e.get("sensitivity")
+            sess = e.get("session")
+            valid_path = isinstance(path, str) and bool(path)
+            p_gen = path_gen.get(path, 0) if valid_path else -1
+
+            meta = doc_meta.get(nid)
+            if (meta is not None and valid_path
+                    and meta[1] == path and meta[2] == sens and meta[3] == sess
+                    and p_gen <= meta[0]):
+                doc_pos[nid] = pos
+                pos += 1
+                continue
+
+            if nid not in retry_nids:
+                smeta = skipped.get(nid)
+                if (smeta is not None and valid_path
+                        and smeta[1] == path and smeta[2] == sens
+                        and smeta[3] == sess and p_gen <= smeta[0]):
+                    pos += 1
+                    continue
+
+            if nid in docs:
+                self._remove_doc(nid)
+            skipped.pop(nid, None)
+            retry_nids.discard(nid)
+
+            tf_before = _fsutil.TRANSIENT_READ_FAILURES
+            errored = False
+            try:
+                node = cg.get(nid, probe=False)
+            except Exception:
+                node = None
+                errored = True
+            # Re-read entry metadata after cg.get (MdCGSecure._readable may
+            # backfill e["sensitivity"] in place on first read).
+            sens_after = e.get("sensitivity")
+            sess_after = e.get("session")
+            if not node:
+                if errored or _fsutil.TRANSIENT_READ_FAILURES != tf_before:
+                    # C-3: never negatively cache transient read failures.
+                    retry_nids.add(nid)
+                else:
+                    skipped[nid] = (cur_gen, path, sens_after, sess_after)
+                pos += 1
+                continue
+            body = bigrams(payload(node.get("content") or ""))
+            if not body:
+                skipped[nid] = (cur_gen, path, sens_after, sess_after)
+                pos += 1
+                continue
+            self._add_doc(nid, pos, body, (cur_gen, path, sens_after, sess_after))
+            pos += 1
+
+        gone = self.layer_nids - new_layer_nids
+        if gone:
+            for nid in gone:
+                if nid in docs:
+                    self._remove_doc(nid)
+                skipped.pop(nid, None)
+                retry_nids.discard(nid)
+
+        self.layer_nids = new_layer_nids
+        self.total_nodes_seen = len(nodes_snap)
+        self.write_gen = cur_gen
+        self.initialized = True
+
+    def query(self, new, exclude=None):
+        """Exact Rare-First Prefix-Filter + Dynamic Upper-Bound Branch-and-Bound.
+
+        Sort active query bigrams g_0..g_{k-1} by ascending posting-list length
+        |L(g_0)| <= ... <= |L(g_{k-1})|. Every doc is evaluated for its exact
+        overlap the first time it is encountered (`seen`), so at step j every
+        unseen doc d can share bigrams ONLY from `rem_set = {g_j..g_{k-1}}`
+        (size R = k - j):
+            |Q & B_d| = |rem_set & B_d| <= min(R, |B_d|).
+        Stopping when R < best_ov (or R == best_ov and best_pos == 0) is
+        provably exact (no unseen doc can beat best_ov or win an earlier-order
+        tie). Tie-breaking strictly selects the smallest `doc_pos` (matching
+        the linear scan's `cov > best["max"]`).
+        """
+        layer_nids = self.layer_nids
+        candidate_total = len(layer_nids) - (
+            1 if exclude is not None and exclude in layer_nids else 0
+        )
+        docs = self.docs
+        compared = len(docs) - (
+            1 if exclude is not None and exclude in docs else 0
+        )
+        if compared == 0:
+            stats = {
+                "posting_lists_total": 0,
+                "posting_lists_scanned": 0,
+                "docs_scored": 0,
+                "docs_pruned": 0,
+                "early_stopped": False,
+            }
+            return {
+                "max": 0.0,
+                "with": None,
+                "jaccard": 0.0,
+                "compared": 0,
+                "candidate_total": candidate_total,
+            }, stats
+
+        postings = self.postings
+        active = []
+        for g in new:
+            p = postings.get(g)
+            if p:
+                active.append((len(p), g, p))
+        if not active:
+            stats = {
+                "posting_lists_total": 0,
+                "posting_lists_scanned": 0,
+                "docs_scored": 0,
+                "docs_pruned": 0,
+                "early_stopped": False,
+            }
+            return {
+                "max": 0.0,
+                "with": None,
+                "jaccard": 0.0,
+                "compared": compared,
+                "candidate_total": candidate_total,
+            }, stats
+
+        active.sort(key=lambda item: (item[0], item[1]))
+        k = len(active)
+        rem_set = {item[1] for item in active}
+        doc_pos = self.doc_pos
+
+        best_ov = 0
+        best_pos = len(layer_nids) + 1
+        best_nid = None
+        best_body_len = 0
+        seen = set()
+        seen_add = seen.add
+        lists_scanned = 0
+        docs_scored = 0
+        docs_pruned = 0
+        early_stopped = False
+
+        for j, (_, g, plist) in enumerate(active):
+            remaining = k - j
+            if remaining < best_ov or (remaining == best_ov and best_pos == 0):
+                early_stopped = True
+                break
+            lists_scanned += 1
+            for nid in plist:
+                if nid == exclude or nid in seen:
+                    continue
+                seen_add(nid)
+                body = docs[nid]
+                blen = len(body)
+                pos = doc_pos[nid]
+                ub = remaining if remaining < blen else blen
+                if ub < best_ov or (ub == best_ov and pos >= best_pos):
+                    docs_pruned += 1
+                    continue
+                docs_scored += 1
+                ov = len(rem_set & body)
+                if ov > best_ov or (ov == best_ov and pos < best_pos):
+                    best_ov = ov
+                    best_pos = pos
+                    best_nid = nid
+                    best_body_len = blen
+                    if remaining == best_ov and best_pos == 0:
+                        early_stopped = True
+                        break
+            if early_stopped:
+                break
+            rem_set.discard(g)
+
+        stats = {
+            "posting_lists_total": k,
+            "posting_lists_scanned": lists_scanned,
+            "docs_scored": docs_scored,
+            "docs_pruned": docs_pruned,
+            "early_stopped": early_stopped,
+        }
+
+        if best_ov == 0 or best_nid is None:
+            return {
+                "max": 0.0,
+                "with": None,
+                "jaccard": 0.0,
+                "compared": compared,
+                "candidate_total": candidate_total,
+            }, stats
+
+        m = len(new)
+        cov = best_ov / float(m)
+        union_len = m + best_body_len - best_ov
+        jaccard = best_ov / float(union_len or 1)
+        return {
+            "max": cov,
+            "with": best_nid,
+            "jaccard": jaccard,
+            "compared": compared,
+            "candidate_total": candidate_total,
+        }, stats
+
+
+class _ForgettingBigramIndex:
+    """Per-engine holder of per-layer incremental bigram indexes.
+
+    Invalidates all layers whenever the authoritative `index["nodes"]` dict
+    object changes (reload/rebuild/compact), `_dirty` object changes,
+    `dirty.broad_gen` advances (delete/rebuild/pathless mutation), or the
+    access scope / DEK fingerprint changes (lock/unlock/rotate/principal).
+    """
+
+    __slots__ = (
+        "nodes_ref",
+        "dirty_ref",
+        "access_key",
+        "broad_gen",
+        "layers",
+        "last_stats",
+    )
+
+    def __init__(self):
+        self.clear()
+
+    def clear(self):
+        self.nodes_ref = None
+        self.dirty_ref = None
+        self.access_key = None
+        self.broad_gen = -1
+        self.layers = {}
+        self.last_stats = None
+
+    def query_layer(self, cg, raw_nodes, dirty, new, layer, exclude=None):
+        access = _redundancy_access_key(cg)
+        if (self.nodes_ref is not raw_nodes
+                or self.dirty_ref is not dirty
+                or self.access_key != access
+                or self.broad_gen != dirty.broad_gen):
+            self.clear()
+            self.nodes_ref = raw_nodes
+            self.dirty_ref = dirty
+            self.access_key = access
+            self.broad_gen = dirty.broad_gen
+
+        layer_key = str(layer) if layer else ""
+        layer_idx = self.layers.get(layer_key)
+        if layer_idx is None:
+            layer_idx = _LayerBigramIndex(layer_key)
+            self.layers[layer_key] = layer_idx
+
+        layer_idx.sync(cg, raw_nodes, dirty)
+        result, stats = layer_idx.query(new, exclude=exclude)
+        self.last_stats = stats
+        return result
+
+
+# 生效条件：先判断 content 经 payload/bigrams 是否为空集（空集直接返回零值 best，不带 truncated 键）；随后循环/索引前经 cg._maybe_reload_index() 单探一次（N276）。若 limit is None、cg 具备真实读缓存与 _DirtyDict 脏集（非测试桩/未关读缓存/未在实例上覆写 get/_readable/_open_content），且未通过 MDCG_MAX_COMPARE_CAP 把自适应上限显式压到同层候选数以下，则走按层增量维护的精确稀有优先前缀过滤 + 动态上界分支定界倒排索引（对全层可读非空候选求数学精确最大覆盖度、零截断，并按 cg.index["nodes"] 顺序精确打破平局）；否则回落线性路径——按 cg.index["nodes"] 顺序扫描候选、受 limit / _adaptive_limit 约束，截断时（scanned<candidate_total）如实落 candidate_total 与 truncated=True（#358/#929 契约不变）。
 def redundancy(cg, content, layer="contextual", exclude=None, limit=None):
     """Q1 重复？——新内容被既有同层节点覆盖的最大比例。
 
@@ -214,11 +626,54 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=None):
     candidate_total（同层候选总数）与 truncated=True，assess 的 entropy
     同步透出并在 reason 末尾标注；**不改 limit、不改比对顺序、不改裁决**。
     未截断时不新增键（与历史返回体逐位一致）。
+
+    精确前缀过滤优化（白箱、零第三方依赖）：
+    · 正常写路径（limit is None、真实缓存引擎、未显式以 MDCG_MAX_COMPARE_CAP
+      压低上限触发截断）走 `_ForgettingBigramIndex`：按层增量维护 payload
+      bigram 倒排索引（受 `nodes` 对象身份 / `_dirty.write_gen` / `path_gen` /
+      `broad_gen` / 访问域 + DEK 指纹严格失效约束），查询按 posting 长度升序
+      扫描并在 `remaining < best_ov` 时精确早停，全层无截断且与全量线性扫描
+      逐位一致（含索引序平局规则）。
+    · 显式传 `limit`、显式设 `MDCG_MAX_COMPARE_CAP` 使 `_adaptive_limit(ct) < ct`、
+      `MDCG_READ_CACHE=0`、测试桩或实例 monkey-patch `get` 一律回落下方线性路径，
+      完整保留 `#358` / `#929` / `test_mode_parity` / `N276` 既有契约。
     """
     new = bigrams(payload(content))
     best = {"max": 0.0, "with": None, "jaccard": 0.0, "compared": 0}
     if not new:
         return best
+    # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
+    # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
+    # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处在进入索引/循环前
+    # 单探一次、内部统一 cg.get(nid, probe=False)。无探活面的载体（测试桩）
+    # 回落原 cg.get(nid)，行为零变。
+    _probe = getattr(cg, "_maybe_reload_index", None)
+    if callable(_probe):
+        _probe()
+    else:
+        _probe = None
+
+    if limit is None and _can_use_bigram_index(cg):
+        raw_nodes = cg.index["nodes"]
+        use_exact = True
+        if "MDCG_MAX_COMPARE_CAP" in os.environ:
+            # 显式运行期开关把封顶压到候选数以下时，回落线性路径履行截断契约（#358/#929 L8）。
+            _lkey = str(layer) if layer else ""
+            _ct = sum(
+                1 for nid, e in list(raw_nodes.items())
+                if nid != exclude
+                and (not _lkey or str((e or {}).get("layer") or "") == _lkey)
+            )
+            if _adaptive_limit(_ct) < _ct:
+                use_exact = False
+        if use_exact:
+            idx = getattr(cg, "_forgetting_bigram_index", None)
+            if idx is None:
+                idx = _ForgettingBigramIndex()
+                cg._forgetting_bigram_index = idx
+            return idx.query_layer(cg, raw_nodes, cg._dirty, new,
+                                   layer=layer, exclude=exclude)
+
     # 并发写面守据（W7 G1a）：从 cg.index 取回的映射先**快照**再迭代——
     # 直接迭代活字典在别的线程/进程写入时抛 "dictionary changed size during
     # iteration"（#316 同族）。快照成本 O(n)，本函数本就要遍历一遍候选。
@@ -232,18 +687,6 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=None):
     # issue #929 问题4：未显式给 limit 时用自适应上限（池大则多比，封顶 CAP）
     if limit is None:
         limit = _adaptive_limit(candidate_total)
-    # N276（第 32 轮性能面）：**批内代际探针只做一次**——循环里每次 cg.get
-    # 都会经 MdCG.get 首行重算索引签名（快照 stat + listdir + 逐分片 stat，
-    # 单点实测 ~38µs；本库 240 次/调用全同签名重探）。此处循环外探一次、
-    # 环内 cg.get(nid, probe=False)。语义窗口=**本调用期间「他进程写入」
-    # 不被探知**（毫秒级；读取环本就按当次快照判定，与读缓存/热缓存已声明
-    # 的进程内一致性边界同款，故注释记账即可）；无探活面的载体（测试桩）
-    # 回落原 cg.get(nid)，行为零变。
-    _probe = getattr(cg, "_maybe_reload_index", None)
-    if callable(_probe):
-        _probe()
-    else:
-        _probe = None
     n = 0
     scanned = 0
     for nid in cands:
