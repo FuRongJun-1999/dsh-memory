@@ -293,6 +293,9 @@ def _iter_sites(tree):
 
 #: 源码文本 → 扫描结果（见 scan_source 的缓存说明）
 _SCAN_CACHE: dict = {}
+#: 缓存上限：需覆盖全 md_cg 追踪面原件 + 反包裹副本 + 变异副本（当前 1029+ 文件；
+#: 早先 1024 上限被越过后每轮整表清空导致缓存命中率跌至 0%），满载时仅逐出最旧项而非整表清空。
+_SCAN_CACHE_MAX = 8192
 
 
 def scan_source(src: str) -> list:
@@ -300,17 +303,17 @@ def scan_source(src: str) -> list:
 
     owner ∈ {inline, alias:<名>, param:<形参>}；safe=True 表示迭代源已取快照。
 
-    **按源码文本缓存**：全域扫描要过 196 个文件、定点变异模式要跑十几轮，不缓存
-    则同一份源码被反复 AST 分析（实测：g1 一轮 36s，是变异模式耗时主因）。命中时
-    连同源码本体一起比对确认，不做「哈希相同就算同源」的盲信。
+    **按源码文本缓存**：全域扫描要过全 md_cg 追踪面（1029+ 文件）、定点变异模式
+    要跑十几轮，不缓存则同一份源码被反复 AST 分析。命中时连同源码本体一起比对确认，
+    不做「哈希相同就算同源」的盲信。
     """
     key = (len(src), hash(src))
     hit = _SCAN_CACHE.get(key)
     if hit is not None and hit[0] == src:
         return hit[1]
     result = _scan_source_uncached(src)
-    if len(_SCAN_CACHE) > 1024:
-        _SCAN_CACHE.clear()
+    if len(_SCAN_CACHE) >= _SCAN_CACHE_MAX:
+        _SCAN_CACHE.pop(next(iter(_SCAN_CACHE)), None)
     _SCAN_CACHE[key] = (src, result)
     return result
 
@@ -334,27 +337,72 @@ def _scan_source_uncached(src: str) -> list:
     scopes = [tree] + [n for n in ast.walk(tree)
                        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
 
+    def _is_alias_of(val, names) -> bool:
+        """表达式是否把已知共享别名原样转交给另一个本地变量（非复制）。"""
+        if _is_copying(val):
+            return False
+        if isinstance(val, ast.Name):
+            return val.id in names
+        if isinstance(val, ast.BoolOp) and isinstance(val.op, ast.Or):
+            return any(_is_alias_of(v, names) for v in val.values)
+        if isinstance(val, ast.IfExp):
+            return (_is_alias_of(val.body, names)
+                    or _is_alias_of(val.orelse, names))
+        return False
+
     def scope_aliases(scope, extra=()):
         names = set(extra)
-        for st in scope.body:
-            for n in ast.walk(st):
-                if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
-                        and n is not scope:
-                    continue
-                if isinstance(n, ast.Assign) and _is_shared_expr(n.value) \
-                        and not _is_copying(n.value):
+        assigns = []
+        stack = list(scope.body)
+        while stack:
+            n = stack.pop()
+            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) \
+                    and n is not scope:
+                continue
+            if isinstance(n, ast.Assign):
+                if _is_shared_expr(n.value) and not _is_copying(n.value):
                     for t in n.targets:
                         if isinstance(t, ast.Name):
                             names.add(t.id)
-                if isinstance(n, ast.AnnAssign) and n.value is not None \
-                        and _is_shared_expr(n.value) and not _is_copying(n.value) \
-                        and isinstance(n.target, ast.Name):
+                else:
+                    tnames = [t.id for t in n.targets
+                              if isinstance(t, ast.Name)]
+                    if tnames:
+                        assigns.append((tnames, n.value))
+            elif isinstance(n, ast.AnnAssign) and n.value is not None \
+                    and isinstance(n.target, ast.Name):
+                if _is_shared_expr(n.value) and not _is_copying(n.value):
                     names.add(n.target.id)
+                else:
+                    assigns.append(([n.target.id], n.value))
+            elif isinstance(n, ast.NamedExpr) \
+                    and isinstance(n.target, ast.Name):
+                if _is_shared_expr(n.value) and not _is_copying(n.value):
+                    names.add(n.target.id)
+                else:
+                    assigns.append(([n.target.id], n.value))
+            for c in ast.iter_child_nodes(n):
+                if not isinstance(c, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stack.append(c)
+        # 传递闭包：追踪同作用域内的二次别名（例如 `_all = ...; nodes = _all`）
+        changed = True
+        while changed:
+            changed = False
+            for tnames, val in assigns:
+                if _is_alias_of(val, names):
+                    for tn in tnames:
+                        if tn not in names:
+                            names.add(tn)
+                            changed = True
         return names
 
     fn_by_name = {}
     for s in scopes[1:]:
         fn_by_name.setdefault(s.name, []).append(s)
+
+    # 预计算各作用域本地别名（仅依赖 AST 本身，避免在下方 for call 循环内对同一宿主函数
+    # 重复做 O(N) AST 遍历——例如 mcp_server.py 7000+ 行内含 700 次同文件调用）。
+    base_aliases = {id(s): scope_aliases(s) for s in scopes}
 
     # 一层过程间：以共享实参调用某函数 ⇒ 该形参在该函数体内也是共享面
     param_shared = {}
@@ -363,7 +411,7 @@ def _scan_source_uncached(src: str) -> list:
         if nm not in fn_by_name:
             continue
         csc = enclosing_fn(call) or tree
-        local = scope_aliases(csc)
+        local = base_aliases[id(csc)]
         for callee in fn_by_name[nm]:
             args = [a.arg for a in callee.args.args]
             for i, a in enumerate(call.args):
@@ -378,7 +426,8 @@ def _scan_source_uncached(src: str) -> list:
                                    and kw.value.id in local)):
                     param_shared.setdefault(id(callee), set()).add(kw.arg)
 
-    cache = {id(s): scope_aliases(s, param_shared.get(id(s), set()))
+    cache = {id(s): (scope_aliases(s, param_shared[id(s)])
+                     if id(s) in param_shared else base_aliases[id(s)])
              for s in scopes}
 
     def alias_set_for(node):
@@ -833,7 +882,7 @@ def g1():
         ("md_cg/weights.py", "indeg = {nid: 0 for nid in list(nodes)}"),
         ("md_cg/weights.py", "ids = [nid for nid, e in list(nodes.items())"),
         ("md_cg/refindex.py", "todo = [nid for nid in list(nodes)"),
-        ("md_cg/refindex.py", "for nid in list(nodes):"),
+        ("md_cg/refindex.py", "groups = {}\n    for nid in list(nodes):"),
     ]
     for rel, token in tokens:
         src = overrides.get(rel)
@@ -841,7 +890,8 @@ def g1():
             with open(os.path.join(_REPO, rel.replace("/", os.sep)),
                       encoding="utf-8") as f:
                 src = f.read()
-        ok(token in src, "G1c 快照站点在位：%s ← %s" % (rel, token[:44]))
+        label = " ".join(token.split())[:44]
+        ok(token in src, "G1c 快照站点在位：%s ← %s" % (rel, label))
 
 
 def g2_behavior():
@@ -1292,16 +1342,37 @@ _MUTATIONS = (
      "md_cg/weights.py",
      "seen, out = {}, {}\n    for nid, e in list(nodes.items()):",
      "seen, out = {}, {}\n    for nid, e in (nodes.items()):", 2),
-    ("H-4a-8 回缺陷：weights.recalc 裸推导（weights.py:483）",
+    ("H-4a-8 回缺陷：weights.recalc 裸推导（weights.py:490/500）",
      "md_cg/weights.py",
-     "ids = [nid for nid, e in list(nodes.items())",
-     "ids = [nid for nid, e in (nodes.items())", 2),
+     '    _all = dict((getattr(cg, "index", None) or {}).get("nodes") or {})\n'
+     '    _miss = []\n'
+     '    if ids:\n'
+     '        _want = [str(x) for x in (ids if isinstance(ids, (list, tuple)) else [ids])]\n'
+     '        _miss = [x for x in _want if x not in _all]\n'
+     '        nodes = {k: _all[k] for k in _want if k in _all}\n'
+     '    else:\n'
+     '        nodes = _all\n'
+     '    indeg = coverage_index(cg)\n'
+     '    red = redundancy_map(cg, layer=layer)\n'
+     '    ids = [nid for nid, e in list(nodes.items())',
+     '    _all = ((getattr(cg, "index", None) or {}).get("nodes") or {})\n'
+     '    _miss = []\n'
+     '    if ids:\n'
+     '        _want = [str(x) for x in (ids if isinstance(ids, (list, tuple)) else [ids])]\n'
+     '        _miss = [x for x in _want if x not in _all]\n'
+     '        nodes = {k: _all[k] for k in _want if k in _all}\n'
+     '    else:\n'
+     '        nodes = _all\n'
+     '    indeg = coverage_index(cg)\n'
+     '    red = redundancy_map(cg, layer=layer)\n'
+     '    ids = [nid for nid, e in (nodes.items())', 2),
     ("H-4a-9 回缺陷：refindex.check_refs 裸键迭代（refindex.py:672）",
      "md_cg/refindex.py",
      "todo = [nid for nid in list(nodes)", "todo = [nid for nid in (nodes)", 3),
-    ("H-4a-10 回缺陷：refindex.rebuild 裸键迭代（refindex.py:966）",
+    ("H-4a-10 回缺陷：refindex.rebuild 裸键迭代（refindex.py:1269）",
      "md_cg/refindex.py",
-     "for nid in list(nodes):", "for nid in (nodes):", 3),
+     "groups = {}\n    for nid in list(nodes):",
+     "groups = {}\n    for nid in (nodes):", 3),
     ("H-4a-11 回缺陷：refindex.prune_orphans 裸 items()（refindex.py:815）",
      "md_cg/refindex.py",
      "plan = []\n    for nid, e in list(nodes.items()):",
@@ -1323,15 +1394,21 @@ def _exec_module(name: str, path: str, src: str):
 
 
 def _load_one(relpath: str, old: str, new: str):
-    """单点变异：只把该文件的 old 退回裸迭代（其余站点维持快照）。"""
+    """单点变异：只把该文件的 old 退回裸迭代（其余站点维持快照）。
+
+    锚点必须**恰命中 1 次**（0 次＝漂移缺失，>1 次＝歧义命中，均 fail-closed 拒执行，
+    防止 `replace(..., 1)` 静默打到前置同名片段而漏掉目标函数）。
+    返回 (mut_mod_or_None, src, hits)。
+    """
     path = os.path.join(_REPO, relpath.replace("/", os.sep))
     with open(path, encoding="utf-8") as f:
         src = f.read()
-    if old not in src:
-        return None, src
+    hits = src.count(old)
+    if hits != 1:
+        return None, src, hits
     mut_src = src.replace(old, new, 1)
     name = "md_cg._h4sus_mut1_%s" % os.path.basename(path)[:-3]
-    return _exec_module(name, path, mut_src), src
+    return _exec_module(name, path, mut_src), src, hits
 
 
 def _run_groups(with_threads: bool = True) -> int:
@@ -1424,10 +1501,15 @@ def _mutate_mode(list_only: bool = False) -> int:
         bad.append("未变异基线即失败")
 
     for name, rel, old, new, expect in _MUTATIONS:
-        mut, _src = _load_one(rel, old, new)
+        mut, _src, hits = _load_one(rel, old, new)
         if mut is None:
-            print("  ANCHOR-MISS %s —— 锚点在 %s 当前源码里找不到"
-                  "（实现改了却没同步本表；基线不得静默漂移）" % (name, rel))
+            if hits == 0:
+                print("  ANCHOR-MISS %s —— 锚点在 %s 当前源码里找不到"
+                      "（实现改了却没同步本表；基线不得静默漂移）" % (name, rel))
+            else:
+                print("  ANCHOR-AMBIGUOUS %s —— 锚点在 %s 当前源码里命中 %d 处"
+                      "（必须唯一命中 1 处，否则 replace(..., 1) 会打错函数）"
+                      % (name, rel, hits))
             anchor_miss.append(name)
             continue
         key = os.path.basename(rel)[:-3]
@@ -1453,8 +1535,8 @@ def _mutate_mode(list_only: bool = False) -> int:
             bad.append("%s（红=%d 预期=%d）" % (name, reds, expect))
 
     if anchor_miss:
-        print("\nANCHOR-MISS：%s" % "、".join(anchor_miss))
-        print("退出码 2（fail-closed）：变异表锚点漂移即判失败，不得静默跳过")
+        print("\nANCHOR-MISS/AMBIGUOUS：%s" % "、".join(anchor_miss))
+        print("退出码 2（fail-closed）：变异表锚点漂移或歧义即判失败，不得静默跳过")
         return 2
     print("\n定点变异自证：%s"
           % ("PASS（每处判据都被打红且恰好命中预期项数）" if not bad

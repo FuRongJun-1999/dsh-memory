@@ -65,11 +65,31 @@ def _read_json(path: str, default=None):
 
 
 def _write_json(path: str, value) -> None:
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8", newline="") as fh:
-        fh.write(json.dumps(value, ensure_ascii=False))
-    os.replace(tmp, path)
+    from . import fsutil
+    fsutil.atomic_write(path, json.dumps(value, ensure_ascii=False))
+
+
+def _is_sensitive_for_hot(sens) -> bool:
+    """是否禁止写入明文热层（SEC-01）：加密档（private/secret 及变体）、restricted 或未知密级均 fail-closed 跳过。"""
+    if sens is None or sens == "":
+        return False
+    from . import crypto as _cr
+    if _cr.is_encrypted_level(sens):
+        return True
+    return _cr.normalize_sensitivity(sens) not in ("public", "internal")
+
+
+def _node_visible_for_hot(cg, nid: str, rec: dict) -> bool:
+    """热层条目的基线可见性判定（SEC-01）：拒绝敏感、已删或当前身份不可读的节点。"""
+    if _is_sensitive_for_hot((rec or {}).get("sensitivity")):
+        return False
+    if cg is None:
+        return True
+    nodes = (getattr(cg, "index", None) or {}).get("nodes")
+    if isinstance(nodes, dict) and nid not in nodes:
+        return False
+    from . import security as _sec
+    return _sec.node_visible(cg, nid)
 
 
 def _dir_stamp(path: str) -> str:
@@ -145,11 +165,19 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
     except Exception:
         _prev_nodes = {}
     unreadable = 0
+    skipped_sens_pre = 0
+    skipped_sensitive = 0
+    skipped_sens_ids = set()
     truncated = False
     # 两遍：① 自我/锚点**永不因上限被挤掉**；② 其余按 (importance, 时间) 优先序取。
     priority = []
     for nid in list(nodes):
         e = nodes.get(nid) or {}
+        if _is_sensitive_for_hot(e.get("sensitivity")):
+            skipped_sens_pre += 1
+            skipped_sensitive += 1
+            skipped_sens_ids.add(nid)
+            continue
         layer = str(e.get("layer") or "")
         imp = float(e.get("importance") or 0.0)
         ts = float(e.get("t") or e.get("created_at") or e.get("last_access") or 0.0)
@@ -170,6 +198,7 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             priority.append((0, nid, layer, imp, ts))
     # 组内：高重要度 + 新近 优先；组间：self/anchor > 近期情景 > 高重要度知识
     priority.sort(key=lambda r: (-r[0], -r[3], -r[4]))
+    from . import crypto as _cr
     for _grp, nid, layer, imp, ts in priority:
         if len(picked) >= max_nodes:
             truncated = True
@@ -184,23 +213,44 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             continue
         fm = node.get("frontmatter") or {}
         _ev = nodes.get(nid) or {}
-        _h = str(_ev.get("content_hash") or "")
-        _pv = _prev_nodes.get(nid) or {}
-        if _h and _pv and str(_pv.get("content_hash") or "") == _h and _pv.get("preview"):
-            picked[nid] = dict(_pv)
+        _raw_sens = fm.get("sensitivity") or _ev.get("sensitivity") or ""
+        if _is_sensitive_for_hot(_raw_sens) or fm.get("encrypted"):
+            skipped_sensitive += 1
+            skipped_sens_ids.add(nid)
             continue
         body = str(node.get("content") or "")
+        if body.lstrip().startswith(_cr.ENC_PREFIX):
+            skipped_sensitive += 1
+            skipped_sens_ids.add(nid)
+            continue
+        _norm_sens = _cr.normalize_sensitivity(_raw_sens) if _raw_sens else "internal"
+        _raw_tags = fm.get("tags") if "tags" in fm else (_ev.get("tags") or [])
+        if isinstance(_raw_tags, str):
+            _raw_tags = [_raw_tags]
+        _tags_list = [str(t) for t in (_raw_tags or [])]
+        _h = str(_ev.get("content_hash") or "")
+        _pv = _prev_nodes.get(nid) or {}
+        if (_h and _pv and str(_pv.get("content_hash") or "") == _h
+                and _pv.get("preview")
+                and not _is_sensitive_for_hot(_pv.get("sensitivity"))
+                and _pv.get("sensitivity") == _norm_sens
+                and _pv.get("tags") == _tags_list):
+            picked[nid] = dict(_pv)
+            continue
         picked[nid] = {
             "id": nid,
             "layer": layer or fm.get("layer") or "",
             "importance": float(fm.get("importance") or imp or 0.0),
             "t": ts,
             "session": fm.get("session") or "",
+            "sensitivity": _norm_sens,
+            "tags": _tags_list,
             "preview": re.sub(r"\s+", " ", body).strip()[:PREVIEW_MAX],
-            "content_hash": str((nodes.get(nid) or {}).get("content_hash") or ""),
+            "content_hash": _h,
         }
     # 兜底口径：self/anchor 若仍因上限被挤掉（理论不该发生），显式记为 truncated
-    missing_self = [n for (_g, n, L, _i, _t) in priority if L in ("self", "anchor") and n not in picked]
+    missing_self = [n for (_g, n, L, _i, _t) in priority
+                    if L in ("self", "anchor") and n not in picked and n not in skipped_sens_ids]
     if missing_self:
         truncated = True
     postings = {}
@@ -215,7 +265,8 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
         "nodes": len(picked),
         "index_fp": _index_fp(nodes),
         "tokens": len(postings),
-        "skipped_layer": len(nodes) - len(priority),
+        "skipped_layer": max(0, len(nodes) - len(priority) - skipped_sens_pre),
+        "skipped_sensitive": skipped_sensitive,
         "unreadable": unreadable,
         "truncated": bool(truncated),
         "layers": {L: sum(1 for r in picked.values() if r["layer"] == L)
@@ -258,7 +309,7 @@ def _root_of(x):
     return x if isinstance(x, str) else str(getattr(x, "root", "") or "")
 
 
-def is_fresh(x, ttl_s=None) -> bool:
+def is_fresh(x, ttl_s=None, hot=None) -> bool:
     """热层是否新鲜（2026-11-14 重写）。
 
     判据优先级：
@@ -269,7 +320,9 @@ def is_fresh(x, ttl_s=None) -> bool:
          **只用于兜底**，避免在拿不到指纹时每次重建（实测每轮多 3 秒）。
     """
     root = _root_of(x)
-    h = load(root)
+    # hot 可传入已 load 的结果：热层三份 JSON 合计 ~13 MB，单次 load 实测 ~100 ms，
+    # 判「新鲜」与「检索」若各 load 一次，读路径会被判据本身拖慢一倍（2026-11-22 实测）。
+    h = hot if hot is not None else load(root)
     if not h:
         return False
     meta = h["meta"] or {}
@@ -304,10 +357,15 @@ def ensure(cg, force=False, **kw):
     return dict(build(cg, **kw), reused=False)
 
 
-def search(cg, query: str, *, k: int = 10, root: str = "") -> dict:
-    """热层词法检索。返回 {items, meta}；未命中返回空列表（不抛错）。"""
+def search(cg, query: str, *, k: int = 10, root: str = "", hot=None, visible_fn=None) -> dict:
+    """热层词法检索。返回 {items, meta}；未命中返回空列表（不抛错）。
+
+    hot：可传入已 load 的热层，避免重复反序列化（单次 ~100 ms，见 is_fresh 注释）。
+    SEC-01：每条命中均经 `_node_visible_for_hot(cg, nid, rec)` 校验（拒绝加密/受限/已删/无权节点），
+    并支持调用方传入 `visible_fn(nid, rec)`（或单参 `visible_fn(nid)`）叠加域隔离与过滤条件。
+    """
     root = root or getattr(cg, "root", "")
-    h = load(root)
+    h = hot if hot is not None else load(root)
     if not h:
         return {"items": [], "meta": {"available": False}}
     q = tokens(query)
@@ -324,9 +382,34 @@ def search(cg, query: str, *, k: int = 10, root: str = "") -> dict:
     w = {"self": 2.0, "anchor": 1.8, "knowledge": 1.2, "structural": 1.0,
          "contextual": 1.0}
     ranked = sorted(score.items(), key=lambda kv: -(kv[1] * w.get(h["nodes"].get(kv[0], {}).get("layer"), 1.0)))
+    vis_arity = 2
+    if visible_fn is not None:
+        try:
+            import inspect as _inspect
+            sig = _inspect.signature(visible_fn)
+            pos = [p for p in sig.parameters.values()
+                   if p.kind in (p.POSITIONAL_ONLY, p.POSITIONAL_OR_KEYWORD)]
+            has_var = any(p.kind == p.VAR_POSITIONAL for p in sig.parameters.values())
+            if not has_var and len(pos) == 1:
+                vis_arity = 1
+        except (TypeError, ValueError):
+            vis_arity = 2
     items = []
-    for nid, s in ranked[:k]:
+    limit = max(0, int(k))
+    for nid, s in ranked:
+        if len(items) >= limit:
+            break
+        rec = h["nodes"].get(nid) or {}
+        if not _node_visible_for_hot(cg, nid, rec):
+            continue
+        if visible_fn is not None:
+            try:
+                ok_vis = bool(visible_fn(nid) if vis_arity == 1 else visible_fn(nid, rec))
+            except Exception:
+                ok_vis = False
+            if not ok_vis:
+                continue
         # 用字典字面量而非「索引键赋值」：后者会被 #416 守卫认作索引条目写点，需双向登记；
-        items.append({**(h["nodes"].get(nid) or {}), "hot_score": round(s, 4)})
+        items.append({**rec, "hot_score": round(s, 4)})
     return {"items": items, "meta": {"available": True, "built_at": h["meta"].get("built_at"),
                                      "candidates": len(score), "total": h["meta"].get("nodes")}}

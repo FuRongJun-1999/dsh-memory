@@ -4,7 +4,8 @@
 B1 前提：search_rrf 只存在于 MdCGOS/MdCGSecure，纯 MdCG 没有（guard 的由来）
 B2 检索面：mdcg_search 未传 bm25 时走 BM25 路且不报错（MdCGSecure 上）
 B3 降级：cg 无 search_rrf 时不得抛 AttributeError（用最小伪造对象验证同一判据表达式）
-B4 recall 面仍 opt-in：mdcg_recall 未传 bm25 时正常返回（不因默认改词法而崩）
+B4 recall 面按**查询脚本**取路（issue #999）：未显式传 bm25 时判据单点
+   `recall_use_bm25` 决定走哪条词法路，中文查询仍落到缺省六路且不崩
 """
 from __future__ import annotations
 
@@ -45,7 +46,12 @@ def main():
     chk(isinstance(out, dict) and "results" in out, "B2 mdcg_search 缺省（BM25 开）可正常返回")
 
     out2 = call_tool(cg, "mdcg_recall", {"query": "连接池", "k": 5})
-    chk(isinstance(out2, (dict, list)), "B4 mdcg_recall 缺省仍可用（recall 面 opt-in）")
+    chk(isinstance(out2, (dict, list)), "B4 mdcg_recall 缺省仍可用（取路判据=查询脚本，中文走 lexical）")
+    # B4b：同一判据在英文查询上确实选了 bm25——否则「脚本自适应」只是一句空话。
+    from .mcp_server import recall_use_bm25
+    chk(recall_use_bm25("blue screen while installing", None) is True
+        and recall_use_bm25("连接池 32 个", None) is False,
+        "B4b 判据分语言：英文→bm25，中文→lexical")
 
     print("=" * 60)
     print("BM25 默认开守卫：%d 通过 / %d 失败" % (ok, bad))

@@ -32,6 +32,11 @@ import threading
 from . import (nodefile, protect, routing, subgraph, chain, provenance, pooling,
                lifecycle, reach, trust, roleviews, fsutil, freshness)
 from . import timeanchor as _timeanchor
+# issue #1011 附带（#43 缺口，2026-11-22）：负记忆落盘前要掩掉证据里的「命中片段」回显——
+# 那段 10 字预览是给**调用方**定位用的，随 add_rejected 原样透传会以「截断残片」形式进 rejected/
+# （test_rejected_redact R2 实测命中）。占位后仍保留规则序号与字符数，审计不缺料。
+from .audit import strip_hit_preview as _strip_hit_preview
+from .audit import redact_forbidden as _redact_forbidden
 from .fsutil import (FileLock, ShardedLog, atomic_write, append_jsonl,
                      read_jsonl, sweep_stale_temps, note_bad_payload_rows)
 
@@ -1780,6 +1785,17 @@ def _file_digest(fp: str):
         return None
 
 
+# 生效条件：`_flush_batch` 在 `FileLock(index_path)` 未获取（非 strict 的 10 s 超时）时抛出；
+# 由 `_flush_locked` 的 `except BaseException` 路径接住——整批退回脏集、并补一次唤醒做有界重试。
+class FlushLockBusy(RuntimeError):
+    """索引入口锁未获 ⇒ 本批不写盘（issue #1011-1 第 4 点）。
+
+    为什么不沿用「非 strict 放行」：compact/rebuild 的临界区是 `read_all → clear`，
+    未持锁的 append 落在两者之间就会被 clear 抹掉——节点在盘、索引不可见（9·12 病灶）。
+    退让一轮的代价是多等一次（数据留在内存脏集里，不丢），比丢记录便宜。
+    """
+
+
 # 生效条件：无独立生效条件（模块级哨兵字典类）；任何变更操作（setitem/delitem/clear/pop/popitem/setdefault/update）都会使 write_gen 自增 1，读取 write_gen 不变更；setitem 的值为含非空 path 字符串的 dict 时把该 path 记入 path_gen（值为当时的 write_gen）且不动 broad_gen，值为其它形态（含 None tombstone）或经 delitem/pop/popitem/setdefault/update 变更时把 broad_gen 置为当时的 write_gen，clear() 缺省（flush 收尾）只使 write_gen 自增、不改写 path_gen/broad_gen，clear(broad=True)（rebuild_index 收尾）同时把 broad_gen 置为当时的 write_gen。
 class _DirtyDict(dict):
     """写代际哨兵字典（批次 23，issue #31 D-4 / v20 报告）：任何变更使
@@ -2218,6 +2234,16 @@ class MdCG:
         # （临界区只有 dict 拷贝/清空，**不含任何 IO**——否则写路径会被后台落盘
         # 堵住，等于把异步改回同步）。
         self._dirty_lock = threading.RLock()
+        # issue #1011-1：**落盘窗口**与**在飞批次**。
+        # 病灶：`_flush_locked` 先清空 `_dirty` 再写分片；若并发/外部进程恰在此窗口触发
+        # `_maybe_reload_index`，重载从磁盘读回旧条目（`_dirty` 已空、无本批可重放），
+        # 覆写写入被永久回退；又因 `_index_signature` 刻意排除本进程分片，
+        # 写完后的探测永远看不见这次变化 ⇒ 不自愈。
+        # 处置：窗口内置位 `_flush_window`（重载让路，下次探测再判）+ 留存 `_flush_inflight`
+        # （已从脏集摘走但尚未落盘的记录；重载若已越过让路点，也必须把它们叠回去）。
+        self._flush_window = False
+        self._flush_inflight = {}
+        self._flush_gen = 0
         self._dirty = _DirtyDict()
         # N230：把数据根交给脏集——标脏时按 entry["path"] 落「逐字见证」
         # （见 _DirtyDict._note_witness / MdCG._dirty_entry_superseded）。
@@ -2665,11 +2691,14 @@ class MdCG:
         ① 不成立、旧判据直接返回 False ⇒ **旧写盖新写并随 flush 持久化**。
         ②③④ 即为此补的字节级身份判定。
         """
-        st = self._dirty.staged_stat.get(nid)
-        if st is None:
-            return False
-        e = self._dirty.get(nid)
-        p = e.get("path") if isinstance(e, dict) else None
+        # #1011 既有锁外调用点补齐：原子快照 (staged_stat, entry.path)，磁盘 stat/digest
+        # 严格留在锁外（保持 #677 P2「_dirty_lock 内不做 IO」纪律）。
+        with self._dirty_lock:
+            st = self._dirty.staged_stat.get(nid)
+            if st is None:
+                return False
+            e = self._dirty.get(nid)
+            p = e.get("path") if isinstance(e, dict) else None
         if not p:
             return False
         fp = os.path.join(self.root, p)
@@ -2731,20 +2760,52 @@ class MdCG:
             if _now - _last < _min_iv:
                 return False
             self._sig_probe_ts = _now
+        # issue #1011-1：**落盘窗口内不重载**。窗口里 `_dirty` 已清空、分片尚未写完，
+        # 此刻从磁盘读回的索引缺本批记录；而签名刻意排除本进程分片，写完后的探测
+        # 再也看不见这次变化 ⇒ 覆写写入被永久回退（不自愈）。让路一轮，下次探测再判。
+        if getattr(self, "_flush_window", False):
+            return False
         sig = self._index_signature()
         if sig == self._index_sig:
             return False
-        try:
-            idx = self._load_index()
-        except (OSError, ValueError):
-            return False                # 重载失败不阻塞读：沿用旧内存态
+        # issue #1011-1 补充（`_flush_gen`）：窗口只挡「重载入口」，挡不住「读盘途中
+        # 落盘刚好完成并清空 `_flush_inflight`」。读盘前在脏集锁内记下代际；若读盘
+        # 期间 `_flush_gen` 前进，说明有批次已落进本进程分片且离开在飞表，有界重试
+        # `_load_index()` 直到读盘与快照同代（连撞上限或新窗口开启则让路一轮，不落陈旧快照）。
+        _pending = None
+        _inflight = None
+        for _attempt in range(4):
+            with self._dirty_lock:
+                if getattr(self, "_flush_window", False):
+                    return False
+                _fgen_before = getattr(self, "_flush_gen", 0)
+            try:
+                idx = self._load_index()
+            except (OSError, ValueError):
+                return False                # 重载失败不阻塞读：沿用旧内存态
+            # issue #677 P2：**快照在脏集锁内、陈旧判定与重放在锁外**——后台落盘线程
+            # 会并发清空脏集，直接遍历同一 dict 会抛 dictionary changed size during
+            # iteration；而 `_dirty_entry_superseded` 要 stat 盘面（IO），不能揣在锁里
+            # 挡住写路径标脏。`superseded_ids` 的写入同样入锁（后台线程在锁内拷它）。
+            with self._dirty_lock:
+                if getattr(self, "_flush_gen", 0) == _fgen_before:
+                    _pending = list(self._dirty.items())
+                    _inflight = dict(getattr(self, "_flush_inflight", {}) or {})
+                    break
+        else:
+            return False                    # 连续落盘推进超重试上限：让路一轮，留待下次探测
         superseded = 0
-        # issue #677 P2：**快照在脏集锁内、陈旧判定与重放在锁外**——后台落盘线程
-        # 会并发清空脏集，直接遍历同一 dict 会抛 dictionary changed size during
-        # iteration；而 `_dirty_entry_superseded` 要 stat 盘面（IO），不能揣在锁里
-        # 挡住写路径标脏。`superseded_ids` 的写入同样入锁（后台线程在锁内拷它）。
-        with self._dirty_lock:
-            _pending = list(self._dirty.items())
+        _dirty_ids = {nid for nid, _ in _pending}
+        # issue #1011-1 兜底：若重载**已越过**让路点（窗口在它读盘之后才开启），
+        # 本批已从脏集摘走、盘面又还没写 ⇒ 必须把它们叠回去，否则同样丢覆写。
+        # 同 id 若已在 `_dirty` 中有更新写入，交由下方 `_pending` 重放决定，不用旧在飞值覆盖。
+        for _nid, _e in _inflight.items():
+            if _nid in _dirty_ids:
+                continue
+            if _e is None:
+                idx["nodes"].pop(_nid, None)
+            else:
+                idx["nodes"][_nid] = _e
         for nid, e in _pending:
             if e is None:
                 idx["nodes"].pop(nid, None)
@@ -2898,7 +2959,14 @@ class MdCG:
 
 # 生效条件：os.path.exists(self.index_path) 为真、JSON 可解析、解析结果为 dict（顶层非对象视同损坏）且 "schema" 等于 SCHEMA 且 self._snapshot_trusted(该快照) 为真时以该快照为基底；快照不存在用空骨架 {"schema":SCHEMA,"nodes":{},"buckets":{}}（不重扫目录）；快照损坏（ValueError/OSError）、顶层非对象、schema 不符或**指纹不符（#409）**时不作基底——损坏/schema 不符降级 self._scan_nodes() 全库扫描（宁重扫勿清池），仅指纹不符改以本进程内存索引 self.index["nodes"] 的副本为基底；基底确定后经 self._apply_log 对 index_log_dir 逐条重放（N225：与 _load_index **同一实现**），随后**重放之前**过**完整性闸** self._covers_disk（#409：基底路径集合 == 盘面 .md 路径集合且条数相等；**闸在重放之前**——日志条目按合作写者协议是权威写入记录、允许指向盘外路径，见守卫 E3/E6），不过即以 self._scan_nodes() 换基底（宁重扫勿写缺账快照），再对最终基底**恰好重放一次**；落盘（_fingerprint 恒为 self._dir_fingerprint()，**只在过闸之后**写）并清空日志后替换 self.index、刷新 _index.json 签名（P1b-2 自写不自载）并返回 idx；
     def compact_index(self):
-        with FileLock(self.index_path):
+        with FileLock(self.index_path) as _lk:
+            # issue #1011-4：`FileLock` 缺省非 strict（超时放行）。compact 的临界区里有
+            # `ShardedLog.clear()`，未持锁就继续 = 与他进程追加互踩（记录随分片被删）。
+            # 这里不放行也不抛：**跳过本轮压紧**是安全退路（_index.json 只是旧一代快照，
+            # 下次 close/compact 再来），丢数据才是不可逆。
+            if not getattr(_lk, "acquired", False):
+                self._compact_skipped_locked = getattr(self, "_compact_skipped_locked", 0) + 1
+                return
             idx = {"schema": SCHEMA, "nodes": {}, "buckets": {}}
             scan_fallback = False
             if os.path.exists(self.index_path):
@@ -3066,8 +3134,10 @@ class MdCG:
 # 生效条件：无入参、只读（不 flush、不建线程、不改任何状态）——返回 {async: 缺省是否异步（env MDCG_ASYNC_FLUSH）、pending_dirty: 尚未落盘的脏索引条数、worker_alive: 后台线程是否活着、last_error: 最近一次后台落盘失败（无则 None）}；供 maintain action=flush / cg(op=info) 把「索引派生物是否落后于盘面」变成可读读数（容忍 ≠ 静默）；
     def flush_state(self):
         th = self._flush_thread
+        with self._dirty_lock:
+            pending = len(self._dirty) + len(getattr(self, "_flush_inflight", None) or ())
         return {"async": self.async_flush_enabled(),
-                "pending_dirty": len(self._dirty),
+                "pending_dirty": pending,
                 "worker_alive": bool(th is not None and th.is_alive()),
                 "last_error": self._flush_error}
 
@@ -3095,18 +3165,48 @@ class MdCG:
             superseded = set(self._dirty.superseded_ids)
             # 保住 _DirtyDict 钩子（批次 23 D-4：不得换新 dict）
             self._dirty.clear()
+            # issue #1011-1：窗口起点（与清空在同一把锁内 ⇒ 重载要么看见清空前态，
+            # 要么看见窗口位，不会看见「已清空但未置位」的缝）。
+            self._flush_window = True
+            self._flush_inflight = dict(batch)
+        _flushed = False
         try:
             self._flush_batch(batch, superseded)
+            _flushed = True
         except BaseException:
             with self._dirty_lock:
-                for _nid, _e in batch:
-                    if _nid not in self._dirty:
-                        self._dirty[_nid] = _e
                 # #677 C 复核：`_dirty.clear()` 会连 superseded_ids 一起清（见 _DirtyDict），
                 # 失败回填若不恢复它，下一轮会把「已判陈旧」的记录当新记录写进分片
                 # ⇒ 旧版本覆盖新版本（内容错误，比重复更严重）。
-                self._dirty.superseded_ids |= superseded
+                # issue #1011-2：但**不得**把「窗口内已被新写入覆盖」的 id 也标陈旧——
+                # 若某 id 在本批落盘期间又进了新版本，再把老 id 记进 superseded，下一次
+                # `_flush_batch` 会按 `nid not in superseded` 把**新版本**一起丢掉。
+                # 判据必须取**回填之前**的脏集快照：回填本身会把本批条目写回 `_dirty`，
+                # 用回填后的 keys 判会把「正在判陈旧的这批」自己也算成新版本（test_issue677 B5）。
+                _arrived = set(self._dirty.keys())
+                for _nid, _e in batch:
+                    if _nid not in self._dirty:
+                        self._dirty[_nid] = _e
+                self._dirty.superseded_ids |= {n for n in superseded
+                                               if n not in _arrived}
+                # issue #1011-1（第 4 点）：本批已退回脏集 ⇒ 必须补一次唤醒，否则没人再标脏时
+                # 这批会一直搁在内存里（锁等待本身已耗掉一个 timeout，不构成紧循环）。
+                _ev = getattr(self, "_flush_evt", None)
+                if _ev is not None:
+                    try:
+                        _ev.set()
+                    except Exception:                # noqa: BLE001
+                        pass
             raise
+        finally:
+            # issue #1011-1：落盘窗口**无条件**关闭——否则一次失败会让后续所有重载永久让路。
+            # 同锁内推进 `_flush_gen`（仅真实落盘成功时），让在 `_load_index()` 期间越过
+            # 窗口起点的并发重载感知到「在飞批次已落盘并清空」而重试装载，避免丢更新。
+            with self._dirty_lock:
+                self._flush_window = False
+                self._flush_inflight = {}
+                if _flushed:
+                    self._flush_gen = getattr(self, "_flush_gen", 0) + 1
 
 # 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
     def _flush_batch(self, batch, superseded):
@@ -3116,7 +3216,16 @@ class MdCG:
         # 记录随分片被删，节点「在盘但索引不可见」（9·12 病灶：3 实例并发，
         # apply 留痕 7590 vs 盘面 ~1036 的成因链之一）。锁内 append 后，
         # 后续 clear 必然已包含本批记录。
-        with FileLock(self.index_path):
+        with FileLock(self.index_path) as _index_lock:
+            # issue #1011-1（第 4 点，2026-11-22）：`FileLock` 缺省非 strict —— 10 s 超时后
+            # **照常 append** 会让本批落进 compact/rebuild 的「read_all → clear」临界区之间，
+            # 随后被 clear 抹掉（节点在盘但索引不可见，9·12 病灶的成因链）。改为「拿不到锁就
+            # 不写」：整批退回脏集（由 `_flush_locked` 的解包路径保留，它本来就有失败回填语义），
+            # 并靠 `_flush_locked` 的补唤醒做有界重试。
+            if not getattr(_index_lock, "acquired", False):
+                self._flush_lock_busy = getattr(self, "_flush_lock_busy", 0) + 1
+                raise FlushLockBusy(
+                    "索引锁 %.0fs 未获，本批退回脏集待重试" % float(_index_lock.timeout))
             if self._log is None:
                 self._log = ShardedLog(self.index_log_dir)
             # N212：登记本进程分片（代际签名排除用）——必须在 append 之前落定，
@@ -3411,7 +3520,9 @@ class MdCG:
         # 「直写文件 + rebuild 收尾」的写方不经 _dirty 标脏，其文件改写对
         # 读缓存的可见性靠这一整池失效兜底（flush 的 clear 则不失效，见
         # _DirtyDict.clear 文档串）。
-        self._dirty.clear(broad=True)  # 保住 _DirtyDict 钩子（批次 23 D-4）
+        # FileLock 已退出，此处只在 _dirty_lock 下清空脏集（不嵌套 _flush_lock / IO）。
+        with self._dirty_lock:
+            self._dirty.clear(broad=True)  # 保住 _DirtyDict 钩子（批次 23 D-4）
         return idx
 
     # P2-20（批次 30，外部审查报告）：索引中的 path 参与所有读/写落盘定位
@@ -3436,6 +3547,11 @@ class MdCG:
         hit = self._realpath_cache.get(rp)
         if hit is not None and self._realpath_fresh(rp, hit):
             return hit[1]
+        # 在 os.path.realpath（IO）之前锁内取 write_gen 快照：避免并发
+        # _dirty.clear(broad=True) / 标脏写到一半时将旧路径误标成新代际；
+        # 缓存命中热路径零加锁。
+        with self._dirty_lock:
+            gen = self._dirty.write_gen
         p = os.path.realpath(os.path.join(self.root, rp))
         rr = self._root_real
         if rr is None:
@@ -3444,7 +3560,7 @@ class MdCG:
             raise ValueError(
                 f"节点路径越界（P2-20）：{rp!r} -> {p}"
                 "——拒绝读写")
-        self._realpath_cache[rp] = (self._dirty.write_gen, p)
+        self._realpath_cache[rp] = (gen, p)
         return p
 
     def _realpath_fresh(self, rp, hit):
@@ -4380,7 +4496,8 @@ class MdCG:
         if entry is not None:
             entry["edges"] = fm.get("edges") or []
             entry["subgraph"] = fm.get("subgraph")
-            self._dirty[node_id] = entry
+            with self._dirty_lock:
+                self._dirty[node_id] = entry
         try:
             from . import subgraph as _sg
             _sg.invalidate_cache(self)
@@ -4464,7 +4581,8 @@ class MdCG:
         entry = self.index["nodes"].get(node_id)
         if entry is not None:
             entry["tags"] = list(new_tags)
-            self._dirty[node_id] = entry
+            with self._dirty_lock:
+                self._dirty[node_id] = entry
         return True
 
 # 生效条件：node_id 取不到节点返回 False；在 fm.get("edges") or [] 中找首个 dict 且 str(target or "")==str(target_id)、str(relation_type or "")==str(relation_type) 的边，找不到返回 False；命中则把该边 condition_space 置为 dict(condition_space or {})、写盘并同步后返回 True；
@@ -4521,7 +4639,15 @@ class MdCG:
     def add_rejected(self, hypothesis: str, reason: str, verification_basis: str = "test",
                      tags=None, **extra) -> str:
         """第 5 篇 L2：负记忆——失败/否决的假设库。重复证伪幂等。"""
+        # issue #1011 附带（#43 缺口）：拒因里的「命中片段」是给调用方定位的**原文预览**，
+        # 不得随负记忆落盘——正文、frontmatter 的 rejection_reason、索引条目三处同口径掩掉。
+        # 幂等判据仍在**掩盖前**的原文上算（否则同一假设换了预览长度会被当成新假设）。
         nid = self._rejected_nid(hypothesis)
+        # 三道归一（#43 的负记忆入口单点）：先掩预览回显，再按禁表做替换——
+        # 「假设」与「拒因」都是调用方自由文本，MCP 的 op=rejected 会把它原样送进来，
+        # 凭据可能直接躺在假设里（不是预览形态），所以两道都要过。
+        hypothesis = _redact_forbidden(_strip_hit_preview(hypothesis))
+        reason = _redact_forbidden(_strip_hit_preview(reason))
         if self._node_exists(nid):
             return nid  # 幂等：重复证伪不重复记录
         content = (f"# 假设：{hypothesis}\n"
@@ -4701,8 +4827,9 @@ class MdCG:
         # 会让同实例 _goal_entry/检索读到旧 goal_status，p7「done 退出
         # active」陈旧形态）。不走 _stage：节点已在索引，_stage 会虚增
         # bucket 计数；这里只推代际，entry 同值幂等。
-        self._dirty[node_id] = self.index["nodes"].get(node_id) \
-            or {"path": node["path"], "layer": "goals"}
+        with self._dirty_lock:
+            self._dirty[node_id] = self.index["nodes"].get(node_id) \
+                or {"path": node["path"], "layer": "goals"}
         return {"id": node_id, "status": status}
 
 # 生效条件：goal 为真值（非 None/空串/0）时返回 str(goal)；goal 为假值时返回 self.active_goals(limit=limit) 中非空 goal 文本以空格拼接的字符串；
@@ -4800,7 +4927,9 @@ class MdCG:
         #   · 语义不降级：close() / atexit / 显式 flush() 仍**同步**落盘；
         #     后台线程只是把「阈值触发的那次 flush」挪出返回路径。
         #   · 关掉异步：MDCG_ASYNC_FLUSH=0 → 回到「阈值即同步 flush」（逐位旧行为）。
-        if len(self._dirty) >= self.autoflush:
+        with self._dirty_lock:
+            _need_flush = len(self._dirty) >= self.autoflush
+        if _need_flush:
             self._request_flush()
 
 # 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；桶计数只在该 id 的桶归属**变化**时调整（经 _bucket_shift 撤旧加新，同归属零动作）；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
@@ -4871,7 +5000,10 @@ class MdCG:
         而够不着它，`check` 的 dangling 永不归零（本机实测累积数百条）。
         """
         self._remove_index_entry(node_id)
-        self._dirty[node_id] = None      # None = 删除记录，随 flush 落分片日志
+        # 仅在 _dirty_lock 内写 tombstone；self.flush()（会拿 _flush_lock 再拿 _dirty_lock
+        # 及 FileLock IO）严格在锁外执行，避免 _dirty_lock -> _flush_lock 锁序倒置。
+        with self._dirty_lock:
+            self._dirty[node_id] = None  # None = 删除记录，随 flush 落分片日志
         self.flush()                     # 删除不可延迟到 autoflush 阈值
 
     # ---------- 内容封装钩子（默认恒等；MdCGSecure 覆盖为「私有内容加密」）----
@@ -5131,7 +5263,10 @@ class MdCG:
     def get(self, node_id: str, probe: bool = True):
         if probe:
             self._maybe_reload_index()  # P1b-2：读面代际感知（他进程写快照后可见）
-        e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
+        e = self.index["nodes"].get(node_id)
+        if not e:
+            with self._dirty_lock:
+                e = self._dirty.get(node_id)
         if not e:
             return None
         p = self._node_disk_path(e)
@@ -7253,7 +7388,8 @@ class MdCG:
                 # 经 _sync_index 标脏——不显式置 _dirty 会造成重开后索引
                 # evidence_count 与盘面漂移、同实例 _read 命中旧 frontmatter
                 #（口径同边域同步 _sync_edge_entry / goal 状态写回）。
-                self._dirty[node_id] = e
+                with self._dirty_lock:
+                    self._dirty[node_id] = e
 
         demoted = None
         if (verdict == "weakened" and fm["confidence"] < DEMOTE_CONFIDENCE

@@ -214,9 +214,9 @@ def _item_tags(cg, it):
     return tags_of_item(cg, it)
 
 
-# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身。
-def _final_out(out, cg, a):
-    include = bool((a or {}).get("include_private"))
+# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身（slim=False 时不瘦身）。
+def _final_out(out, cg, a, slim=False):
+    include = _as_flag((a or {}).get("include_private"))
     if isinstance(out, dict):
         for key in ("pack", "results"):
             items = out.get(key)
@@ -230,6 +230,11 @@ def _final_out(out, cg, a):
                 meta = dict(out.get("meta") or {})
                 meta["private_domain_excluded"] = dropped
                 out["meta"] = meta
+    # issue #1010：瘦身只对**声明了可摘遥测的读面**（read）生效。recall / search 的契约里
+    # 点名要 `meta.bm25`、`provenance`、逐条 id/正文/untrusted/引用字段——把它们的返回体
+    # 也过一遍 keep-list，等于让契约与实现各说一套（test_bm25 / test_p2_mcp 红）。
+    if not slim:
+        return out
     return _slim_read_out(out, (a or {}).get("detail"))
 
 
@@ -462,7 +467,7 @@ TOOLS = [
                           k=_p("integer", "候选上限"), context=_p("object", "当前情境条件空间"),
                           include_work=_p("boolean", "是否含工具输出/命令/编辑（默认否）"),
                           fuzzy=_p("boolean", "启用第 5 路模糊召回（分级隶属度，默认否）"),
-                          bm25=_p("boolean", "用 BM25 倒排词频评分替换词法路（默认否；仍经可见性与门控）"),
+                          bm25=_p("boolean", "用 BM25 倒排词频评分替换词法路（缺省按查询脚本自适应：纯英文走 bm25、含汉字走 lexical；显式 true/false 强制覆盖。仍经可见性与门控）"),
                          semantic=_p("boolean", "启用第 6 路条件空间结构化匹配"
                                                "（白箱语义路：CCG 生效条件 + condition_space "
                                                "四槽，不适用条件命中即剔除；默认否）"),
@@ -1491,13 +1496,32 @@ def _k_warning(k):
 # 关法与例外：MDCG_READ_SLIM=0 全局关闭；detail="full" 单次取全量。
 # 为什么保留 detail="full" 而不是只留 env：排查「为什么这条没命中」要看 path_fingerprint，
 # 只给 env 等于让人为了看一眼去改全局状态。
-_READ_SLIM_DROP_TOP = ("bm25", "path_fingerprint", "skipped", "provenance",
+# issue #1010：`skipped` 是 read(pack) 形态的**契约必填**（protocol.py 的 required 里点了名），
+# 曾与遥测块一起被摘 ⇒ test_protocol B7 红。契约字段一律不进摘除表，瘦身只摘**调试/遥测**。
+# issue #1011 附带（2026-11-22 全量门禁实测）：`bm25` 曾进这张表 ⇒ `test_bm25` 的 stdio 用例红在
+# `packed["meta"]["bm25"]` KeyError（`test_bm25.py:229`，同一用例不带 budget_tokens 的 id=2 却是绿的）。
+# 判据与 #1010 的契约字段同一条：**谁被既有守卫钉住，谁就不进摘除表**——bm25 诊断块是「这条路真跑了、
+# 真 hydration 到 N 条」的唯一可观测证据，几行数字不值当拿掉判别力。
+_READ_SLIM_DROP_TOP = ("path_fingerprint", "provenance",
                        "timeline_groups", "paths", "path_truncation")
-_READ_SLIM_DROP_META = ("bm25", "path_fingerprint", "provenance", "paths", "path_truncation")
+_READ_SLIM_DROP_META = ("path_fingerprint", "provenance", "paths", "path_truncation")
 _READ_SLIM_KEEP_FM = ("layer", "tags", "importance", "created_at",
                       "verification_state", "sensitivity", "protected")
+# issue #1010：白名单曾漏掉**契约/安全字段**（untrusted 安全标记、excerpt 摘录元数据、
+# ref/ref_kind 引用、usable/relaxed/code 严格条件回执、metadata/provenance 出处）⇒ 9 项守护
+# 测试红。判据不是「猜字段」而是「谁在契约/安全面被点名」，故按来源分组列出。
 _READ_SLIM_KEEP_ITEM = ("id", "content", "state", "score", "tokens", "verification_state",
-                        "truncated", "next_offset", "note", "reason")
+                        "truncated", "next_offset", "note", "reason",
+                        # 安全标记（test_untrusted_enforcement U3：透出 untrusted=True）
+                        "untrusted", "sensitivity",
+                        # 摘录与出处（test_query_excerpt / test_p2_mcp）
+                        "excerpt", "metadata", "provenance", "created_at_date", "content_dated",
+                        # 引用面（test_p28_refcheck）
+                        "ref", "ref_kind",
+                        # 严格条件回执（test_issue722）
+                        "usable", "relaxed", "code", "hint",
+                        # 命中理由与族别（判读面常用）
+                        "family", "layer", "tags")
 
 
 # 生效条件：out 为 read 面返回体、detail 为调用方 detail 参数时，返回瘦身后的副本；
@@ -2845,7 +2869,7 @@ def _time_intent_boost(res, q):
     if not any(w in (q or '') for w in TIME_WORDS) or not res:
         return res, 0
     import re as _re
-    date_rx = _re.compile(chr(39) + r'(19|20)\d{2}\s*[-/年]\s*\d{1,2}' + chr(39))
+    date_rx = _re.compile(r'(19|20)\d{2}\s*[-/年]\s*\d{1,2}')
     core = q or ''
     for w in TIME_WORDS:
         core = core.replace(w, ' ')
@@ -2870,24 +2894,143 @@ def _time_intent_boost(res, q):
 #: `hottier.search` 只 load 不 ensure，全包无 ensure 调用点 ⇒ 恒 available=False，
 #: 于是 read 恒走主库分支，注入面按热层形态取值就永远拿不到（跨会话 knowledge 从未浮现）。
 #: 修法：首次用到热层时**后台建一次**，本轮先走主库（不阻塞），下一轮自然命中。
-_HOT_BUILD = {"started": False, "done": False, "error": None}
+#: 2026-11-22（#1002 回归修复）：原实现是**进程级终态位**——建过一次就永远 return False，
+#: 于是热层陈旧后没有任何入口会重建。改成「运行位 + 冷却位」：陈旧可再次触发，但有冷却防抖。
+_HOT_BUILD = {"started": False, "done": False, "error": None,
+              "running": False, "last": 0.0, "builds": 0, "fails": 0}
+_HOT_BUILD_COOLDOWN = 20.0      # 秒：两次重建尝试的最小间隔
+_HOT_STALE_OK = 120.0           # 秒：陈旧但未超此值仍可直答（附 meta.stale=true），后台重建
+                                # 0 = 严格模式（陈旧即回落主库）；env MDCG_HOT_STALE_OK_S 可调
+
+
+def _hot_state(cg):
+    """热层判据单点：返回 (是否存在, 是否新鲜, 热层内容)。
+
+    调用点不许各写一份「只判存在」的版本——#1002 的根因正是如此，is_fresh 的正确判据无人读。
+    热层三份 JSON 合计 ~13 MB、单次 load 实测 ~100 ms，故**只 load 一次**，把结果交给
+    is_fresh / search 复用（实测：各 load 一次会把读路径拖慢一倍）。
+    """
+    try:
+        from . import hottier as _ht
+        h = _ht.load(getattr(cg, "root", "") or "")
+        if not h:
+            return False, False, None
+        try:
+            return True, bool(_ht.is_fresh(cg, hot=h)), h
+        except Exception:
+            return True, False, h
+    except Exception:
+        return False, False, None
+
+
+def _age_of(hot):
+    """热层构建距今秒数。**说不清就返回 inf**，不读盘——用调用方已 load 的 hot。
+
+    built_at 缺失/为 0（旧格式 meta、手工损坏、未来精简字段）时，若直接做减法会得到
+    time.time() ≈ 1.79e9 的有限值：既污染 meta.built_age_s，又让「超宽限」恒真。
+    故显式判非有限与 <=0，一律 inf（= 老到说不清，按最老处理）。
+    """
+    import math
+    import time
+    try:
+        b = float(((hot or {}).get("meta") or {}).get("built_at") or 0.0)
+    except (TypeError, ValueError):
+        return float("inf")
+    if not math.isfinite(b) or b <= 0.0:
+        return float("inf")
+    return max(0.0, time.time() - b)
+
+
+def _hot_stale_ok():
+    """陈旧宽限（秒）。env 优先，缺省 _HOT_STALE_OK。
+
+    非有限值（inf/nan/1e999）与解析失败**一律回落缺省**：float("inf") 不抛异常，
+    若不夹紧，一个环境变量就能把「陈旧超宽限即回落主库」这道闸静默关掉（复审 P0-1 后半）。
+    """
+    import math
+    try:
+        v = float(os.environ.get("MDCG_HOT_STALE_OK_S", _HOT_STALE_OK))
+    except (TypeError, ValueError):
+        return _HOT_STALE_OK
+    if not math.isfinite(v) or v < 0:
+        return _HOT_STALE_OK
+    return v
 
 
 def _ensure_hot_async(cg):
-    """后台构建热层（幂等）。返回是否本次启动了构建。"""
+    """后台构建热层（可重入：陈旧会再次触发；冷却期与运行中不重复）。
+
+    返回是否本次启动了构建。hottier.ensure 自己判新鲜，故这里不 force。
+    """
     import threading
-    if _HOT_BUILD["started"]:
+    import time
+    if _HOT_BUILD["running"]:
         return False
+    now = time.time()
+    try:
+        if now - float(_HOT_BUILD["last"] or 0.0) < _HOT_BUILD_COOLDOWN:
+            return False
+    except (TypeError, ValueError):
+        pass
+    _HOT_BUILD["last"] = now
+    _HOT_BUILD["running"] = True
+    _HOT_BUILD["done"] = False          # 新一轮启动即失效旧 done，否则 wait 会读到残留态
     _HOT_BUILD["started"] = True
     def _job():
         try:
             from . import hottier as _ht
             _ht.ensure(cg)
             _HOT_BUILD["done"] = True
+            _HOT_BUILD["builds"] = int(_HOT_BUILD.get("builds") or 0) + 1
+            _HOT_BUILD["fails"] = 0          # 成功即清零
+            _HOT_BUILD["error"] = None
         except Exception as exc:      # noqa: BLE001 —— 热层失败不得影响读路径
             _HOT_BUILD["error"] = "%s: %s" % (type(exc).__name__, exc)
+            _HOT_BUILD["fails"] = int(_HOT_BUILD.get("fails") or 0) + 1
+        finally:
+            _HOT_BUILD["running"] = False
     threading.Thread(target=_job, name="mdcg-hot-build", daemon=True).start()
     return True
+
+
+def _hot_item_allowed(cg, a, nid, rec) -> bool:
+    """热层条目访问与过滤单点（SEC-01）：校验密级/ACL/会话可见性、私密域、层/标签/doc 过滤。"""
+    if not nid or not isinstance(rec, dict):
+        return False
+    from . import hottier as _ht
+    if not _ht._node_visible_for_hot(cg, nid, rec):
+        return False
+    args = a or {}
+    if not _as_flag(args.get("include_private")):
+        if str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() not in ("1", "true", "on"):
+            _tags = list(rec.get("tags") or [])
+            try:
+                _idx_tags = tags_of_item(cg, {"id": nid, "tags": _tags})
+            except Exception:
+                _idx_tags = _tags
+            if PRIVATE_DOMAIN_TAG in [str(t) for t in (_idx_tags or ())]:
+                return False
+    _layer = args.get("layer")
+    if _layer and str(rec.get("layer") or "") != str(_layer):
+        return False
+    if _as_flag(args.get("exclude_doc", False)):
+        _kept_doc, _ = drop_doc_nodes([{"id": nid}], lambda it: it.get("id"),
+                                      True, allow=doc_allow_ids(cg))
+        if not _kept_doc:
+            return False
+    try:
+        _inc = norm_tags(args.get("include_tags"))
+        _exc = norm_tags(args.get("exclude_tags"))
+    except TypeError:
+        return False
+    if _inc or _exc:
+        _kept_t, _ = filter_by_tags([{"id": nid, "tags": rec.get("tags") or []}],
+                                    lambda it: tags_of_item(cg, it),
+                                    include_tags=_inc, exclude_tags=_exc)
+        if not _kept_t:
+            return False
+    return True
+
 
 def _try_hot_first(cg, a, q):
     """本地热层优先（2026-11-14 使用者裁定）：够不着才查主库。
@@ -2904,31 +3047,75 @@ def _try_hot_first(cg, a, q):
             on = os.environ.get("MDCG_HOT_FIRST", "1") not in ("0", "false", "")
         if not on:
             return None
+        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
+        # SEC-01：带层/标签/有效性/排除 doc/条件空间/会话/视图/时间窗/显式 bm25 过滤时绕过热层优先，
+        # 交给主库完整过滤面执行（scope=hot 显式浏览则逐条经 _hot_item_allowed 严格过滤）。
+        if not _hot_only:
+            if (a.get("layer") or a.get("validity") or a.get("include_tags")
+                    or a.get("exclude_tags") or a.get("tags_any")
+                    or _as_flag(a.get("exclude_doc", False))
+                    or a.get("context") or a.get("condition_space")
+                    or a.get("session") or a.get("view")
+                    or a.get("start_time") is not None or a.get("end_time") is not None
+                    or _as_flag(a.get("strict_conditions", False))
+                    or ("bm25" in a and _as_flag(a.get("bm25")))):
+                return None
         from . import hottier as _ht
         k = _int_arg(a, "k", 20)
-        # 热层未构建 ⇒ 后台建一次，本轮回落主库（PR #983 根因：从无 ensure 调用点）
-        if not _ht.load(getattr(cg, "root", "") or ""):
-            if not _HOT_BUILD["started"]:
-                try:
-                    _ensure_hot_async(cg)
-                except Exception:
-                    pass
+        if k <= 0:
             return None
-        res = _ht.search(cg, q, k=k)
+        # 2026-11-22（#1002）：判据从「存在」改成「新鲜」。is_fresh 一直在正确返回 False，
+        # 只是没人读它——于是陈旧热层会直答「形状对、时间窗过期」的结果（比查不到更难发现）。
+        _exists, _fresh, _hot = _hot_state(cg)
+        _age = _age_of(_hot) if _exists else None
+        _rebuild = False
+        if not _exists or not _fresh:
+            try:
+                # 不存在 ⇒ 首建；陈旧 ⇒ 再建（冷却防抖，非进程终态）
+                _rebuild = bool(_ensure_hot_async(cg))
+            except Exception:
+                pass
+            if not _exists:
+                return None                # 首建：本轮回落主库（PR #983 口径不变）
+            # scope=hot 是**使用者明示「只看热层」**（UI 首屏）——那种场合 30 秒白屏比陈旧更糟，
+            # 故不拦，但必须自曝陈旧度（下面的 stale/built_age_s/hint）。
+            # 重建连续失败（≥3 次）⇒ 不再打回主库：否则热层一旦确定性失败，每次 read 都吃
+            # 24 秒主库，比「旧答案」更糟（#1002 复审 P1-1）。改为**带标注的陈旧直答**。
+            _degraded = int(_HOT_BUILD.get("fails") or 0) >= 3
+            if (not _hot_only) and (not _degraded) and _age is not None and _age > _hot_stale_ok():
+                return None                # 陈旧超宽限：宁可慢一轮，不给过期答案
+        _stale = bool(_exists and not _fresh)
+        _degraded = bool(_stale and int(_HOT_BUILD.get("fails") or 0) >= 3)
+        import math
+        _age_s = None
+        try:
+            if _age is not None and math.isfinite(float(_age)):
+                _age_s = round(float(_age), 1)
+        except (TypeError, ValueError):
+            _age_s = None
+        _age_txt = ("%.0f 秒" % _age_s) if _age_s is not None else "未知时长"
+        # 冷却期/未启动时不能说「重建中」（复审 P3：不自夸）
+        _tail = ("，且后台重建连续失败，这是带标注的旧快照" if _degraded
+                 else ("，后台重建中" if _rebuild else "，重建待冷却或未能启动"))
+        _hint_stale = ("命中本地热层（**已陈旧 %s**%s；要最新请 hot_first=false 查主库）"
+                       % (_age_txt, _tail))
+        res = _ht.search(cg, q, k=k, hot=_hot,
+                         visible_fn=lambda nid, rec: _hot_item_allowed(cg, a, nid, rec))   # 复用已 load 的热层（省一次 ~100 ms）+ SEC-01
         items = res.get("items") or []
         meta = res.get("meta") or {}
         top = max([float(i.get("hot_score") or 0) for i in items] or [0.0])
         # scope=hot（2026-11-14，UI 明示「只看热层」）：跳过分数门槛，**宁给弱结果也不查主库**。
         # 用于 UI 首屏：用户要的是「立刻有东西看」，弱命中比 30 秒白屏好；
         # meta.hot_only + hint 明示范围，避免被误读为全库结果。
-        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
         _browse = False
         if _hot_only and not items:
             # 首屏浏览模式：查询词在热层无命中时，**按热层优先级出一批**（自我/锚点/近期/高重要度），
             # 而不是让 UI 白屏 30 秒。meta.mode=browse 明示这不是检索命中。
+            # SEC-01：浏览模式同样必须逐条过 _hot_item_allowed（可见性 + 域:私密 + 过滤）。
             try:
-                _h = _ht.load(cg.root) or {}
-                _nodes = list((_h.get("nodes") or {}).values())
+                _h = _hot or {}
+                _nodes = [n for n in (_h.get("nodes") or {}).values()
+                          if isinstance(n, dict) and _hot_item_allowed(cg, a, n.get("id"), n)]
                 _w = {"self": 0.5, "anchor": 0.4}
                 _nodes.sort(key=lambda n: (_w.get(str(n.get("layer") or ""), 0.0)
                                           + float(n.get("importance") or 0.0),
@@ -2949,8 +3136,18 @@ def _try_hot_first(cg, a, q):
                 "meta": {"hot_only": _hot_only, "mode": ("browse" if _browse else "match"),
                          "hot_first": {"used": True, "hits": len(items), "top": top,
                                        "candidates": meta.get("candidates"),
-                                       "built_at": meta.get("built_at")}},
-                "hint": "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库"}
+                                       "built_at": meta.get("built_at"),
+                                       # #1002：陈旧度必须外露——使用者要能看出「这份热层多老」
+                                       "stale": _stale,
+                                       # None 而非 inf：json.dumps 会写出裸 token Infinity，
+                                       # 那不是合法 JSON，JS 侧 JSON.parse 直接抛错（复审 P0-1）
+                                       "built_age_s": (_age_s if _age_s is not None else None),
+                                       "stale_reason": ("rebuild_failed" if _degraded
+                                                        else ("stale_window" if _stale else None)),
+                                       # 宽限值外露：调用方可自己算「这次陈旧算不算越界」
+                                       "grace_s": _hot_stale_ok()}},
+                "hint": (_hint_stale if _stale else
+                         "命中本地热层（自我/近期/高重要度）；更久远的记忆请 hot_first=false 查主库")}
     except Exception:
         return None   # 热层任何异常都回落主库，不影响读路径
 
@@ -3406,6 +3603,10 @@ def _cg_dispatch(cg, a):
                               view=a.get("view"),
                               **({"strict_conditions": _as_flag(a["strict_conditions"])}
                                  if "strict_conditions" in a else {}))
+        res, _rt_pd = drop_private_domain(
+            res, lambda x: _item_tags(cg, x[0]), enabled=not _as_flag(a.get("include_private")))
+        if _rt_pd and isinstance(meta, dict):
+            meta = dict(meta, private_domain_excluded=_rt_pd)
         knowledge, caps = [], []
         for n, s, q in res:
             fm = n.get("frontmatter") or {}
@@ -3438,34 +3639,29 @@ def _cg_dispatch(cg, a):
                     _sp_on = str(os.environ.get("MDCG_SELF_PREDICT", "1")) not in ("0", "false", "")
                     _fc0 = _self_forecast(a.get("query") or "", a) if _sp_on else None
                     _rr0 = _self_resolve(_fc0, _tres0) if _sp_on else {"hit": None, "delta": None}
-                    return {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
-                                         "fast_path": True},
-                                     **({"self_prediction": {"claim": _fc0["claim"],
-                                                        "confidence": _fc0["confidence"],
-                                                        "hit": _rr0["hit"],
-                                                        "delta": _rr0["delta"],
-                                                        "basis": _fc0["basis"]}}
-                                        if _sp_on else {}),
-                                     "scanned": 0, "fused": len(_tres0)},
-
-                            "results": [{"node": {"id": (n or {}).get("id"),
-                                                    "content": (n or {}).get("content"),
-                                                    "frontmatter": (n or {}).get("frontmatter") or {}},
-                                         "score": s, "state": (q2 or {}).get("state"),
-                                         "reason": (q2 or {}).get("reason")}
-                                        for n, s, q2 in _tres0]}
+                    return _final_out(
+                        {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
+                                     "fast_path": True},
+                                 **({"self_prediction": {"claim": _fc0["claim"],
+                                                    "confidence": _fc0["confidence"],
+                                                    "hit": _rr0["hit"],
+                                                    "delta": _rr0["delta"],
+                                                    "basis": _fc0["basis"]}}
+                                    if _sp_on else {}),
+                                 "scanned": 0, "fused": len(_tres0)},
+                         "results": [{"node": {"id": (n or {}).get("id"),
+                                               "content": (n or {}).get("content"),
+                                               "frontmatter": (n or {}).get("frontmatter") or {}},
+                                      "score": s, "state": (q2 or {}).get("state"),
+                                      "reason": (q2 or {}).get("reason")}
+                                     for n, s, q2 in _tres0]},
+                        cg, a)
             except Exception:
                 pass
-        # 热层懒建（2026-11-17）：与路由无关——理论/自指查询会绕过热层
+        # 热层懒建/续建（2026-11-17 起；2026-11-22 #1002：判据从「存在」改「新鲜」，并去掉重复粘贴）
         try:
-            from . import hottier as _ht0
-            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
-                _ensure_hot_async(cg)
-        except Exception:
-            pass
-        try:
-            from . import hottier as _ht0
-            if not _HOT_BUILD["started"] and not _ht0.load(getattr(cg, "root", "") or ""):
+            _e0, _f0, _h0 = _hot_state(cg)
+            if not _e0 or not _f0:
                 _ensure_hot_async(cg)
         except Exception:
             pass
@@ -3593,7 +3789,7 @@ def _cg_dispatch(cg, a):
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
-            return _final_out(_out, cg, a)
+            return _final_out(_out, cg, a, slim=True)
         from . import refindex
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
@@ -3996,7 +4192,7 @@ def _cg_dispatch(cg, a):
                                 redteam=a.get("redteam"), issues=a.get("issues"),
                                 override=bool(a.get("override")),
                                 reviewed_by=a.get("reviewed_by"),
-                                decided_by=a.get("decided_by"))
+                                decided_by=a.get("decided_by"), _untrusted_review=True)
 
     if op == "forget":
         if (a.get("action") or "forget").strip().lower() == "restore":
@@ -4961,15 +5157,16 @@ def _stg_call(cg, a):
                 _ka, _kb = str(a.get("a") or ""), str(a.get("b") or "")
                 if _ka in _hn and _kb in _hn:
                     _ra, _rb = _hn[_ka], _hn[_kb]
-                    _out = {"a": _ka, "b": _kb,
-                            "same_layer": _ra.get("layer") == _rb.get("layer"),
-                            "same_session": bool(_ra.get("session"))
-                            and _ra.get("session") == _rb.get("session"),
-                            "a_layer": _ra.get("layer"), "b_layer": _rb.get("layer"),
-                            "time_axis": axis,
-                            "previews": [_ra.get("preview"), _rb.get("preview")],
-                            "scope": "hot"}
-                    return _out
+                    if _hot_item_allowed(cg, a, _ka, _ra) and _hot_item_allowed(cg, a, _kb, _rb):
+                        _out = {"a": _ka, "b": _kb,
+                                "same_layer": _ra.get("layer") == _rb.get("layer"),
+                                "same_session": bool(_ra.get("session"))
+                                and _ra.get("session") == _rb.get("session"),
+                                "a_layer": _ra.get("layer"), "b_layer": _rb.get("layer"),
+                                "time_axis": axis,
+                                "previews": [_ra.get("preview"), _rb.get("preview")],
+                                "scope": "hot"}
+                        return _out
             except Exception:
                 pass
         return stg.relation(cg, a.get("a", ""), a.get("b", ""), time_axis=axis)
@@ -5036,24 +5233,48 @@ def _search_job_gc(now=None, reserve=0):
             _SEARCH_JOBS.pop(_k, None)
 
 
+# 生效条件：cg 为当前调用实例；取不到 principal 时返回全 None 指纹（比对不因此放行）。
+def _search_job_owner(cg):
+    """取当前**请求级**身份指纹（issue #1011-2）。"""
+    p = getattr(cg, "principal", None)
+    return {"token_id": getattr(p, "token_id", None),
+            "unit": getattr(p, "unit", None),
+            "actor": getattr(p, "actor", None),
+            "session": getattr(cg, "session", None)}
+
+
 def _search_job_submit(cg, args, defer_s):
     """提交异步检索：返回工单，不等待检索完成。"""
-    import random as _rnd
+    import secrets as _sec
     import threading as _th
     import time as _t
     with _SEARCH_JOBS_LOCK:
         _search_job_gc(reserve=1)      # 给自己预留一格，插入后不超过上限
-        jid = "sjob_%d_%04d" % (int(_t.time() * 1000), _rnd.randint(0, 9999))
+        # issue #1011-2：原 `sjob_<ms>_<randint(0,9999)>` 只有 1 万个取值且时间可猜，
+        # 而工单里装着检索结果（可能含高权令牌才看得到的条目）⇒ 换成 128 位随机。
+        jid = "sjob_" + _sec.token_hex(16)
         rec = {"job_id": jid, "status": "pending", "created": _t.time(),
                "query": args.get("query"), "result": None, "error": None,
-               "elapsed_s": None}
+               "elapsed_s": None, "owner": _search_job_owner(cg)}
         _SEARCH_JOBS[jid] = rec
     payload = {k: v for k, v in args.items() if k not in ("defer_s", "job_id")}
 
     def _run():
         _t0 = _t.time()
         try:
-            out = call_tool(cg, "mdcg_search", payload)
+            # 后台线程没有调用方的 TLS 覆盖值 ⇒ 必须按**提交者**身份重建作用域，
+            # 否则它跑的是进程基身份（比提交者宽，等于越权）。
+            _sp = _search_job_owner(cg)
+            _scope = getattr(cg, "scoped_scope", None)
+            if callable(_scope) and _sp.get("actor") is not None:
+                from .security import Principal as _P
+                with _scope(principal=_P(actor=_sp["actor"],
+                                         unit=_sp.get("unit"),
+                                         session=_sp.get("session")),
+                            session=_sp.get("session")):
+                    out = call_tool(cg, "mdcg_search", payload)
+            else:
+                out = call_tool(cg, "mdcg_search", payload)
             with _SEARCH_JOBS_LOCK:
                 rec["status"] = "done"
                 rec["result"] = out
@@ -5071,8 +5292,12 @@ def _search_job_submit(cg, args, defer_s):
                     % (int(defer_s) if defer_s else 10)}
 
 
-def _search_job_result(jid):
-    """取异步检索结果：pending 原样回报，done 带 result，error 带 error。"""
+def _search_job_result(jid, cg=None):
+    """取异步检索结果：pending 原样回报，done 带 result，error 带 error。
+
+    issue #1011-2：工单绑定**提交者身份**（token_id/unit/actor/session）——非提交者取结果
+    一律拒绝。修前任何能报出 job_id 的调用方都能读走别人的检索结果（含高权可见条目）。
+    """
     with _SEARCH_JOBS_LOCK:
         _search_job_gc()
         rec = _SEARCH_JOBS.get(str(jid))
@@ -5080,6 +5305,10 @@ def _search_job_result(jid):
             return {"job_id": str(jid), "status": "unknown",
                     "error": "未知或已过期的 job_id（工单保留 %d 秒）" % int(_SEARCH_JOB_TTL)}
         snap = dict(rec)
+    if cg is not None and "owner" in snap:
+        if _search_job_owner(cg) != snap.get("owner"):
+            return {"job_id": str(jid), "status": "forbidden", "ok": False,
+                    "error": "job_id 不属于当前身份（工单绑定提交者 token/unit/session）"}
     out = {"job_id": snap["job_id"], "status": snap["status"],
            "elapsed_s": snap.get("elapsed_s")}
     if snap["status"] == "done":
@@ -5129,9 +5358,18 @@ def call_tool(cg, name, args):
     # 的授权；与上方「session 不参与任何 ops 裁决」的原设计意图一致）。
     if scope is p and not sess:
         return _dispatch(cg, name, a)
+    # issue #1011-2：**不得就地改写共享实例**。原注释「单线程 stdin 循环：无并发竞争」
+    # 已被 `_search_job_submit`（defer_s>0 的后台线程在同一个 cg 上再调 call_tool）
+    # 与 `_ensure_hot_async` 推翻：两线程交错时高权 scope 会被覆盖、finally 互相写脏，
+    # 表现为权限串台 / 会话泄漏。改用线程作用域：只改本线程覆盖值，退出精确还原。
+    _scoped = getattr(cg, "scoped_scope", None)
+    if callable(_scoped):
+        with _scoped(principal=scope, session=(sess or scope.session)):
+            return _dispatch(cg, name, a)
+    # 兜底（旧 cg 对象无 scoped_scope 时）：按原语义就地改写并还原。
     saved_p, saved_s = cg.principal, getattr(cg, "session", None)
     had_s = hasattr(cg, "session")
-    cg.principal = scope             # 单线程 stdin 循环：无并发竞争
+    cg.principal = scope
     if had_s:
         cg.session = sess or scope.session
     try:
@@ -5245,6 +5483,45 @@ def recall_fusion_default(use_fuzzy, use_semantic, use_goal, use_causal,
     """
     return ("max" if (use_fuzzy or use_semantic or use_goal or use_causal)
             else None)
+
+
+#: CJK 判据（查询里出现任一汉字即视为中文查询）。
+_CJK_RE = None
+
+
+def _has_cjk(text):
+    """查询是否含汉字（bm25 的 CJK 分词是「连续汉字 = 一个 token」，见 md_cg/bm25.py）。"""
+    global _CJK_RE
+    if _CJK_RE is None:
+        import re
+        _CJK_RE = re.compile(r"[\u3400-\u9fff\uf900-\ufaff]")
+    return bool(_CJK_RE.search(text or ""))
+
+
+# 生效条件：query 可为任意字符串（None/空串按「无汉字」处理）、flag ∈ {None, True, False}、has_rrf 为布尔；返回是否使用 bm25 路；不做 IO、不看环境变量。
+def recall_use_bm25(query, flag=None, has_rrf=True):
+    """`mdcg_recall` 的 bm25 路取用判据（唯一单点，供守卫断言，issue #999）。
+
+    实测依据（两处，方向相反，故不能全局翻开关）：
+      * **英文**：LongMemEval-S 419 题（只索引 user turn）缺省六路 R@5 0.4916，
+        把 lexical 换成 bm25 后 0.8234（+33.2pp）；
+      * **中文**：CJK 探针（memory-bench-1000）lexical prefix 100% / mid 99.2%，
+        同口径 bm25 只有 89.2% / 92.5% —— 因为 `md_cg/bm25.py` 的 _WORDS 把
+        「一段连续汉字」当**一个 token**（不做中文分词），查询的汉字段必须与
+        正文某段逐字相同才命中；lexical 路子串匹配，天然适配中文。
+
+    判据：缺省按**查询脚本**自适应（各走各的最优路），显式传参可强制覆盖：
+      flag=None → 纯拉丁查询用 bm25，含汉字的用 lexical；
+      flag=True → 强制 bm25；flag=False → 强制 lexical。
+    has_rrf=False（cg 无 search_rrf）时恒 False——回退路径必须仍能召回。
+    """
+    if not has_rrf:
+        return False
+    if flag is not None:
+        return bool(flag)
+    if not (query or "").strip():
+        return False          # 空查询：没有词可打分，别白建一次 bm25 索引
+    return not _has_cjk(query)
 
 
 # 生效条件：name 为已注册工具名之一（cg / stg / mdcg_whitebox / mdcg_service_info / mdcg_remember 等）；name 属 _MDCG_OP_REQUIRE 且 cg.principal 具 require_op 属性时先 require_op（越权抛 AccessDenied），principal 为 None 或无该方法时跳过；cg 走 _cg_call、stg 走 _stg_call、whitebox 走 _whitebox_call；未识别的 name 返回含 error 的响应字典而不抛异常，进程不因此中断；mdcg_forget 走 cg.forget_gated（同 cg(op=forget) 的档位路径）、mdcg_remember 的非 gated 直写分支在同 id 覆写时先过 cg.write_qualify 再按档位判定（三档自治批次②）；
@@ -5582,10 +5859,13 @@ def _dispatch(cg, name, args):
         return out
 
     if name == "mdcg_recall":
-        # recall 面保持词法默认：其「缺省六路」与 sum/max 融合口径都是**已登记契约**
-        # （test_time_core_lint G8b/G8c、test_p3 A2）。BM25 默认开只落在检索面
-        # （mdcg_search / cg(op=read) 回退），recall 仍 opt-in。
-        use_bm25 = bool(a.get("bm25")) and hasattr(cg, "search_rrf")
+        # issue #999（2026-11）：bm25 不再一刀切 opt-in，而是**按查询脚本自适应**——
+        # 判据单点在 recall_use_bm25()，那里写着两处实测（英文 +33.2pp、中文 -7~11pp）
+        # 与「为什么不能全局翻开关」。中文查询仍落到缺省六路（paths=None），
+        # 故「缺省六路」与 sum/max 融合口径这两条已登记契约
+        # （test_time_core_lint G8b/G8c、test_p3 A2）对中文调用逐字不变。
+        use_bm25 = recall_use_bm25(a.get("query"), a.get("bm25"),
+                                   hasattr(cg, "search_rrf"))
         use_fuzzy = bool(a.get("fuzzy"))
         use_semantic = bool(a.get("semantic"))
         use_goal = bool(a.get("goal_path") or a.get("goal"))
@@ -5628,23 +5908,40 @@ def _dispatch(cg, name, args):
         # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
         # recall 是**进上下文**的通路，故此处把带 untrusted 标记的条目剔出 pack，
         # 并在 meta 记数。检索面（mdcg_search）仍可查见它们——查得到但不进提示词。
-        _pack = cg.recall(a.get("query", ""),
-                         # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
-                         budget_tokens=int(a["budget_tokens"])
-                         if a.get("budget_tokens") is not None else 1200,
-                         max_item_tokens=int(a["max_item_tokens"])
-                         if a.get("max_item_tokens") is not None
-                         else _DEFAULT_MAX_ITEM,
-                         excerpt_strategy=a.get("excerpt_strategy") or "prefix",
-                         k=_int_arg(a, "k", 20), context=a.get("context"),
-                         include_work=bool(a.get("include_work")),
-                         paths=paths, fusion=fusion,
-                         goal_text=a.get("goal"),
-                         include_recent=bool(a.get("include_recent")),
-                         recent_limit=int(a.get("recent_limit") or 10),
-                         query_expand=_make_query_expand(a.get("expand")),
-                         session=a.get("session"),
-                         validity=a.get("validity"))
+        def _run_recall(_paths):
+            # 生效条件：_paths 为路名元组或 None（None=mdcos 缺省六路）；返回 cg.recall 的召回包。
+            return cg.recall(a.get("query", ""),
+                             # `is not None`：显式 0 不再被吞成默认 1200（2026-09-24 修复）
+                             budget_tokens=int(a["budget_tokens"])
+                             if a.get("budget_tokens") is not None else 1200,
+                             max_item_tokens=int(a["max_item_tokens"])
+                             if a.get("max_item_tokens") is not None
+                             else _DEFAULT_MAX_ITEM,
+                             excerpt_strategy=a.get("excerpt_strategy") or "prefix",
+                             k=_int_arg(a, "k", 20), context=a.get("context"),
+                             include_work=bool(a.get("include_work")),
+                             paths=_paths, fusion=fusion,
+                             goal_text=a.get("goal"),
+                             include_recent=bool(a.get("include_recent")),
+                             recent_limit=int(a.get("recent_limit") or 10),
+                             query_expand=_make_query_expand(a.get("expand")),
+                             session=a.get("session"),
+                             # issue #1005 补充①：标题卡（缺省关，行为逐位不变）
+                             card_mode=bool(a.get("card_mode")),
+                             validity=a.get("validity"))
+
+        _pack = _run_recall(paths)
+        # issue #999 兜底：脚本自适应把 bm25 选上时（bm25 缺省=按脚本判），若该路在
+        # 本库上一条都召不回（索引未建/词表不含该语言/索引损坏），退回 lexical 再跑
+        # 一次——宁可慢一倍，也不要「换了个更强的路结果召回归零」。显式 bm25=true/false
+        # 不走兜底：那是使用者明确要求的口径，静默改道等于骗人。
+        if (use_bm25 and a.get("bm25") is None
+                and isinstance(_pack, dict) and not (_pack.get("pack") or [])):
+            _lex = tuple("lexical" if _p == "bm25" else _p for _p in (paths or ()))
+            _pack2 = _run_recall(_lex)
+            if isinstance(_pack2, dict) and (_pack2.get("pack") or []):
+                _pack = _pack2
+                _pack.setdefault("meta", {})["bm25_fallback"] = "lexical"
         # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
         # recall 是进上下文的通路，故把带 untrusted 标记的条目剔出 pack 并记数；
         # 检索面（mdcg_search）仍可查见——查得到，但不进提示词。
@@ -5664,6 +5961,19 @@ def _dispatch(cg, name, args):
                 if _drop:
                     _pack["pack"] = _kept
                     _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
+                    # issue #1005 ②：剔除后覆盖缺口必须重算——原话轮次若正因
+                    # untrusted 被剔走，「raw_not_included」就是此刻的真话。
+                    try:
+                        from . import coverage as _cov    # noqa: PLC0415
+                        from .mdcos import RRF_K as _RRF_K    # noqa: PLC0415
+                        _g, _c = _cov.gaps(_kept, _pack.get("skipped"),
+                                           _pack.get("tokens_used"),
+                                           _pack.get("budget"),
+                                           query=a.get("query"),
+                                           baseline=1.0 / (_RRF_K + 1))
+                        _pack["coverage_gaps"], _pack["coverage_certified"] = _g, _c
+                    except Exception:            # noqa: BLE001 —— 不拖崩召回面
+                        pass
         except Exception:
             pass
         # issue #653：recall 面此前完全不读 exclude_doc（schema 挂在它身上却不生效）。
@@ -5676,7 +5986,7 @@ def _dispatch(cg, name, args):
                 _pack["pack"] = _pk
                 _pack["meta"] = _note_doc_filter(_pack.get("meta"), _pk_drop,
                                                  a.get("exclude_doc", False))
-        return _final_out(_pack, cg, a)
+        return _final_out(_pack, cg, a, slim=False)
 
     if name == "mdcg_search":
         # ---- 异步检索（2026-10-21）：把「怕超时」变成「先拿工单，过几秒来取」----
@@ -5684,7 +5994,7 @@ def _dispatch(cg, name, args):
         # 就会整单失败。异步面不改检索语义：后台线程跑的是**同一个** call_tool，
         # 只是把「等待」从客户端挪到工单上。默认关（不带 defer_s 即同步）。
         if a.get("job_id"):
-            return _search_job_result(str(a.get("job_id")))
+            return _search_job_result(str(a.get("job_id")), cg)
         try:
             _defer = float(a.get("defer_s") or 0)
         except (TypeError, ValueError):
@@ -5709,6 +6019,13 @@ def _dispatch(cg, name, args):
             try:
                 _extra = {k: v for k, v in a.items() if k not in ("query", "bm25")}
                 _extra["env_switch"] = _hc.env_switch_key()
+                # SEC-03：缓存键纳入私密域与瘦身开关（参数 + env），避免不同可见面复用同一缓存。
+                _extra["include_private"] = _as_flag(a.get("include_private"))
+                _extra["env_include_private"] = (
+                    str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() in ("1", "true", "on"))
+                _extra["detail"] = str(a.get("detail") or "").strip().lower()
+                _extra["env_read_slim"] = (
+                    str(os.environ.get("MDCG_READ_SLIM", "1")).strip().lower() not in ("0", "false", "off"))
                 if hasattr(cg, "_index_generation"):
                     _extra["index_gen"] = cg._index_generation()
                 # 安全自检（2026-10-21）：检索结果按 **调用者身份** 过滤
@@ -5734,8 +6051,8 @@ def _dispatch(cg, name, args):
                 if (isinstance(_tag, dict) and _tag.get("surface") == "mdcg_search"
                         and _tag.get("v") == 1 and isinstance(_rows, list) and len(_rows) == 1
                         and isinstance(_rows[0], dict)):
-                    # 深拷贝：hotcache 的 _copy_row 只浅一层，_out["results"] 列表会共享
-                    return _copy.deepcopy(_rows[0])
+                    # 深拷贝 + 出口复验（SEC-03）：缓存命中不得绕过私密域过滤或瘦身口径。
+                    return _final_out(_copy.deepcopy(_rows[0]), cg, a, slim=False)
                 _hit = None          # 形状/版本不符 ⇒ 当未命中，不猜
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=_int_arg(a, "k", 20), context=a.get("context"),
@@ -5760,16 +6077,16 @@ def _dispatch(cg, name, args):
                              "untrusted": bool((n.get("frontmatter") or {}).get("untrusted")),
                              **refindex.ref_fields(n)}
                             for n, s, q in res]}
+        _final = _final_out(_out, cg, a, slim=False)
         if _hcobj is not None and _ckw is not None:
             try:
-                # 写入时深拷贝：否则**未命中那一次**返回给调用方的对象与缓存同一份，
-                # 调用方原地改（append/改 score）就污染了缓存（蜂巢验证单元指出 _copy_row 只浅一层）。
+                # SEC-03：先过 _final_out（摘私密域/瘦身）再深拷贝入缓存，命中与未命中口径一致且不落私密条。
                 import copy as _copy2
-                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_out)],
+                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_final)],
                                  {"surface": "mdcg_search", "v": 1}, **_ckw)
             except Exception:
                 pass
-        return _final_out(_out, cg, a)
+        return _final
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")
@@ -5844,7 +6161,7 @@ def _dispatch(cg, name, args):
                                 redteam=a.get("redteam"), issues=a.get("issues"),
                                 override=bool(a.get("override")),
                                 reviewed_by=a.get("reviewed_by"),
-                                decided_by=a.get("decided_by"))
+                                decided_by=a.get("decided_by"), _untrusted_review=True)
 
     if name == "mdcg_review_records":
         nid = a.get("node_id")

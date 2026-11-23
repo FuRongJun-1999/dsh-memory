@@ -30,12 +30,64 @@
 
 该摘要只在最终装包时使用已经读取的数据，不增加存储读写。候选、检索路径、
 RRF、排序、资格裁决、正文截断和原有 token 预算计算均不改变。
-`tokens` / `tokens_used` 继续按正文（以及可选近期事件正文）计数，
-不表示整个 JSON 响应的序列化 token 数。可选 `recent` 事件窗口保持原结构。
+`tokens` 仍按正文（以及可选近期事件正文）计数，不表示整个 JSON 响应的序列化
+token 数。可选 `recent` 事件窗口保持原结构。`tokens_used` 自 issue #1005 起
+**含判读合同**（见下节）；合同关闭时与旧口径逐位一致。
+
+## issue #1005：判读合同与覆盖缺口
+
+检索只给材料、不给判读约束，也不报覆盖缺口——调用方无法判断「这是原话还是推断」
+「材料够不够」。故 recall 的返回体新增三项：
+
+| 字段 | 含义 |
+|---|---|
+| `reading_policy` | 判读合同正文（常量，见 `md_cg/reading_policy.py`）。缺省开；`MDCG_READING_POLICY=0` 关闭后为空串 |
+| `coverage_gaps` | 本次检索的已知缺口，闭集三码：`anchor_missing` / `budget_truncated` / `raw_not_included` |
+| `coverage_certified` | `coverage_gaps` 为空时为真。**未认证 ≠ 错**，只表示「该自己判断材料够不够」 |
+
+缺口判据只用装包结果自带信号（不额外检索、不读盘）：
+
+- `anchor_missing`：pack 为空；或**无一条目含查询词成分**且最高分处于单路基准分
+  （`1/(RRF_K+1)`）量级——RRF 给每个被召回条目一个基准分，所以「分数 > 0」不能证明锚到了。
+- `budget_truncated`：有条目因预算/超长被跳过（`skipped.reason`），或已用满预算。
+- `raw_not_included`：pack 里有材料但**没有一条是原话轮次**（`profile-*` 卡或带
+  `derived_from`/`source` 的派生材料）；正是「卡进了 pack、源轮次没进」。
+
+预算口径：合同**计入** `budget_tokens`，不从预算外额外送。装包末尾按合同 token 数
+从尾部（最低分）裁掉等量条目，但保底留 1 条；连「合同 + 1 条材料」都装不下时
+（如 `budget_tokens=2` 的极端面）**丢掉合同并把 `meta.reading_policy_skipped`
+记为 `budget_too_small`**——不许出现「合同没进包、材料却少了」的两头空。
+
+注入面剔走 untrusted 条目后，`coverage_gaps` 会**重算**：原话轮次若正因 untrusted
+被剔走，`raw_not_included` 就是此刻的真话。
+
+## issue #1005 补充①：标题卡模式（`card_mode`）
+
+`recall(..., card_mode=True)`（缺省关，行为逐位不变）把 pack 条目压成**标题卡**：
+标题（正文首个非空行，截 60 字）/ 标签 / 日期 / 正文体量 / 取用方式
+（`cg(op=get, node_id=…)`）。正文留在库里按需二次取。
+
+动机来自测评端四臂复测：memu-memory 的 name/id/tag 卡让**同样预算铺开更多候选**，
+而灵枢的 pack 是正文直铺，预算先被长材料吃满（19 题材料覆盖只有 60.9%）。
+
+实测（6 条长记忆、同一库、同一预算）：
+
+| budget_tokens | 正文直铺 pack | 卡模式 pack |
+|---|---:|---:|
+| 400 | 1 条（3 条被跳过） | **5 条（0 跳过）** |
+| 600 | 3 条 | **6 条** |
+| 200 / 260 | 1–2 条 | 1–2 条（**无收益**） |
+
+小预算下没有收益：判读合同（196 token）先占住预算，卡省下的空间不够再装一条。
+这是这条改动的**真实边界**，别把它当成普适提速。
+
+卡只换呈现、不换召回：卡模式前后 pack 的 id 序列一致（守卫 C6 断言）。
 
 验证方式：
 
 ```sh
+python -X utf8 -m md_cg.test_recall_card_mode
+python -X utf8 -m md_cg.test_recall_reading_policy
 python -X utf8 -m md_cg.test_recall_metadata
 python -X utf8 -m md_cg.test_p2_mcp
 ```

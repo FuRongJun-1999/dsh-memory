@@ -1,0 +1,2493 @@
+{
+ "_doc": "私域标识基线：只准缩不准涨。改代码后跑 --write-baseline 重生成，并在提交信息里说明增减原因。",
+ "_policy_deny": [
+  "AEIS"
+ ],
+ "_scan_surface": "git ls-files（排除本守卫三件）",
+ "totals": {
+  "AEIS": 1217
+ },
+ "files": {
+  ".codebuddy/rules/lingshu-discipline/RULE.mdc": {
+   "AEIS": 3
+  },
+  ".github/workflows/conformance-check.yml": {
+   "AEIS": 1
+  },
+  "claude/CLAUDE.md": {
+   "AEIS": 3
+  },
+  "claude/lingshu-memory/skills/linglu-discipline/SKILL.md": {
+   "AEIS": 2
+  },
+  "codebuddy/CODEBUDDY.md": {
+   "AEIS": 3
+  },
+  "codex/AGENTS.md": {
+   "AEIS": 3
+  },
+  "codex/lingshu-memory/skills/linglu-discipline/SKILL.md": {
+   "AEIS": 2
+  },
+  "data/README_memory_bench_1000.md": {
+   "AEIS": 4
+  },
+  "data/memory-bench-1000.jsonl": {
+   "AEIS": 15
+  },
+  "discussion-post.md": {
+   "AEIS": 1
+  },
+  "docs/GBrain可借鉴点_灵枢落点交接_20260919.md": {
+   "AEIS": 1
+  },
+  "docs/Pi可学习优点_灵枢大脑改进交接_20260915.md": {
+   "AEIS": 4
+  },
+  "docs/_backup/工作纪律_认知图条目_v1.1.json.bak-20261120": {
+   "AEIS": 3
+  },
+  "docs/architecture/第9条端到端核查_公开传播授权_v0.1.md": {
+   "AEIS": 1
+  },
+  "docs/architecture/自我意义的三问_v0.2.md": {
+   "AEIS": 1
+  },
+  "docs/discipline/harnesses.yaml": {
+   "AEIS": 2
+  },
+  "docs/dsh-tui_兼容判定单_v0.1.md": {
+   "AEIS": 3
+  },
+  "docs/en/mdcg/world-model-endpoint.md": {
+   "AEIS": 1
+  },
+  "docs/eval/AGI七维评分报告_md_cg_v1.0.md": {
+   "AEIS": 6
+  },
+  "docs/eval/AGI七维评分报告_md_cg_v2.0.md": {
+   "AEIS": 3
+  },
+  "docs/eval/N225_索引日志非对象装载面类型闸_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/issue50_待定复核入队_修复记录_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/issue50_重要度同源与保护语义_修复记录_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/issue65_session_recall_会话隔离_核验与修复_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/优化第二批_依赖透传与对拍口径与负缓存_v1.0.md": {
+   "AEIS": 4
+  },
+  "docs/eval/发布13_上下文自管理机制_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/发布14_身体×脑组合_v1.0.md": {
+   "AEIS": 2
+  },
+  "docs/eval/发布15_会话隔离修复与身体库展示_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/性能专项_冷查询与内存_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/eval/用户裁决处置_第二批B6_本机路径相对化_v1.0.md": {
+   "AEIS": 3
+  },
+  "docs/eval/第3层stg结构索引_实施记录_v1.0.md": {
+   "AEIS": 2
+  },
+  "docs/eval/缺陷挖掘_自主迭代_v13.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/README详细版_v0.4.10.md": {
+   "AEIS": 10
+  },
+  "docs/mdcg/memory_score.html": {
+   "AEIS": 4
+  },
+  "docs/mdcg/release_v0.4.5.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/tool_table_v0.3.0.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/世界模型功能端_使用与运维_v1.0.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/代码评审与条件化注释_契约_v0.1.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/全库代码评审与条件化注释_计划_v0.1.md": {
+   "AEIS": 3
+  },
+  "docs/mdcg/功能调用映射表_v0.1.md": {
+   "AEIS": 8
+  },
+  "docs/mdcg/灵枢82工具_功能整理与迁移映射_v0.1.md": {
+   "AEIS": 17
+  },
+  "docs/mdcg/灵枢MCP工具总表_v3.4.md": {
+   "AEIS": 2
+  },
+  "docs/mdcg/灵枢_自我层定义.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/灵枢三层拆分规划_v0.1.md": {
+   "AEIS": 6
+  },
+  "docs/mdcg/睡眠周期_运维前提与维护指南_v1.0.md": {
+   "AEIS": 2
+  },
+  "docs/mdcg/缺口单_P0收口_v0.1.md": {
+   "AEIS": 2
+  },
+  "docs/mdcg/认知图_G4-G8缺口裁定单_v0.1.md": {
+   "AEIS": 16
+  },
+  "docs/mdcg/认知图_MD目录方案_v0.1.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/认知图_条件空间合成与生效条件口径_v0.1.md": {
+   "AEIS": 3
+  },
+  "docs/mdcg/认知图_索引与工程规范化_计划_v0.1.md": {
+   "AEIS": 1
+  },
+  "docs/mdcg/认知图作为记忆操作系统_评估与路线_v0.1.md": {
+   "AEIS": 6
+  },
+  "docs/mdcg/记忆操作系统_MdCGOS与MCP接入_v0.1.md": {
+   "AEIS": 2
+  },
+  "docs/plans/命名治理_项目计划.md": {
+   "AEIS": 2
+  },
+  "docs/plans/灵枢1.0_最小智能系统实存答卷_纲领_v0.1.md": {
+   "AEIS": 28
+  },
+  "docs/plans/睡眠与自迭代_功能优化设计_v0.4.md": {
+   "AEIS": 10
+  },
+  "docs/plans/知识图谱项目_交接文档_20260914.md": {
+   "AEIS": 24
+  },
+  "docs/plans/统一配置层_设计_v0.1.md": {
+   "AEIS": 7
+  },
+  "docs/reference/配置参数表_v0.1.md": {
+   "AEIS": 17
+  },
+  "docs/swarm/蜂群互联_v0.1.md": {
+   "AEIS": 2
+  },
+  "docs/theory/不可靠定理与失效优先框架_v0.3.md": {
+   "AEIS": 1
+  },
+  "docs/theory/信息差为什么必然存在且自然扩大.md": {
+   "AEIS": 1
+  },
+  "docs/theory/智能的公理化基石.md": {
+   "AEIS": 1
+  },
+  "docs/theory/概念分层对齐表_v0.1.md": {
+   "AEIS": 1
+  },
+  "docs/theory/理论_机制_代码_实验_缺口矩阵_v0.1.md": {
+   "AEIS": 5
+  },
+  "docs/theory/理论仓拆分与白箱知识库内迁_v0.1.md": {
+   "AEIS": 4
+  },
+  "docs/theory/白箱智能是什么？.md": {
+   "AEIS": 2
+  },
+  "docs/world_model/世界模型_神经网络底层架构_v1.0.md": {
+   "AEIS": 5
+  },
+  "docs/存算一体神经网络架构_总纲与交接_20260916.md": {
+   "AEIS": 4
+  },
+  "docs/工作纪律_认知图条目_v1.1.json": {
+   "AEIS": 3
+  },
+  "docs/白箱化纲领_三项目学习总架构与Ghidra交接_20260916.md": {
+   "AEIS": 1
+  },
+  "docs/记忆评审系统_立项设计与施工交接_20260915.md": {
+   "AEIS": 3
+  },
+  "dsh/cordis-patch-profile-web.example.yml": {
+   "AEIS": 12
+  },
+  "dsh/cordis.yml.example": {
+   "AEIS": 5
+  },
+  "hive/config.local.example.json": {
+   "AEIS": 1
+  },
+  "hive/exec_cmd.py": {
+   "AEIS": 2
+  },
+  "hive/plans/naming_gov/mapping_batch1.json": {
+   "AEIS": 3
+  },
+  "hive/plans/naming_gov/mapping_batchB.json": {
+   "AEIS": 1
+  },
+  "hive/test_issue464_pool_spec_gate.py": {
+   "AEIS": 1
+  },
+  "md_cg/audit.py": {
+   "AEIS": 1
+  },
+  "md_cg/chain.py": {
+   "AEIS": 6
+  },
+  "md_cg/config_registry_bulk.py": {
+   "AEIS": 17
+  },
+  "md_cg/config_validate.py": {
+   "AEIS": 2
+  },
+  "md_cg/forgetting.py": {
+   "AEIS": 1
+  },
+  "md_cg/freshness.py": {
+   "AEIS": 14
+  },
+  "md_cg/mcp_server.py": {
+   "AEIS": 3
+  },
+  "md_cg/mdcg.py": {
+   "AEIS": 3
+  },
+  "md_cg/mdcos.py": {
+   "AEIS": 1
+  },
+  "md_cg/migrate_aeis.py": {
+   "AEIS": 3
+  },
+  "md_cg/op_table.py": {
+   "AEIS": 1
+  },
+  "md_cg/predict.py": {
+   "AEIS": 17
+  },
+  "md_cg/subgraph.py": {
+   "AEIS": 8
+  },
+  "md_cg/test_logref.py": {
+   "AEIS": 2
+  },
+  "md_cg/test_neg_condition_hits.py": {
+   "AEIS": 1
+  },
+  "md_cg/test_p17_predict.py": {
+   "AEIS": 2
+  },
+  "md_cg/test_p18_whitebox.py": {
+   "AEIS": 2
+  },
+  "md_cg/test_p24_evidence.py": {
+   "AEIS": 1
+  },
+  "md_cg/test_p39_vision_evidence.py": {
+   "AEIS": 5
+  },
+  "md_cg/test_p4_freshness.py": {
+   "AEIS": 11
+  },
+  "md_cg/test_preflight_failclosed.py": {
+   "AEIS": 5
+  },
+  "md_cg/vision_evidence.py": {
+   "AEIS": 9
+  },
+  "md_cg/whitebox.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/aeis_core/__init__.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/aeis_core/api.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/aeis_core/core.py": {
+   "AEIS": 18
+  },
+  "md_cg/whitebox_kb/wisdom/danmaku_bridge.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/merge_subgraph.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/neural_retrieve.py": {
+   "AEIS": 6
+  },
+  "md_cg/whitebox_kb/wisdom/pattern_separation.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/scene_reconstruction.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/semantic_translate.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/test_compiler_self_bootstrap.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/test_ecosystem_assembly.py": {
+   "AEIS": 1
+  },
+  "md_cg/whitebox_kb/wisdom/test_ecosystem_demos.py": {
+   "AEIS": 1
+  },
+  "memory_score.md": {
+   "AEIS": 3
+  },
+  "rust/src/freshness.rs": {
+   "AEIS": 2
+  },
+  "scripts/_mdcg_reindex_dshlogs.py": {
+   "AEIS": 7
+  },
+  "scripts/bootstrap_loop.py": {
+   "AEIS": 1
+  },
+  "scripts/check_config_env_registry.py": {
+   "AEIS": 1
+  },
+  "scripts/check_local_paths.py": {
+   "AEIS": 2
+  },
+  "scripts/cogmap_sync.py": {
+   "AEIS": 2
+  },
+  "scripts/export_zcode_transcript.py": {
+   "AEIS": 1
+  },
+  "scripts/gen_config_registry.py": {
+   "AEIS": 6
+  },
+  "scripts/sync_zcode_session.py": {
+   "AEIS": 1
+  },
+  "skills/README.md": {
+   "AEIS": 1
+  },
+  "skills/plugin.json": {
+   "AEIS": 2
+  },
+  "skills/skills/designer-perspective/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-02898b15/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-03b04f98/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-0754386d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-093c03ab/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-09e60b35/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-0ab4f2db/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-0c7f88d6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-0f598430/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-0fd64fa5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-17906c62/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-18f823e2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-1bafe81c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-1f9ab1f0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-1fdb5852/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-21b0359c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-22e8de36/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-24163519/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-2471a991/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-25afee4d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-283a91bd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-2895ff52/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-2cc1da58/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-3189fe6f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-31f2b08f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-37b8339e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-396ec3a6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-3df2f904/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-43154cec/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-434b74b8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-440d4398/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-44d7f183/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-4d6c0788/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-50fecd89/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-555c0626/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-57312d24/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-59a0ada4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5a455aeb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5ae7623a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5dac60b6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5e5f1396/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5ebb01dd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5f5453f9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-5f90f58c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-609362ee/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-60aefeeb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-6636d49c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-6cfcb6db/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-6e1c1158/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7008e942/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-716cd26c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-720ce1a1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-77a97b43/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7bb4871d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7be57bbe/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7da433f3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7e96fe1d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-7f9cefec/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-80224e71/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-81345ecd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-822cfa44/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-853690c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-85553126/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-87b0ce80/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-900c4484/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-910405c4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-95fd3c86/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-97a14ca3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-9de10895/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-9e4914a7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a280ec64/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a2d9b0b0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a372edeb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a4c793a4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a681d0c2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a7a2b0c1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-a990e68e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-aaac4eec/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-ae6586bb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-afa4091f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-b4c8cf65/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-b501767c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-bcd4288d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-bfad66a5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-c45cbfe9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-c4dd6078/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-c879eb0b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-c92ac01b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-cb179242/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-cc7d3d6d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-cf3c47f0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-cf9f812e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-d462581c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-d5fa0b7f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-d72e225b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-df1a919e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-e84565c1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-e947a564/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-ea9b2b8e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-f5ffc6d9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-f75a4418/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-f8f2966e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-fa65fa2d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-faac8812/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-browser/units/browser-ff94a671/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/analyze-type-infer/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/check-name-real/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-assign/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-expr-tree/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-full-pipeline/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-func-def/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-if-then/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-logic-expr/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-recursive/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-scope/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-type-check/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compile-while/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0010c4bf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0355bffb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0361708a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-054a0414/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-05a1691a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-05eeed1e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0622a1f6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-08b54217/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0a62b70c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0ab24d00/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0e093688/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0e82b966/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0ee9b9b9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-0f3787e6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-1028685f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-11897630/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-16661b9b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-1f722303/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-25be1262/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-2a76ba07/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-2dbea54a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-2df52f16/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-2ec2c9d2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-2f8c8f39/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-38378ac7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-39457d2e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-39fb5926/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-47f4fbfa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-4a8cd1f1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-4b230b6b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-4cbbda95/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-4d5a68ff/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-56dc9bdd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-57e76ebe/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-61ff016b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-63eae588/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-64c4224b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-66377955/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-674ab4f6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-6af76fd6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-6d979db2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-6de326c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-6f1c0eea/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-724d6c9b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-7690177f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-7b229a7d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-7f471b3a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-815cad08/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-83c61634/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-8c798c81/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-8dd747ac/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-90324d0a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-94b8d72d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-94f12231/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-95937c16/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-98a5625b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-98b4c42f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-98e3894a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-9bdfe4b8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-9d9b4e83/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-9f7be5ad/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-a6daf076/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-a7995a0c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-a8399248/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-aabbd099/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-afe169d8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-b0678bda/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-b09bd196/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-b1396e23/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-b9b31ce0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-c10264a7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-cb1e8e4b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-ccafd438/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-cda9c262/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-ce648068/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-cf5776a4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-d974e5d3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-e3979fd3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-eb1cf2b5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-ecb30d5b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-f8c8b24b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-f99fedbe/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-fa8ff5f7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/compiler-fe1b058d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/lex-chinese-program/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/lex-dao-de-jing/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/lex-nine-chapters/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-arithmetic/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-array-ops/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-closure-call/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-closure-create/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-compare/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-cond-jump/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-cond-space/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-exception/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-func-call/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-loop-run/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-profiling/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-refcount/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-run-loop/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-short-circuit/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-stack-guard/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-stack-ops/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-compiler/units/vm-trust-accum/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-04cd431b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-06e2b1f2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-0de12477/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-0e564e68/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-10d58a7b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-12cd830a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-185f2cd2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-19a6a301/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-1b266557/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-1b707621/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-1d73b597/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2041fa98/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2461bc41/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2465dff8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2508389f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-276d554d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-299f4a32/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2d455cd8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-2fddf701/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-33385442/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-34a1dba7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3721be1c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3755dbc9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-37a45d4b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3a4a984c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3aa4c941/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3b69a528/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3bc2eb69/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3d255ed4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3d34961d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3e18a380/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-3f920bf3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-40b7bf61/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-42187d5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-4361c60e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-44e56113/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-4b363727/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-52e6e216/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-53fbfef5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-54ac2988/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-580dadcd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-5ca34baa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-5cb7fbdf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-5f894c05/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-656e7bd4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-6dc48231/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7186924a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-72ce5342/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7376a24e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7412a7cb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7becedf0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7c38fbf3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7dc36de7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-7fe49de7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-80d82194/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-85bf101e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-8650548b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-86583b09/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-8727827c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-873fb505/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-89b11de0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-8d7b569b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-8e920d5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-8eb38e3d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-94582f69/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-947355f7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-9507aff7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-95b86a8b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-96b85e1f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-97b22f09/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-9833cfda/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-9aa8a3f4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-9f6665c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-a125d282/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-a49ef4f0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-a5cd04ae/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-add9a63b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-b00e3dc7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-b33a7662/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-b76d15ee/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-b77fa05a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-b912fc3b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-baf61b7c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-c1d5687b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-c407bbed/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-c4676460/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-c4a59d80/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-c5815621/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-ccad55f1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d0677ce1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d1289b39/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d15f39b1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d40691ca/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d43b387a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d4dd02f4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d724ea18/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d74d36fd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-d9d3934c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-ddf563ff/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-de00894f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-df1ebb63/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-e2905c20/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-e4f8cefd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-ea3150e7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-eb4ac7dd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-ee9f6dfa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f055b2ea/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f1891287/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f1bb5aa1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f56fa220/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f729034f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f748a63f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-f8c4a59e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-fca3d129/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-fd02d934/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-fd51ece9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-graph/units/graph-fd6a81ab/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-02090d29/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-05937712/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-059d072f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-080f6012/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-08a2fc88/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-0935edf1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-0e7f91e4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-0f2850e0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-107ab486/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-111e79b0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-126876c1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-13eeb575/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-14102d54/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-14e9ad0d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-184175d3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-1da1c695/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-240a14ec/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-2784f98b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-292ef917/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-3434e92f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-35019e6b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-3bbc6afb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-3bdf9d9d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-3dcb84d3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-431cccf9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-435a9f7f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-4508101f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-4585c9e7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-479612a0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-47a19838/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-4e36e1e3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-509b8001/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-51930c5e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-56dbd63f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-57387462/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-5c115606/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-5d27f392/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-5f69c938/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-5fa6c13b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-61580202/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-61926703/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-61f64fbc/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6200f3b2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-63c3eda3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-66e6119b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-68643014/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-686632aa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6967ff14/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6996f499/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6c3b02c2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6eb37f63/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6f96c190/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-6fb27488/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-703559d0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-706d2692/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-70a20e04/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7376158c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-74d647cb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-74e8a576/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7801c2c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-78cae54d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-78ec0324/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7998097c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7d81ae06/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7eabbbc8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-7ed4f2c5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-80b56cd6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-83447546/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-8361fe5b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-85e3996c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-8897d5cc/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-88ad93a6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-8e6f359e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-8edc4cdb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-8f6169e9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-91e00638/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-96c61a3c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-99076a29/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-998f3641/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-a1d7228a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-a74da501/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-ac57deb7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-b22d2f2b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-b2b29d8d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-b2ddce5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-b4151e9a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-b873d6f7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-bd3d2d55/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-c2a3f019/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-c685b788/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-c6c1fd79/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-c74a1b5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-cdac702d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d12dff5c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d3747882/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d5fefa59/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d67ec725/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d80c1c4c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-d9cb43b0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-da559517/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-db4f414e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-dc09d67c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e2d185de/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e2fc73f8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e33ef0c2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e346863c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e6b3389a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e9758fc0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-e9a9747a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-ea14aab8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-eba92ac1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-f29d91d2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-f314dd0d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-f332b629/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-f7df127c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-fb9d8f5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-net/units/net-fdec2c86/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0205cf9b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-027dc9be/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-03c0d7d6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-040b5505/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-06fa98ed/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0854291c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0c7f14cb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0d855af2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0e87e997/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-0f8ed882/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-111ce1de/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-1234eb00/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-128f3820/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-15796db5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-1898928a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-192b8ca9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-1d3bcf28/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-1f224514/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-26a4f86a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-29c96147/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-2ea9a5ff/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-300ef22c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-310dda5b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-313ef4ed/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-329a2147/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-34ad4b62/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-350bc623/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-35ee1a30/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-3cd28220/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-3d84e0c9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-3db42aac/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-3e0aff42/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-3e9405d2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-41d14544/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-462f3ed4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-485833fa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-4a1cf781/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-4bf77933/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-4c14cec2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-4f05d577/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-4f50ad0b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-509a4596/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-512b1b6c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-5192621b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-55672763/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-5582bce6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-5a096a1f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-5ca15108/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-601663e1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-607f1963/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-6158581b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-62f9278b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-63797b86/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-6a1fe224/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-6b0a68bf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-6e5cee67/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-6fb1ff58/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-71389592/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-72e879a3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-7598748a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-80cc3283/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-819f3093/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-83670c2b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-878c18b3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-89ed7af1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-8cb7279d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-92276145/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-955c4d66/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-97aacf40/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-9b6ed02c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-9c86a7a2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-a13ce4aa/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-a568affe/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-abd48f17/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-b0416edc/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-b6509cac/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-b718657b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-b776ade1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ba24fa08/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-bd1fc177/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-bda92711/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c0fa71bd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c3d5cd44/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c6b6a763/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c7661eb1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c76b5a43/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c7d35a30/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c980a25d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-c9f8df6e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-cc49ef2f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-cd9e686a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-cfa66a1b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-d237e500/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-d39ef086/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-d4f9e813/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-d97915c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-da0aadde/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-da482caf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-dd4ff45e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-de0556c5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-e0ad3364/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-e7612c68/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ea444e45/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ea6e7e0b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ebc34d83/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ecbebbe3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ecfceae7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-ed8de3a3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-f69c0b08/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-f6ae6205/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-f9bf8dd4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-os/units/os-fcdd828d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-01b23f80/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-074fd698/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-0b490bb2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-0ca7f08b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-10ce3e91/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-15f76c64/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-1703046f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-1aa3e939/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-1bed54cf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-1dd35612/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-24273d7b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-2853f59f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-2a6bc16e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-2ae78997/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-2bc88f4c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-31f5b8db/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-36d178bc/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-38600583/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-38e8f9ff/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-395085ca/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-399b317e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-39c72c78/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-3a659480/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-482be62b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-486a1e94/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-49026041/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-4963b28a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-4af9140e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-4ca283f2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-4ddf31f3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-50614726/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-5102c069/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-521b1bf8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-5880b7a1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-61a9102d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-621123dd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-642cd625/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-65ca79b7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-672df225/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-67d3368e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-6be54340/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-70b2006f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-70b215f1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-730c3fe4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-733c1286/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-79845f4d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-7c4cc6f8/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-7c7193ad/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-7d86ab5d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-7df8ca78/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8182681d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-81ad40ee/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8283d7c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-82b73f3d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8404bbde/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8584040d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-85d8617b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-886935a3/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-88ab2f96/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8b6f071e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8d6ec58a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-8fe98252/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-9018c39a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-91277748/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-943b9dcb/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-961e9e43/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-962954d9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-9dbd8e2b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-a02eac31/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-a4d3d7b1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-a7c3d0e2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-a88db70d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ab7dddc2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ac2a4b38/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-afaf67c0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b00660e6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b4d7616d/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b67b1878/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b8040e1c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b880c6c6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-b8d45f76/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ba956e52/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-bb18b1f9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-bb46f3f2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-be55a094/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-beb47b63/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c017681a/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c1317cd9/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c36fabf7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c42465ec/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c5c76a12/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-c910ad31/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ca9332cf/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-cce90fa0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-cd4234a5/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-cf0fca1c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-d2001e1f/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-d616eb28/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-d8962e66/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-db6214cd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-dcde3040/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-dfad3dba/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-dfd5aac2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-e1aa3818/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-e476915b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-e88e31fd/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ecd569d2/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-ecf27e0c/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f124f0e6/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f127a8d1/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f2d6ec27/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f2f40090/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f4aa9e65/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f4f820d4/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f5b34833/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f6ebb66e/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f78bdcd7/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-f92bc49b/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-fd7595f0/SKILL.md": {
+   "AEIS": 1
+  },
+  "skills/skills/lingshu-pylang/units/pylang-fda87aa1/SKILL.md": {
+   "AEIS": 1
+  },
+  "src/bridge.ts": {
+   "AEIS": 1
+  },
+  "src/hooks.ts": {
+   "AEIS": 6
+  },
+  "src/index.ts": {
+   "AEIS": 8
+  },
+  "src/lib/datapath.ts": {
+   "AEIS": 2
+  },
+  "src/lib/mdcg_client.ts": {
+   "AEIS": 5
+  },
+  "src/lib/roleplay_web.ts": {
+   "AEIS": 3
+  },
+  "test/bridge.test.ts": {
+   "AEIS": 1
+  },
+  "test/host.test.ts": {
+   "AEIS": 1
+  },
+  "zcode/AGENTS.md": {
+   "AEIS": 3
+  }
+ }
+}

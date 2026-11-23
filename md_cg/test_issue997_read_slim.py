@@ -53,10 +53,15 @@ def main():
     try:
         # ① 缺省瘦身
         s = M._slim_read_out(_sample())
-        ok('bm25' not in s and 'path_fingerprint' not in s, '① 顶层遥测被摘',
+        # issue #1011 附带（2026-11-22 全量门禁实测的**本守卫自身的漂移**）：原先这里断言 `bm25` 也被摘，
+        # 那等于把「新提交引入的新行为」当成契约钉死——而 `test_bm25.py:229` 的 stdio 用例（2026-11-12，
+        # 早于本瘦身）要求 `packed["meta"]["bm25"]["hydrated"]` 可读，且**同一个 op** 不带 budget_tokens 时
+        # 它是绿的、带 budget_tokens 就 KeyError ⇒ 瘦身制造了同 op 两种形态的不一致。老契约优先，
+        # 「这条路真跑了、hydration 到几条」是判别力，不属可摘的噪声。
+        ok('path_fingerprint' not in s and 'bm25' in s, '① 顶层遥测被摘（bm25 诊断保留：老契约钉住）',
            list(s.keys()))
-        ok('bm25' not in s.get('meta', {}) and 'path_fingerprint' not in s.get('meta', {}),
-           '① meta 遥测被摘', s.get('meta'))
+        ok('path_fingerprint' not in s.get('meta', {}) and 'bm25' in s.get('meta', {}),
+           '① meta 遥测被摘（bm25 诊断保留）', s.get('meta'))
         ok('paths' not in s.get('meta', {}) and 'path_truncation' not in s.get('meta', {}),
            '① meta 路径块被摘', s.get('meta'))
 
@@ -68,7 +73,8 @@ def main():
         ok('bm25' in f2, '② MDCG_READ_SLIM=0 取全量', list(f2.keys()))
         os.environ['MDCG_READ_SLIM'] = '1'
         f3 = M._slim_read_out(_sample())
-        ok('bm25' not in f3, '② 开关回 1 后恢复瘦身', list(f3.keys()))
+        ok('bm25' in f3 and 'path_fingerprint' not in f3, '② 开关回 1 后恢复瘦身（bm25 仍保留）',
+           list(f3.keys()))
         os.environ.pop('MDCG_READ_SLIM', None)
 
         # ③ 正文一字不动

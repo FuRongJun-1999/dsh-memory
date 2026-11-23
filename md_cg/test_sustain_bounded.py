@@ -53,6 +53,13 @@ import ast
 import contextlib
 import io
 import os
+
+# issue #1011 附带（2026-11-22）：本模块用 0.05 s 级间隔测**档位节奏**，
+# 而宿主机 env 里可能挂着 MDCG_TICK_HOOK（运维注入：每次 tick 起一个 python 子进程，
+# 实测约 0.5 s）⇒ 循环被拖成「只跑过 beat 一档」而整片判红（属环境副作用，非被测行为）。
+# 与 run_tests._SESSION_ENV_STRIP 同口径：测试进程内剔除，守卫断言的仍是产品行为。
+os.environ.pop("MDCG_TICK_HOOK", None)
+
 import shutil
 import subprocess
 import sys

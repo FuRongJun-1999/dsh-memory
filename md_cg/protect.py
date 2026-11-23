@@ -615,7 +615,8 @@ def _resolve_target(cg, node_id, layer=None, sensitivity=None):
 
 
 # 生效条件：经 _resolve_target 解析出节点真层与敏感度后，cg.principal 非 None 且具备 require_layer_write 时调 principal.require_layer_write(layer, sensitivity)（越权抛 AccessDenied），返回解析出的层；cg 无 principal（裸 MdCG）时不做任何判定。
-def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None):
+def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None,
+                  skip_gate=False):
     """既有节点写面的 **principal 层闸**单点（不含引擎级保护闸）。
 
     N209（2026-09-28，同族未接线的相邻写面入口）：「只有 `falsified` 一态接了
@@ -633,7 +634,7 @@ def require_layer(cg, node_id, layer=None, sensitivity=None, actor=None):
                                     sensitivity=sensitivity)
     p = getattr(cg, "principal", None)
     if p is not None and hasattr(p, "require_layer_write"):
-        p.require_layer_write(_layer, _sens)
+        p.require_layer_write(_layer, _sens, skip_gate=skip_gate)
     return _layer
 
 

@@ -35,7 +35,7 @@ the token store defaults to `~/.mdcg/_tokens.json` (override with `MDCG_TOKEN_FI
 
 ## 2) Layered writes: each layer stricter than the last
 
-`MDCG_WRITE_GATE` controls whether this table takes effect (`off` by default / `warn` records only / `enforce` actually blocks):
+`MDCG_WRITE_GATE` controls whether this table takes effect (`off` never intervenes / `warn` records only / `enforce` actually blocks; **defaults to `enforce`** — with no review channels declared, `knowledge` and stricter layers are refused):
 
 > **Where to see `warn` records**: `cg(op=info).write_gate` -> `{mode, total, by_layer, recent, hint}`.
 > They are recorded **in-process** (not on disk, reset on restart), so they do not depend on whether the host forwards subprocess stderr —

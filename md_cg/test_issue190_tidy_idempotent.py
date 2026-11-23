@@ -114,6 +114,19 @@ _ANCHOR_MISS = []
 _PREFIX_INFO = []
 
 
+def _skip_group(ids, reason):
+    """整组 SKIP：把判据 id 登记为「已处理」并写明原因——**不算失败、也不算通过**。
+
+    用于「本仓结构上取不到判别力锚」的情形（浅克隆）。既有的 `_ANCHOR-MISS` 语义是
+    「守卫失效，要人修」，而浅克隆不是缺陷、也无法在仓内修（要 unshallow 才有历史），
+    故与 test_issue258 / test_issue297 同口径：SKIP 且逐条打印原因，不退化成静默跳过。
+    """
+    for cid in ids:
+        _SEEN.add(cid)
+    print("  SKIP %s：%s" % ("、".join(ids), reason))
+    print("       （既不下「成立」也不下「不成立」的结论：本仓历史不足以证明）")
+
+
 def _check(cid, cond, detail=""):
     global _OK
     # 判据 id = 首段（"S3.2 ★ 第 2/3 轮..." → "S3.2"），_GROUPS 按 id 前缀核对是否
@@ -327,6 +340,15 @@ def _load_src_as_module(text, modname):
 def s2():
     print("== S2 判别力锚：修复前源在同一夹具上确实不幂等 ==")
     src, rev = _prefix_source()
+    if src is None:
+        # 浅克隆（shallow）：本仓对象库从某个边界提交起才有历史，修复前的 writelimit.py
+        # 不可达 ⇒ 判别力无法自证。这**不是**产品缺陷，也不是本守卫失效（改动后各轮仍全绿），
+        # 按仓内先例（test_issue258 / test_issue297）SKIP 并写明原因。
+        _rc, _sh = _git("rev-parse", "--is-shallow-repository")
+        if (_sh or b"").decode("utf-8", "replace").strip() == "true":
+            _skip_group(("S2.1", "S2.2", "S2.3", "S2.4", "S2.5"),
+                        "浅克隆：修复前的 md_cg/writelimit.py 不在对象库")
+            return
     if not src:
         print("  ANCHOR-MISS S2.1 取不到修复前的 md_cg/writelimit.py（git 不可用？）")
         _ANCHOR_MISS.append("S2")
