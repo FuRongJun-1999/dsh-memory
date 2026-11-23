@@ -144,7 +144,14 @@ class QueryExcerpt(unittest.TestCase):
             requests.append({"jsonrpc": "2.0", "id": ident, "method": "tools/call",
                              "params": {"name": name, "arguments": args}})
         requests.append({"jsonrpc": "2.0", "id": 4, "method": "shutdown"})
-        env = dict(os.environ, MDCG_ROOT=str(root), MDCG_LEGACY_ENV_AUTH="1",
+        # 生效条件：子进程 env 由 os.environ 复制后先剔除凭据面，再注入指向临时根的覆盖键。
+        # 调用者环境若残留 MDCG_TOKEN，子进程会走 verify_token（fail-closed，rc=3）——
+        # 本用例的临时根没有对应令牌，于是红在「令牌校验失败」而不是 excerpt 语义上。
+        # 与本仓其余 spawn 用例（如 test_n199 / test_n206 的 _DIRTY_KEYS）同形。
+        _dirty = ("MDCG_TOKEN", "MDCG_TENANT", "MDCG_LEGACY_ENV_AUTH", "MDCG_LEGACY_ENV_ADMIN",
+                  "MDCG_CAN_ADMIN", "MDCG_CAN_WRITE", "MDCG_TENANT_REGISTRY")
+        env = {k: v for k, v in os.environ.items() if k not in _dirty}
+        env.update(MDCG_ROOT=str(root), MDCG_LEGACY_ENV_AUTH="1",
                    MDCG_ACTOR="query-test", MDCG_AUX_ROOT=str(Path(root) / "sidecar"))
         proc = subprocess.run([sys.executable, "-X", "utf8", "-m", "md_cg.mcp_server"],
                               input="\n".join(json.dumps(r) for r in requests) + "\n",
