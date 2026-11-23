@@ -2690,11 +2690,14 @@ class MdCG:
         ① 不成立、旧判据直接返回 False ⇒ **旧写盖新写并随 flush 持久化**。
         ②③④ 即为此补的字节级身份判定。
         """
-        st = self._dirty.staged_stat.get(nid)
-        if st is None:
-            return False
-        e = self._dirty.get(nid)
-        p = e.get("path") if isinstance(e, dict) else None
+        # #1011 既有锁外调用点补齐：原子快照 (staged_stat, entry.path)，磁盘 stat/digest
+        # 严格留在锁外（保持 #677 P2「_dirty_lock 内不做 IO」纪律）。
+        with self._dirty_lock:
+            st = self._dirty.staged_stat.get(nid)
+            if st is None:
+                return False
+            e = self._dirty.get(nid)
+            p = e.get("path") if isinstance(e, dict) else None
         if not p:
             return False
         fp = os.path.join(self.root, p)
@@ -3491,7 +3494,9 @@ class MdCG:
         # 「直写文件 + rebuild 收尾」的写方不经 _dirty 标脏，其文件改写对
         # 读缓存的可见性靠这一整池失效兜底（flush 的 clear 则不失效，见
         # _DirtyDict.clear 文档串）。
-        self._dirty.clear(broad=True)  # 保住 _DirtyDict 钩子（批次 23 D-4）
+        # FileLock 已退出，此处只在 _dirty_lock 下清空脏集（不嵌套 _flush_lock / IO）。
+        with self._dirty_lock:
+            self._dirty.clear(broad=True)  # 保住 _DirtyDict 钩子（批次 23 D-4）
         return idx
 
     # P2-20（批次 30，外部审查报告）：索引中的 path 参与所有读/写落盘定位
@@ -3516,6 +3521,11 @@ class MdCG:
         hit = self._realpath_cache.get(rp)
         if hit is not None and self._realpath_fresh(rp, hit):
             return hit[1]
+        # 在 os.path.realpath（IO）之前锁内取 write_gen 快照：避免并发
+        # _dirty.clear(broad=True) / 标脏写到一半时将旧路径误标成新代际；
+        # 缓存命中热路径零加锁。
+        with self._dirty_lock:
+            gen = self._dirty.write_gen
         p = os.path.realpath(os.path.join(self.root, rp))
         rr = self._root_real
         if rr is None:
@@ -3524,7 +3534,7 @@ class MdCG:
             raise ValueError(
                 f"节点路径越界（P2-20）：{rp!r} -> {p}"
                 "——拒绝读写")
-        self._realpath_cache[rp] = (self._dirty.write_gen, p)
+        self._realpath_cache[rp] = (gen, p)
         return p
 
     def _realpath_fresh(self, rp, hit):
@@ -4460,7 +4470,8 @@ class MdCG:
         if entry is not None:
             entry["edges"] = fm.get("edges") or []
             entry["subgraph"] = fm.get("subgraph")
-            self._dirty[node_id] = entry
+            with self._dirty_lock:
+                self._dirty[node_id] = entry
         try:
             from . import subgraph as _sg
             _sg.invalidate_cache(self)
@@ -4544,7 +4555,8 @@ class MdCG:
         entry = self.index["nodes"].get(node_id)
         if entry is not None:
             entry["tags"] = list(new_tags)
-            self._dirty[node_id] = entry
+            with self._dirty_lock:
+                self._dirty[node_id] = entry
         return True
 
 # 生效条件：node_id 取不到节点返回 False；在 fm.get("edges") or [] 中找首个 dict 且 str(target or "")==str(target_id)、str(relation_type or "")==str(relation_type) 的边，找不到返回 False；命中则把该边 condition_space 置为 dict(condition_space or {})、写盘并同步后返回 True；
@@ -4789,8 +4801,9 @@ class MdCG:
         # 会让同实例 _goal_entry/检索读到旧 goal_status，p7「done 退出
         # active」陈旧形态）。不走 _stage：节点已在索引，_stage 会虚增
         # bucket 计数；这里只推代际，entry 同值幂等。
-        self._dirty[node_id] = self.index["nodes"].get(node_id) \
-            or {"path": node["path"], "layer": "goals"}
+        with self._dirty_lock:
+            self._dirty[node_id] = self.index["nodes"].get(node_id) \
+                or {"path": node["path"], "layer": "goals"}
         return {"id": node_id, "status": status}
 
 # 生效条件：goal 为真值（非 None/空串/0）时返回 str(goal)；goal 为假值时返回 self.active_goals(limit=limit) 中非空 goal 文本以空格拼接的字符串；
@@ -4888,7 +4901,9 @@ class MdCG:
         #   · 语义不降级：close() / atexit / 显式 flush() 仍**同步**落盘；
         #     后台线程只是把「阈值触发的那次 flush」挪出返回路径。
         #   · 关掉异步：MDCG_ASYNC_FLUSH=0 → 回到「阈值即同步 flush」（逐位旧行为）。
-        if len(self._dirty) >= self.autoflush:
+        with self._dirty_lock:
+            _need_flush = len(self._dirty) >= self.autoflush
+        if _need_flush:
             self._request_flush()
 
 # 生效条件：无条件把 entry 写入 index["nodes"][node_id]（同键覆写 = dict 原地更新，物理位序不变）；桶计数只在该 id 的桶归属**变化**时调整（经 _bucket_shift 撤旧加新，同归属零动作）；self._stg_index 非 None（第 3 层结构索引已构建）时同钩增量增/改该 id，为 None（未构建/已失效）时**不构建**——首次 stg 访问才构建，写路径零额外成本；返回 None。
@@ -4959,7 +4974,10 @@ class MdCG:
         而够不着它，`check` 的 dangling 永不归零（本机实测累积数百条）。
         """
         self._remove_index_entry(node_id)
-        self._dirty[node_id] = None      # None = 删除记录，随 flush 落分片日志
+        # 仅在 _dirty_lock 内写 tombstone；self.flush()（会拿 _flush_lock 再拿 _dirty_lock
+        # 及 FileLock IO）严格在锁外执行，避免 _dirty_lock -> _flush_lock 锁序倒置。
+        with self._dirty_lock:
+            self._dirty[node_id] = None  # None = 删除记录，随 flush 落分片日志
         self.flush()                     # 删除不可延迟到 autoflush 阈值
 
     # ---------- 内容封装钩子（默认恒等；MdCGSecure 覆盖为「私有内容加密」）----
@@ -5219,7 +5237,10 @@ class MdCG:
     def get(self, node_id: str, probe: bool = True):
         if probe:
             self._maybe_reload_index()  # P1b-2：读面代际感知（他进程写快照后可见）
-        e = self.index["nodes"].get(node_id) or self._dirty.get(node_id)
+        e = self.index["nodes"].get(node_id)
+        if not e:
+            with self._dirty_lock:
+                e = self._dirty.get(node_id)
         if not e:
             return None
         p = self._node_disk_path(e)
@@ -7341,7 +7362,8 @@ class MdCG:
                 # 经 _sync_index 标脏——不显式置 _dirty 会造成重开后索引
                 # evidence_count 与盘面漂移、同实例 _read 命中旧 frontmatter
                 #（口径同边域同步 _sync_edge_entry / goal 状态写回）。
-                self._dirty[node_id] = e
+                with self._dirty_lock:
+                    self._dirty[node_id] = e
 
         demoted = None
         if (verdict == "weakened" and fm["confidence"] < DEMOTE_CONFIDENCE
