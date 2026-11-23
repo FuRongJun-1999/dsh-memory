@@ -177,6 +177,20 @@ def _dep_mdroot():
             "空壳目录不算依赖就绪）")
 
 
+def _dep_hive():
+    """hive 二进依赖：`hive/target/release/hive`（Windows 为 hive.exe）须已 cargo build。
+
+    缺件时这 5 条用例原本直接 FAIL（A0 前置判据处断言二进制存在），
+    于任何新 worktree / 新机器首跑都呈「假红」——与「能力缺失要标注、
+    不伪造健康结论」的口径相反（2026-11-23 复核 #1013 时实测）。
+    """
+    exe = os.path.join(_REPO, "hive", "target", "release",
+                       "hive.exe" if os.name == "nt" else "hive")
+    return (None if os.path.isfile(exe)
+            else "缺 hive 二进制 hive/target/release/hive"
+                 "（先在 hive/ 下 cargo build --release，或用 HIVE_EXE 指向可用二进制）")
+
+
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
@@ -184,6 +198,11 @@ _SKIPS = {
     "md_cg.test_p44_md_whitebox": _dep_db,
     "md_cg.test_md_access_parity": _dep_db,
     "md_cg.test_wisdom_md_store": _dep_mdroot,
+    "hive.test_h6_mcp_depends_on": _dep_hive,
+    "hive.test_orch": _dep_hive,
+    "hive.test_result_anchor_chain": _dep_hive,
+    "hive.test_id_contract_v2": _dep_hive,
+    "hive.test_job_id_segment_dot": _dep_hive,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),
