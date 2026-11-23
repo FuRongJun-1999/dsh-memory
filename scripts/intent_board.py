@@ -225,7 +225,8 @@ def _we_readings(we_dir):
 def _intent_gap(root):
     """台账与已消费集合的差：**还有多少「该起身」没被处理**。"""
     recs = _read_jsonl(os.path.join(root, "_intent.jsonl"))
-    consumed = set(str(x) for x in (_read_json(os.path.join(root, "_intent_consumed.json"), []) or []))
+    raw_consumed = _read_json(os.path.join(root, "_intent_consumed.json"), [])
+    consumed = set(str(x) for x in raw_consumed) if isinstance(raw_consumed, list) else set()
     open_nodes = []
     for r in recs:
         if not isinstance(r, dict):
@@ -454,16 +455,17 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     A("| 不同节点数 | %d | 越多越在往前走 |" % len(attempts))
     tail, tail_node = _rotation(records)
     A("| 末尾连续同一题 | %d 次 | %s |" % (tail, "⚠ 卡住了" if tail > 2 else "健康"))
-    window = records[-10:]
+    window = [r for r in records[-10:] if isinstance(r, dict)]
     if len(window) >= 4:
-        ratio = len(set(str(r.get("node_id") or "") for r in window if isinstance(r, dict))) \
+        ratio = len(set(str(r.get("node_id") or "") for r in window)) \
             / float(len(window))
         A("| 近期换题率（末 %d 条） | %.0f%% | %s |"
           % (len(window), ratio * 100,
              "低于 30%，多半在原地踩" if ratio < 0.3 else "正常（在换题）"))
     A("")
     if tail > 2 and tail_node:
-        A("> 连续 %d 次都是 `%s`——这正是 2026-11-19 修掉的毛病。" % (tail, tail_node))
+        shown = ("`%s`" % tail_node) if private else _mask_id(tail_node)
+        A("> 连续 %d 次都是 %s——这正是 2026-11-19 修掉的毛病。" % (tail, shown))
         A("> 若再次出现，先看 `md_cg/intent_tick.py` 的 `pick()` 是否按尝试次数轮转。")
         A("")
     A("## 四、待办推进")
@@ -471,7 +473,7 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     A("| 节点 | 被捡起 |")
     A("|---|---|")
     for nid, n in sorted(attempts.items(), key=lambda kv: -kv[1])[:12]:
-        A("| %s | %d 次 |" % (("`%s`" % nid) if private else _mask_id(nid), n))
+        A("| `%s` | %d 次 |" % ((nid if private else _mask_id(nid)), n))
     A("")
     A("## 五、日记目录")
     A("")
@@ -482,9 +484,8 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
         A("| 日期 | 节点 | 第一行 |")
         A("|---|---|---|")
         for e in entries:
-            A("| %s | %s | %s |" % (e["date"],
-                                     ("`%s`" % e["id"]) if private else _mask_id(e["id"]),
-                                     e["head"]))
+            A("| %s | `%s` | %s |" % (
+                e["date"], (e["id"] if private else _mask_id(e["id"])), e["head"]))
     A("")
     A("---")
     A("")
@@ -528,10 +529,11 @@ def main(argv=None):
         return 0
     if "--write" in argv:
         out = _opt(argv, "--out") or os.path.join(REPO, OUT_REL)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        out_dir = os.path.dirname(os.path.abspath(out))
+        os.makedirs(out_dir, exist_ok=True)
         with io.open(out, "w", encoding="utf-8", newline="\n") as f:
             f.write(text + "\n")
-        print("已写入 %s" % OUT_REL)
+        print("已写入 %s" % out)
         return 0
     print(text)
     return 0

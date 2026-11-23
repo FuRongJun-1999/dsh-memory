@@ -108,11 +108,23 @@ def main():
         ok("unr_aaaaaaaaaa" in pub[pub.find("## 四、待办推进"):pub.find("## 五、")],
            "G9 哈希形态 id 在公开页待办推进里保留")
 
+        rot_root = _mkroot(tmp + "_rot", [{"node_id": "unr_Quoted-message-begins-私聊片段"}] * 3, [])
+        rot_pub = ib.render(rot_root, now=ib.time.time(), we_dir=we, private=False)
+        ok("私聊片段" not in rot_pub and "已脱敏" in rot_pub,
+           "G10 末尾连续同题提示里的大白话 id 也脱敏")
+        rot_pri = ib.render(rot_root, now=ib.time.time(), we_dir=we, private=True)
+        ok("私聊片段" in rot_pri, "G10 私有页该提示保留原 id")
+
         pri = ib.render(root, now=ib.time.time(), we_dir=we, private=True)
         ok("unr_aaaaaaaaaa" in pri, "G3 私有页渲染未消费节点 id")
         ok("最后亲密" in pri and "越线" in pri, "G3 私有页渲染关系读数")
         ok("未处理提醒 | 1 条" in pri, "G3 私有页把非 dict 行滤掉后报 1 条")
         ok("unr_Quoted-diary-私聊片段" in pri, "G3 私有页日记 id 原样")
+
+        badc = _mkroot(tmp + "_badc", [{"node_id": "unr_cccccccccc"}], [])
+        with io.open(os.path.join(badc, "_intent_consumed.json"), "w", encoding="utf-8", newline="\n") as f:
+            f.write("5")
+        ok(ib._intent_gap(badc)["consumed"] == 0, "G11 已消费文件被写成数字 ⇒ 当空集，不崩")
 
         bad = _mkwe(tmp + "_bad", state=["不是 dict"])
         pri2 = ib.render(root, now=ib.time.time(), we_dir=bad, private=True)
@@ -148,9 +160,13 @@ def main():
         after_doc = io.open(real_doc, encoding="utf-8").read() if os.path.isfile(real_doc) else None
         ok(r5.returncode == 2 and after_doc == before_doc,
            "G6 --write-private 指向仓内 ⇒ rc=2 且公开文档未改", (r5.returncode, (r5.stdout or "")[:80]))
-        repo_upper = os.path.join(ROOT, ib.OUT_REL).upper()
-        r6 = _run(["--root", root, "--we-dir", we, "--write-private", repo_upper])
-        ok(r6.returncode == 2, "G6 Windows 大小写变体同样被拒", (r6.returncode, (r6.stdout or "")[:80]))
+        if os.name == "nt":
+            repo_upper = os.path.join(ROOT, ib.OUT_REL).upper()
+            r6 = _run(["--root", root, "--we-dir", we, "--write-private", repo_upper])
+            ok(r6.returncode == 2, "G6 Windows 大小写变体同样被拒",
+               (r6.returncode, (r6.stdout or "")[:80]))
+        else:
+            print("  SKIP G6 大小写变体（本平台大小写敏感，大写路径本就是另一位置）")
 
         r2 = _run(["--root", root, "--write", "--out", target])
         written = io.open(target, encoding="utf-8").read() if os.path.isfile(target) else ""
