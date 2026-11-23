@@ -26,7 +26,7 @@ function onFrameRef(node) {
 }
 function Panel() {
   return React.createElement('iframe', {
-    title: '灵枢 · 认知工作台',
+    title: 'Память (Lingshu) · Когнитивный центр',
     srcDoc: PANEL_HTML,
     ref: onFrameRef,
     style: {width:'100%',height:'100%',border:0,display:'block',background:'#f8f9f7'},
@@ -36,6 +36,6 @@ module.exports = {
   inject:['slots'],
   apply(ctx) {
     ctx.slots.inject('main',()=>ctx.slots.register({name:'main',key:'lingshu'},Panel));
-    ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'lingshu',order:20,label:'灵枢'},Icon));
+    ctx.slots.inject('sidebar.panellist',()=>ctx.slots.register({name:'sidebar.panellist',id:'lingshu',order:20,label:'Память (Lingshu)'},Icon));
   },
 };
