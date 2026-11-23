@@ -216,7 +216,7 @@ def _item_tags(cg, it):
 
 # 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身（slim=False 时不瘦身）。
 def _final_out(out, cg, a, slim=False):
-    include = bool((a or {}).get("include_private"))
+    include = _as_flag((a or {}).get("include_private"))
     if isinstance(out, dict):
         for key in ("pack", "results"):
             items = out.get(key)
@@ -2869,7 +2869,7 @@ def _time_intent_boost(res, q):
     if not any(w in (q or '') for w in TIME_WORDS) or not res:
         return res, 0
     import re as _re
-    date_rx = _re.compile(chr(39) + r'(19|20)\d{2}\s*[-/年]\s*\d{1,2}' + chr(39))
+    date_rx = _re.compile(r'(19|20)\d{2}\s*[-/年]\s*\d{1,2}')
     core = q or ''
     for w in TIME_WORDS:
         core = core.replace(w, ' ')
@@ -2992,6 +2992,46 @@ def _ensure_hot_async(cg):
     threading.Thread(target=_job, name="mdcg-hot-build", daemon=True).start()
     return True
 
+
+def _hot_item_allowed(cg, a, nid, rec) -> bool:
+    """热层条目访问与过滤单点（SEC-01）：校验密级/ACL/会话可见性、私密域、层/标签/doc 过滤。"""
+    if not nid or not isinstance(rec, dict):
+        return False
+    from . import hottier as _ht
+    if not _ht._node_visible_for_hot(cg, nid, rec):
+        return False
+    args = a or {}
+    if not _as_flag(args.get("include_private")):
+        if str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() not in ("1", "true", "on"):
+            _tags = list(rec.get("tags") or [])
+            try:
+                _idx_tags = tags_of_item(cg, {"id": nid, "tags": _tags})
+            except Exception:
+                _idx_tags = _tags
+            if PRIVATE_DOMAIN_TAG in [str(t) for t in (_idx_tags or ())]:
+                return False
+    _layer = args.get("layer")
+    if _layer and str(rec.get("layer") or "") != str(_layer):
+        return False
+    if _as_flag(args.get("exclude_doc", False)):
+        _kept_doc, _ = drop_doc_nodes([{"id": nid}], lambda it: it.get("id"),
+                                      True, allow=doc_allow_ids(cg))
+        if not _kept_doc:
+            return False
+    try:
+        _inc = norm_tags(args.get("include_tags"))
+        _exc = norm_tags(args.get("exclude_tags"))
+    except TypeError:
+        return False
+    if _inc or _exc:
+        _kept_t, _ = filter_by_tags([{"id": nid, "tags": rec.get("tags") or []}],
+                                    lambda it: tags_of_item(cg, it),
+                                    include_tags=_inc, exclude_tags=_exc)
+        if not _kept_t:
+            return False
+    return True
+
+
 def _try_hot_first(cg, a, q):
     """本地热层优先（2026-11-14 使用者裁定）：够不着才查主库。
 
@@ -3007,9 +3047,23 @@ def _try_hot_first(cg, a, q):
             on = os.environ.get("MDCG_HOT_FIRST", "1") not in ("0", "false", "")
         if not on:
             return None
+        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
+        # SEC-01：带层/标签/有效性/排除 doc/条件空间/会话/视图/时间窗/显式 bm25 过滤时绕过热层优先，
+        # 交给主库完整过滤面执行（scope=hot 显式浏览则逐条经 _hot_item_allowed 严格过滤）。
+        if not _hot_only:
+            if (a.get("layer") or a.get("validity") or a.get("include_tags")
+                    or a.get("exclude_tags") or a.get("tags_any")
+                    or _as_flag(a.get("exclude_doc", False))
+                    or a.get("context") or a.get("condition_space")
+                    or a.get("session") or a.get("view")
+                    or a.get("start_time") is not None or a.get("end_time") is not None
+                    or _as_flag(a.get("strict_conditions", False))
+                    or ("bm25" in a and _as_flag(a.get("bm25")))):
+                return None
         from . import hottier as _ht
         k = _int_arg(a, "k", 20)
-        _hot_only = str(a.get("scope") or "").strip().lower() == "hot"
+        if k <= 0:
+            return None
         # 2026-11-22（#1002）：判据从「存在」改成「新鲜」。is_fresh 一直在正确返回 False，
         # 只是没人读它——于是陈旧热层会直答「形状对、时间窗过期」的结果（比查不到更难发现）。
         _exists, _fresh, _hot = _hot_state(cg)
@@ -3045,7 +3099,8 @@ def _try_hot_first(cg, a, q):
                  else ("，后台重建中" if _rebuild else "，重建待冷却或未能启动"))
         _hint_stale = ("命中本地热层（**已陈旧 %s**%s；要最新请 hot_first=false 查主库）"
                        % (_age_txt, _tail))
-        res = _ht.search(cg, q, k=k, hot=_hot)   # 复用已 load 的热层（省一次 ~100 ms）
+        res = _ht.search(cg, q, k=k, hot=_hot,
+                         visible_fn=lambda nid, rec: _hot_item_allowed(cg, a, nid, rec))   # 复用已 load 的热层（省一次 ~100 ms）+ SEC-01
         items = res.get("items") or []
         meta = res.get("meta") or {}
         top = max([float(i.get("hot_score") or 0) for i in items] or [0.0])
@@ -3056,9 +3111,11 @@ def _try_hot_first(cg, a, q):
         if _hot_only and not items:
             # 首屏浏览模式：查询词在热层无命中时，**按热层优先级出一批**（自我/锚点/近期/高重要度），
             # 而不是让 UI 白屏 30 秒。meta.mode=browse 明示这不是检索命中。
+            # SEC-01：浏览模式同样必须逐条过 _hot_item_allowed（可见性 + 域:私密 + 过滤）。
             try:
                 _h = _hot or {}
-                _nodes = list((_h.get("nodes") or {}).values())
+                _nodes = [n for n in (_h.get("nodes") or {}).values()
+                          if isinstance(n, dict) and _hot_item_allowed(cg, a, n.get("id"), n)]
                 _w = {"self": 0.5, "anchor": 0.4}
                 _nodes.sort(key=lambda n: (_w.get(str(n.get("layer") or ""), 0.0)
                                           + float(n.get("importance") or 0.0),
@@ -3546,6 +3603,10 @@ def _cg_dispatch(cg, a):
                               view=a.get("view"),
                               **({"strict_conditions": _as_flag(a["strict_conditions"])}
                                  if "strict_conditions" in a else {}))
+        res, _rt_pd = drop_private_domain(
+            res, lambda x: _item_tags(cg, x[0]), enabled=not _as_flag(a.get("include_private")))
+        if _rt_pd and isinstance(meta, dict):
+            meta = dict(meta, private_domain_excluded=_rt_pd)
         knowledge, caps = [], []
         for n, s, q in res:
             fm = n.get("frontmatter") or {}
@@ -3578,22 +3639,23 @@ def _cg_dispatch(cg, a):
                     _sp_on = str(os.environ.get("MDCG_SELF_PREDICT", "1")) not in ("0", "false", "")
                     _fc0 = _self_forecast(a.get("query") or "", a) if _sp_on else None
                     _rr0 = _self_resolve(_fc0, _tres0) if _sp_on else {"hit": None, "delta": None}
-                    return {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
-                                         "fast_path": True},
-                                     **({"self_prediction": {"claim": _fc0["claim"],
-                                                        "confidence": _fc0["confidence"],
-                                                        "hit": _rr0["hit"],
-                                                        "delta": _rr0["delta"],
-                                                        "basis": _fc0["basis"]}}
-                                        if _sp_on else {}),
-                                     "scanned": 0, "fused": len(_tres0)},
-
-                            "results": [{"node": {"id": (n or {}).get("id"),
-                                                    "content": (n or {}).get("content"),
-                                                    "frontmatter": (n or {}).get("frontmatter") or {}},
-                                         "score": s, "state": (q2 or {}).get("state"),
-                                         "reason": (q2 or {}).get("reason")}
-                                        for n, s, q2 in _tres0]}
+                    return _final_out(
+                        {"meta": {"theory_route": {"domain": _tcnt0, "used": len(_tres0),
+                                     "fast_path": True},
+                                 **({"self_prediction": {"claim": _fc0["claim"],
+                                                    "confidence": _fc0["confidence"],
+                                                    "hit": _rr0["hit"],
+                                                    "delta": _rr0["delta"],
+                                                    "basis": _fc0["basis"]}}
+                                    if _sp_on else {}),
+                                 "scanned": 0, "fused": len(_tres0)},
+                         "results": [{"node": {"id": (n or {}).get("id"),
+                                               "content": (n or {}).get("content"),
+                                               "frontmatter": (n or {}).get("frontmatter") or {}},
+                                      "score": s, "state": (q2 or {}).get("state"),
+                                      "reason": (q2 or {}).get("reason")}
+                                     for n, s, q2 in _tres0]},
+                        cg, a)
             except Exception:
                 pass
         # 热层懒建/续建（2026-11-17 起；2026-11-22 #1002：判据从「存在」改「新鲜」，并去掉重复粘贴）
@@ -5095,15 +5157,16 @@ def _stg_call(cg, a):
                 _ka, _kb = str(a.get("a") or ""), str(a.get("b") or "")
                 if _ka in _hn and _kb in _hn:
                     _ra, _rb = _hn[_ka], _hn[_kb]
-                    _out = {"a": _ka, "b": _kb,
-                            "same_layer": _ra.get("layer") == _rb.get("layer"),
-                            "same_session": bool(_ra.get("session"))
-                            and _ra.get("session") == _rb.get("session"),
-                            "a_layer": _ra.get("layer"), "b_layer": _rb.get("layer"),
-                            "time_axis": axis,
-                            "previews": [_ra.get("preview"), _rb.get("preview")],
-                            "scope": "hot"}
-                    return _out
+                    if _hot_item_allowed(cg, a, _ka, _ra) and _hot_item_allowed(cg, a, _kb, _rb):
+                        _out = {"a": _ka, "b": _kb,
+                                "same_layer": _ra.get("layer") == _rb.get("layer"),
+                                "same_session": bool(_ra.get("session"))
+                                and _ra.get("session") == _rb.get("session"),
+                                "a_layer": _ra.get("layer"), "b_layer": _rb.get("layer"),
+                                "time_axis": axis,
+                                "previews": [_ra.get("preview"), _rb.get("preview")],
+                                "scope": "hot"}
+                        return _out
             except Exception:
                 pass
         return stg.relation(cg, a.get("a", ""), a.get("b", ""), time_axis=axis)
@@ -5956,6 +6019,13 @@ def _dispatch(cg, name, args):
             try:
                 _extra = {k: v for k, v in a.items() if k not in ("query", "bm25")}
                 _extra["env_switch"] = _hc.env_switch_key()
+                # SEC-03：缓存键纳入私密域与瘦身开关（参数 + env），避免不同可见面复用同一缓存。
+                _extra["include_private"] = _as_flag(a.get("include_private"))
+                _extra["env_include_private"] = (
+                    str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() in ("1", "true", "on"))
+                _extra["detail"] = str(a.get("detail") or "").strip().lower()
+                _extra["env_read_slim"] = (
+                    str(os.environ.get("MDCG_READ_SLIM", "1")).strip().lower() not in ("0", "false", "off"))
                 if hasattr(cg, "_index_generation"):
                     _extra["index_gen"] = cg._index_generation()
                 # 安全自检（2026-10-21）：检索结果按 **调用者身份** 过滤
@@ -5981,8 +6051,8 @@ def _dispatch(cg, name, args):
                 if (isinstance(_tag, dict) and _tag.get("surface") == "mdcg_search"
                         and _tag.get("v") == 1 and isinstance(_rows, list) and len(_rows) == 1
                         and isinstance(_rows[0], dict)):
-                    # 深拷贝：hotcache 的 _copy_row 只浅一层，_out["results"] 列表会共享
-                    return _copy.deepcopy(_rows[0])
+                    # 深拷贝 + 出口复验（SEC-03）：缓存命中不得绕过私密域过滤或瘦身口径。
+                    return _final_out(_copy.deepcopy(_rows[0]), cg, a, slim=False)
                 _hit = None          # 形状/版本不符 ⇒ 当未命中，不猜
         res, meta = cg.search(a.get("query", ""), layer=a.get("layer"),
                               k=_int_arg(a, "k", 20), context=a.get("context"),
@@ -6007,16 +6077,16 @@ def _dispatch(cg, name, args):
                              "untrusted": bool((n.get("frontmatter") or {}).get("untrusted")),
                              **refindex.ref_fields(n)}
                             for n, s, q in res]}
+        _final = _final_out(_out, cg, a, slim=False)
         if _hcobj is not None and _ckw is not None:
             try:
-                # 写入时深拷贝：否则**未命中那一次**返回给调用方的对象与缓存同一份，
-                # 调用方原地改（append/改 score）就污染了缓存（蜂巢验证单元指出 _copy_row 只浅一层）。
+                # SEC-03：先过 _final_out（摘私密域/瘦身）再深拷贝入缓存，命中与未命中口径一致且不落私密条。
                 import copy as _copy2
-                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_out)],
+                _hcobj.put_query(a.get("query", ""), [_copy2.deepcopy(_final)],
                                  {"surface": "mdcg_search", "v": 1}, **_ckw)
             except Exception:
                 pass
-        return _final_out(_out, cg, a, slim=False)
+        return _final
 
     if name == "mdcg_get":
         _nid = a.get("node_id", "")

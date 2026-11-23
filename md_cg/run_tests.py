@@ -83,6 +83,9 @@ def _test_env() -> dict:
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     for _k in [k for k in env if k.upper() in _STRIP_UPPER]:
         env.pop(_k, None)
+    # 与 scripts/run_tests.py 同口径：写入闸生产默认 enforce，测试跑道缺省 warn，
+    # 避免大量直写 knowledge/structural/self 夹具被闸门误拦（闸门自身由专用守卫显式 enforce 测）。
+    env.setdefault("MDCG_WRITE_GATE", "warn")
     return env
 
 
