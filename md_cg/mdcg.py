@@ -2243,6 +2243,7 @@ class MdCG:
         # （已从脏集摘走但尚未落盘的记录；重载若已越过让路点，也必须把它们叠回去）。
         self._flush_window = False
         self._flush_inflight = {}
+        self._flush_gen = 0
         self._dirty = _DirtyDict()
         # N230：把数据根交给脏集——标脏时按 entry["path"] 落「逐字见证」
         # （见 _DirtyDict._note_witness / MdCG._dirty_entry_superseded）。
@@ -2764,17 +2765,44 @@ class MdCG:
         sig = self._index_signature()
         if sig == self._index_sig:
             return False
-        try:
-            idx = self._load_index()
-        except (OSError, ValueError):
-            return False                # 重载失败不阻塞读：沿用旧内存态
+        # issue #1011-1 补充（`_flush_gen`）：窗口只挡「重载入口」，挡不住「读盘途中
+        # 落盘刚好完成并清空 `_flush_inflight`」。读盘前在脏集锁内记下代际；若读盘
+        # 期间 `_flush_gen` 前进，说明有批次已落进本进程分片且离开在飞表，有界重试
+        # `_load_index()` 直到读盘与快照同代（连撞上限或新窗口开启则让路一轮，不落陈旧快照）。
+        _pending = None
+        _inflight = None
+        for _attempt in range(4):
+            with self._dirty_lock:
+                if getattr(self, "_flush_window", False):
+                    return False
+                _fgen_before = getattr(self, "_flush_gen", 0)
+            try:
+                idx = self._load_index()
+            except (OSError, ValueError):
+                return False                # 重载失败不阻塞读：沿用旧内存态
+            # issue #677 P2：**快照在脏集锁内、陈旧判定与重放在锁外**——后台落盘线程
+            # 会并发清空脏集，直接遍历同一 dict 会抛 dictionary changed size during
+            # iteration；而 `_dirty_entry_superseded` 要 stat 盘面（IO），不能揣在锁里
+            # 挡住写路径标脏。`superseded_ids` 的写入同样入锁（后台线程在锁内拷它）。
+            with self._dirty_lock:
+                if getattr(self, "_flush_gen", 0) == _fgen_before:
+                    _pending = list(self._dirty.items())
+                    _inflight = dict(getattr(self, "_flush_inflight", {}) or {})
+                    break
+        else:
+            return False                    # 连续落盘推进超重试上限：让路一轮，留待下次探测
         superseded = 0
-        # issue #677 P2：**快照在脏集锁内、陈旧判定与重放在锁外**——后台落盘线程
-        # 会并发清空脏集，直接遍历同一 dict 会抛 dictionary changed size during
-        # iteration；而 `_dirty_entry_superseded` 要 stat 盘面（IO），不能揣在锁里
-        # 挡住写路径标脏。`superseded_ids` 的写入同样入锁（后台线程在锁内拷它）。
-        with self._dirty_lock:
-            _pending = list(self._dirty.items())
+        _dirty_ids = {nid for nid, _ in _pending}
+        # issue #1011-1 兜底：若重载**已越过**让路点（窗口在它读盘之后才开启），
+        # 本批已从脏集摘走、盘面又还没写 ⇒ 必须把它们叠回去，否则同样丢覆写。
+        # 同 id 若已在 `_dirty` 中有更新写入，交由下方 `_pending` 重放决定，不用旧在飞值覆盖。
+        for _nid, _e in _inflight.items():
+            if _nid in _dirty_ids:
+                continue
+            if _e is None:
+                idx["nodes"].pop(_nid, None)
+            else:
+                idx["nodes"][_nid] = _e
         for nid, e in _pending:
             if e is None:
                 idx["nodes"].pop(nid, None)
@@ -2792,16 +2820,6 @@ class MdCG:
                     self._dirty.superseded_ids.add(nid)
                 continue
             idx["nodes"][nid] = e
-        # issue #1011-1 兜底：若重载**已越过**让路点（窗口在它读盘之后才开启），
-        # 本批已从脏集摘走、盘面又还没写 ⇒ 必须把它们叠回去，否则同样丢覆写。
-        # 在飞批次比盘面新（它是本进程刚接受的写入），故直接覆盖。
-        with self._dirty_lock:
-            _inflight = dict(getattr(self, "_flush_inflight", {}) or {})
-        for _nid, _e in _inflight.items():
-            if _e is None:
-                idx["nodes"].pop(_nid, None)
-            else:
-                idx["nodes"][_nid] = _e
         self._dirty_replay_superseded = superseded
         idx["buckets"] = self._count_buckets(idx["nodes"])
         self.index = idx
@@ -3113,8 +3131,10 @@ class MdCG:
 # 生效条件：无入参、只读（不 flush、不建线程、不改任何状态）——返回 {async: 缺省是否异步（env MDCG_ASYNC_FLUSH）、pending_dirty: 尚未落盘的脏索引条数、worker_alive: 后台线程是否活着、last_error: 最近一次后台落盘失败（无则 None）}；供 maintain action=flush / cg(op=info) 把「索引派生物是否落后于盘面」变成可读读数（容忍 ≠ 静默）；
     def flush_state(self):
         th = self._flush_thread
+        with self._dirty_lock:
+            pending = len(self._dirty) + len(getattr(self, "_flush_inflight", None) or ())
         return {"async": self.async_flush_enabled(),
-                "pending_dirty": len(self._dirty),
+                "pending_dirty": pending,
                 "worker_alive": bool(th is not None and th.is_alive()),
                 "last_error": self._flush_error}
 
@@ -3146,8 +3166,10 @@ class MdCG:
             # 要么看见窗口位，不会看见「已清空但未置位」的缝）。
             self._flush_window = True
             self._flush_inflight = dict(batch)
+        _flushed = False
         try:
             self._flush_batch(batch, superseded)
+            _flushed = True
         except BaseException:
             with self._dirty_lock:
                 # #677 C 复核：`_dirty.clear()` 会连 superseded_ids 一起清（见 _DirtyDict），
@@ -3175,9 +3197,13 @@ class MdCG:
             raise
         finally:
             # issue #1011-1：落盘窗口**无条件**关闭——否则一次失败会让后续所有重载永久让路。
+            # 同锁内推进 `_flush_gen`（仅真实落盘成功时），让在 `_load_index()` 期间越过
+            # 窗口起点的并发重载感知到「在飞批次已落盘并清空」而重试装载，避免丢更新。
             with self._dirty_lock:
                 self._flush_window = False
                 self._flush_inflight = {}
+                if _flushed:
+                    self._flush_gen = getattr(self, "_flush_gen", 0) + 1
 
 # 生效条件：batch 为 [(nid, entry)] 快照、superseded 为「已判陈旧」的 id 集合（两者都取自 _flush_locked 的锁内快照）时，在 FileLock(index_path) 下按需新建 ShardedLog、登记本进程分片（_own_shard）后逐条 append（跳过 superseded 中的 id），最后关闭分片句柄并返回 None；self._log 为假值时跳过关闭；
     def _flush_batch(self, batch, superseded):
