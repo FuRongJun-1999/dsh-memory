@@ -293,6 +293,9 @@ def _iter_sites(tree):
 
 #: 源码文本 → 扫描结果（见 scan_source 的缓存说明）
 _SCAN_CACHE: dict = {}
+#: 缓存上限：需覆盖全 md_cg 追踪面原件 + 反包裹副本 + 变异副本（当前 1029+ 文件；
+#: 早先 1024 上限被越过后每轮整表清空导致缓存命中率跌至 0%），满载时仅逐出最旧项而非整表清空。
+_SCAN_CACHE_MAX = 8192
 
 
 def scan_source(src: str) -> list:
@@ -300,17 +303,17 @@ def scan_source(src: str) -> list:
 
     owner ∈ {inline, alias:<名>, param:<形参>}；safe=True 表示迭代源已取快照。
 
-    **按源码文本缓存**：全域扫描要过 196 个文件、定点变异模式要跑十几轮，不缓存
-    则同一份源码被反复 AST 分析（实测：g1 一轮 36s，是变异模式耗时主因）。命中时
-    连同源码本体一起比对确认，不做「哈希相同就算同源」的盲信。
+    **按源码文本缓存**：全域扫描要过全 md_cg 追踪面（1029+ 文件）、定点变异模式
+    要跑十几轮，不缓存则同一份源码被反复 AST 分析。命中时连同源码本体一起比对确认，
+    不做「哈希相同就算同源」的盲信。
     """
     key = (len(src), hash(src))
     hit = _SCAN_CACHE.get(key)
     if hit is not None and hit[0] == src:
         return hit[1]
     result = _scan_source_uncached(src)
-    if len(_SCAN_CACHE) > 1024:
-        _SCAN_CACHE.clear()
+    if len(_SCAN_CACHE) >= _SCAN_CACHE_MAX:
+        _SCAN_CACHE.pop(next(iter(_SCAN_CACHE)), None)
     _SCAN_CACHE[key] = (src, result)
     return result
 
@@ -356,6 +359,10 @@ def _scan_source_uncached(src: str) -> list:
     for s in scopes[1:]:
         fn_by_name.setdefault(s.name, []).append(s)
 
+    # 预计算各作用域本地别名（仅依赖 AST 本身，避免在下方 for call 循环内对同一宿主函数
+    # 重复做 O(N) AST 遍历——例如 mcp_server.py 7000+ 行内含 700 次同文件调用）。
+    base_aliases = {id(s): scope_aliases(s) for s in scopes}
+
     # 一层过程间：以共享实参调用某函数 ⇒ 该形参在该函数体内也是共享面
     param_shared = {}
     for call in [n for n in ast.walk(tree) if isinstance(n, ast.Call)]:
@@ -363,7 +370,7 @@ def _scan_source_uncached(src: str) -> list:
         if nm not in fn_by_name:
             continue
         csc = enclosing_fn(call) or tree
-        local = scope_aliases(csc)
+        local = base_aliases[id(csc)]
         for callee in fn_by_name[nm]:
             args = [a.arg for a in callee.args.args]
             for i, a in enumerate(call.args):
@@ -378,7 +385,8 @@ def _scan_source_uncached(src: str) -> list:
                                    and kw.value.id in local)):
                     param_shared.setdefault(id(callee), set()).add(kw.arg)
 
-    cache = {id(s): scope_aliases(s, param_shared.get(id(s), set()))
+    cache = {id(s): (base_aliases[id(s)] | param_shared[id(s)]
+                     if id(s) in param_shared else base_aliases[id(s)])
              for s in scopes}
 
     def alias_set_for(node):
