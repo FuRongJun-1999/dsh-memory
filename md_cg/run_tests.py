@@ -67,7 +67,14 @@ _LOG_DIR = os.environ.get("MDCG_TESTLOG_DIR") or os.path.join(
 #: 已有同口径剔除（同名单同日期），而 README 指定的包内入口 python -m md_cg.run_tests
 #: 跑同一批守卫——本文件补同口径，避免两条入口对同一守卫给出相反结论。
 #: env 权威本身是 issue #128 的刻意设计，本条不改变产品行为，只在测试环境剔除。
-_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION")
+_SESSION_ENV_STRIP = ("MDCG_SESSION", "DSH_SESSION_ID", "DSH_SESSION",
+                      # issue #1011 附带（2026-11-22 实测）：`MDCG_TICK_HOOK` 是**运维注入**，
+                      # 常驻循环每档 tick 都会起一个 `python <hook> --tick <name>` 子进程（实测
+                      # 约 0.5 s）⇒ 0.05 s 级间隔的节奏类守卫（p41 演化巡检 / sustain_bounded /
+                      # p14 / p15 / heartbeat_ledger）被拖成「只跑过 beat 一档」而判红。
+                      # 那是宿主机 env 的副作用，不是被测行为：剔除后五条全部转绿（逐条实测）。
+                      # 需要外钩的守卫自己显式设 env（仓内现无这样的用例）。
+                      "MDCG_TICK_HOOK")
 _STRIP_UPPER = frozenset(_k.upper() for _k in _SESSION_ENV_STRIP)
 
 
@@ -76,6 +83,9 @@ def _test_env() -> dict:
     env = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
     for _k in [k for k in env if k.upper() in _STRIP_UPPER]:
         env.pop(_k, None)
+    # 与 scripts/run_tests.py 同口径：写入闸生产默认 enforce，测试跑道缺省 warn，
+    # 避免大量直写 knowledge/structural/self 夹具被闸门误拦（闸门自身由专用守卫显式 enforce 测）。
+    env.setdefault("MDCG_WRITE_GATE", "warn")
     return env
 
 
@@ -167,6 +177,20 @@ def _dep_mdroot():
             "空壳目录不算依赖就绪）")
 
 
+def _dep_hive():
+    """hive 二进依赖：`hive/target/release/hive`（Windows 为 hive.exe）须已 cargo build。
+
+    缺件时这 5 条用例原本直接 FAIL（A0 前置判据处断言二进制存在），
+    于任何新 worktree / 新机器首跑都呈「假红」——与「能力缺失要标注、
+    不伪造健康结论」的口径相反（2026-11-23 复核 #1013 时实测）。
+    """
+    exe = os.path.join(_REPO, "hive", "target", "release",
+                       "hive.exe" if os.name == "nt" else "hive")
+    return (None if os.path.isfile(exe)
+            else "缺 hive 二进制 hive/target/release/hive"
+                 "（先在 hive/ 下 cargo build --release，或用 HIVE_EXE 指向可用二进制）")
+
+
 # 裸 clone 环境 SKIP 探测（2026-09-14 外部复核建议 #3）：
 # 依赖 gitignored 本地数据或特定平台的测试，依赖缺失时标 SKIP（附原因）
 # 不计入失败——避免裸 clone 用户第一眼看到虚假 FAIL（复核实测 83/87 根因）。
@@ -174,6 +198,11 @@ _SKIPS = {
     "md_cg.test_p44_md_whitebox": _dep_db,
     "md_cg.test_md_access_parity": _dep_db,
     "md_cg.test_wisdom_md_store": _dep_mdroot,
+    "hive.test_h6_mcp_depends_on": _dep_hive,
+    "hive.test_orch": _dep_hive,
+    "hive.test_result_anchor_chain": _dep_hive,
+    "hive.test_id_contract_v2": _dep_hive,
+    "hive.test_job_id_segment_dot": _dep_hive,
     "swarm.tests.test_swarm_fault": (
         lambda: None if os.name == "nt"
         else "Windows 专用（powershell/taskkill）"),

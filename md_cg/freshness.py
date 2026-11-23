@@ -350,7 +350,9 @@ def entry_weight(entry, now=None, gamma=None, fm=None, enabled=None) -> tuple:
     # （层保护无 layer 可判；按分保护把 heuristic 误当缺省来源）。键集只增不改，
     # 其余四键的取值口径与优先级（fm > entry > 缺省）逐位不变。
     keys = ("created_at", "access_count", "last_access", "importance",
-            "protected", "layer", "importance_source")
+            "protected", "layer", "importance_source",
+            # issue #980（2026-11-18）：确认位进取数面，否则 hint 永远判不出保护。
+            "importance_confirmed_by")
     if fm is not None:
         src = {k: (fm.get(k) if fm.get(k) is not None else e.get(k))
                for k in keys}

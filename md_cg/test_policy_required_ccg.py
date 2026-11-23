@@ -77,8 +77,13 @@ FORBIDDEN = r"FORBIDDEN_TOKEN_[A-Z]{3}"
 FORBIDDEN_HIT = "FORBIDDEN_TOKEN_XYZ"
 
 # 改动前行为（required 对所有 kind 生效、缺项截断前 3 且无 detail、hint 单文案）下应为红的项
-EXPECTED_RED = ("G2b", "G2c", "G2d", "G3b", "G3c", "G4a", "G4b", "G4c",
-                "G5a", "G8b", "G8c")
+# 2026-11-22 同步（issue #1010 收尾实测）：issue #997 给「缺少必需要素」补了 tail（已识别要素 /
+# 未识别行）与 detail.recognized/unrecognized_lines，据此新增的三条断言（G2b2/G2b3/G2b4）在**旧行为**
+# 下同样为红——红集从 11 项变 14 项，而本常量当时没跟改 ⇒ test_autonomy_modes 的 J 组
+# 「红项集合 == 预期」腿一直红。实测基线红集：G2b, G2b2, G2b3, G2b4, G2c, G2d, G3b, G3c,
+# G4a, G4b, G4c, G5a, G8b, G8c（14 项，逐项与断言定义一一对应；判别力只增不减）。
+EXPECTED_RED = ("G2b", "G2b2", "G2b3", "G2b4", "G2c", "G2d", "G3b", "G3c",
+                "G4a", "G4b", "G4c", "G5a", "G8b", "G8c")
 
 _BASELINE_FILES = {"audit": "md_cg/audit.py", "writepipe": "md_cg/writepipe.py"}
 
@@ -90,10 +95,16 @@ _BASELINE_MUTATIONS = {
          "req_active = bool(required) and (not kinds or str(kind) in kinds)",
          "req_active = bool(required)"),
         ("缺失清单形态",
+         # 2026-11-22 同步（issue #1010 收尾实测 ANCHOR-MISS）：issue #997 给这条拒绝回显加了两项
+         # ——`tail`（已识别要素 / 未识别行预览）与 detail 里的 recognized/unrecognized_lines。
+         # 原锚点是 #997 **之前**的返回形态，audit.py 一改即 ANCHOR-MISS（fail-closed 退出 2，
+         # 连带 test_autonomy_modes 的 J 组子进程腿一起红）。锚点只跟着「现实现」走，
+         # 变异目标（旧行为）保持不变——判别力不变，只是对齐当前实现。
          '            return (REJECT,\n'
-         '                    "缺少必需要素：%s（补齐后重写即可，本条未入库）"\n'
-         '                    % "、".join(missing),\n'
-         '                    {"missing": missing, "missing_patterns": missing_patterns})',
+         '                    "缺少必需要素：%s%s（补齐后重写即可，本条未入库）"\n'
+         '                    % ("、".join(missing), tail),\n'
+         '                    {"missing": missing, "missing_patterns": missing_patterns,\n'
+         '                     "recognized": present, "unrecognized_lines": odd})',
          '            return (REJECT,\n'
          '                    "缺少必需要素：%s" % "、".join(missing_patterns[:3]),\n'
          '                    None)'),
@@ -126,6 +137,9 @@ _SHIMS = ("twophase", "trust", "linkref", "mcp_server", "mdcg", "forgetting",
 # （`from .condaccept import …` / `from .condgate import …`），同款以追加语句登记，
 # 不动上面那行字面量锚。
 _SHIMS = _SHIMS + ("protect", "condaccept", "condgate")
+# 2026-11-18（#980 接线）：writepipe 新增价值观闸的相对 import
+# （`from . import values_gate as _vg`），同款追加登记。
+_SHIMS = _SHIMS + ("values_gate",)
 _SHIM_TPL = ("import md_cg.%s as _m\n"
              "globals().update({k: v for k, v in vars(_m).items()\n"
              "                 if not k.startswith('__')})\n")
@@ -282,9 +296,15 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
 
     # ---------------- G2 缺 3 项 ----------------
     r = _audit(audit_mod, miss3, _policy())
-    want = "缺少必需要素：执行、验证方式、不适用条件（补齐后重写即可，本条未入库）"
+    # issue #997：报错补「已识别要素 / 未识别行预览」，故不再做全等断言，
+    # 改为三段断言（前缀不变——writepipe 依赖 startswith("缺少必需要素")）。
     add("G2a", r["state"] == "REJECT", r["state"])
-    add("G2b", r["evidence"] == want, r["evidence"])
+    add("G2b", r["evidence"].startswith("缺少必需要素：执行、验证方式、不适用条件"), r["evidence"])
+    add("G2b2", "已识别：功能名、生效条件、子功能" in r["evidence"], r["evidence"])
+    add("G2b3", (r["evidence"].rstrip().endswith("（补齐后重写即可，本条未入库）")
+                 or "（补齐后重写即可，本条未入库）" in r["evidence"]), r["evidence"])
+    add("G2b4", (r["detail"] or {}).get("recognized") == ["功能名", "生效条件", "子功能"],
+        (r["detail"] or {}).get("recognized"))
     add("G2c", (r["detail"] or {}).get("missing") == list(three),
         (r["detail"] or {}).get("missing"))
     add("G2d", (r["detail"] or {}).get("missing_patterns") == list(REQ_PATTERNS[3:]),
@@ -339,7 +359,8 @@ def run_checks(tmp, audit_mod, wp_mod, full_face=False):
     add("G7a", r["state"] == "ACCEPT", r["state"])
     r = _audit(audit_mod, "正文 " + FORBIDDEN_HIT, dict(p7))
     add("G7b", r["state"] == "REJECT"
-        and r["evidence"] == "命中禁止规则：" + FORBIDDEN, r["evidence"])
+        and r["evidence"].startswith("命中禁止规则 #") and FORBIDDEN in r["evidence"]
+             and "命中片段" in r["evidence"], r["evidence"])
     add("G7c", r["detail"] is None, repr(r["detail"]))
 
     # ---------------- G8 写入面返回（真实写入链 + audit 闸） ----------------

@@ -34,6 +34,17 @@ def main():
     ok(writegate.gate_mode(clean) == 'enforce', 'W1a 缺省档位 = enforce', writegate.gate_mode(clean))
     ok(writegate.review_channels(clean) == (), 'W1b 缺省通道未声明', writegate.review_channels(clean))
 
+    # W6 文档面（issue #1000）：docstring/头注释里凡称「缺省」，必须与真值同口径写 enforce。
+    # 起因：c4b30343 同一次提交里 docstring 写「缺省 warn」、注释写「默认开（warn）」、代码写
+    # enforce —— 测试与 CHANGELOG 都是对的，只有最贴近代码的那几行错，且没有任何守卫覆盖。
+    # 判据刻意只做「同一行内必须出现 enforce」，不猜句式：真值一变，本守卫跟着红。
+    _head = open(writegate.__file__, encoding='utf-8').read().splitlines()[:10]
+    _doc = ((writegate.__doc__ or '') + '\n' + (writegate.gate_mode.__doc__ or '')).splitlines()
+    _bad = [l.strip() for l in _head + _doc if '缺省' in l and 'enforce' not in l]
+    _claims = [l for l in _head + _doc if '缺省' in l]
+    ok(len(_claims) >= 2, 'W6a 至少有两处「缺省」声明（防空过）', len(_claims))
+    ok(not _bad, 'W6b 凡称「缺省」的文档行必须写 enforce', _bad[:2])
+
     ok(writegate.decide_write('knowledge', environ=clean)['decision'] == 'deny',
        'W2a 无通道 ⇒ 知识层 deny')
     ok(writegate.decide_write('contextual', environ=clean)['decision'] == 'allow',

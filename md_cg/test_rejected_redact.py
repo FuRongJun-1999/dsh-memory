@@ -141,6 +141,27 @@ def _run(tmp):
     _check("R4b 无规则原样返回", audit.redact_forbidden(s, {}) == s)
     _check("R4c 非法正则跳过不抛错", "[已过滤:禁表#1]" not in r)
 
+    # ---------- R5 拒因里的「命中片段」回显不得随负记忆落盘（#1011 附带，#43 另一条通路） ----------
+    # 背景：check_policy 为帮写入方定位，在 evidence 里回显命中片段前 10 字（#997）；REJECT 分支把同一
+    # 段 evidence 交给 add_rejected 原样落盘 ⇒ R2 的残片判据在 rejected/rej_*.md 里命中。
+    # 本组的判别点：**正文里没有凭据**（只有拒因带预览），落盘面仍必须一格原文都不留。
+    cg5 = _mk_cg(tmp, "root_r5")
+    ev = ("命中禁止规则 #0：%s；命中片段「%s…」（共 %d 字符，截断不回显全文）"
+          % (TK, FAKE[:10], len(FAKE)))
+    rid5 = cg5.add_rejected("假设 %s：拒因带预览" % FAKE, ev)
+    fm5, body5 = cg5._read(cg5.index["nodes"][rid5])
+    leak5 = [w for w in (FAKE[:8], FAKE[:10]) if w in (body5 or "")]
+    leak5 += [w for w in (FAKE[:8], FAKE[:10])
+              if w in str((fm5 or {}).get("rejection_reason") or "")]
+    leak5 += [w for w in (FAKE[:8], FAKE[:10])
+              if w in str((cg5.index["nodes"].get(rid5) or {}).get("rejection_reason") or "")]
+    _check("R5 拒因预览不落盘（正文/frontmatter/索引三处）", not leak5, repr(leak5))
+    _check("R5b 证据可审计性保留（规则序号 + 字符数仍在）",
+           "命中禁止规则 #0" in (body5 or "") and ("共 %d 字符" % len(FAKE)) in (body5 or ""),
+           repr((body5 or "")[:160]))
+    _check("R5c 幂等判据仍按原文算（同假设同 id）",
+           cg5.add_rejected("假设 %s：拒因带预览" % FAKE, ev) == rid5)
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -99,7 +99,7 @@ SHAPES = [
     ("层保护 layer=self", {"layer": "self"}, True),
     ("按分保护 importance=0.80", {"importance": 0.80}, True),
     ("按分保护 + hint 来源", {"importance": 0.80,
-                              "importance_source": "hint"}, True),
+                              "importance_source": "hint", "importance_confirmed_by": "u_fu"}, True),
     ("heuristic 来源不按分", {"importance": 0.80,
                               "importance_source": "heuristic"}, False),
     ("importance=0.69 不按分", {"importance": 0.69}, False),
@@ -153,7 +153,7 @@ def g1_506_floor():
     w_lay = F.entry_weight(idx, now=NOW, gamma=GAMMA,
                            fm={"layer": "anchor"})[0]
     w_src = F.entry_weight(idx, now=NOW, gamma=GAMMA,
-                           fm={"importance_source": "hint"})[0]
+                           fm={"importance_source": "hint", "importance_confirmed_by": "u_fu"})[0]
     check("G1f layer 经 fm 覆盖生效（修前取数键不含 layer）", w_lay > 0.1,
           "none=%.6f lay=%.6f" % (w_none, w_lay))
     check("G1g importance_source 经 fm 覆盖生效（修前取数键不含该键）",

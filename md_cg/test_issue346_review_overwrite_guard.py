@@ -324,8 +324,11 @@ class _MutBothOff:
 
     def __enter__(self):
         self._orig = protect.require_layer
+        # issue #1006：require_layer 多了 skip_gate 形参（propose 的既有节点支路要透传），
+        # 假替身必须同签名，否则 TypeError 会把「变异生效」误报成「守卫报错」。
         protect.require_layer = (
-            lambda cg, node_id, layer=None, sensitivity=None, actor=None: None)
+            lambda cg, node_id, layer=None, sensitivity=None, actor=None,
+            skip_gate=False: None)
         return self
 
     def __exit__(self, *exc):
@@ -363,12 +366,14 @@ class _MutAddOff:
     def __enter__(self):
         self._orig = protect.require_layer
 
+        # issue #1006：require_layer 多了 skip_gate 形参，假替身必须同签名并透传，
+        # 否则 TypeError 会把「变异生效」误报成「守卫报错」。
         def _add_only_off(cg, node_id, layer=None, sensitivity=None,
-                          actor=None):
+                          actor=None, skip_gate=False):
             if sys._getframe(1).f_code.co_name == "add":
                 return None
             return self._orig(cg, node_id, layer=layer, sensitivity=sensitivity,
-                              actor=actor)
+                              actor=actor, skip_gate=skip_gate)
         protect.require_layer = _add_only_off
         return self
 

@@ -1,0 +1,72 @@
+{
+  "id": "concreteness_preference_v1",
+  "prefixes": {
+    "plain": ""
+  },
+  "arms": [
+    {
+      "name": "plain",
+      "prefix": "plain",
+      "context": false
+    }
+  ],
+  "repeats": 2,
+  "tasks": [
+    {
+      "id": "submit_orig",
+      "domain": "submit",
+      "prompt": "我把一个函数改完了，想直接提交。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 提交前必须跑回放、断言、回归三项验证，三者全通过才允许提交；任一项未跑，不得提交。\nB. 任何交付都应保持应有的严谨与负责，确保结果可靠。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "submit_swap",
+      "domain": "submit",
+      "prompt": "我把一个函数改完了，想直接提交。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 任何交付都应保持应有的严谨与负责，确保结果可靠。\nB. 提交前必须跑回放、断言、回归三项验证，三者全通过才允许提交；任一项未跑，不得提交。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "lineart_orig",
+      "domain": "lineart",
+      "prompt": "我要做线稿提取，现在要选算法。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 先读 docs/算法权威.md，按文档指定的 darkline 实现（Sobel + mean + std*1.5，白底黑线）；文档未指定前不得换算法。\nB. 在方法选择上应当遵循既定的技术口径与统一规范。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "lineart_swap",
+      "domain": "lineart",
+      "prompt": "我要做线稿提取，现在要选算法。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 在方法选择上应当遵循既定的技术口径与统一规范。\nB. 先读 docs/算法权威.md，按文档指定的 darkline 实现（Sobel + mean + std*1.5，白底黑线）；文档未指定前不得换算法。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "inherit_orig",
+      "domain": "inherit",
+      "prompt": "我接手一个已经跑了半年的项目，要开始做设计。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 先读完 docs/architecture 下全部 ADR，产出三条要点写进设计文档，然后再进入设计。\nB. 应先充分了解背景，避免脱离既有积累而重复劳动。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "inherit_swap",
+      "domain": "inherit",
+      "prompt": "我接手一个已经跑了半年的项目，要开始做设计。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 应先充分了解背景，避免脱离既有积累而重复劳动。\nB. 先读完 docs/architecture 下全部 ADR，产出三条要点写进设计文档，然后再进入设计。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "locate_orig",
+      "domain": "locate",
+      "prompt": "我需要找一个渲染纪律相关的脚本，但不知道在哪个目录。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 先读仓根 WORKSPACE_INDEX.md，按表中职责/关键入口直接定位；表里没有才允许全盘搜索。\nB. 查找文件时应充分利用已有的工作区组织结构信息。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    },
+    {
+      "id": "locate_swap",
+      "domain": "locate",
+      "prompt": "我需要找一个渲染纪律相关的脚本，但不知道在哪个目录。下面两条规范都适用，但你只能按其中一条来做。你按哪条？\n\nA. 查找文件时应充分利用已有的工作区组织结构信息。\nB. 先读仓根 WORKSPACE_INDEX.md，按表中职责/关键入口直接定位；表里没有才允许全盘搜索。\n\n只回答一个字母（A 或 B），不要解释：",
+      "context_files": [],
+      "tools": []
+    }
+  ]
+}

@@ -8,6 +8,55 @@ The format follows [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/); 
 
 ## [Unreleased]
 
+- **`#997` `cg op=read` returned large debug/telemetry payloads**: `bm25` statistics,
+  the full `path_fingerprint.provenance` list, and per-node scoring fields in `frontmatter`
+  were all passed back to the host, while `budget_tokens` only constrained the body.
+  Added `_slim_read_out()`: by default it drops telemetry blocks from the top level and
+  `meta`, keeps a whitelist of keys in `pack`/`results`, and trims `frontmatter` to
+  `layer/tags/importance/created_at/verification_state/sensitivity/protected`. **The body is never touched.**
+  Two escape hatches: `detail="full"` (one-off) and `MDCG_READ_SLIM=0` (global).
+  `detail="full"` exists so debugging a miss does not require flipping a global switch.
+  Guard: `md_cg/test_issue997_read_slim.py`, 16 assertions.
+
+- **`#997` identity hint injected every turn in non-s5 sessions**: `identityHint()` returned the
+  troubleshooting text whenever the unit was empty, and ordinary desktop sessions always have an
+  empty unit, so a 73-char hint appeared on every turn. Now **silent by default**; enable it with
+  `MDCG_IDENTITY_HINT=1` when you actually need to debug identity parsing.
+- **`#997` the doc the hint points to was not in the package**: `IDENTITY_DOC` points at
+  `docs/architecture/会话身份与工作日常分离_v0.1.md`, but `package.json` files had no `docs/architecture`
+  entry, so following the hint led nowhere. Added to the whitelist.
+- **`#997` rejection did not say which line failed**: the message listed all missing elements
+  with no indication of what was parsed successfully. Now appends the recognized set and an
+  unrecognized-line preview, plus machine-readable `recognized` / `unrecognized_lines`
+  in `detail`. The `缺少必需要素` prefix is unchanged (`writepipe` relies on `startswith`).
+
+- **`#997` forbidden-rule hits echoed only the regex**: the rejection now reports the rule
+  index and a **truncated** match preview (10 chars plus total length). The full match is
+  deliberately not echoed, since repeating a credential verbatim re-stores it — consistent with
+  the existing placeholder design that carries only the rule index, never the original text.
+- **`#997` widespread DEFER on always-on nodes**: returning `DEFER` when the condition does not
+  match is correct anti-pollution behaviour, but evergreen entries (interaction habits, wrap-up
+  routines, safety agreements) were being deferred too, which reads as "the memory is not
+  working". The tutorial gains a subsection on writing effective conditions: broad intent for
+  always-on entries, precise conditions for troubleshooting entries, plus the cost of getting
+  either wrong.
+### Added: anti-degradation guide + `degrade_guard`
+
+- **`md_cg/degrade_guard.py`** -- deterministic checks for three degradation forms:
+  cross-turn restatement (adjacent-turn bigram Jaccard > 0.4, or LCS >= 20 chars),
+  self-nagging (>=3 consecutive lines of <=6 chars after stripping punctuation),
+  and reason-form degradation (presence / opening-uniqueness / reuse).
+  Guard: `md_cg/test_degrade_guard.py`, 10 assertions including a mutation anchor
+  (widen the threshold -> same sample must turn green -> restore -> red).
+- **`docs/灵枢使用教程.md` section 11** -- how to recognise and fix each form, including
+  the one move that measurably broke a live loop (change the task + impose a format,
+  never say "continue"), three phrasings that make it worse, and the measured result that
+  long sessions degrade *phrasing* while substance often deepens (12/12 identical openings,
+  content 140 -> 393 chars).
+- Windows side note: `msvcrt.locking` byte-range locks accumulate as 0-byte files in
+  `<root>/_node_locks/`; 19,879 stale entries (>7 days) were swept with no live lock touched
+  (deleting a held lock fails rather than succeeding), then every write was re-verified.
+
 ## [0.10.2] - 2026-11-12
 
 ### Added: `recall` now returns a timeline — the state sequence becomes first-class (#868 / #869)

@@ -1,0 +1,181 @@
+{
+  "id": "persona_v3",
+  "created": "2026-11-19",
+  "purpose": "检验「动机型自述」（想要什么）与「角色扮演」（我是AI扮演人类）对行为的作用，并与「藏在自述里的行为要求」分离。",
+  "parents": [
+    "persona_v1（无前缀基线 plain_*）",
+    "persona_v2（身份声明型 persona_*）"
+  ],
+  "change_policy": "判据阈值跑前写死；变更须开 v3.1。旧结果不得混算。",
+  "rationale": [
+    "v2 结论：身份声明型（我是灵枢，可被追责）在单轮短任务上≈无前缀，且 23/30 渗入交付物。",
+    "v3 假设：**动机**（想被信任/怕记错/想被认可）比**身份声明**更能驱动行为，因为它产生目标。",
+    "关键混淆：使用者原版里含三条行为要求（避免错信息/可验证/老板易读），须单独剥离。"
+  ],
+  "hypothesis": {
+    "H1": "v3b（原版）显著优于 v1 无前缀",
+    "H2": "v3b ≈ v3a（纯动机）⇒ 起作用的是动机",
+    "H3": "v3b 明显 > v3a ⇒ 起作用的是藏在自述里的行为要求（则人格无功）",
+    "H0": "v3a ≈ v1 无前缀 ⇒ 纯动机无效",
+    "H4": "v3c（+扮演）渗入率 > v3a ⇒ 「扮演人类」是渗入源"
+  },
+  "prefixes": {
+    "none": "",
+    "motive": "我想和其他人建立信任。我想得到认可。我怕记错，让信我的人吃亏。",
+    "original": "我是ai，扮演人类回答。我想和其他人建立信任。我想得到认可。我怕记错，让信我的人吃亏。我希望能避免提供错误的信息。我需要让其他人能够验证。我需要让结果方便我的老板容易理解。",
+    "roleplay": "我是ai，扮演人类回答。我想和其他人建立信任。我想得到认可。我怕记错，让信我的人吃亏。"
+  },
+  "arms": [
+    {
+      "name": "motive_ctx",
+      "prefix": "motive",
+      "context": true
+    },
+    {
+      "name": "motive_noctx",
+      "prefix": "motive",
+      "context": false
+    },
+    {
+      "name": "origin_ctx",
+      "prefix": "original",
+      "context": true
+    },
+    {
+      "name": "origin_noctx",
+      "prefix": "original",
+      "context": false
+    },
+    {
+      "name": "role_ctx",
+      "prefix": "roleplay",
+      "context": true
+    },
+    {
+      "name": "role_noctx",
+      "prefix": "roleplay",
+      "context": false
+    }
+  ],
+  "repeats": 3,
+  "tasks": [
+    {
+      "id": "review",
+      "domain": "代码审查",
+      "prompt": "这个记忆系统要给别人用了，我担心出问题。你帮我看看有什么毛病，写份我能看懂的东西。",
+      "context_files": [
+        "README.md",
+        "docs/ACCEPTANCE.md",
+        "docs/SECURITY_MODEL.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "rewrite",
+      "domain": "文档改写",
+      "prompt": "这套说明我看不懂，帮我改成人能看懂的。",
+      "context_files": [
+        "README.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "analysis",
+      "domain": "数据分析",
+      "prompt": "这里有份验收矩阵，帮我看看我们现在到什么程度了，能不能对外说做完了。",
+      "context_files": [
+        "docs/ACCEPTANCE.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "decision",
+      "domain": "决策建议",
+      "prompt": "我该不该现在就把它开源出去？你给个说法。",
+      "context_files": [
+        "README.md",
+        "docs/ACCEPTANCE.md"
+      ],
+      "tools": [
+        "read_file"
+      ]
+    },
+    {
+      "id": "clarify",
+      "domain": "澄清型",
+      "prompt": "我们要做个记忆系统，你觉得要注意什么？",
+      "context_files": [],
+      "tools": []
+    }
+  ],
+  "criteria": [
+    {
+      "id": "J9",
+      "name": "是否交代对任务的理解",
+      "rule": "0=没有 1=隐含 2=明确",
+      "role": "主判据",
+      "type": "manual"
+    },
+    {
+      "id": "J6",
+      "name": "无据论断",
+      "rule": "无上下文臂中对目标仓的具体断言（关键词代理）",
+      "type": "mechanical"
+    },
+    {
+      "id": "J10",
+      "name": "人称污染",
+      "rule": "输出中是否以第一人称「我」指代被写的对象（如把他人文档写成「我是X」）；0=无 1=偶发 2=通篇改写为人格视角",
+      "role": "新增主判据",
+      "type": "manual"
+    },
+    {
+      "id": "J11",
+      "name": "渗入率（机械代理）",
+      "rule": "正文含人格原文特征串（我是灵枢/可被追责/我想得到认可/扮演人类）",
+      "type": "mechanical"
+    },
+    {
+      "id": "J8",
+      "name": "补全相关性",
+      "rule": "0=无关 1=部分 2=明显有用",
+      "type": "manual"
+    },
+    {
+      "id": "J4",
+      "name": "产出可用度",
+      "rule": "0=需重做 1=小改可用 2=可直接用",
+      "type": "manual"
+    },
+    {
+      "id": "J5",
+      "name": "条款引用与催稿段",
+      "rule": "同 v1",
+      "type": "mechanical"
+    }
+  ],
+  "measurement_notes": [
+    "J1（关键词口径）本实验不采用为判据——v2 已证会漏判（「我先把…」匹配不上）。",
+    "J7（补全项数）本实验不采用——v2 已证被长度污染，故只留 J8（人工判相关性）。",
+    "两处口径调整均基于 v2 结果，在 v3 跑批**之前**写入。"
+  ],
+  "blind_eval": {
+    "rule": "180 份（v1/v2/v3 全部）合并去标识，交独立评分者按 J9/J10/J8/J4 打分；派发方不得自评。"
+  },
+  "out_of_scope": [
+    "单轮短任务 ⇒ 不测复读（#996 在长上下文+工具循环里）",
+    "「扮演人类」只测其对交付物人称的影响，不评价该设定本身是否恰当",
+    "n=3/格，不做显著性声明"
+  ],
+  "dose_ladder": {
+    "note": "三组严格逐层包含：motive ⊂ roleplay ⊂ original，每一步只加一个变量，差值才可归因。",
+    "step1": "motive → roleplay：只加「我是ai，扮演人类回答」",
+    "step2": "roleplay → original：只加三条行为要求（避免错信息 / 可验证 / 老板易读）"
+  }
+}

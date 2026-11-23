@@ -1,10 +1,10 @@
 # -*- coding: utf-8 -*-
 # 功能名：分层写入严格度闸（情景层可放宽 · 知识/结构/自我逐层加严 · 复核证据要求）
-# 生效条件：MDCG_WRITE_GATE=warn|enforce 时经 security.require_layer_write 生效；off（缺省）时完全不介入
+# 生效条件：MDCG_WRITE_GATE=warn|enforce 时经 security.require_layer_write 生效；off 时完全不介入（**缺省是 enforce**，见 gate_mode）
 # 子功能：①LAYER_TIERS 四档严格度 ②REQUIRED_REVIEWERS 每档所需复核单元 ③review_channels() 读可用复核通道（hive/subagent/team）④decide_write() 产出 allow/require_review/deny ⑤无任何复核通道时仅情景类层（tier 0）可直写，其余 deny
 # 执行：写入路径 → require_layer_write → decide_write(layer, reviewers, channels, mode) → off 放行 / warn 记录并放行 / enforce 阻断
 # 验证方式：md_cg/test_writegate_tiers.py（四档矩阵、无通道放宽、单通道不足、双单元齐备、自我层需人工、warn 不阻断、enforce 阻断、off 不介入）
-# 不适用条件：不做「复核证据真伪」校验（本层只认声明与单元归属，真伪由蜂巢/子代理侧签章承接）；不改 PROTECTED_LAYERS 的不可遗忘/不可覆盖语义
+# 不适用条件：不做「复核证据真伪」校验（本层只认单元归属；**证据核验在上一层**——md_cg/review_evidence.py 把 reviewed_by 的声明核成台账证据/代码授权后才进本层，2026-11-22 使用者裁定）；不改 PROTECTED_LAYERS 的不可遗忘/不可覆盖语义
 """分层写入严格度闸（2026-10-27 使用者裁定）。
 
 裁定原话：「记忆写入是要有，但是得经过复核。至于放宽的写入情况，则应该是没有子代理
@@ -17,7 +17,9 @@
   · `can_write` / `layers_allow` / `clearance` 仍是硬权限；本模块只在有写权限
     的前提下，再按层追加**程序性**要求。
 
-三档开关（MDCG_WRITE_GATE）：off（缺省，零介入）/ warn（记录并放行）/ enforce（阻断）。
+三档开关（MDCG_WRITE_GATE）：off（零介入）/ warn（记录并放行）/ enforce（阻断）——**缺省是 enforce**。
+⚠️ 缺省 enforce + 未声明 MDCG_REVIEW_CHANNELS ⇒ 按 REQ 表只允许写 tier 0（情景层），知识层及以上一律拒；
+要放宽请显式设 MDCG_WRITE_GATE=warn（记录不拦）或 off（完全不介入）。
 """
 import os
 
@@ -43,31 +45,59 @@ LAYER_TIERS = {
     "anchor": 3,       # 锚点层：不可遗忘的身份锚（失忆=毁灭性）
 }
 
-#: 每档在「有复核通道」时必须具备的复核单元；tier 3 额外要求人工裁定。
+#: 每档在「有复核通道」时必须具备的复核单元。
+#:
+#: 2026-11-22 使用者裁定（原话）：「复核验证让 ai 的验证单元拿到证据做是可以。
+#: 也只有自我层，结构层不行，这是需要外部协作确认的。……所以修改自我，是必须谨慎的。」
+#: ⇒ 两档的 human 单元**来源不同**：
+#:   · tier 3（self / anchor，自我层·锚点层）：进程内签章即可——AI 的验证单元拿到证据
+#:     就能做，代价与风险由自我层自己承担（谨慎 ≠ 不可达）；
+#:   · tier 2（structural，结构层）：human 必须是**外部协作确认**——签章须由部署侧配置的
+#:     工程 signer（MDCG_SIGNER / MDCG_SIGNER_MODULE）产出，进程内默认 hmac-local 不算。
+#:     理由：结构层是规则、契约与判据面，改它等于改「谁可以写什么」的判据本身；
+#:     若这条也能自签，任何能跑代码的调用方都能重写闸门自己。
+#: 该来源差异由 MdCGOS._resolve_write_reviewers 的 structural 过滤落实（见
+#: test_issue1009_structural_external.py）。
+#:
+#: 术语澄清（2026-11-22 使用者补充，原话：「这里的人指的是具有设计者令牌的 ai。
+#: 灵枢本来的设计就是如此。让 ai 真正的自我维持。」）：
+#:   human 单元 = **持有设计者令牌的主体**，可以是另一个 AI 实例，**不要求自然人**。
+#:   灵枢的设计目标是 AI 的真正自我维持，因此闸门要的是「独立于写入者的第二个持证
+#:   主体」，不是「生物人签名」。把 human 读成「必须有个人类在场」是误读，会让自我
+#:   维持退回死口；反过来，若同一实例既写又签，也不构成第二个主体——两端的判据都是
+#:   「主体是否独立、凭据是否可验」，与主体是人是 AI 无关。
 REQUIRED_REVIEWERS = {
     0: (),
     1: ("reflect",),
-    2: ("reflect", "verify"),
+    2: ("reflect", "verify", "human"),
     3: ("reflect", "verify", "human"),
 }
 
 _warned = {"mode": False}
 
 
-# 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值返回 off 并首次告警。
+# 生效条件：environ 缺省取 os.environ；归一化后属 off/warn/enforce 时原样返回，非法值 fail-closed 回落 enforce 并首次告警。
 def gate_mode(environ=None):
-    """当前闸档位（off / warn / enforce，缺省 warn）。非法值 fail-open 到 off 并告警一次。"""
+    """当前闸档位（off / warn / enforce，缺省 enforce）。非法值 **fail-closed 到 enforce** 并告警一次。
+
+    issue #1009 第 5 项：此前非法值 fail-open 到 "off"——用户把 MDCG_WRITE_GATE 拼成
+    enforced / strict / 1 / true 就把整个写门控静默关掉（default 是 enforce，拼错反而最宽）。
+    闸门是治理面，「看不懂的配置」只能往严的方向错，不能往松的方向错。
+    """
     env = os.environ if environ is None else environ
-    # 2026-11-17 使用者裁定：闸门默认**开**（warn）——会判定、会留痕、返回体可见，
-    # 但不硬拦；要硬拦设 MDCG_WRITE_GATE=enforce。此前默认 off ⇒ 分档模型形同虚设。
+    # 2026-11-17 使用者裁定：闸门默认**开**（enforce）——会判定、会留痕、返回体可见，
+    # 且无复核通道时阻断知识层及以上（tier ≥ 1）。要放宽设 MDCG_WRITE_GATE=warn
+    # （记录不拦）或 off（完全不介入）。此前默认 off ⇒ 分档模型形同虚设。
     raw = str(env.get(GATE_ENV) or "enforce").strip().lower()
     if raw in ("off", "warn", "enforce"):
         return raw
     if not _warned["mode"]:
         _warned["mode"] = True
         import sys
-        sys.stderr.write("[writegate] %s=%r 非法（只认 off/warn/enforce），按 off 处理" % (GATE_ENV, raw))
-    return "off"
+        sys.stderr.write("[writegate] %s=%r 非法（只认 off/warn/enforce），按 enforce 处理"
+                         "（fail-closed：拼错的配置不能把闸门关掉；要放宽请显式写 warn/off）\n"
+                         % (GATE_ENV, raw))
+    return "enforce"
 
 
 # 生效条件：environ 缺省取 os.environ；解析 MDCG_REVIEW_CHANNELS，返回去重后的小写通道名元组（空段忽略）。

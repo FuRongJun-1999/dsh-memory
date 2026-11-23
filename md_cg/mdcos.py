@@ -24,8 +24,56 @@ import json
 import math
 import os
 import re
+import threading
 import time
 import uuid
+
+#: issue #1011-2：`scoped_scope(session=...)` 的「未指定」哨兵——用它区分「不改会话」
+#: 与「显式把会话置空」（None 是合法值：跨会话视图）。
+_SCOPE_UNSET = object()
+
+
+# 生效条件：`with cg.scoped_scope(principal=..., session=...)` 进出时由 MdCGOS 构造——
+# 只改**当前线程**的覆盖值，退出时精确还原（含原本无覆盖的情形）。
+class _ScopeCtx:
+    def __init__(self, owner, principal=None, session=_SCOPE_UNSET):
+        self._owner = owner
+        self._principal = principal
+        self._session = session
+
+    def __enter__(self):
+        tls = self._owner._scope_tls
+        self._prev_p = getattr(tls, "principal", None)
+        self._prev_s = getattr(tls, "session", None)
+        self._prev_s_set = getattr(tls, "session_set", False)
+        if self._principal is not None:
+            tls.principal = self._principal
+        if self._session is not _SCOPE_UNSET:
+            tls.session = self._session
+            tls.session_set = True
+        return self._owner
+
+    def __exit__(self, *exc):
+        tls = self._owner._scope_tls
+        if self._principal is not None:
+            if self._prev_p is None:
+                try:
+                    del tls.principal
+                except AttributeError:
+                    pass
+            else:
+                tls.principal = self._prev_p
+        if self._session is not _SCOPE_UNSET:
+            if self._prev_s_set:
+                tls.session = self._prev_s
+            else:
+                for _a in ("session", "session_set"):
+                    try:
+                        delattr(tls, _a)
+                    except AttributeError:
+                        pass
+        return False
+
 
 from .mdcg import (MdCG, expand_query_terms, bigrams, normalize_en, fold_accents,
                     _optional_asset,
@@ -73,6 +121,11 @@ _FIX_RE = re.compile(
     re.I | re.M)
 
 RRF_K = 60          # RRF 常数
+# issue #1005 补充①（测评端 2026-11-22 复测）：**标题卡**的标题截断长度。
+# 动机：21 题里的材料覆盖 60.9%，相当一部分是「预算被长材料吃满 ⇒ 条目根本进不来」。
+# 标题卡只带定位信息（标题/标签/日期/正文体量 + 取用方式），正文按需二次取，
+# 同一预算下能铺开更多候选（memu-memory 的 name/id/tag 卡即此形）。
+CARD_TITLE_MAX = 60
 # 每路能贡献多少候选（融合循环里的 `[:cap]` 截断）——**单一真源**（issue #139 R-2）：
 # `md_cg.bm25.LIMIT` 与 search_rrf 的融合 / 仅召回两处切片都引用本常量。
 RRF_PATH_TERM_CAP = 50
@@ -634,10 +687,11 @@ def _dual_check_required():
 #: 复核单元名的中英文同义归一（判据只认两类 + 人工）。
 REVIEW_UNIT_ALIASES = {
     "reflect": "reflect", "reflection": "reflect", "反思单元": "reflect",
-    "反思": "reflect", "reflect_unit": "reflect",
-    "verify": "verify", "verifier": "verify", "验证单元": "verify",
-    "验证": "verify", "verify_unit": "verify",
-    "human": "human", "user": "human", "使用者": "human", "人工": "human",
+    "反思": "reflect", "反思者": "reflect", "reflect_unit": "reflect",
+    "verify": "verify", "verifier": "verify", "verification": "verify",
+    "验证单元": "verify", "验证": "verify", "验证者": "verify", "verify_unit": "verify",
+    "human": "human", "man": "human", "user": "human", "使用者": "human",
+    "人工": "human", "人工裁定": "human", "human_review": "human",
 }
 
 
@@ -648,6 +702,94 @@ def _norm_review_unit(name):
     if not raw:
         return ""
     return REVIEW_UNIT_ALIASES.get(raw, raw)
+
+
+class _VerifiedReviewers(tuple):
+    """经服务端校验过的复核单元元组标记（仅由 _verify_reviewers 构造，区分于外部裸入参）。
+
+    proof 仅包含经令牌验签或非 NullSigner 签章通过的单元映射（绝不含裸声明），
+    target 绑定本次裁决的目标 node_id（防止跨节点复用）。
+    """
+
+    def __new__(cls, units=(), *, proof=None, target=None):
+        obj = super().__new__(cls, units)
+        obj.proof = dict(proof or {})
+        obj.target = str(target or "").strip() or None
+        return obj
+
+
+# 生效条件：name 经 strip、剥离尾部中英文括号注记、去除全部空白并 casefold 后返回；空值返回 ""（与 review_evidence.norm_actor 同源）。
+def _norm_review_actor(name) -> str:
+    """复核主体名归一（与 ccgc._same_subject / review_evidence.norm_actor 同口径）。"""
+    from .review_evidence import norm_actor as _na
+    return _na(name)
+
+
+# 生效条件：a/b 经 _norm_review_actor 归一后均非空且相等时返回 True，否则返回 False。
+def _same_review_actor(a, b) -> bool:
+    from .review_evidence import same_actor as _sa
+    return _sa(a, b)
+
+
+# 生效条件：pid/unit/actor/node_id 规范化为固定键排序的紧凑 UTF-8 JSON 字节串，供签章与验签同源使用。
+def _review_attest_payload(pid: str, unit: str, actor: str, node_id: str = "") -> bytes:
+    body = {
+        "pid": str(pid or "").strip(),
+        "node_id": str(node_id or "").strip(),
+        "unit": _norm_review_unit(unit),
+        "actor": str(actor or "").strip(),
+    }
+    return json.dumps(body, sort_keys=True, ensure_ascii=False,
+                      separators=(",", ":")).encode("utf-8")
+
+
+# 生效条件：unit 归一后属 reflect/verify/human 且 actor 去空白非空、且 pid 或 node_id 至少一个非空、且签名器非 NullSigner 时返回带 sig 的复核签章字典；否则抛 ValueError。
+def sign_review_attestation(pid: str, unit: str, actor: str,
+                            node_id: str = "", signer=None) -> dict:
+    """签发一条绑定提案/节点的复核单元签章（供蜂巢/宿主/Tier-3 确认面使用）。
+
+    human 单元 = 持有设计者令牌的主体，**可以是另一个 AI 实例**（2026-11-22 使用者澄清）：
+    灵枢的设计目标是 AI 的真正自我维持，闸门要的是「独立于写入者的第二个持证主体」，
+    而非自然人签名。
+    """
+    u = _norm_review_unit(unit)
+    if u not in ("reflect", "verify", "human"):
+        raise ValueError(f"未知复核单元：{unit!r}")
+    actor_s = str(actor or "").strip()
+    if not actor_s:
+        raise ValueError("签章缺少复核主体 actor")
+    pid_s = str(pid or "").strip()
+    nid_s = str(node_id or "").strip()
+    if not pid_s and not nid_s:
+        raise ValueError("签章必须绑定 pid 或 node_id")
+    from . import signer as _sg
+    s = signer or _sg.get_signer()
+    if getattr(s, "name", "") == "null" or isinstance(s, _sg.NullSigner):
+        raise ValueError("NullSigner 不可用于复核签章（fail-closed）")
+    payload = _review_attest_payload(pid_s, u, actor_s, nid_s)
+    sig = s.sign(payload, ctx={"action": "review_attest"})
+    out = {"unit": u, "actor": actor_s, "sig": sig}
+    if pid_s:
+        out["pid"] = pid_s
+    if nid_s:
+        out["node_id"] = nid_s
+    return out
+
+
+# 生效条件：raw 为任意入参项；若为 dict 则剔除 token/secret/sig 等凭据字段（仅留键存在标记与非敏感元数据），否则转为截断字符串，绝不泄露凭据明文。
+def _sanitize_review_claim(raw):
+    if isinstance(raw, dict):
+        clean = {}
+        for k in ("unit", "role", "name", "actor", "pid", "node_id"):
+            v = raw.get(k)
+            if v is not None and str(v).strip():
+                clean[k] = str(v).strip()[:120]
+        if raw.get("token"):
+            clean["has_token"] = True
+        if raw.get("sig"):
+            clean["has_sig"] = True
+        return clean
+    return str(raw)[:120]
 
 
 # ---- 审核队列裁决动作（治理层）· 2026-09-19 阶段一 ----------------------------
@@ -852,6 +994,9 @@ class MdCGOS(MdCG):
         # 同名握手断链（实测 TypeError: MdCGOS.__init__() got an unexpected
         # keyword argument 'async_flush'）。None = 随 env（含本层自有缺省）。
         super().__init__(root, autoflush=autoflush, async_flush=async_flush)
+        # issue #1011-2：请求级身份作用域（线程局部）。基值仍在实例上，
+        # `cg.principal = X` 改的是基值（旧调用方语义不变），`scoped_scope()` 只改本线程。
+        self._scope_tls = threading.local()
         self.actor = actor
         self.audit_log = os.path.join(self.root, "_audit.jsonl")
         self.audit_archive = os.path.join(self.root, self.AUDIT_ARCHIVE)
@@ -859,6 +1004,24 @@ class MdCGOS(MdCG):
         self.hippocampus = os.path.join(self.root, self.HIPPOCAMPUS)
         self.inbox_log = os.path.join(self.hippocampus, "inbox.jsonl")
         self.decisions_log = os.path.join(self.hippocampus, "decisions.jsonl")
+        # issue #1009 第 5 项（2026-11-22 使用者裁定）：reviewed_by 是**声明**不是证据。
+        # 本字段存「代码授权」——由 review_decide 的双单元复核判定（_dual_review_verdict）
+        # 在判 ok 时登记，键=目标节点 id、300s 内有效、用一次即作废。见 review_evidence.py。
+        self._review_grant = None
+        # ---------- 请求级身份作用域（issue #1011-2）----------
+        # 病灶：`mcp_server.call_tool` 把 `cg.principal` / `cg.session` 就地改写再还原，
+        # 而 `defer_s>0` 的后台检索线程在**同一个 cg 实例**上并发调 call_tool ⇒
+        # 线程 A 的高权 scope 被线程 B 覆盖、finally 互相写脏（权限串台/会话泄漏）。
+        # 处置：principal/session 做成属性，读优先本线程覆盖值，未覆盖回落实例基值。
+        # 基值缺省 None（与旧行为一致：纯 MdCGOS 上 `principal` 原本不存在，
+        # 由 MdCGSecure 显式赋值；mcp_server 对 None 走「不做请求级收窄」分支）。
+        # **不得覆盖子类先设的值**：MdCGSecure.__init__ 在 super().__init__ **之前**
+        # 就赋了 `self.principal`，此处无条件置 None 会把它清掉（S1 实测 AttributeError）。
+        if "_principal_base" not in self.__dict__:
+            self._principal_base = None
+        if "_session_base" not in self.__dict__:
+            self._session_base = None
+        self._session_base = None
         self.trash_dir = os.path.join(self.root, self.TRASH)
         os.makedirs(self.hippocampus, exist_ok=True)
         os.makedirs(self.trash_dir, exist_ok=True)
@@ -929,6 +1092,34 @@ class MdCGOS(MdCG):
     # ================= 6. payload-free 审计 =================
 
 # 生效条件：当 op 与 node_id 传入时，构造含 t/op/id/actor/session（session 经 _attribution_session_of(self, sens) 取用——纯 MdCGOS 无钩子时回落 getattr(self,"session",None)，与改动前逐位一致）并合并 meta 的记录，尝试轮转后追加到 self.audit_log；追加过程中的 OSError 被吞掉；
+# ---------- 请求级身份作用域（issue #1011-2）----------
+# 生效条件：读 `cg.principal` / `cg.session` 时——本线程有覆盖值则返回它，否则返回实例基值。
+    @property
+    def principal(self):
+        tls = self.__dict__.get("_scope_tls")
+        v = getattr(tls, "principal", None) if tls is not None else None
+        return v if v is not None else self.__dict__.get("_principal_base")
+
+    @principal.setter
+    def principal(self, value):
+        self.__dict__["_principal_base"] = value
+
+    @property
+    def session(self):
+        tls = self.__dict__.get("_scope_tls")
+        if tls is not None and getattr(tls, "session_set", False):
+            return getattr(tls, "session", None)
+        return self.__dict__.get("_session_base")
+
+    @session.setter
+    def session(self, value):
+        self.__dict__["_session_base"] = value
+
+# 生效条件：需要在一段代码内以某身份/会话执行时（并发安全的请求级收窄）——进入时写本线程覆盖，退出精确还原。
+    def scoped_scope(self, principal=None, session=_SCOPE_UNSET):
+        """请求级作用域：只影响**本线程**，不写实例基值、不需要加锁。"""
+        return _ScopeCtx(self, principal, session)
+
     def _audit(self, op: str, node_id: str, sens=None, **meta):
         """只记事件与载荷哈希，绝不记录内容（payload-free）。
 
@@ -1112,6 +1303,13 @@ class MdCGOS(MdCG):
         # 抽走函数体会让该锚命中 0 次 ⇒ 全量链新增一红（实测 rc=2 ANCHOR-MISS）。
         # 故锁用 `with` 包住原函数体，而非把函数体搬进独立子函数。
         with node_write_lock(self, node_id):
+            # issue #980（2026-11-18）：hint 是**自评**，不再自动授权保护。
+            # 写侧在这里给**设计者身份**的 hint 落独立确认位；protect 的按分分支
+            # 只认带确认位的 hint（自评过线即自动 protected 的反例见 #980）。
+            if kw.get("importance_source") == "hint":
+                _pr = getattr(self, "principal", None)
+                if str(getattr(_pr, "role", "") or "").lower() == "designer":
+                    kw["importance_confirmed_by"] = str(getattr(_pr, "actor", "") or "designer")
             # #151（2026-10-12 DSH 端）：**有限性与取值范围守卫**（范式抄 `reach._ttl()`：
             # 非法值**回落文档缺省**，不抛、不改既有调用方语义）。
             # 病象：`importance`/`confidence` 直接落 frontmatter，而 JSON/上游可传入
@@ -2914,6 +3112,40 @@ class MdCGOS(MdCG):
         from .topicagg import aggregate as _agg      # noqa: PLC0415 —— 聚合实现单点
         return _agg(pack, query, min_members=min_members, max_groups=max_groups)
 
+    @staticmethod
+    def card_of(node, content=None):
+        """把一条记忆压成**标题卡**（issue #1005 补充①）。
+
+        生效条件：`recall(..., card_mode=True)`（缺省关，行为逐位不变）。
+        卡内只放定位信息——标题（正文首个非空行）/ 标签 / 日期 / 正文体量 / 取用方式；
+        **不判定内容是否相关**（那是检索面的事），也**不截断事实**（正文按需取）。
+        返回卡的正文；调用方据此计 token 并装包。
+        """
+        text = (content if content is not None else (node.get("content") or "")).strip()
+        title = ""
+        for line in text.splitlines():
+            line = line.strip().lstrip("#").strip()
+            if line:
+                title = line[:CARD_TITLE_MAX]
+                break
+        fm = node.get("frontmatter") or {}
+        tags = fm.get("tags") or []
+        if isinstance(tags, str):
+            tags = [tags]
+        date = ""
+        for key in ("created_at_date", "valid_from", "created_at", "t"):
+            if fm.get(key):
+                date = str(fm[key])[:10]
+                break
+        parts = ["【卡】" + (title or "(无标题)")]
+        if tags:
+            parts.append("标签: " + ", ".join(str(x) for x in list(tags)[:6]))
+        if date:
+            parts.append("日期: " + date)
+        parts.append("正文 %d token，取用：cg(op=get, node_id=%s)"
+                     % (est_tokens(text), node.get("id")))
+        return "\n".join(parts)
+
     def recall(self, query: str, budget_tokens: int = DEFAULT_BUDGET, k: int = 20,
                layer: str = None, context=None, roles=None,
                include_work: bool = False, judge: bool = True, use_rrf: bool = True,
@@ -2923,7 +3155,7 @@ class MdCGOS(MdCG):
                validity=None, max_item_tokens: int = DEFAULT_MAX_ITEM_TOKENS,
                start_time=None, end_time=None, start_operator=None,
                end_operator=None, time_axis=None, view=None,
-               excerpt_strategy: str = "prefix", now=None):
+               excerpt_strategy: str = "prefix", now=None, card_mode: bool = False):
         """按 token 预算装包：装到预算花完为止。
 
         装包策略（2026-09-14 调整）：
@@ -3014,6 +3246,9 @@ class MdCGOS(MdCG):
         min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
         for node, score, qual, prov in items:
             content = node.get("content") or ""
+            if card_mode:
+                # 标题卡：先压成卡再计 token ⇒ 同一预算能装进更多条目（issue #1005 补充①）。
+                content = self.card_of(node, content)
             t = est_tokens(content)
             truncated = False
             excerpt = None
@@ -3066,6 +3301,8 @@ class MdCGOS(MdCG):
                      "tokens": t, "content": content,
                      "frontmatter": node.get("frontmatter"),
                      "provenance": prov, "metadata": metadata}
+            if card_mode:
+                entry["card"] = True
             if truncated:
                 entry["truncated"] = True
             if excerpt is not None:
@@ -3242,10 +3479,50 @@ class MdCGOS(MdCG):
         # 需要**按主题归并**的序列（不是全表一张）。这里用已有字段做廉价归并：
         # 优先 frontmatter.bucket（条件桶 cond_<topic>_<hash> 天然是主题轴），其次首个 tag。
         timeline_groups = self._pack_timeline_groups(pack)
+        # ===== issue #1005 ①②：随包下发判读合同 + 如实报覆盖缺口 =====
+        # ① 合同计入预算（不从预算外额外送）：按合同自身 token 数从**尾部**（最低分）
+        #    裁掉等量条目，保证「材料 + 合同」总量不超 budget_tokens。
+        # ② 缺口只看装包结果自带信号（不额外检索、不读盘）：缺什么如实说，
+        #    未认证 ≠ 错，只表示「调用方该自己判断材料够不够」。
+        policy_text, coverage_gaps, coverage_certified = "", [], True
+        try:
+            from . import coverage as _coverage
+            from . import reading_policy as _policy
+            policy_text = _policy.payload()
+            if policy_text:
+                _ptok = est_tokens(policy_text)
+                if used + _ptok <= budget_tokens:
+                    used += _ptok
+                else:
+                    # 只裁「材料尾巴」（保底留 1 条）：合同是判读约束，不是拿来把材料挤空的。
+                    # 裁之前先算可行性——裁到只剩 1 条仍装不下，就把尾巴**原样放回**再丢合同，
+                    # 不许出现「合同没进包、材料却少了」这种两头空（budget_tokens=20 就是这样）。
+                    _back = []
+                    while pack and len(pack) > 1 and used + _ptok > budget_tokens:
+                        _tail = pack.pop()
+                        _back.append(_tail)
+                        used -= int(_tail.get("tokens") or 0)
+                    if used + _ptok > budget_tokens:
+                        for _tail in reversed(_back):
+                            pack.append(_tail)
+                            used += int(_tail.get("tokens") or 0)
+                        # 不装作写进了预算：丢掉合同，并把这件事记在 meta 里（可审计）。
+                        meta["reading_policy_skipped"] = "budget_too_small"
+                        policy_text = ""
+                    else:
+                        used += _ptok
+            coverage_gaps, coverage_certified = _coverage.gaps(
+                pack, skipped, used, budget_tokens, query=query,
+                baseline=1.0 / (RRF_K + 1))
+        except Exception:            # noqa: BLE001 —— 判读面不拖崩装包
+            policy_text, coverage_gaps, coverage_certified = "", [], True
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates, "timeline": timeline,
-                "timeline_groups": timeline_groups}
+                "timeline_groups": timeline_groups,
+                "reading_policy": policy_text,
+                "coverage_gaps": coverage_gaps,
+                "coverage_certified": coverage_certified}
 
 
 
@@ -4092,17 +4369,26 @@ class MdCGOS(MdCG):
 
 # 生效条件：当 pid/item/decision/status/reason/round_no/rt_verdict/issues/vhash/result 传入时，构造 rec 并写 record_hash，把 result 中 ok/node_id/error/state 保留（result.mutation 为 dict 时另落 rec["mutation"]＝变更单执行时点载荷，proposal 链无此键、rec 形状逐位不变）；在 strict 锁内追加 decisions_log；随后尝试写 md 审核记录，成功补 record_node_id/record_hash，异常则补 record_error 并 audit review_record_failed；最后 audit review_decide 并返回 result；
     def _record_decision(self, pid, item, decision, status, reason, round_no,
-                         rt_verdict, issues, vhash, result, reviewers=None):
+                         rt_verdict, issues, vhash, result, reviewers=None,
+                         review_audit=None):
         """落盘一轮裁决：jsonl（权威）+ md 审计节点（可复核、供外部审计）。"""
         t = time.time()
+        _auth_actor = self._authenticated_actor() or self.actor
         rec = {"t": t, "pid": pid, "decision": decision, "status": status,
                "round": round_no, "redteam_verdict": rt_verdict or "absent",
                "issues": issues, "verify_hash": vhash, "reason": reason,
-               "actor": self.actor, "target_id": item.get("id"),
+               "actor": _auth_actor, "target_id": item.get("id"),
                "record_node_id": self._audit_node_id(pid, round_no)}
         rec["record_hash"] = self._record_hash(rec)
         rec["result"] = {k: v for k, v in result.items()
                          if k in ("ok", "node_id", "error", "state")}
+        if isinstance(review_audit, dict):
+            if review_audit.get("decided_by_claimed"):
+                rec["decided_by_claimed"] = review_audit["decided_by_claimed"]
+            if review_audit.get("claimed_reviewed_by"):
+                rec["claimed_reviewed_by"] = review_audit["claimed_reviewed_by"]
+            if review_audit.get("verified_reviewers"):
+                rec["verified_reviewers"] = review_audit["verified_reviewers"]
         # 三档自治③（设计 §四）：变更单的**执行时点载荷**（含前像/影响面/
         # 回滚命令）随裁决记录落盘——回滚 CLI 的读取源（rec["mutation"]）。
         # proposal 链 result 无 mutation 键 ⇒ rec 形状逐位不变；record_hash
@@ -4273,6 +4559,7 @@ class MdCGOS(MdCG):
         if after is None:
             after = item.get("content") or ""
         meta = dict(slot.get("meta") or {})
+        meta.pop("reviewed_by", None)
         actor = item.get("actor") or getattr(self, "actor", None)
         session = meta.pop("session", None)
         _ovr = bool(meta.pop("override", False)) or bool(override)
@@ -4403,56 +4690,313 @@ class MdCGOS(MdCG):
             after_hash=_after_hash)
         return {"ok": True, "node_id": node_id, "mutation": mpay}
 
-# 生效条件：item 为 inbox 记录、decision 属 DECISION_ACTIONS；reviewed_by 可为字符串或 {unit:…} 映射的可迭代，decided_by 为假值时回落到 item 的 proposer/compiled_by/actor；返回 {"ok":True,"reviewed_units":[...]} 或 {"ok":False,"error":...}（dual_check_required / self_review_forbidden / unknown_review_unit）。
-    def _dual_review_verdict(self, item, decision, decided_by=None, reviewed_by=None):
-        """裁决前双单元复核判定（反思单元 + 验证单元；**裁决者不得自证**）。
+# 生效条件：优先取 self.principal.actor（非空去空白），缺失时回落 self.actor；两者皆空返回 ""。
+    def _authenticated_actor(self) -> str:
+        p = getattr(self, "principal", None)
+        who = getattr(p, "actor", None) if p is not None else None
+        if not str(who or "").strip():
+            who = getattr(self, "actor", None) or ""
+        return str(who or "").strip()
 
-        归一口径见 `_norm_review_unit`（reflect/verify/human 三类）。两条判据：
-          1. `reviewed_by` 必须**同时**含 reflect 与 verify（同一类重复不算——
-             两个反思单元仍然没有验证，正是「同侧互证」的盲区）；
-          2. 裁决者不得是提案者本人（与 ccg 的 E041「编译者不得自证」同源）。
+# 生效条件：untrusted_review 为真（如 MCP 入参）或 self.principal.auth_mode 不属 direct/local-cli/test 时返回 True（要求凭据/签章校验复核单元）；裸 MdCGOS 或本地直调返回 False。
+    def _review_requires_proof(self, untrusted_review: bool = False) -> bool:
+        if untrusted_review:
+            return True
+        p = getattr(self, "principal", None)
+        if p is None:
+            return False
+        mode = str(getattr(p, "auth_mode", "") or "").strip().lower()
+        return mode not in ("direct", "local-cli", "test")
 
-        只在 `MDCG_REVIEW_DUAL_CHECK=1` 时被调用；关闭时本方法不参与任何路径。
-        """
+# 生效条件：将 reviewed_by 逐项校验并产出 (_VerifiedReviewers, audit_dict)；trusted=False 时忽略裸字符串与未签名字典，仅采信 tokens.verify_token 验签通过且非提案者/写入者的 reflect/verify 令牌及非 NullSigner 绑定 pid/node_id 的有效签章，并禁止同一主体冒充多单元；trusted=True 时兼容内部直调的单元名声明（但不将裸声明记入 proof）。
+    def _verify_reviewers(self, item, reviewed_by, *, trusted: bool = False,
+                          node_id: str = ""):
+        if isinstance(reviewed_by, _VerifiedReviewers):
+            return reviewed_by, {"verified": [], "unverified": [], "unknown": []}
+        if reviewed_by is None:
+            return _VerifiedReviewers(), {"verified": [], "unverified": [], "unknown": []}
+        if isinstance(reviewed_by, (str, bytes, dict)):
+            entries = [reviewed_by]
+        else:
+            try:
+                entries = list(reviewed_by)
+            except TypeError:
+                entries = [reviewed_by]
+
+        forbidden_actors = []
+        if isinstance(item, dict):
+            for k in ("proposer", "compiled_by", "actor"):
+                v = item.get(k)
+                if v:
+                    forbidden_actors.append(v)
+        writer_actor = MdCGOS._authenticated_actor(self)
+        if writer_actor:
+            forbidden_actors.append(writer_actor)
+        expected_pid = (str(item.get("pid") or "").strip()
+                        if isinstance(item, dict) else "")
+        expected_nid = str(
+            node_id or (item.get("id") if isinstance(item, dict) else "") or ""
+        ).strip()
+        expected_tenant = getattr(getattr(self, "principal", None), "tenant", None)
+
         units = []
-        for raw in (reviewed_by or ()):
+        proof_map = {}
+        seen_actors = {}
+        verified_audit = []
+        unverified_audit = []
+        unknown = []
+
+        for raw in entries:
+            # 1. 令牌凭据：{"token": "mdcg1...", ...}
+            if isinstance(raw, dict) and str(raw.get("token") or "").strip():
+                tok = str(raw.get("token")).strip()
+                claimed = _norm_review_unit(
+                    raw.get("unit") or raw.get("role") or raw.get("name") or "")
+                try:
+                    from . import tokens as _tk
+                    rp = _tk.verify_token(tok, tenant=expected_tenant)
+                except Exception as exc:  # noqa: BLE001
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "reason": f"token_invalid:{type(exc).__name__}",
+                    })
+                    continue
+                role_unit = _tk.normalize_role(getattr(rp, "role", ""))
+                if role_unit not in ("reflect", "verify"):
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": getattr(rp, "actor", ""),
+                        "role": getattr(rp, "role", ""),
+                        "reason": "role_not_reviewer_unit",
+                    })
+                    continue
+                if claimed and claimed != role_unit:
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": getattr(rp, "actor", ""),
+                        "role": getattr(rp, "role", ""),
+                        "reason": "claimed_unit_role_mismatch",
+                    })
+                    continue
+                rp_actor = str(getattr(rp, "actor", "") or "").strip()
+                if not rp_actor or any(_same_review_actor(fa, rp_actor) for fa in forbidden_actors):
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": rp_actor, "unit": role_unit,
+                        "reason": "proposer_self_attest_forbidden",
+                    })
+                    continue
+                na = _norm_review_actor(rp_actor)
+                if na in seen_actors and seen_actors[na] != role_unit:
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": rp_actor, "unit": role_unit,
+                        "reason": "duplicate_reviewer_actor",
+                    })
+                    continue
+                seen_actors[na] = role_unit
+                if role_unit not in units:
+                    units.append(role_unit)
+                proof_entry = {
+                    "unit": role_unit, "actor": rp_actor, "via": "token",
+                    "token_id": getattr(rp, "token_id", None),
+                }
+                proof_map[role_unit] = dict(proof_entry)
+                verified_audit.append(proof_entry)
+                continue
+
+            # 2. 签章凭据：{"unit": ..., "actor": ..., "sig": "hmac1..."}
+            if isinstance(raw, dict) and str(raw.get("sig") or "").strip():
+                sig = str(raw.get("sig")).strip()
+                u = _norm_review_unit(
+                    raw.get("unit") or raw.get("role") or raw.get("name") or "")
+                actor_s = str(raw.get("actor") or "").strip()
+                if u not in ("reflect", "verify", "human"):
+                    if u:
+                        unknown.append(u)
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "reason": "unknown_review_unit",
+                    })
+                    continue
+                if not actor_s or any(_same_review_actor(fa, actor_s) for fa in forbidden_actors):
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": actor_s, "unit": u,
+                        "reason": "proposer_self_attest_forbidden",
+                    })
+                    continue
+                raw_pid = str(raw.get("pid") or "").strip()
+                raw_nid = str(raw.get("node_id") or "").strip()
+                if expected_pid:
+                    if raw_pid and raw_pid != expected_pid:
+                        unverified_audit.append({
+                            "claim": _sanitize_review_claim(raw),
+                            "reason": "pid_mismatch",
+                        })
+                        continue
+                    if raw_nid and expected_nid and raw_nid != expected_nid:
+                        unverified_audit.append({
+                            "claim": _sanitize_review_claim(raw),
+                            "reason": "node_id_mismatch",
+                        })
+                        continue
+                    v_pid, v_nid = expected_pid, raw_nid
+                else:
+                    if not expected_nid or (raw_nid and raw_nid != expected_nid) or raw_pid:
+                        unverified_audit.append({
+                            "claim": _sanitize_review_claim(raw),
+                            "reason": "node_id_mismatch",
+                        })
+                        continue
+                    v_pid, v_nid = "", expected_nid
+                try:
+                    from . import signer as _sg
+                    s = _sg.get_signer()
+                    if getattr(s, "name", "") == "null" or isinstance(s, _sg.NullSigner):
+                        raise ValueError("null_signer_disallowed")
+                    payload = _review_attest_payload(v_pid, u, actor_s, v_nid)
+                    ok_sig = bool(s.verify(payload, sig, ctx={"action": "review_attest"}))
+                except Exception as exc:  # noqa: BLE001
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": actor_s, "unit": u,
+                        "reason": f"sig_error:{type(exc).__name__}",
+                    })
+                    continue
+                if not ok_sig:
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": actor_s, "unit": u,
+                        "reason": "sig_invalid",
+                    })
+                    continue
+                na = _norm_review_actor(actor_s)
+                if na in seen_actors and seen_actors[na] != u:
+                    unverified_audit.append({
+                        "claim": _sanitize_review_claim(raw),
+                        "actor": actor_s, "unit": u,
+                        "reason": "duplicate_reviewer_actor",
+                    })
+                    continue
+                seen_actors[na] = u
+                if u not in units:
+                    units.append(u)
+                proof_entry = {
+                    "unit": u, "actor": actor_s, "via": "sig",
+                    "signer": getattr(s, "name", "unknown"),
+                }
+                if v_pid:
+                    proof_entry["pid"] = v_pid
+                if v_nid:
+                    proof_entry["node_id"] = v_nid
+                proof_map[u] = dict(proof_entry)
+                verified_audit.append(proof_entry)
+                continue
+
+            # 3. 裸字符串/未签名字典：非受信任面一律仅作审计记录，不参与权限判定；
+            #    受信任面仅允许记入单元名以兼容直调双审，绝不写入 proof_map。
             if isinstance(raw, dict):
                 name = raw.get("unit") or raw.get("role") or raw.get("name") or ""
             else:
                 name = raw
             unit = _norm_review_unit(name)
-            if unit:
+            if not trusted:
+                unverified_audit.append({
+                    "claim": _sanitize_review_claim(raw),
+                    "unit": unit or None,
+                    "reason": "unverified_self_attestation",
+                })
+                continue
+            if not unit:
+                continue
+            if unit not in ("reflect", "verify", "human"):
+                unknown.append(unit)
+                continue
+            if unit not in units:
                 units.append(unit)
-        have = set(units)
+            verified_audit.append({"unit": unit, "via": "direct"})
+
+        return _VerifiedReviewers(units, proof=proof_map, target=expected_nid), {
+            "verified": verified_audit,
+            "unverified": unverified_audit,
+            "unknown": unknown,
+        }
+
+# 生效条件：item 为 inbox 记录、decision 属 DECISION_ACTIONS；裁决者身份固定取已鉴权 self.principal.actor / self.actor（忽略入参 decided_by，仅作审计记录），缺失或命中提案者（经 _same_review_actor 归一）即返回 self_review_forbidden；MCP/令牌面下 reviewed_by 须经凭据/签章校验，返回 {"ok":True,"reviewed_units":[...],"decided_by":...} 或 {"ok":False,"error":...}（dual_check_required / self_review_forbidden / unknown_review_unit）。
+    def _dual_review_verdict(self, item, decision, decided_by=None,
+                             reviewed_by=None, *,
+                             _untrusted_review: bool = False,
+                             _preverified=None):
+        """裁决前双单元复核判定（反思单元 + 验证单元；**裁决者不得自证**）。
+
+        归一口径见 `_norm_review_unit`（reflect/verify/human 三类）。两条判据：
+          1. 裁决者身份必须取已鉴权的 `self.principal.actor` / `self.actor`
+             （调用方传入的 `decided_by` 降级为审计声明，绝不覆盖身份），经
+             `_same_review_actor` 归一后不得与提案者相同（与 ccg 的 E041 同源）；
+          2. `reviewed_by` 必须**同时**含 reflect 与 verify（同一类重复不算——
+             两个反思单元仍然没有验证，正是「同侧互证」的盲区）；MCP / 令牌面下
+             未签名的裸字符串声明仅作审计记录、不授予复核资格。
+
+        只在 `MDCG_REVIEW_DUAL_CHECK=1` 时被调用；关闭时本方法不参与任何路径。
+        """
+        who = MdCGOS._authenticated_actor(self)
+        proposers = [item.get("proposer"), item.get("compiled_by"), item.get("actor")]
+        claimed_by = str(decided_by).strip() if decided_by is not None else ""
+        if not who:
+            return {"ok": False, "error": "self_review_forbidden",
+                    "pid": item.get("pid"), "decided_by": "",
+                    "decided_by_claimed": (claimed_by or None),
+                    "detail": "缺少已鉴权裁决者身份（self.actor 为空），禁止以入参 decided_by 自证"}
+        if any(_same_review_actor(p, who) for p in proposers if p):
+            return {"ok": False, "error": "self_review_forbidden",
+                    "pid": item.get("pid"), "decided_by": who,
+                    "decided_by_claimed": (claimed_by or None),
+                    "detail": "裁决者不得是提案者本人（同侧互证不构成复核）"}
+
+        if _preverified is not None:
+            vr, audit_info = _preverified
+        else:
+            needs_proof = MdCGOS._review_requires_proof(self, _untrusted_review)
+            vr, audit_info = MdCGOS._verify_reviewers(
+                self, item, reviewed_by, trusted=not needs_proof)
+        have = set(vr)
+        unknown = sorted(set(audit_info.get("unknown") or ()))
+        unverified = list(audit_info.get("unverified") or ())
+
         missing = [u for u in ("reflect", "verify") if u not in have]
         if missing:
-            return {"ok": False, "error": "dual_check_required",
-                    "pid": item.get("pid"), "decision": decision,
-                    "missing": missing, "reviewed_units": sorted(have),
-                    "detail": ("裁决须经反思单元与验证单元复核（2026-10-27 裁定）："
-                               "缺 %s。请带上 reviewed_by 重试，例如 "
-                               "reviewed_by=[\"反思单元\", \"验证单元\"]。"
-                               % "/".join(missing))}
-        unknown = sorted(u for u in have if u not in ("reflect", "verify", "human"))
+            detail = ("裁决须经反思单元与验证单元复核（2026-10-27 裁定）："
+                      "缺 %s。请带上 reviewed_by 重试，例如 "
+                      "reviewed_by=[\"反思单元\", \"验证单元\"]。"
+                      % "/".join(missing))
+            if unverified:
+                detail += "（未签名的 reviewed_by 声明仅作审计记录，不参与权限判定）"
+            out = {"ok": False, "error": "dual_check_required",
+                   "pid": item.get("pid"), "decision": decision,
+                   "missing": missing, "reviewed_units": sorted(have),
+                   "detail": detail}
+            if unverified:
+                out["unverified_reviewed_by"] = unverified
+            return out
         if unknown:
             return {"ok": False, "error": "unknown_review_unit",
                     "pid": item.get("pid"), "unknown": unknown,
                     "detail": "复核单元只认 reflect/verify/human（含中文同义）"}
-        proposer = (item.get("proposer") or item.get("compiled_by")
-                    or item.get("actor") or "")
-        who = decided_by or getattr(self, "actor", None) or ""
-        if proposer and who and str(proposer).strip() == str(who).strip():
-            return {"ok": False, "error": "self_review_forbidden",
-                    "pid": item.get("pid"), "decided_by": str(who),
-                    "detail": "裁决者不得是提案者本人（同侧互证不构成复核）"}
-        return {"ok": True, "reviewed_units": sorted(have)}
+        out = {"ok": True, "reviewed_units": sorted(have), "decided_by": who}
+        if claimed_by and str(claimed_by) != str(who):
+            # 只留痕不授权：声明与实名不符时把两者都记下来，供审计追溯（不改判定结果）。
+            out["decided_by_claimed"] = claimed_by
+            out["identity_mismatch"] = True
+        return out
 
 # 生效条件：decision 须为 DECISION_ACTIONS（"accept"/"reject"/"edit"/"merge"/"noop"）之一（否则 raise ValueError），inbox_log 中须有 pid 匹配记录（否则 {'ok': False, 'error': 'pid_not_found'}），且 pid 不在 self._closed_pids() 中（否则 'already_decided'）；edits 为真值且含 "verify"、或 redteam 为真值且含 "verify" 时返回 'verify_readonly'；last_status=="needs_reapproval" 时须 redteam.verdict 归一化为 "pass" 且 round_no>last_round（否则 'reapproval_required' / 'round_not_advanced'）；rt_v=="reject" 或（decision=="reject" 且 rt_issues 非空）时记 needs_reapproval 不落节点；decision=="accept" 且 rt_v 为空且 _redteam_required() 为真时返回 'redteam_required'；其余 accept/edit 按 item（edit 时用 edits.get 覆盖 content/tags/layer）add+flush 落节点，merge 须 merge_into 或 item.extra.merge_into 指向的节点存在（否则 'merge_target_not_found'），且写入前经与 add 同款双闸（N131，2026-09-25：principal 在位先 require_layer_write(目标层, 目标敏感度)——与 MdCGSecure.add 同序同错型；再 protect.guard_write(override=override)——self/anchor 层、immutable 标记，拒绝抛 ProtectionError/AccessDenied 且提案留 pending 不落库）后追加内容并定向索引 upsert（_node_entry 同源条目写入 index/_dirty）+flush，reject 与 noop 只记裁决（status 分别为 "rejected"/"noop"）；kind=mutation 的变更单（三档自治批次②）不走上述分支——accept 经 _mutation_execute 执行对应动作（失败即返回错误、不记裁决、提案保持 pending）、reject 只留痕，其余裁决 fail-closed 返回 mutation_decision_unsupported；最后统一 _record_decision + _cascade_dedup + flush 后返回 result。
     def review_decide(self, pid: str, decision: str, edits: dict = None,
                       merge_into: str = None, reason: str = "",
                       redteam: dict = None, issues=None,
                       override: bool = False,
-                      reviewed_by=None, decided_by: str = None):
+                      reviewed_by=None, decided_by: str = None,
+                      *, _untrusted_review: bool = False):
         """审核裁决：accept / reject / edit / merge / noop。
 
         accept  → 按 inbox 原样写入
@@ -4530,13 +5074,60 @@ class MdCGOS(MdCG):
             return {"ok": False, "error": "redteam_required",
                     "detail": "MDCG_REDTEAM_REQUIRED=1：accept 必须带红队 pass"}
 
+        # issue #1009 第 5 项（统一三源口径：proof ∪ ledger ∪ grant）：
+        # 剥离未信任 MCP/令牌面的裸字符串与未签名字典，仅保留经凭据/签章验签通过的复核单元；
+        # 原始 decided_by / reviewed_by 仅脱敏留作审计元数据，绝不覆盖 self.actor，也不进 grant。
+        _raw_reviewed_by = reviewed_by
+        _needs_proof = self._review_requires_proof(_untrusted_review)
+        _verified_rev, _rev_audit = self._verify_reviewers(
+            item, reviewed_by, trusted=not _needs_proof)
+        _rev_meta = {}
+        if decided_by is not None and str(decided_by).strip():
+            _rev_meta["decided_by_claimed"] = str(decided_by).strip()
+        if _raw_reviewed_by is not None:
+            if isinstance(_raw_reviewed_by, (str, bytes, dict)):
+                _raw_list = [_raw_reviewed_by]
+            else:
+                try:
+                    _raw_list = list(_raw_reviewed_by)
+                except TypeError:
+                    _raw_list = [_raw_reviewed_by]
+            if _raw_list:
+                _rev_meta["claimed_reviewed_by"] = [
+                    _sanitize_review_claim(x) for x in _raw_list]
+        if _rev_audit.get("verified"):
+            _rev_meta["verified_reviewers"] = list(_rev_audit["verified"])
+        if not _rev_meta:
+            _rev_meta = None
+
         # 双单元复核闸（可选，MDCG_REVIEW_DUAL_CHECK=1）：**裁决须经反思单元与
         # 验证单元复核**（2026-10-27 使用者裁定）。与上面的红队闸正交——红队是
         # 「打回/再审批」，本闸是「谁复核过」。缺省关，开启后缺任一方即拒。
         if _dual_check_required():
-            _chk = self._dual_review_verdict(item, decision, decided_by, reviewed_by)
+            _chk = self._dual_review_verdict(
+                item, decision, decided_by, reviewed_by,
+                _untrusted_review=_untrusted_review,
+                _preverified=(_verified_rev, _rev_audit))
             if _chk.get("ok") is not True:
                 return _chk
+
+        # 下游 add / _finish_decision 仅消费校验后的 _VerifiedReviewers（未传 reviewed_by
+        # 时保持 None 由 security.py 读部署 env MDCG_REVIEWERS 兜底；MCP 面剥离后为空
+        # _VerifiedReviewers()，绝不授予未验证声明权限）。
+        reviewed_by = None if _raw_reviewed_by is None else _verified_rev
+
+        # 代码授权 grant（仅受信任直调路径且含 reflect+verify 时发一张限时、绑目标、
+        # 一次性授权给紧随其后的落盘 add()；MCP/令牌面的已验签凭据已直接进 proof，
+        # 不给裸声明发 grant；human 永不走 grant，须非 NullSigner 签章凭据）。
+        _grant_payload = None
+        if not _needs_proof and _verified_rev:
+            _grant_units = tuple(
+                u for u in _verified_rev if u in ("reflect", "verify"))
+            if {"reflect", "verify"} <= set(_grant_units):
+                _grant_payload = {"units": _grant_units,
+                                  "pid": pid, "target": item.get("id"),
+                                  "t": time.time(),
+                                  "dual_checked": bool(_dual_check_required())}
 
         # 三档自治批次②（设计 §四）：**变更单**（kind=mutation）走**独立执行桥**
         # ——在既有前置闸（已判/verify_readonly/再审批/红队门控）之后、既有
@@ -4544,9 +5135,15 @@ class MdCGOS(MdCG):
         # 进此支，下面整条链对它逐位不变。
         if autonomy_modes.order_kind(item) == autonomy_modes.KIND_MUTATION:
             # issue #709 连带：变更单桥也要把本次裁决的复核单元带下去（审计节点用它过闸）
-            return self._decide_mutation(pid, item, decision, reason, override,
-                                        round_no, rt_v, rt_issues, expect,
-                                        reviewers=reviewed_by)
+            if decision == DECISION_ACCEPT and _grant_payload is not None:
+                self._review_grant = _grant_payload
+            try:
+                return self._decide_mutation(pid, item, decision, reason, override,
+                                            round_no, rt_v, rt_issues, expect,
+                                            review_audit=_rev_meta,
+                                            reviewers=reviewed_by)
+            finally:
+                self._review_grant = None
 
         result = {"pid": pid, "decision": decision, "round": round_no,
                   "redteam": rt_v or "absent"}
@@ -4571,6 +5168,7 @@ class MdCGOS(MdCG):
                 tags = list(edits.get("tags", tags))
                 layer = edits.get("layer", layer)
             extra = dict(item.get("extra") or {})
+            extra.pop("reviewed_by", None)
             # issue #186（C 兜底）：以提案记录**顶层** rec["sensitivity"] 兜底
             # （extra 有则用 extra，没有则回落顶层）——即使将来某个入队点漏把密级
             # 放进 extra，accept 也不会把已记录在提案顶层的密级丢掉（顶层 sensitivity
@@ -4611,7 +5209,7 @@ class MdCGOS(MdCG):
             # 不覆盖，向后兼容）；裁决者身份不丢失，改记 reviewer 字段。
             if item.get("actor"):
                 extra.setdefault("writer", item["actor"])
-                extra.setdefault("reviewer", self.actor)
+                extra.setdefault("reviewer", self._authenticated_actor() or self.actor)
             # --- issue #165：加密级正文按**提案原始写入者**封装 ---------------
             # 裁决者（如 review_cli 的 designer-cli）与提案者不同时，若按裁决者的
             # DEK + AAD 封装，frontmatter 的 writer 仍写着提案者、密文却只有裁决者
@@ -4634,6 +5232,7 @@ class MdCGOS(MdCG):
                                     "其数据密钥；未落盘，提案保持 pending。可由"
                                     "原写入者身份裁决。"}
             self._seal_override = ((item["id"],) + _seal_as) if _seal_as else None
+            self._review_grant = _grant_payload
             try:
                 # issue #709 连带发现（2026-10-28）：accept 落业务节点时，把**本次裁决已取得的**
                 # reviewed_by 一并带入。此前只在审计节点传了、这里没传 ⇒ enforce 下裁决本身
@@ -4644,6 +5243,7 @@ class MdCGOS(MdCG):
                                reviewed_by=reviewed_by, **extra)
             finally:
                 self._seal_override = None
+                self._review_grant = None
             # 索引增量收尾（2026-09-16 取证）：add 只把条目放进本进程内存 _dirty，
             # 未达 autoflush(64) 阈值时进程退出即永久丢失——裁决进程（review_cli /
             # MCP op=review）通常只写 1~2 条，不 flush 则「节点在盘上但索引无条目」，
@@ -4738,11 +5338,13 @@ class MdCGOS(MdCG):
 
         return self._finish_decision(pid, item, decision, reason, round_no,
                                      rt_v, rt_issues, expect, result,
+                                     review_audit=_rev_meta,
                                      reviewers=reviewed_by)
 
 # 生效条件：result 为已定好的裁决返回体时，按其 pid/item/decision/reason/round_no/rt_v/rt_issues/expect 调 _record_decision（status 映射统一出口：reject→"rejected"、noop→"noop"、其余→"accepted"）落盘 jsonl + 审计节点，再按 item 的 payload_hash（缺失时 _sig(content)）调 _cascade_dedup 级联出清（有 closed 时写 result["cascade_closed"]），最后 flush 并返回 result；
     def _finish_decision(self, pid, item, decision, reason, round_no, rt_v,
-                         rt_issues, expect, result, reviewers=None):
+                         rt_issues, expect, result, reviewers=None,
+                         review_audit=None):
         """裁决**统一收尾**（单点）：proposal 链与变更单执行桥共用同一收尾。
 
         为何抽出来：三档自治批次② 的变更单走独立执行桥（`_decide_mutation`），
@@ -4755,7 +5357,8 @@ class MdCGOS(MdCG):
             pid, item, decision,
             {DECISION_REJECT: "rejected", DECISION_NOOP: DECISION_NOOP}
             .get(decision, "accepted"),
-            reason, round_no, rt_v, rt_issues, expect, result, reviewers=reviewers)
+            reason, round_no, rt_v, rt_issues, expect, result,
+            reviewers=reviewers, review_audit=review_audit)
         # 级联出清：主提案已终态，同内容兄弟提案（重复入队产物）自动关闭
         casc = self._cascade_dedup(
             pid, item.get("payload_hash") or _sig(item.get("content") or ""),
@@ -4772,7 +5375,8 @@ class MdCGOS(MdCG):
 
 # 生效条件：item 为 kind=mutation 的队列记录——decision 为 accept 时经 _mutation_execute 执行对应动作（返回 ok=False 时**原样返回该错误**、不落裁决、提案保持 pending），为 reject 时只置 ok=True 留痕；decision 非此二者时返回 {"ok": False, "error": "mutation_decision_unsupported", ...} 带 hint（fail-closed，不落裁决）；通过者交 _finish_decision 收尾后返回其结果；
     def _decide_mutation(self, pid, item, decision, reason, override, round_no,
-                         rt_v, rt_issues, expect, reviewers=None):
+                         rt_v, rt_issues, expect, reviewers=None,
+                         review_audit=None):
         """变更单的裁决分派（三档自治批次② · 设计 §四）：accept 执行 / reject 留痕。
 
         本批只定义 accept/reject 两态；其余裁决（edit/merge/noop）**fail-closed
@@ -4803,7 +5407,8 @@ class MdCGOS(MdCG):
             result["ok"] = True
         return self._finish_decision(pid, item, decision, reason, round_no,
                                      rt_v, rt_issues, expect, result,
-                                     reviewers=reviewers)
+                                     reviewers=reviewers,
+                                     review_audit=review_audit)
 
 # 生效条件：无输入形参；调用即返回 list(read_jsonl(self.decisions_log))，记录内容取决于 decisions_log 可读结果；
     def decisions(self):
@@ -6491,6 +7096,7 @@ class MdCGOS(MdCG):
             # 本批影响）。
             kw["importance"] = verdict["importance"]["score"]
             kw["importance_source"] = verdict["importance"]["from"]
+            kw["importance"] = verdict["importance"]["score"]
             # 三档自治批次②补强（2026-10-02）：**gated 面的 C 改写 / A 新增档位
             # 判定**。此前本分支直调 `self.add`——`gated=true` 的覆写在确认档
             # 不落任何档位判定就覆写既有节点（复核发现 1：插件自动记忆的主写入
@@ -7068,6 +7674,13 @@ class MdCGSecure(MdCGOS):
 # 生效条件：传入 root 时 principal 为假值（None 等）则新建 Principal()，以 self.principal.actor 作 actor 调父类 MdCGOS.__init__(root, actor=..., **kw)，再设 self.session = self.principal.session 并执行 self._init_crypto(master_key)（master_key 缺省 None）。
     def __init__(self, root: str, principal: Principal = None,
                  master_key=None, **kw):
+        # issue #1011-2：**请求级身份必须是线程作用域，不能是实例属性**。
+        # 病灶：`mcp_server.call_tool` 把 `cg.principal` / `cg.session` 就地改写再还原，
+        # 而 `defer_s>0` 的后台检索线程在**同一个 cg 实例**上并发调 call_tool ⇒
+        # 线程 A 的高权 scope 被线程 B 覆盖、finally 互相写脏（权限串台/会话泄漏）。
+        # 处置：principal/session 改成属性，读优先取本线程的覆盖值（TLS），未覆盖才回落
+        # 实例基值。写入 `cg.principal = X` 仍写基值（旧调用方语义不变）。
+        self._scope_tls = threading.local()
         self.principal = principal or Principal()
         self.kek = None
         self.dek = None
@@ -7085,6 +7698,7 @@ class MdCGSecure(MdCGOS):
         self._init_crypto(master_key)
 
     # ---------- 私有内容加密（密钥即访问权 + 身份一致性识别）----------
+
 
 # 生效条件：master_key 非 None 时取 self._resolve_master_key(master_key)、为 None 时取 crypto.load_master_key()；kek 为假值时置 _crypto_error="no_master_key" 且 self.kek=self.dek=None 并返回；否则置 self.kek 并调 crypto.provision_dek(self.root, kek, tenant, actor, clearance=...) 得 dek；捕获 crypto.CryptoError 或 OSError 时置 _crypto_error=str(e) 且 self.kek=self.dek=None。
     def _init_crypto(self, master_key=None):
@@ -7529,6 +8143,140 @@ class MdCGSecure(MdCGOS):
             "写入 %r 未声明 sensitivity，而既有节点密级判不了（缺/非法）——"
             "fail-closed 拒绝，不回落缺省档（issue #297）" % (node_id,))
 
+# 生效条件：将 reviewed_by 声明统一收口为 require_layer_write 可消费的已核验复核单元（统一公式：proof ∪ ledger ∪ grant，皆要求 actor != writer）；None 原样返回（由 security.py 读 MDCG_REVIEWERS 兜底），tier 0 不介入，未采信声明丢弃并留痕。
+    def _resolve_write_reviewers(self, node_id: str, reviewers, layer: str = "knowledge"):
+        """统一复核证据过滤器（合并 _verified_reviewers 与 MCP 凭据校验，不留并行双闸）。
+
+        统一公式（issue #1009 第 5 项）：
+          accepted_units = 签名凭据(proof) ∪ 台账证据(ledger) ∪ 代码授权(grant)
+        三者皆要求 actor != 写入者：
+          · 签名凭据 proof —— 经 tokens.verify_token 验签的 reflect/verify 令牌，或经非
+            NullSigner 的 sign_review_attestation 绑定 (pid, node_id, unit, actor) 的签章
+            （含 human，由此把 Tier-3 self/anchor 从死口救回为可验证人工签章路径）；
+          · 台账证据 ledger —— decisions.jsonl 里另一 actor（norm_actor 归一）窗口内带
+            record_hash 且满足实做判据的记录（不授 human）；
+          · 代码授权 grant —— 受信任直调 review_decide 过前置门后发的 300s 绑目标一次性
+            授权（仅 reflect/verify，不授 human；MCP/令牌面裸声明在发 grant 前即剥离）。
+
+        未采信的声明一律丢弃并留痕（audit 事件 reviewer_claims_rejected + 每进程一次 stderr），
+        凭据明文绝不落审计日志或 stderr。
+        """
+        if reviewers is None:
+            return None
+        try:
+            from .writegate import LAYER_TIERS
+            tier = LAYER_TIERS.get(str(layer or "knowledge"), 1)
+        except Exception:            # noqa: BLE001 —— 拿不到档位按最严处理
+            tier = 1
+        if tier < 1:
+            return tuple(reviewers) if isinstance(reviewers, _VerifiedReviewers) else reviewers
+
+        unverified_crypto = []
+        if isinstance(reviewers, _VerifiedReviewers):
+            if not reviewers:
+                return ()
+            claims_for_verify = list(reviewers)
+            if (reviewers.target and node_id
+                    and str(reviewers.target) != str(node_id)):
+                proof_map = {}
+            else:
+                proof_map = dict(reviewers.proof)
+        else:
+            if isinstance(reviewers, (str, bytes, dict)):
+                raw_entries = [reviewers]
+            else:
+                try:
+                    raw_entries = list(reviewers)
+                except TypeError:
+                    raw_entries = [reviewers]
+            if not raw_entries:
+                return ()
+            vr, rev_audit = self._verify_reviewers(
+                None, raw_entries, trusted=False, node_id=node_id)
+            proof_map = dict(vr.proof)
+            claims_for_verify = list(vr)
+            for raw in raw_entries:
+                # 含 token/sig 的凭据项已由 _verify_reviewers 裁决：通过者在 vr/proof_map 中，
+                # 失败者留审计不落回台账，且绝不把凭据明文传入 verify_claims。
+                if isinstance(raw, dict) and (
+                        str(raw.get("token") or "").strip()
+                        or str(raw.get("sig") or "").strip()):
+                    continue
+                claims_for_verify.append(raw)
+            for uv in (rev_audit.get("unverified") or ()):
+                if uv.get("reason") != "unverified_self_attestation":
+                    unverified_crypto.append(uv)
+
+        # 2026-11-22 使用者裁定（原话「也只有自我层，结构层不行，这是需要外部协作确认的」）：
+        # 结构层（tier 2）的 human 必须是**外部协作确认**——进程内默认 signer（hmac-local）
+        # 签的 human 章在结构层一律不采信。理由：结构层是规则/契约/判据面，若这条也能自签，
+        # 任何能跑代码的调用方都能重写闸门本身；自我层（tier 3）不受此限——AI 的验证单元
+        # 拿到证据就能做，代价由自我层自己承担。
+        if tier == 2 and proof_map.get("human"):
+            try:
+                from . import signer as _sg
+                _local_signers = {str(_sg.DEFAULT_SIGNER), "null", "unknown"}
+            except Exception:            # noqa: BLE001 —— 拿不到签名器清单按最严处理
+                _local_signers = {"hmac-local", "null", "unknown"}
+            _h_proof = proof_map.get("human") or {}
+            if str(_h_proof.get("signer") or "unknown") in _local_signers:
+                proof_map.pop("human", None)
+                claims_for_verify = [c for c in claims_for_verify
+                                     if not (isinstance(c, str)
+                                             and _norm_review_unit(c) == "human")]
+                unverified_crypto.append({
+                    "unit": "human",
+                    "reason": ("structural_needs_external_signer（结构层需外部协作确认："
+                               "human 章须由部署侧工程 signer 产出，进程内 hmac-local 不算）"),
+                })
+
+        from . import review_evidence as _re
+        auth_actor = self._authenticated_actor()
+        try:
+            res = _re.verify_claims(
+                claims_for_verify,
+                ledger_path=self.decisions_log,
+                actor=auth_actor,
+                node_id=node_id,
+                grant=getattr(self, "_review_grant", None),
+                proof=proof_map or None,
+            )
+        except Exception as exc:     # noqa: BLE001 —— 证据判定失败即 fail-closed
+            try:
+                self._audit("reviewer_evidence_error", node_id or "",
+                            error=type(exc).__name__)
+            except Exception:
+                pass
+            res = {"accepted": [], "rejected": [
+                {"unit": str(_sanitize_review_claim(c)), "why": "证据判定异常（fail-closed）"}
+                for c in claims_for_verify], "grant_used": False}
+        if res.get("grant_used"):
+            self._review_grant = None          # 一次性授权，用完即作废
+        rejected_all = list(res.get("rejected") or ())
+        for uv in unverified_crypto:
+            uv_claim = uv.get("claim")
+            uv_unit = (uv.get("unit")
+                       or (uv_claim.get("unit") if isinstance(uv_claim, dict) else None)
+                       or "credential")
+            rejected_all.append({
+                "unit": str(uv_unit),
+                "why": str(uv.get("reason") or "credential_invalid"),
+            })
+        if rejected_all:
+            try:
+                self._audit("reviewer_claims_rejected", node_id or "",
+                            units=[str(r.get("unit")) for r in rejected_all],
+                            why=[str(r.get("why"))[:120] for r in rejected_all])
+            except Exception:        # noqa: BLE001 —— 留痕失败不改变判决
+                pass
+            import sys as _sys
+            _k = tuple(sorted(str(r.get("unit")) for r in rejected_all))
+            _seen = globals().setdefault("_RV_WARNED", set())
+            if _k not in _seen:
+                _seen.add(_k)
+                _sys.stderr.write("[writegate] 复核声明未采信：%s（%s）\n"
+                                  % ("/".join(_k), str(rejected_all[0].get("why"))[:120]))
+        return tuple(res.get("accepted") or ())
 # 生效条件：调用方未声明 sensitivity 时先经 _write_sensitivity 解析出 sens（issue #297：既有节点**继承旧密级**、新节点回落 DEFAULT_SENSITIVITY、既有节点密级判不了则 fail-closed 抛 AccessDenied），再 _rank(sens) 并 principal.require_layer_write(layer, sens)，再 _attribution(kw, sens)（会话归因走三态解析）后转 super().add（并把**原始声明** sensitivity 以 declared_sensitivity 键并传，供库层落盘闸判「声明↔落盘」一致性；未声明时为 None），最后按下发的 nid 调 _index_sensitivity 并返回 nid。
     def add(self, node_id: str, content: str, layer: str = "knowledge",
             sensitivity: str = None, **kw) -> str:
@@ -7548,6 +8296,9 @@ class MdCGSecure(MdCGOS):
             # 的元数据。若留在 kw 里，它会经 super().add(**kw) 落进 frontmatter
             # （实测：`test_i50c` 的 B1 逐键对拍报出 `reviewed_by: null` 的白名单外差异）。
             _reviewers = kw.pop("reviewed_by", None)
+            # issue #1009 第 5 项：统一证据过滤器（proof ∪ ledger ∪ grant），
+            # 直调面与 MCP 面均不得以未签名字符串自证过闸。
+            _reviewers = self._resolve_write_reviewers(node_id, _reviewers, layer)
             self.principal.require_layer_write(layer, sens, reviewers=_reviewers)
             self._attribution(kw, sens)
             # B2（2026-09-30）：`sens` 是归一后的落盘值，`sensitivity` 才是调用方
@@ -7623,9 +8374,14 @@ class MdCGSecure(MdCGOS):
             self._maybe_reload_index()
             _ex = (self.index.get("nodes") or {}).get(node_id)
             if _ex is not None:
+                # issue #1006（2026-11-22 复核）：第二支路漏传 skip_gate ⇒ enforce 下
+                # 「新节点能入队、既有节点入不了队」（同一函数、同一身份，只因目标
+                # 节点是否已存在而一过一拒）。入队不落记忆盘，故与上一行同口径跳过
+                # write_gate 一档；层白名单与密级判定**照常**（由 require_layer 执行）。
                 protect.require_layer(self, node_id,
                                       layer=_ex.get("layer") or None,
-                                      sensitivity=_ex.get("sensitivity") or None)
+                                      sensitivity=_ex.get("sensitivity") or None,
+                                      skip_gate=True)
         return super().propose(node_id, content, sensitivity=sens, **kw)
 
 # 生效条件：sens 经 _write_sensitivity（id 走基类单点 _goal_nid）解析——#439：未声明且有既有目标 ⇒ 继承其密级、显式声明原样优先、判不了 fail-closed；先 _rank(sens) 并 principal.require_layer_write("goals", sens)，再转 super().add_goal，最后按 gid 调 _index_sensitivity 并返回 gid。

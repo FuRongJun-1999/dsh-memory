@@ -287,6 +287,9 @@ ENV_ROWS = [
      'on', 'env_literal', 'md_cg/affect.py', '', 'uncalibrated',
      '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_SELF_PREDICT', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_SELF_PREDICT', 'on', 'env_literal', 'md_cg/mcp_server.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_VALUES_GATE', 'CALIB', 'calib', 'env', True, "'observe'", 'str', 'on', 'MDCG_VALUES_GATE', 'on', 'env_literal', 'md_cg/values_gate.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_INTENT_TICK', 'CALIB', 'calib', 'env', True, "'observe'", 'str', 'on', 'MDCG_INTENT_TICK', 'on', 'env_literal', 'md_cg/intent_tick.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
+    ('MDCG_INTENT_INTERVAL', 'CALIB', 'calib', 'env', True, "1800.0", 'float', 'on', 'MDCG_INTENT_INTERVAL', 'on', 'env_literal', 'md_cg/intent_tick.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S2_COND', 'CALIB', 'calib', 'env', True, "'1'", 'str', 'on', 'MDCG_GATE_S2_COND', 'on', 'env_literal', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）', 'unknown', ''),
     ('MDCG_GATE_S3_SPREAD', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S3_SPREAD', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关（=="1" 才开）', 'unknown', ''),
     ('MDCG_GATE_S4_LAYER', 'CALIB', 'calib', 'env', True, 'None', 'str', 'bool:1', 'MDCG_GATE_S4_LAYER', 'off', 'env_flag', 'md_cg/mdcg.py', '', 'uncalibrated', '由生成器自 AST 复核（第一批未见标定读数）；有效缺省（盘点文字，未 AST 复核）：未设 = 关', 'unknown', ''),
@@ -386,8 +389,9 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_AEIS_ROOT', 'env', 'dsh-memory-main', '目录路径', '视觉证据·AEIS 根回落（md_cg/vision_evidence.py:182）'),
     ('MDCG_ASYNC_FLUSH', 'env', 'dsh-memory-main', '开关', '索引落盘异步化：缺省开，置 0 回同步 flush（md_cg/mdcg.py:2572；issue #677 P2）'),
     ('MDCG_REVIEW_CHANNELS', 'env', 'dsh-memory-main', '清单', '可用复核通道声明 hive/subagent/team（空＝未声明，非能力缺失；md_cg/writegate.py:75）'),
-    ('MDCG_REVIEW_DUAL_CHECK', 'env', 'dsh-memory-main', '开关', '裁决双单元复核闸（缺省关；须反思+验证单元；md_cg/mdcos.py:630）'),
-    ('MDCG_WRITE_GATE', 'env', 'dsh-memory-main', '枚举', '分层写入严格度闸 off/warn/enforce（缺省 off 零介入；md_cg/writegate.py:61,67）'),
+    ('MDCG_REVIEW_DUAL_CHECK', 'env', 'dsh-memory-main', '开关', '裁决双单元复核闸（缺省关；须反思+验证单元；裁决者身份只认 self.actor；md_cg/mdcos.py:4498）'),
+    ('MDCG_WRITE_GATE', 'env', 'dsh-memory-main', '枚举', '分层写入严格度闸 off/warn/enforce（缺省 enforce；非法值 fail-closed 回落 enforce；md_cg/writegate.py:71）'),
+    ('MDCG_REVIEW_EVIDENCE_WINDOW_S', 'env', 'dsh-memory-main', '秒数', '复核措辞的证据窗口：台账记录须在此窗口内才算复核证据（缺省 7 天；非法/非正回落缺省；md_cg/review_evidence.py:60）'),
     ('MDCG_BM25_BLOCK_MAX', 'env', 'dsh-memory-main', '整数', 'BM25 分块上限（md_cg/bm25.py:295,317）'),
     ('MDCG_BM25_BUILD_WORKERS', 'env', 'dsh-memory-main', '整数', 'BM25 构建并发（md_cg/bm25.py:94）'),
     ('MDCG_BM25_POOL_CACHE', 'env', 'dsh-memory-main', '开关', 'BM25 池缓存（md_cg/bm25.py:68）'),
@@ -397,6 +401,20 @@ ENV_CATEGORY_ROWS = [
     ('MDCG_LLM_MAX_TOKENS', 'env', 'dsh-memory-main', '整数', 'LLM 调用上限（md_cg/consolidate.py:251,286,1542）'),
     ('MDCG_NODE_ID', 'env', 'dsh-memory-main', '字符串', '证据写入的节点 id 覆盖（md_cg/evidence.py:94,470）'),
     ('MDCG_READ_FOREIGN_SAMPLE', 'env', 'dsh-memory-main', '采样率（非法回落 0）', '跨租户读取采样（md_cg/mdcos.py:639）'),
+    # issue #997：读面瘦身总开关（缺省 1=瘦身；0/false/off 关闭；单次可用 read 的 detail="full"）
+    # issue：心跳外钩（通用，无业务语义）——每档 tick 跑完后执行指定 .py，失败不影响心跳
+    ('MDCG_TICK_HOOK', 'env', 'dsh-memory-main', '文件路径', '心跳外钩脚本路径（md_cg/sustain.py::_run_tick_hook）'),
+    # 私密域隔离：默认不进检索面；置 1 时放行（跨端阅读者自担）
+    ('MDCG_INCLUDE_PRIVATE', 'env', 'dsh-memory-main', '开关', '私密域（域:私密）放行总开关（md_cg/mcp_server.py::drop_private_domain）'),
+    ('MDCG_READ_SLIM', 'env', 'dsh-memory-main', '开关', 'read 返回体瘦身总开关（md_cg/mcp_server.py::_slim_read_out）'),
+    # issue #997：未登记身份排查提示（缺省静默；1/true/on 才注入排查文案）
+    ('MDCG_IDENTITY_HINT', 'env', 'dsh-memory-main', '开关', '未登记身份排查提示开关（src/hooks.ts::identityHint）'),
+    # issue #1005 ①：判读合同随 pack 下发（缺省开；0/false/off 关闭），计入 budget_tokens
+    ('MDCG_READING_POLICY', 'env', 'dsh-memory-main', '开关（缺省开）', '判读合同随包下发（md_cg/reading_policy.py::enabled）'),
+    # 热层陈旧宽限（缺省 120 秒；0=严格：陈旧即回落主库；非有限值/解析失败一律回落缺省）
+    ('MDCG_HOT_STALE_OK_S', 'env', 'dsh-memory-main', '秒（float，缺省 120；0=严格）', '热层陈旧宽限阈值（md_cg/mcp_server.py:2928）'),
+    # issue #1003：活签名上限（LRU 淘汰）；0/负值=不设上限（老行为）
+    ('MDCG_SIGS_MAX', 'env', 'dsh-memory-main', '整数（0=不设上限）', 'writelimit 活签名上限（md_cg/writelimit.py::_sigs_max）'),
     ('MDCG_RRF_CANDIDATES', 'env', 'dsh-memory-main', '整数', 'RRF 候选上限（md_cg/rrf_candidates.py:18）'),
     ('MDCG_RANK_CREDIBILITY', 'env', 'dsh-memory-main', '开关', '名次可信度性质判据（md_cg/mdcos.py:2027）'),
     ('MDCG_TIME_ANCHOR', 'env', 'dsh-memory-main', '开关', '相对时间锚定总开关（md_cg/timeanchor.py::enabled）'),

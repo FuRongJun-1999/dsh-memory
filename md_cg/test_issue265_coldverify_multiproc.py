@@ -246,6 +246,7 @@ def _prepatch_src():
         return subprocess.run(list(a), cwd=_REPO, capture_output=True,
                               text=True, encoding="utf-8", errors="replace",
                               timeout=60)
+    shas = []
     lg = _g("git", "log", "-S_append_persisted", "--format=%H", "--",
             "md_cg/coldverify.py")
     if lg.returncode == 0:
@@ -254,6 +255,12 @@ def _prepatch_src():
             s = _g("git", "show", shas[-1] + "^:md_cg/coldverify.py")
             if s.returncode == 0:
                 return s.stdout, "引入提交 %s 的父版本" % shas[-1][:8]
+    # 浅克隆（shallow）⇒ 引入提交的父版本不可达，而 HEAD 已是**修复后**版本，
+    # 拿 HEAD 冒充「修复前原形」会让本组恒红（判的不是产品行为，是仓库历史完整性）。
+    # 按仓内既有先例（test_issue258_pack_sensitivity / test_issue297_rewrite_sensitivity）：
+    # 取不到就 **SKIP** 并如实写明原因——不下「成立/不成立」的结论。
+    if shas and _g("git", "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        return None, "skip:浅克隆，引入提交 %s 的父版本不可取" % shas[-1][:8]
     s = _g("git", "show", "HEAD:md_cg/coldverify.py")
     if s.returncode != 0:
         return None, "git show HEAD rc=%s" % s.returncode
@@ -263,6 +270,10 @@ def _prepatch_src():
 def s7():
     print("== S7 修复前原形（提交前/后都稳定）==")
     t, how = _prepatch_src()
+    if t is None and str(how).startswith("skip:"):
+        print("  SKIP S7 无法取「修复前源码原形」：%s" % how[5:])
+        print("       （本仓历史不足以证明；既不下「成立」也不下「不成立」的结论）")
+        return
     if t is None:
         _check("S7 取修复前源失败：%s" % how, False)
         return

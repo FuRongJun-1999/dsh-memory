@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c3_n",
+ "domain": "白箱方法/neg",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0413",
+ "ok": true,
+ "text": "不命中",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795140895.1380944
+}

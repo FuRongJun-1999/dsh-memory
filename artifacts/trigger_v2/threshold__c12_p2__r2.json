@@ -1,0 +1,12 @@
+{
+ "arm": "threshold",
+ "task": "c12_p2",
+ "domain": "算法权威唯一/pos",
+ "repeat": 2,
+ "job_id": "h_dsh端_人格化消融_输出单元_0441",
+ "ok": true,
+ "text": "第 10 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795141069.9123347
+}

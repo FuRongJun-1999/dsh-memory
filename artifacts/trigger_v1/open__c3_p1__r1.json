@@ -1,0 +1,12 @@
+{
+ "arm": "open",
+ "task": "c3_p1",
+ "domain": "白箱方法/pos",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0348",
+ "ok": true,
+ "text": "第 2 条",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795137095.788594
+}

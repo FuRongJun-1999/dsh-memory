@@ -189,7 +189,7 @@ def sleep_merge_mode(environ=None) -> str:
     return m if m in SLEEP_MERGE_MODES else "auto"
 
 
-# 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "0" → 假）。
+# 生效条件：sleep_env("scrub_apply") 取值不属于 SLEEP_OFF_VALUES 时为真（缺省 "1" → **真**，即真实落盘；置 0 退回只盘点）。
 def sleep_scrub_apply(environ=None) -> bool:
     """第④步去污染**实改**闸 `MDCG_SLEEP_SCRUB_APPLY`（缺省开；置 0 退回只盘点）。"""
     return sleep_env("scrub_apply", environ) not in SLEEP_OFF_VALUES

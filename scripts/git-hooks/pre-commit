@@ -34,3 +34,10 @@ git add README.md "docs/mdcg/功能调用映射表_v0.1.md"
 # 或按输出指认的漂移项逐处修；确需绕过用 `git commit --no-verify`。
 "$PY" scripts/discipline_nodes.py --init --write --cg-root .tmp/discipline-cg
 "$PY" scripts/verify_discipline.py --allow-missing --cg-root .tmp/discipline-cg
+
+# 私域标识冻结（2026-11-22，#1015）：公开仓的追踪面里只准缩、不准涨。
+# 为什么拦在提交时：这条一旦漏出去就是**已发布**状态，补救要走删条 + 重写历史 + 通知平台清缓存
+# （工作纪律 #14），代价比提交时多等一秒大得多。
+# 红了怎么修：把私域标识挪走（换成占位名）；确属必要（例如讲「为什么不能公开」的说明文）
+# 才 `"$PY" scripts/check_private_names.py --write-baseline`，并在提交信息里写明为什么加。
+"$PY" scripts/check_private_names.py

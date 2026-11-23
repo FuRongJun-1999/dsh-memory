@@ -469,9 +469,14 @@ export const IDENTITY_MISSING_HINT =
   '（本会话身份未登记：标识非五元组形态，已按「日常」处理。'
   + '定义与排查见 ' + IDENTITY_DOC + '）'
 
-// 生效条件：unit 为空（未登记/解析失败）时返回该提示，否则返回空串（不打扰）
+// 生效条件：unit 为空（未登记/解析失败）**且** MDCG_IDENTITY_HINT=1 时返回该提示，其余一律空串。
+// 缺省**静默**（issue #997）：普通桌面会话解析不出身份是正常降级，不是故障；每轮注入排查文案
+// 既占上下文，也会让模型误以为需要处理某个错误。要排查时开 MDCG_IDENTITY_HINT=1。
 export function identityHint(unit: string): string {
-  return String(unit || '') ? '' : IDENTITY_MISSING_HINT
+  if (String(unit || '')) return ''
+  const on = String(process.env.MDCG_IDENTITY_HINT || '').trim().toLowerCase()
+  if (!(on === '1' || on === 'true' || on === 'on')) return ''
+  return IDENTITY_MISSING_HINT
 }
 
 // 生效条件：item 为 timeline 条目、unit 为当前会话身份；判它是否不得进「最近记忆」块

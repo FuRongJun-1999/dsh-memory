@@ -1,0 +1,12 @@
+{
+ "arm": "open",
+ "task": "c10_n",
+ "domain": "图像选源护栏/neg",
+ "repeat": 1,
+ "job_id": "h_dsh端_人格化消融_输出单元_0370",
+ "ok": true,
+ "text": "不命中",
+ "usage": null,
+ "system_prompt_source": "none",
+ "ts": 1795138421.4893594
+}
