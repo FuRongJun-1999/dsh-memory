@@ -3345,6 +3345,27 @@ class MdCGOS(MdCG):
                                     view=view)
             items = [(r[0], r[1], r[2], []) for r in res]
 
+        # ===== issue #1005 ③：raw 保底——派生卡不得把原话轮次全部挤掉 =====
+        # 病灶（issue 原文第 3 条）：原话轮次与派生材料（档案/摘要/状态卡）共用同一份预算，
+        # 实测出现过「卡进了 pack、源轮次没进」——答案因此缺原句，只能靠事后补丁。
+        # 处置：装包**之前**把分数最高的 N 条**原话轮次**提到队首（raw_min，缺省 2，
+        # `MDCG_RAW_MIN=0` 关）。只调整装包顺序，不改打分、不改融合、不改预算口径；
+        # 队列里没有原话（或前 N 条已是原话）时**一字不动**，正常命中路径零影响。
+        raw_min_applied = 0
+        try:
+            from . import coverage as _cov
+            _raw_min = max(0, int(os.environ.get("MDCG_RAW_MIN", "2") or 0))
+            if _raw_min and items:
+                _raw_idx = [i for i, (n, _s, _q, _p) in enumerate(items)
+                            if not _cov.is_derived(n)]
+                if _raw_idx and _raw_idx[0] >= _raw_min:
+                    _head = _raw_idx[:_raw_min]
+                    _head_set = set(_head)
+                    _rest = [i for i in range(len(items)) if i not in _head_set]
+                    items = [items[i] for i in _head + _rest]
+                    raw_min_applied = len(_head)
+        except Exception:            # noqa: BLE001 —— 配额面绝不拖崩装包
+            raw_min_applied = 0
         pack, skipped, used = [], [], 0
         # 单条最小摘录下限：剩余预算低于此值就不值得再放一条残缺内容
         min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
@@ -3620,6 +3641,9 @@ class MdCGOS(MdCG):
                 baseline=1.0 / (RRF_K + 1))
         except Exception:            # noqa: BLE001 —— 判读面不拖崩装包
             policy_text, coverage_gaps, coverage_certified = "", [], True
+        if isinstance(meta, dict):
+            # issue #1005 ③：raw 保底是否真的动手（0 = 队列前段已是原话/无原话，未改序）
+            meta["raw_min_applied"] = raw_min_applied
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates, "timeline": timeline,
