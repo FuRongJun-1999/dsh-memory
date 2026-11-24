@@ -54,6 +54,12 @@ jobs:
           npm ci --ignore-scripts --include=dev
           npm run build
       # 保留 prepare 生命周期与完整清单交叉核验；先构建其需要的插件入口。
+      # 版本一致性：package.json / package-lock.json 两份版本号长期漂移过 8 个版本
+      # （实测 package.json=0.11.1 vs package-lock.json=0.9.23），npm 侧不报错但发包/审计都会读到旧号。
+      - name: 版本号一致性门禁自检（正负例）
+        run: python scripts/check_pkg_version_sync.py --selftest
+      - name: 版本号一致性门禁（package.json × package-lock.json）
+        run: python scripts/check_pkg_version_sync.py
       - name: 门禁脚本自检（内置断言：四类规则的正负例 + 不命中自身源码）
         run: python scripts/check_publish_artifact.py --selftest
       - name: 产物面政策检查（npm pack --dry-run 清单 × git ls-files 追踪集合）
