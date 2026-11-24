@@ -73,6 +73,45 @@ def main():
         ids, paths = hit("我的全名到底是啥来着")
         ok("profile_slot" in paths,
            "S6 换一种问法（到底是啥来着）仍命中", (ids, paths))
+
+        # ===== 二次修正（2026-11-24，测评端带卡复测：救 3 赔 17）=====
+        # 槽位卡必须**不参与常规名额**：从候选池剔除 → 装包后按独立配额追加。
+        T2 = tempfile.mkdtemp(prefix="slot_quota_")
+        try:
+            cg2 = MdCGOS(T2, actor="t")
+            cg2.add("profile-role-谈书宁", CARD, layer="knowledge",
+                    tags=["profile", "role:谈书宁"], importance=0.9)
+            for i in range(12):
+                cg2.add("turn_%02d" % i,
+                        "# 对话\n我学历的事你再问问我 第%d次 机械 修伞\n" % i,
+                        layer="contextual", tags=["对话"], importance=0.5)
+            cg2.flush()
+
+            def run(cap, q="我的学历是什么"):
+                old_cap = os.environ.get("MDCG_SLOT_CARDS")
+                os.environ["MDCG_SLOT_CARDS"] = cap
+                try:
+                    out = cg2.recall(q, budget_tokens=500, k=10)
+                finally:
+                    if old_cap is None:
+                        os.environ.pop("MDCG_SLOT_CARDS", None)
+                    else:
+                        os.environ["MDCG_SLOT_CARDS"] = old_cap
+                ids = [e.get("id") for e in out.get("pack") or []]
+                return out.get("meta", {}), ids
+
+            meta_on, ids_on = run("2")
+            meta_off, ids_off = run("0")
+            ok(meta_on.get("slot_cards_added", 0) >= 1,
+               "Q1 槽位命中时卡走追加通道（slot_cards_added>=1）", meta_on)
+            turns_on = [i for i in ids_on if str(i).startswith("turn_")]
+            turns_off = [i for i in ids_off if str(i).startswith("turn_")]
+            ok(len(turns_on) >= len(turns_off),
+               "Q2 原话条数不因卡而减少（配额外）", (len(turns_on), len(turns_off)))
+            ok(not str(ids_on[0]).startswith("profile-") if ids_on else True,
+               "Q3 卡不占前段名次（原话优先）", ids_on[:3])
+        finally:
+            shutil.rmtree(T2, ignore_errors=True)
     finally:
         shutil.rmtree(T, ignore_errors=True)
 
