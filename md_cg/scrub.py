@@ -62,6 +62,7 @@ from __future__ import annotations
 import hashlib
 import os
 import random
+import re
 import time
 
 from . import forgetting, nodefile, protect
@@ -492,12 +493,32 @@ _EXPIRY_KEYS = ("effective_until", "valid_until", "expires_at", "expire_at",
 # 逐条取值不同，当键跨节点比对必然误报（假设/否决原因 是 rej 记录的两行）。
 _SKIP_KEYS = ("功能名", "执行", "条件", "来源", "标签", "状态", "备注", "标题",
               "描述", "name", "id", "title", "layer", "tags", "说明",
-              "假设", "否决原因", "验证")
+              "假设", "否决原因", "验证",
+              # issue #1033：元数据字段逐条取值不同，不是可断言的命题（真源 fm 字段名）
+              "level", "importance", "project", "关键词", "类型", "时间", "日期",
+              # issue #1033 后续（本地实测）：whitebox_kb 的 code_*/doc_* 节点正文含
+              # 「位置：<file>:<line>」——**逐节点天然不同**（每个节点描述自己那份源码），
+              # 跨节点比对必然误报。全库扫描：2563 个 demoted 节点的矛盾键 100% 是「位置」
+              # （9386 次记录），原层全是 knowledge。这不是可断言的命题，是定位元数据。
+              # 同类还有：「索引元条件」（载体/时间/方法，逐节点不同）、「子节」（小节目录）。
+              "位置", "索引元条件", "子节")
+# issue #1033（2026-11-24，用户实测 16 节点被误判 demote）：Markdown 小节标题与口语短句
+# 会被 `partition("：")` 切成「键」，于是任意两篇无关文档的「任务：xxx」天然取值不同，
+# 被判「同键不同值」矛盾 → weaken + demote + 跨层移动。判据是**结构标签**，不是内容矛盾。
+# 只跳过这几种形态（宁窄勿宽）：结构词做键、编号/序号前缀、口语量词。
+_SECTION_KEYS = ("任务", "目标", "背景", "需求", "现状", "问题", "方案", "计划",
+                 "步骤", "结论", "要点", "原则", "原因", "结果", "决策", "概述",
+                 "总览", "核心", "做法", "过程", "复盘", "风险", "验收", "子功能")
+_SECTION_ORDINAL = re.compile(r"^\s*(?:\d+[.、)）]|[（(]\d+[)）]|[一二三四五六七八九十]+[、.])")
+_COLLOQUIAL_KEYS = ("一条", "一句", "一点", "一些", "一会儿")
 # 引用/出处行的键形（本地实测：正文「…（源：src_x、src_y）」会被 partition("：") 切成
 # 键「…（源」——单字「源」本来就被 2–12 长度闸过滤，真正的入口是**带括号的前缀键**）。
 # 判据：**键里不得出现括号类标点**（字段名是标识符，不是半句话）；值侧再拦「src_ 列表」形态。
-_KEY_BAD_CHARS = "（）()【】[]{}<>《》〈〉「」『』"
-_SOURCE_VALUE_PREFIXES = ("src_", "ref_", "doc_")
+# issue #1033：字段名是标识符——含空白/引号/路径符/emoji 前缀的一律不是键（`- 提案`、`@F`、
+# `https` 的残留面）。全角空格单独列出（`\u3000` 不在 `is` 空白族里不值得赌）。
+_KEY_BAD_CHARS = "（）()【】[]{}<>《》〈〉「」『』 \t\u3000\"'`@/\\*#"
+# `//` = URL 值：`https://x` 被切成键 `https`、值 `//x`，值侧拦掉
+_SOURCE_VALUE_PREFIXES = ("src_", "ref_", "doc_", "//")
 _NEG_WORDS = ("禁止", "不得", "不要", "不能", "切勿", "避免", "不应", "不可",
               "不会", "没有", "无须", "不必", "无需")
 _POS_WORDS = ("应当", "建议", "必须", "需要", "可以", "允许", "推荐", "宜")
@@ -527,7 +548,19 @@ def _to_ts(v):
         return None
 
 
-# 生效条件：对 (content or "").splitlines() 的每行去 # 后，先试中文全角 "："、无则试 ":"，切出的键长度在 2–12、值非空且键不在 _SKIP_KEYS 时以 setdefault 记录（每键只留首次出现），无合格行返回 {}。
+# 生效条件：k 为空返回 True；k 落在 _SECTION_KEYS 结构词表、匹配编号/序号前缀、或含口语量词时返回 True（这些是文档结构标签，不是可断言字段）。
+def _is_section_key(k) -> bool:
+    """该键是不是**文档结构标签**（小节标题／编号列表／口语短句）——issue #1033。"""
+    if not k:
+        return True
+    if k in _SECTION_KEYS:
+        return True
+    if _SECTION_ORDINAL.match(k):
+        return True
+    return any(w in k for w in _COLLOQUIAL_KEYS)
+
+
+# 生效条件：对 (content or "").splitlines() 的每行去 # 后，先试中文全角 "："、无则试 ":"，切出的键长度在 2–12、值非空且键不在 _SKIP_KEYS、不是结构标签（_is_section_key）时以 setdefault 记录（每键只留首次出现），无合格行返回 {}。
 def _kv_pairs(content) -> dict:
     """抽 `键：值` 对（中文/英文冒号），跳过结构字段。"""
     out = {}
@@ -550,6 +583,8 @@ def _kv_pairs(content) -> dict:
                 # 且 apply 会把好节点 weaken+demote 并跨层移动文件）。
                 if (2 <= len(k) <= 12 and v and k not in _SKIP_KEYS
                         and not nodefile.is_ccg_mark(k)
+                        # issue #1033：结构标签（小节标题/编号列表/口语短句）不是断言键
+                        and not _is_section_key(k)
                         # issue（scrub 误判）：括号类标点出现即不是字段名（引用/出处行）
                         and not any(ch in k for ch in _KEY_BAD_CHARS)
                         # 值侧兜底：纯引用 id 列表（src_x、ref_y）不是可断言的值
