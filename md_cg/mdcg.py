@@ -1883,6 +1883,19 @@ class _DirtyDict(dict):
 
         stat 失败与无 path 一律不登记：**证不出陈旧就不当陈旧**——「本实例未
         落盘写入不因重载从检索面消失」是既有不变量，宁可漏挡也不误杀。
+
+        **#1022 取舍（2026-11-24，维护侧显式裁决）**：本函数在 _dirty_lock **内**
+        被调用，因此这次 stat + 读文件 + sha256 确实进了叶子锁——这与「#677 P2 锁内
+        不做 IO」并不矛盾，因为那条纪律限定的是 **flush / 大块 IO**，不是「一次文件级
+        stat+摘要」。三条候选（见证后置 / digest 惰性化 / 认了）里本仓选**认了**：
+        · 量级：本机实测 1.2KB 节点文件 stat+read+sha256 ≈ **42 µs**（300 次均值），
+          相对 flush 的分片 append 小两个数量级；
+        · 必要性：见证必须在**写入那一刻**取，才代表「本条写入对应的盘面」；挪到锁外
+          再取，其间别人写入就会把见证绑到别人的版本上（#80 的漏挡正是这么来的）；
+        · 失败方向：现实现「证不出陈旧就不当陈旧」，宁可漏挡不误杀——若要改成
+          惰性 digest，必须同时改这条不变量，不是纯性能改动。
+        若将来节点文件普遍到百 KB 级、或写路径实测被它压住，按 #1022 方案 1/2 重做，
+        但**先量后改**，并同步改这里的注释与判据。
         """
         self.staged_stat.pop(k, None)
         p = v.get("path") if isinstance(v, dict) else None
@@ -2691,8 +2704,12 @@ class MdCG:
         ① 不成立、旧判据直接返回 False ⇒ **旧写盖新写并随 flush 持久化**。
         ②③④ 即为此补的字节级身份判定。
         """
-        # #1011 既有锁外调用点补齐：原子快照 (staged_stat, entry.path)，磁盘 stat/digest
-        # 严格留在锁外（保持 #677 P2「_dirty_lock 内不做 IO」纪律）。
+        # #1011 既有锁外调用点补齐：原子快照 (staged_stat, entry.path) 后，**本函数**的
+        # 二次 stat/digest 严格留在锁外。
+        # issue #1022（口径澄清，避免两套说法并存）：#677 P2「_dirty_lock 内不做 IO」限定的是
+        # **flush / 大块 IO**；「写脏集时取见证」这一处是**显式选择在锁内做**的
+        # （_DirtyDict.__setitem__ → _note_witness：stat + 读文件 + sha256）。理由与代价见
+        # _note_witness 末尾的「#1022 取舍」段落，改之前必读。
         with self._dirty_lock:
             st = self._dirty.staged_stat.get(nid)
             if st is None:
