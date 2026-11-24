@@ -3733,6 +3733,20 @@ class MdCGOS(MdCG):
     #: 而 event 卡对「姓名/年龄/职业」这类属性题没有帮助）。
     _PROFILE_INJECT_QUOTA = (('role', 2), ('person', 2), ('place', 1))
 
+    #: **槽位触发词表**（issue #1005，2026-11-24）。动机来自测评端实测：11 道稳定失败里
+    #: 7 道是槽位型提问（「我全名咋写」「爸妈退休前各干什么」「我住哪个城市」），**不含日期/
+    #: 数字/专名**——所以按「实体抽取」做的缺口判据在 179 题上命中 0/179，永远不会触发。
+    #: 正确形状不是「报告缺口」，而是**按槽位词直取档案卡**：命中即注入，绕过分类配额。
+    #: 判据故意窄：只认「问这件事」的词，不认泛泛的话题词。
+    _SLOT_TRIGGERS = (
+        ("姓名", ("全名", "名字", "姓名", "叫什么", "咋写"), "role"),
+        ("家庭", ("爸妈", "父母", "家里", "家人", "父亲", "母亲"), "role"),
+        ("职业", ("职业", "干什么", "做啥", "上班", "工作"), "role"),
+        ("学历", ("学历", "上学", "读书", "毕业"), "role"),
+        ("年龄", ("多大", "年龄", "几岁"), "role"),
+        ("城市", ("城市", "住哪", "住在", "什么地方"), "place"),
+    )
+
     # 生效条件：无参；返回自述轮次节点（写时登记的小索引，limit 控制注入量）
     def _selfstmt_nodes(self, limit=None):
         """自述轮次注入：零模型、与题目无关（外测实证 12.8%→35.9% 的那条规则）。
@@ -3813,6 +3827,29 @@ class MdCGOS(MdCG):
             _self_node = self.get("profile-role-" + _me)
             if _self_node:
                 out.append((_self_node, 1.0, {"path": "profile_self"}, "profile_self"))
+        # issue #1005：**槽位触发**——命中槽位词即注入对应种类的卡，绕过分类配额。
+        # 与自指触发互补：自指管「我」，槽位词管「问的是哪一项」（姓名/爸妈/城市/年龄…）。
+        _slots_hit = [(s, k) for s, words, k in self._SLOT_TRIGGERS
+                      if any(w in q for w in words)]
+        if _slots_hit:
+            _slot_kinds = {k for _s, k in _slots_hit}
+            _have_ids = {str(n.get("id") or "") for n, *_r in out}
+            for nid, rec in list(((self.index or {}).get("nodes") or {}).items()):
+                if not str(nid).startswith("profile-"):
+                    continue
+                _parts = str(nid).split("-", 2)
+                _kind = _parts[1] if len(_parts) >= 3 else ""
+                if _kind not in _slot_kinds or str(nid) in _have_ids:
+                    continue
+                node = self.get(nid)
+                if node:
+                    out.append((node, 1.0,
+                                {"path": "profile_slot",
+                                 "slots": [s for s, k in _slots_hit if k == _kind]},
+                                "profile_slot"))
+                    _have_ids.add(str(nid))
+                if len(out) >= limit * 2:
+                    break
         _quota = dict(self._PROFILE_INJECT_QUOTA)
         _taken = {k: 0 for k in _quota}
         # G1a：从 cg.index 取回的 nodes 必须**先取快照**（并发写会 dictionary changed size）。
