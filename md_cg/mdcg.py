@@ -3189,6 +3189,11 @@ class MdCG:
                         self._dirty[_nid] = _e
                 self._dirty.superseded_ids |= {n for n in superseded
                                                if n not in _arrived}
+                # issue #1020：回填与「清 inflight」必须在**同一把锁**内完成。
+                # 原实现把清空留在 finally（另一次加锁），两段之间 flush_state() 会把
+                # 同一批既算进 _dirty（已回填）又算进 _flush_inflight ⇒ pending_dirty 双计。
+                # 这里先清掉，finally 里的同值重写保留（成功路径仍要靠它 + 推进 _flush_gen）。
+                self._flush_inflight = {}
                 # issue #1011-1（第 4 点）：本批已退回脏集 ⇒ 必须补一次唤醒，否则没人再标脏时
                 # 这批会一直搁在内存里（锁等待本身已耗掉一个 timeout，不构成紧循环）。
                 _ev = getattr(self, "_flush_evt", None)
