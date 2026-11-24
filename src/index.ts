@@ -492,7 +492,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     // 角色扮演网页（同源挂载 /roleplay）：生成能力走可选「身体」后端（capability），
     // 转录/历史/翻译/落图走大脑（mdcg）。capability=null 时生成接口 fail-closed。
     await installRoleplayWeb(ctx, capability, config, disposers, mdcg)
-    installConsoleWeb(ctx, config, disposers, mdcg)
+    // The console handler calls connection.admit(), whose Cordis shadow context
+    // also needs the authentication service injected. Keep the UI optional so
+    // hosts without the authenticated Web stack can still use the memory plugin.
+    ctx.inject(['connection', 'connection.authentication', 'webServer'], (webCtx) => {
+      installConsoleWeb(webCtx, config, disposers, mdcg)
+    })
 
     // 白箱 LLM provider 已下线（2026-09-10）：功能尚不完善，不再注册
     // 'lingshu-whitebox' provider。适配器保留为 LIB 本地库
