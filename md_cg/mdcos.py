@@ -3345,27 +3345,14 @@ class MdCGOS(MdCG):
                                     view=view)
             items = [(r[0], r[1], r[2], []) for r in res]
 
-        # ===== issue #1005 ③：raw 保底——派生卡不得把原话轮次全部挤掉 =====
+        # ===== issue #1005 ③：raw 保底（2026-11-24 修正版）=====
         # 病灶（issue 原文第 3 条）：原话轮次与派生材料（档案/摘要/状态卡）共用同一份预算，
-        # 实测出现过「卡进了 pack、源轮次没进」——答案因此缺原句，只能靠事后补丁。
-        # 处置：装包**之前**把分数最高的 N 条**原话轮次**提到队首（raw_min，缺省 2，
-        # `MDCG_RAW_MIN=0` 关）。只调整装包顺序，不改打分、不改融合、不改预算口径；
-        # 队列里没有原话（或前 N 条已是原话）时**一字不动**，正常命中路径零影响。
+        # 实测出现过「卡进了 pack、源轮次没进」——答案因此缺原句。
+        # 第一版把原话**提到队首**，实测有害：3 张高分档案卡被 2 条低分原话挤到第 3 位起
+        # （179 题复测：四子集全负，降分集中在依赖档案/派生的题）。故改为**只在完全缺失时补位**：
+        # pack 里一条原话都没有时才补（追加到末尾，预算不足则替换最低分派生条目），
+        # 已经在 pack 里的条目**顺序一律不动**。raw_min 缺省 2，`MDCG_RAW_MIN=0` 关。
         raw_min_applied = 0
-        try:
-            from . import coverage as _cov
-            _raw_min = max(0, int(os.environ.get("MDCG_RAW_MIN", "2") or 0))
-            if _raw_min and items:
-                _raw_idx = [i for i, (n, _s, _q, _p) in enumerate(items)
-                            if not _cov.is_derived(n)]
-                if _raw_idx and _raw_idx[0] >= _raw_min:
-                    _head = _raw_idx[:_raw_min]
-                    _head_set = set(_head)
-                    _rest = [i for i in range(len(items)) if i not in _head_set]
-                    items = [items[i] for i in _head + _rest]
-                    raw_min_applied = len(_head)
-        except Exception:            # noqa: BLE001 —— 配额面绝不拖崩装包
-            raw_min_applied = 0
         pack, skipped, used = [], [], 0
         # 单条最小摘录下限：剩余预算低于此值就不值得再放一条残缺内容
         min_excerpt = max(1, min(50, max_item_tokens // 5)) if max_item_tokens else 0
@@ -3636,6 +3623,47 @@ class MdCGOS(MdCG):
                         policy_text = ""
                     else:
                         used += _ptok
+            # ===== issue #1005 ③ 修正：raw 保底只在「原话缺失」时补位 =====
+            # 位置很关键：必须放在**所有裁剪之后**（尤其是给判读合同腾预算那一段，它从尾部
+            # 按最低分裁条目）。第一版放在裁剪之前，实测 pack 里 3 条原话被随后裁到只剩 1 条，
+            # 而检查早已跑完 ⇒ 配额形同虚设（调试读数：检查时 raw_cnt=3，最终 pack 只剩 1 条）。
+            _raw_min2 = max(0, int(os.environ.get("MDCG_RAW_MIN", "2") or 0))
+            if _raw_min2 and pack:
+                _raw_cnt2 = sum(1 for e in pack if not _coverage.is_derived(e))
+                if _raw_cnt2 < _raw_min2:
+                    _have2 = {e.get("id") for e in pack}
+                    for _n2, _sc2, _q2, _pv2 in items:
+                        if _raw_cnt2 >= _raw_min2:
+                            break
+                        if _n2.get("id") in _have2 or _coverage.is_derived(_n2):
+                            continue
+                        _txt2 = str(_n2.get("content") or "")
+                        _t22 = est_tokens(self.card_of(_n2, _txt2)) if card_mode else est_tokens(_txt2)
+                        if _t22 <= 0:
+                            continue
+                        if used + _t22 > budget_tokens:
+                            _victim2 = None
+                            for _i2 in range(len(pack) - 1, -1, -1):
+                                if _coverage.is_derived(pack[_i2]):
+                                    _victim2 = _i2
+                                    break
+                            if _victim2 is None:
+                                break
+                            used -= int(pack[_victim2].get("tokens") or 0)
+                            del pack[_victim2]
+                        _fm22 = _n2.get("frontmatter") or {}
+                        pack.append({"id": _n2.get("id"), "score": _sc2,
+                                     "state": (_q2 or {}).get("state"),
+                                     "tokens": _t22,
+                                     "content": self.card_of(_n2, _txt2) if card_mode else _txt2,
+                                     "frontmatter": _fm22,
+                                     "provenance": _pv2 or [],
+                                     "metadata": {"state": (_q2 or {}).get("state"),
+                                                  "reason": (_q2 or {}).get("reason"),
+                                                  "raw_quota": True}})
+                        used += _t22
+                        _raw_cnt2 += 1
+                        raw_min_applied += 1
             coverage_gaps, coverage_certified = _coverage.gaps(
                 pack, skipped, used, budget_tokens, query=query,
                 baseline=1.0 / (RRF_K + 1))
