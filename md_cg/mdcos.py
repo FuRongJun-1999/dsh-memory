@@ -3313,6 +3313,7 @@ class MdCGOS(MdCG):
                            ("time_axis", time_axis)):
                 if _v is not None:        # 时间算子透传（None = 未启用，不入参）
                     kw[_k] = _v
+            _slot_cards = []          # issue #1005：槽位卡独立通道（不占常规名额）
             results, meta = self.search_rrf(query, **kw)
             # 【外测诊断 2026-11-12】实测「同一 query：search 把资料卡排第 1（0.564），
             # recall 的候选集里却 0 条（paths.lexical=1）」——断点在**候选生成**，不在过滤。
@@ -3328,13 +3329,27 @@ class MdCGOS(MdCG):
                 if _extra:
                     _seen = {r[0].get("id") for r in results if r and r[0]}
                     for _n, _sc, _q, _p in _extra:
+                        # issue #1005（2026-11-24 二次修正）：**槽位卡不参与候选竞争**。
+                        # 测评端带卡复测：卡进候选池会挤掉原话轮次，救回 3 题、赔掉 17 题
+                        # （P17-CASE-025 四道全灭）。故槽位卡单独收集，装包后按独立配额追加。
+                        if str(_p or "") == "profile_slot":
+                            _slot_cards.append((_n, _sc, _q, _p))
+                            continue
                         if _n.get("id") not in _seen:
                             results.append((_n, _sc, _q, _p))
                     if isinstance(meta, dict):
                         meta["profile_injected"] = len(results) - len(_seen)
+                        meta["profile_slot_cards"] = len(_slot_cards)
             except Exception:            # noqa: BLE001 —— 注入面不拖崩召回
                 pass
             items = [(r[0], r[1], r[2], r[3]) for r in results]
+            # issue #1005 二次修正：槽位卡**从常规候选里剔除**——它们只走「装包后追加」通道。
+            # 否则卡照样会通过 search 的层加权（knowledge 1.2 > contextual 1.0）排进前几名，
+            # 把原话轮次挤掉：实测 12 条原话 + 1 张卡时，开/关槽位卡 pack 完全一样（卡占首位、
+            # 原话 9 条），说明「追加」那条路从未触发。要真的配额外，就必须先剔除。
+            if _slot_cards:
+                _slot_ids = {str(_sn.get("id") or "") for _sn, *_sr in _slot_cards}
+                items = [it for it in items if str(it[0].get("id") or "") not in _slot_ids]
         else:
             res, meta = self.search(query, layer=layer, k=k, context=context,
                                     judge=judge, session=session, branch=branch,
@@ -3585,6 +3600,41 @@ class MdCGOS(MdCG):
                 _keep.add(_i)
             pack = [e for i, e in enumerate(pack)
                     if i in _keep or not str(e.get("id") or "").startswith("profile-")]
+        # ===== issue #1005 二次修正：槽位卡「配额外增量追加」=====
+        # 测评端带卡复测（2026-11-24）：槽位卡若进候选池参与名额竞争，救回 3 题、赔掉 17 题
+        # （P17-CASE-025 四道全灭）——它挤掉了原本靠原话轮次拿到的证据。
+        # 故改为：**不参与常规名额**，装包（含 raw 保底）之后才追加；预算不够就**不加**
+        # （卡绝不抢原话的预算）。独立上限 MDCG_SLOT_CARDS，缺省 2，0 关闭。
+        slot_cards_added = 0
+        try:
+            _slot_cap = max(0, int(os.environ.get("MDCG_SLOT_CARDS", "2") or 0))
+            _slot_cards = locals().get("_slot_cards") or []
+            if _slot_cap and _slot_cards:
+                _have4 = {e.get("id") for e in pack}
+                for _n4, _sc4, _q4, _p4 in _slot_cards:
+                    if slot_cards_added >= _slot_cap:
+                        break
+                    if _n4.get("id") in _have4:
+                        continue
+                    _txt4 = str(_n4.get("content") or "")
+                    _t4 = est_tokens(self.card_of(_n4, _txt4)) if card_mode else est_tokens(_txt4)
+                    if _t4 <= 0 or used + _t4 > budget_tokens:
+                        continue          # 预算不够就不加：卡不抢原话预算
+                    _fm4 = _n4.get("frontmatter") or {}
+                    pack.append({"id": _n4.get("id"), "score": _sc4,
+                                 "state": (_q4 or {}).get("state"),
+                                 "tokens": _t4,
+                                 "content": self.card_of(_n4, _txt4) if card_mode else _txt4,
+                                 "frontmatter": _fm4,
+                                 "provenance": _p4 or [],
+                                 "metadata": {"state": (_q4 or {}).get("state"),
+                                              "reason": "slot_card",
+                                              "slot_card": True}})
+                    used += _t4
+                    _have4.add(_n4.get("id"))
+                    slot_cards_added += 1
+        except Exception:            # noqa: BLE001 —— 卡注入面绝不拖崩装包
+            slot_cards_added = 0
         timeline = self._pack_timeline(pack)
         # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
         # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，
@@ -3672,6 +3722,7 @@ class MdCGOS(MdCG):
         if isinstance(meta, dict):
             # issue #1005 ③：raw 保底是否真的动手（0 = 队列前段已是原话/无原话，未改序）
             meta["raw_min_applied"] = raw_min_applied
+            meta["slot_cards_added"] = slot_cards_added
         return {"pack": pack, "tokens_used": used, "budget": budget_tokens,
                 "skipped": skipped, "recent": recent, "meta": meta,
                 "aggregates": aggregates, "timeline": timeline,
