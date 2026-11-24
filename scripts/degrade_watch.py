@@ -52,9 +52,9 @@ except Exception:  # pragma: no cover
 
 _MAGIC = b"\x28\xb5\x2f\xfd"
 _DONE_PAT = re.compile(r"(写好了|已完成|完成了|做完了|搞定|收工)")
+# 默认只认「家目录下的 .dsh/sessions」，可用 DSH_HOME 覆盖（不写死任何本机绝对路径）
 _DEFAULT_ROOTS = (
-    os.path.join(os.path.expanduser("~"), ".dsh", "sessions"),
-    r"D:/dsh-home/sessions",
+    os.path.join(os.environ.get("DSH_HOME") or os.path.join(os.path.expanduser("~"), ".dsh"), "sessions"),
 )
 
 
