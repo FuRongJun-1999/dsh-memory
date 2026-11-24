@@ -53,6 +53,14 @@ def main():
     ok(got2 == {},
        "S9 CCG 六要素行仍被 is_ccg_mark 拦（既有判据不变）", got2)
 
+    # —— issue #1033 后续：whitebox_kb 代码节点的定位/索引元数据（全库扫描 99.8% 误伤源）——
+    ok(_kv_pairs("位置：whitebox_kb/wisdom/x.py:684\n") == {},
+       "S11 「位置」（源码行号）不产生键——2563 个 demoted 节点 100% 由它引起")
+    ok(_kv_pairs("索引元条件：载体/位置：本地源码仓；时间：全时窗\n") == {},
+       "S12 「索引元条件」不产生键")
+    ok(_kv_pairs("子节：一、投影声明；二、核心声明\n") == {},
+       "S13 「子节」（小节目录）不产生键")
+
     # —— 回归：两篇无关文档不再「同键不同值」——
     a = _kv_pairs("# 计划\n任务：让 scrub 只抓真矛盾\n\n1. 连通性探测：node index.js\n")
     b = _kv_pairs("# 复盘\n任务：修好本轮的误报\n\n1. 连通性探测：curl api.github.com\n")
