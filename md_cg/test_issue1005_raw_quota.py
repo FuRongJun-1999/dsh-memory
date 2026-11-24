@@ -37,9 +37,10 @@ def _build(root, derived_n=10, raw_n=3):
     for i in range(derived_n):
         cg.add("profile-role-%02d" % i, BODY.format(n="档案卡%d" % i, x="预算争用 派生"),
                layer="contextual", tags=["档案"], importance=0.95)
-    # 原话轮次：普通 id、低重要度（模拟被挤掉的那批）
+    # 原话轮次：普通 id、低重要度（模拟被挤掉的那批）；每条内容带独立编号，
+    # 否则词法面会把「几乎同文」的几条并成一条，候选池里只剩 1 条可补（实测如此）。
     for i in range(raw_n):
-        cg.add("turn_%02d" % i, BODY.format(n="用户原话%d" % i, x="预算争用 原话"),
+        cg.add("turn_%02d" % i, BODY.format(n="用户原话%d" % i, x="预算争用 原话 编号%d" % i),
                layer="contextual", tags=["对话"], importance=0.05)
     cg.flush()
     return cg
@@ -86,10 +87,31 @@ def main():
             cg2.flush()
             o2 = cg2.recall("只有原话", budget_tokens=400, k=10)
             ok(o2.get("meta", {}).get("raw_min_applied", 0) == 0,
-               "R6 前段已是原话时不改序（raw_min_applied=0）",
+               "R6 已有原话时不补位（raw_min_applied=0）",
                o2.get("meta", {}).get("raw_min_applied"))
         finally:
             shutil.rmtree(T2, ignore_errors=True)
+
+        # R7：**副作用回归**——高分档案卡不得被低分原话挤到后面（2026-11-24 修正的判据）。
+        # 第一版「提到队首」在 179 题复测里把依赖档案的题全打退了；这条钉住新的「只补缺失」。
+        T3 = tempfile.mkdtemp(prefix="raw_quota3_")
+        try:
+            cg3 = MdCGOS(T3, actor="t")
+            for i in range(3):
+                cg3.add("profile-role-%02d" % i,
+                        BODY.format(n="角色卡%d" % i, x="生日 关键答案 记忆锚点"),
+                        layer="contextual", tags=["档案"], importance=0.9)
+            for i in range(5):
+                cg3.add("turn_%02d" % i, BODY.format(n="原话%d" % i, x="记忆锚点 普通内容"),
+                        layer="contextual", tags=["对话"], importance=0.2)
+            cg3.flush()
+            o3 = cg3.recall("记忆锚点 生日", budget_tokens=500, k=10)
+            order = [e.get("id") for e in (o3.get("pack") or [])]
+            cards = [i for i, x in enumerate(order) if str(x).startswith("profile-")]
+            ok(cards[:3] == [0, 1, 2],
+               "R7 高分的档案卡仍占据前三位（不被低分原话挤掉）", order[:6])
+        finally:
+            shutil.rmtree(T3, ignore_errors=True)
     finally:
         shutil.rmtree(T, ignore_errors=True)
 
