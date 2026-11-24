@@ -468,7 +468,12 @@ class _LayerBigramIndex:
         for g in new:
             p = postings.get(g)
             if p:
-                active.append((len(p), g, p))
+                # issue #1021：**先快照再迭代**（与线性路径 nodes = dict(...) 同族纪律）。
+                # 直接迭代活的 posting set，另一线程 sync() 的 p.add/p.discard 会让
+                # for nid in plist 抛 RuntimeError: Set changed size during iteration。
+                # 长度与内容取自同一个快照（不得先 len(p) 再 tuple(p)）。
+                snap = tuple(p)
+                active.append((len(snap), g, snap))
         if not active:
             stats = {
                 "posting_lists_total": 0,
@@ -511,9 +516,15 @@ class _LayerBigramIndex:
                 if nid == exclude or nid in seen:
                     continue
                 seen_add(nid)
-                body = docs[nid]
+                # issue #1021：docs/doc_pos 同样可能在查询期间被 _remove_doc 删掉
+                # （另一线程 sync），裸下标会 KeyError；取不到就跳过（等价「本批没这个文档」）。
+                body = docs.get(nid)
+                if body is None:
+                    continue
                 blen = len(body)
-                pos = doc_pos[nid]
+                pos = doc_pos.get(nid)
+                if pos is None:
+                    continue
                 ub = remaining if remaining < blen else blen
                 if ub < best_ov or (ub == best_ov and pos >= best_pos):
                     docs_pruned += 1
