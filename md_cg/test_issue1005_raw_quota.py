@@ -55,9 +55,17 @@ def main():
         raw = [e for e in pack if not str(e.get("id") or "").startswith("profile-")]
         ok(len(raw) >= 2, "R1 派生卡占满高分时，原话轮次仍进包 >= 2",
            [(e.get("id"), e.get("score")) for e in pack][:6])
-        ok(bool(pack) and out.get("meta", {}).get("raw_min_applied", 0) > 0,
-           "R2 meta 如实报出 raw 保底动手了（raw_min_applied > 0）",
-           out.get("meta", {}).get("raw_min_applied"))
+        # R2 用**紧预算**单独验一次「补位确实动手」：budget=400 时装得下全部原话，
+        # 那本来就不该补位（applied=0 是正确行为，不是缺陷）。旧断言写死了「必须动手」，
+        # 于是场景一变就误报——2026-11-25 CI 上就是这么红的。
+        tight = cg.recall("预算争用", budget_tokens=140, k=20)
+        tight_pack = tight.get("pack") or []
+        tight_raw = [e for e in tight_pack if not str(e.get("id") or "").startswith("profile-")]
+        ok(tight.get("meta", {}).get("raw_min_applied", 0) > 0,
+           "R2 紧预算下 raw 保底如实报出动手（raw_min_applied > 0）",
+           (tight.get("meta", {}).get("raw_min_applied"), len(tight_pack)))
+        ok(len(tight_raw) >= 2,
+           "R2b 紧预算下原话仍保住 >= 2 条（补位真的生效）", len(tight_raw))
         ok(out.get("coverage_certified") is not True or raw,
            "R3 有原话进包时不应报 raw_not_included",
            out.get("coverage_gaps"))
