@@ -39,7 +39,10 @@ def main():
         cg.flush()
 
         def cards():
-            return [n for n in (cg.index.get("nodes") or {}) if str(n).startswith("profile-")]
+            # H-4(a) 纪律：从 cg.index 取回的 nodes 必须**先取快照**再迭代
+            # （并发写入会在迭代中改 dict ⇒ RuntimeError）。
+            return [n for n in list(cg.index.get("nodes") or {})
+                    if str(n).startswith("profile-")]
 
         dry = mcp_server.call_tool(cg, "cg", {"op": "profiles", "dry_run": True})
         ok(isinstance(dry, dict) and dry.get("dry_run") is True,
