@@ -13,6 +13,7 @@
  */
 import { join, dirname } from 'node:path';
 import { readFileSync, mkdirSync, appendFileSync, existsSync, writeFileSync, renameSync } from 'node:fs';
+import { createHash, timingSafeEqual } from 'node:crypto';
 const HTML = `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -249,7 +250,7 @@ function nsfwCheck(text) {
 }
 let roles = [];
 async function refreshRoles() {
-  const r = await fetch('/roleplay/api/roles').then(x => x.json());
+  const r = await fetch('/roleplay/api/roles', { headers: apiHeaders() }).then(x => x.json());
   roles = r.roles || [];
   const sel = $('roleSel');
   sel.innerHTML = '';
@@ -483,7 +484,7 @@ window.addEventListener('resize', function () { if (chat) chat.scrollTop = chat.
  * @param capability 「身体」能力后端桥（可选）；为 null 时生成接口 fail-closed。
  * @param mdcg       大脑客户端（认知图，唯一真源）；为 null 时落图静默跳过。
  */
-export async function installRoleplayWeb(ctx, capability, config, disposers, mdcg: any = null) {
+export async function installRoleplayWeb(ctx, capability, config, disposers, mdcg: any = null, options: any = null) {
     // 身体能力后端未接入时的统一提示（fail-closed：不编造回复）。
     const CAP_ABSENT_MSG = '角色生成能力未接入：该能力属「身体」（AEIS 能力库），'
         + '主仓已剥离，仅保留转录/历史/翻译/落图。'
@@ -534,11 +535,17 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         // 任意来源可改写角色数据）。403 文案引导配置：设 ROLEPLAY_EDIT_KEY
         // 并在请求带 x-edit-key 头即可恢复编辑。
         const EDIT_KEY = process.env.ROLEPLAY_EDIT_KEY || '';
+        const EDIT_KEY_DIGEST = EDIT_KEY
+            ? createHash('sha256').update(EDIT_KEY, 'utf8').digest()
+            : null;
         const requireEditKey = (req) => {
             if (!EDIT_KEY)
                 return false;                    // P1-2：未配置 = 拒绝（fail-closed）
-            const h = (req.headers && req.headers['x-edit-key']) || '';
-            return h === EDIT_KEY;
+            const raw = (req && req.headers && req.headers['x-edit-key']) || '';
+            const h = Array.isArray(raw) ? String(raw[0] ?? '') : String(raw);
+            if (!h || !EDIT_KEY_DIGEST)
+                return false;
+            return timingSafeEqual(createHash('sha256').update(h, 'utf8').digest(), EDIT_KEY_DIGEST);
         };
         // V21-1（批次 34，外部报告）：真分支此前误写自调用（无限递归 → 配了
         // key 反而 500 且泄露内部异常文本）。两分支都是终止文案：已配置 =
@@ -604,10 +611,19 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         // P1-3（批次 26 外部审查报告）：角色 id 白名单——role 从 URL 提取后
         // 直接作 meta 对象键，`__proto__` 键会劫持 Object.prototype（污染插件
         // 与 DSH 宿主共享的同进程对象）。白名单字符集 + 显式拒绝危险键。
-        const _BAD_ROLE_IDS = new Set(['__proto__', 'constructor', 'prototype']);
+        const _BAD_ROLE_IDS = new Set(['__proto__', 'constructor', 'prototype', '.', '..']);
         const validRoleId = (role) => typeof role === 'string'
-            && /^[A-Za-z0-9_.-]{1,64}$/.test(role)
+            && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(role)
+            && !role.includes('..')
             && !_BAD_ROLE_IDS.has(role);
+        const safeDecodeRole = (seg) => {
+            try {
+                return decodeURIComponent(seg || '');
+            }
+            catch {
+                return '';
+            }
+        };
         // meta 字典统一 null 原型——即使存量文件已被写入危险键，
         // meta['__proto__'] 也只是普通 own 属性，不再劫持原型链。
         const toNullProto = (o) => (o && typeof o === 'object')
@@ -706,14 +722,61 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             res.writeHead(code, { 'Content-Type': 'application/json; charset=utf-8' });
             res.end(JSON.stringify({ ok: false, error }));
         };
+        const requireHostConnection = Boolean(options && options.requireHostConnection);
+        const getHostConnection = () => {
+            try {
+                if (ctx && typeof ctx.get === 'function')
+                    return ctx.get('connection');
+            }
+            catch { /* Cordis strict inject guard */ }
+            return ctx && ctx.connection;
+        };
+        const hasHostConnectionService = () => {
+            try {
+                if (ctx && typeof ctx.get === 'function')
+                    return Boolean(ctx.get('connection', false));
+            }
+            catch { /* 忽略 */ }
+            return Boolean(ctx && ctx.connection);
+        };
+        const admitHost = async (req, res) => {
+            const conn = getHostConnection();
+            const mustAdmit = requireHostConnection || Boolean(conn) || hasHostConnectionService();
+            if (!mustAdmit)
+                return true;
+            if (!conn || typeof conn.admit !== 'function') {
+                denyJson(res, 503, 'host_auth_unavailable');
+                return false;
+            }
+            let admission;
+            try {
+                admission = await conn.admit(req);
+            }
+            catch {
+                denyJson(res, 503, 'host_auth_error');
+                return false;
+            }
+            if (!admission || typeof admission !== 'object' || 'rejection' in admission) {
+                const rawCode = admission && typeof admission === 'object' ? admission.rejection : 403;
+                const code = (typeof rawCode === 'number' && rawCode >= 400 && rawCode < 600) ? rawCode : 403;
+                denyJson(res, code, code === 401 ? 'host_unauthenticated' : 'host_admission_rejected');
+                return false;
+            }
+            return true;
+        };
         const sameOrigin = (req) => {
             const headers = (req && req.headers) || {};
-            const origin = String(headers.origin || '');
-            const host = String(headers.host || '');
+            const origin = String(headers.origin || '').trim();
+            const host = String(headers.host || '').trim();
             if (!origin)
                 return true;                     // 无 Origin：同源导航/服务端调用，写方法在下面另行要求 JSON
+            if (!host)
+                return false;                    // 缺 Host 时拒绝（防 Origin: file:// 与空 Host 命中 "" === ""）
             try {
-                return new URL(origin).host === host;
+                const parsed = new URL(origin);
+                if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+                    return false;
+                return Boolean(parsed.host) && new URL(origin).host === host;
             }
             catch {
                 return false;
@@ -721,7 +784,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
         };
         const admit = (req, res) => {
             const headers = (req && req.headers) || {};
-            if (String(headers['sec-fetch-site'] || '') === 'cross-site') {
+            if (String(headers['sec-fetch-site'] || '').trim().toLowerCase() === 'cross-site') {
                 denyJson(res, 403, 'cross_site_rejected');
                 return false;
             }
@@ -740,10 +803,19 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
             return true;
         };
         const handler = async (req, res) => {
+            if (!(await admitHost(req, res)))
+                return;
             if (!admit(req, res))
                 return;
-            const url = new URL(req.url ?? '/', 'http://x');
             try {
+                let url;
+                try {
+                    url = new URL(req.url ?? '/', 'http://x');
+                }
+                catch {
+                    denyJson(res, 400, 'invalid_request_url');
+                    return;
+                }
                 const isPage = url.pathname === '/roleplay' || url.pathname === '/roleplay/';
                 if (req.method === 'GET' && isPage) {
                     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
@@ -780,7 +852,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         res.end(JSON.stringify({ ok: false, error: editKeyHint() }));
                         return;
                     }
-                    const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    const role = safeDecodeRole(url.pathname.split('/')[4]);
                     if (!validRoleId(role)) {
                         // issue #1009 第 4 项：本读面此前只过 edit-key、不校验角色 id；
                         // role 会拼进文件路径（getRoleItems），越界字符＝目录穿越。
@@ -810,7 +882,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const p = JSON.parse(body);
-                    const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    const role = safeDecodeRole(url.pathname.split('/')[4]);
                     if (!validRoleId(role)) {
                         // issue #1009 第 4 项：同 GET 面，写路径拼接前先校验。
                         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -874,7 +946,7 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const p = JSON.parse(body);
-                    const role = decodeURIComponent(url.pathname.split('/')[4]);
+                    const role = safeDecodeRole(url.pathname.split('/')[4]);
                     if (!validRoleId(role)) {
                         // P1-3：__proto__/constructor/prototype 及越界字符拒绝
                         res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -988,6 +1060,11 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
+                    if (!validRoleId(role)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$，不含 ..）', pairs: [] }));
+                        return;
+                    }
                     const settings = readTransSettings();
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ pairs: getTranslations(role), mode: (settings[role] && settings[role].mode) || 'input_only' }));
@@ -1040,6 +1117,11 @@ export async function installRoleplayWeb(ctx, capability, config, disposers, mdc
                         return;
                     }
                     const role = url.searchParams.get('role_id') || 'protocol-guide';
+                    if (!validRoleId(role)) {
+                        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8' });
+                        res.end(JSON.stringify({ ok: false, error: '非法角色 id（白名单 ^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$，不含 ..）', history: [] }));
+                        return;
+                    }
                     // P1 完善（会话隔离）：按客户端实例读各自转录
                     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
                     res.end(JSON.stringify({ history: readTranscript(role, clientIdOf(req)) }));

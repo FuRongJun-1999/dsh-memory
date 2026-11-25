@@ -19,7 +19,7 @@
         },
         {
             "path": "web/client.js",
-            "sha256": "D34CA36120E4DFB233590560DBFB94A78646C6DC9F3BBC6E046E9983D86F836D"
+            "sha256": "94EA9C2D6190F89F3DCAC4E796A25257538E21A856603245B16D9B3C8C549CB1"
         },
         {
             "path": "build-ui.mjs",
@@ -35,7 +35,7 @@
         },
         {
             "path": "lib/client.js",
-            "sha256": "67821F84629E3E5659DABFD9DE89E82B2F5EBDD18473EFCB27DEC8F7D385E41D"
+            "sha256": "58B64E42974F64B7EADF99EDF410AAF5AC99FB5764D03BD5D7B8AF973D3153B5"
         }
     ]
 }

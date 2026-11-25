@@ -489,13 +489,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     }
     // 自动记忆：沉淀进 md_cg 认知图（记忆唯一真源）。mdcg=null 时整体停用。
     disposers.push(installMemoryHooks(ctx, mdcg, config.memory))
-    // 角色扮演网页（同源挂载 /roleplay）：生成能力走可选「身体」后端（capability），
-    // 转录/历史/翻译/落图走大脑（mdcg）。capability=null 时生成接口 fail-closed。
-    await installRoleplayWeb(ctx, capability, config, disposers, mdcg)
-    // The console handler calls connection.admit(), whose Cordis shadow context
-    // also needs the authentication service injected. Keep the UI optional so
-    // hosts without the authenticated Web stack can still use the memory plugin.
+    // 角色扮演网页（同源挂载 /roleplay）与控制台（/lingshu）均需宿主 connection.admit()
+    // 鉴权；Cordis 影子上下文同时需要 connection.authentication 注入。
+    // 保持两者可选，使无 Web 鉴权栈的最小宿主仍可正常使用记忆插件（#1024 / SEC-A2-06）。
     ctx.inject(['connection', 'connection.authentication', 'webServer'], (webCtx) => {
+      void installRoleplayWeb(webCtx, capability, config, disposers, mdcg, { requireHostConnection: true })
       installConsoleWeb(webCtx, config, disposers, mdcg)
     })
 
