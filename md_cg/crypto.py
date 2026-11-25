@@ -258,9 +258,9 @@ def _b64e(b):
     return base64.b64encode(b).decode("ascii")
 
 
-# 生效条件：s 为入参，返回 base64.b64decode(str(s).encode("ascii")) 的结果；默认 validate=False，非字母字符被丢弃，可能返回空字节或部分数据，源码未校验 s 合法性。
+# 生效条件：s 为入参，以 validate=True 严格 base64 解码（拒绝非法字符/空白混入），解码失败抛 ValueError/binascii.Error。
 def _b64d(s):
-    return base64.b64decode(str(s).encode("ascii"))
+    return base64.b64decode(str(s).encode("ascii"), validate=True)
 
 
 # 生效条件：passphrase、salt 为入参，将 str(passphrase).encode("utf-8") 作为口令、salt 作为盐，按 SCRYPT_N、SCRYPT_R、SCRYPT_P、SCRYPT_DKLEN 调 hashlib.scrypt 返回 KEK。
@@ -297,58 +297,76 @@ def _tighten_perms(path):
         return False
 
 
+def _decode_master_key(raw: str, label: str) -> bytes:
+    if not raw:
+        raise CryptoError(f"{label} 为空（期望 {KEY_LEN} 字节主密钥）")
+    try:
+        key = bytes.fromhex(raw) if len(raw) == 64 else _b64d(raw)
+    except (ValueError, UnicodeEncodeError) as e:
+        raise CryptoError(f"{label} 不是合法 hex / base64 主密钥") from e
+    if len(key) != KEY_LEN:
+        raise CryptoError(f"{label} 长度非法：{len(key)} 字节（须为 {KEY_LEN} 字节）")
+    return key
+
+
+def _read_master_key_file(path: str) -> bytes:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read().strip()
+    except (OSError, UnicodeDecodeError) as e:
+        raise CryptoError(f"主密钥文件读取失败：{path}：{type(e).__name__}: {e}") from e
+    return _decode_master_key(raw, f"主密钥文件 {path}")
+
+
 def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
     """KEK 来源：环境变量 → 主密钥文件（可选自动生成）；都没有返回 None。"""
     raw = (os.environ.get(env_var) or "").strip()
     if raw:
-        try:
-            return bytes.fromhex(raw) if len(raw) == 64 else _b64d(raw)
-        except ValueError as e:
-            raise CryptoError(f"环境变量 {env_var} 不是合法 hex / base64 主密钥") from e
+        return _decode_master_key(raw, f"环境变量 {env_var}")
     path = master_file or MASTER_FILE
     if os.path.exists(path):
-        with open(path, "r", encoding="utf-8") as f:
-            return _b64d(f.read().strip())
+        return _read_master_key_file(path)
     if not create:
         return None
-    key = secrets.token_bytes(KEY_LEN)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    # issue #1009 第 5 项：首建主密钥曾用裸 open(path, "w") 写完再 chmod——
-    #   ① POSIX 上存在「已可读、尚未 0600」的窗口；
-    #   ② 两个进程并发首启会各写一把 KEK，后写者覆盖前者，先写者加密的数据成孤儿。
-    # 改为 O_CREAT|O_EXCL 原子独占创建（mode 在创建瞬间生效），并用缓冲区 fchmod 兜底：
-    # 拿不到独占权（FileExistsError）就**读回已有那把**，绝不覆盖。
+    # 持 FileLock 序列化首建与并发读取，消除 O_EXCL 创建与写盘/fsync 之间的 0 字节竞态窗口；
+    # 同时保留 O_CREAT|O_EXCL 0o600 原子独占创建与写失败 unlink 清理。
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-    except FileExistsError:
-        # 并发首启：别人先建好了，用它那一把（覆盖会毁掉对方已加密的数据）。
-        with open(path, "r", encoding="utf-8") as f:
-            return _b64d(f.read().strip())
-    except OSError as e:
-        raise CryptoError(f"主密钥文件创建失败：{path}：{type(e).__name__}: {e}") from e
-    try:
-        try:
-            os.fchmod(fd, 0o600)
-        except (AttributeError, OSError):
-            pass                       # Windows 无 fchmod 语义，落到下面的 chmod 兜底
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(_b64e(key))
-            f.flush()
+        with FileLock(path, timeout=10.0, strict=True):
+            if os.path.exists(path):
+                return _read_master_key_file(path)
+            key = secrets.token_bytes(KEY_LEN)
             try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass
-    except BaseException:
-        # 写失败不留半截密钥文件（否则下次启动读到空文件 → 解不开既有数据）。
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
-        raise
-    # issue #326-⑤：收敛失败**不静默**（进 PERM_WARNINGS），也不阻断启动；
-    # Windows 语义限制见 _tighten_perms 的注释（不得据返回值宣称已隔离）。
-    _tighten_perms(path)
-    return key
+                fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            except FileExistsError:
+                return _read_master_key_file(path)
+            except OSError as e:
+                raise CryptoError(f"主密钥文件创建失败：{path}：{type(e).__name__}: {e}") from e
+            try:
+                try:
+                    os.fchmod(fd, 0o600)
+                except (AttributeError, OSError):
+                    pass                       # Windows 无 fchmod 语义，落到下面的 chmod 兜底
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(_b64e(key))
+                    f.flush()
+                    try:
+                        os.fsync(f.fileno())
+                    except OSError:
+                        pass
+            except BaseException:
+                # 写失败不留半截密钥文件（否则下次启动读到空文件 → 解不开既有数据）。
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+                raise
+            # issue #326-⑤：收敛失败**不静默**（进 PERM_WARNINGS），也不阻断启动；
+            # Windows 语义限制见 _tighten_perms 的注释（不得据返回值宣称已隔离）。
+            _tighten_perms(path)
+            return key
+    except TimeoutError as e:
+        raise CryptoError(f"主密钥文件锁竞争超时：{path}") from e
 
 
 # 生效条件：kek 为入参，返回 hashlib.sha256(b"mdcg-kek|" + kek).hexdigest()[:16]；源码未校验 kek 类型。
@@ -456,7 +474,7 @@ def _actor_has_ciphertext(root, tenant, actor):
                 with open(os.path.join(dirpath, fn), "r",
                           encoding="utf-8", newline="") as f:
                     raw = f.read()
-            except OSError:
+            except (OSError, UnicodeDecodeError):
                 continue
             _fm, content = nodefile.loads(raw)
             # issue #446：短路判据由**前缀**改为**结构验证**——`_actor_has_ciphertext` 拿不到 dek
@@ -542,14 +560,24 @@ def unwrap_dek(root, kek, tenant, actor, clearance=None):
     if not kek:
         raise LockedError("无主密钥（KEK）：无法解开数据密钥")
     env = (_load_keys(root).get("envelopes") or {}).get(_envelope_key(tenant, actor))
-    if not env:
+    if not isinstance(env, dict) or not env:
         raise LockedError(f"无 {tenant}|{actor} 的密钥信封")
     if env.get("id_fp") != identity_fingerprint(tenant, actor):
         raise LockedError("身份指纹不符：密钥信封不属于当前身份")
-    raw = _b64d(env["ct"])
+    ct_b64 = env.get("ct")
+    nonce_b64 = env.get("nonce")
+    if not isinstance(ct_b64, str) or not isinstance(nonce_b64, str):
+        raise LockedError("密钥信封结构损坏：缺少 ct 或 nonce 字段")
+    try:
+        raw = _b64d(ct_b64)
+        nonce = _b64d(nonce_b64)
+    except (ValueError, UnicodeEncodeError) as e:
+        raise LockedError(f"密钥信封 base64 损坏：{e}") from e
+    if len(raw) < TAG_LEN or len(nonce) != NONCE_LEN:
+        raise LockedError("密钥信封长度非法：ct 或 nonce 截断")
     ct, tag = raw[:-TAG_LEN], raw[-TAG_LEN:]
     try:
-        return aead_decrypt(kek, _b64d(env["nonce"]), ct, tag,
+        return aead_decrypt(kek, nonce, ct, tag,
                             _dek_aad(tenant, actor))
     except CryptoError as e:
         raise LockedError(f"身份 / 主密钥不匹配：{e}") from e
@@ -626,7 +654,7 @@ def verify_encrypted(content, dek=None, node_id="", tenant="", actor=""):
         raw = _b64d(body)
     except Exception:
         return False
-    if len(raw) < NONCE_LEN:
+    if len(raw) < NONCE_LEN + TAG_LEN:
         return False
     if dek is None:
         return True            # 结构验证通过（**未验证可解密**）
@@ -681,7 +709,11 @@ def open_node(content, dek, node_id, tenant, actor):
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
     if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
         body = body.split(":", 1)[1]
-    raw = _b64d(body)
+    try:
+        decoded = _b64d(body)
+    except (ValueError, UnicodeEncodeError) as e:
+        raise CryptoError(f"密文块 base64 解码失败：{e}") from e
+    raw = decoded
     nonce = raw[:NONCE_LEN]
     tag = raw[NONCE_LEN:NONCE_LEN + TAG_LEN]
     ct = raw[NONCE_LEN + TAG_LEN:]
