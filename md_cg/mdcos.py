@@ -3646,7 +3646,7 @@ class MdCGOS(MdCG):
         #    裁掉等量条目，保证「材料 + 合同」总量不超 budget_tokens。
         # ② 缺口只看装包结果自带信号（不额外检索、不读盘）：缺什么如实说，
         #    未认证 ≠ 错，只表示「调用方该自己判断材料够不够」。
-        policy_text, coverage_gaps, coverage_certified = "", [], True
+        policy_text, coverage_gaps, coverage_certified, miss_slots = "", [], True, []
         try:
             from . import coverage as _coverage
             from . import reading_policy as _policy
@@ -3717,8 +3717,13 @@ class MdCGOS(MdCG):
             coverage_gaps, coverage_certified = _coverage.gaps(
                 pack, skipped, used, budget_tokens, query=query,
                 baseline=1.0 / (RRF_K + 1))
+            # issue #1005（2026-11-24）：槽位级「这项没材料」——与 coverage_gaps 分开报。
+            # 实测 27/27 道真实失败题 coverage_certified 都是 True；现有 anchor_missing 要求
+            # 「无词面命中 且 分数贴基准」，而真实失败是「有少量重合、但要素缺失」，故从不触发。
+            # 这里只做弱信号：报「哪一项没证据」，不擅自动认证位。
+            miss_slots = _coverage.slot_gaps(pack, query)
         except Exception:            # noqa: BLE001 —— 判读面不拖崩装包
-            policy_text, coverage_gaps, coverage_certified = "", [], True
+            policy_text, coverage_gaps, coverage_certified, miss_slots = "", [], True, []
         if isinstance(meta, dict):
             # issue #1005 ③：raw 保底是否真的动手（0 = 队列前段已是原话/无原话，未改序）
             meta["raw_min_applied"] = raw_min_applied
@@ -3729,7 +3734,8 @@ class MdCGOS(MdCG):
                 "timeline_groups": timeline_groups,
                 "reading_policy": policy_text,
                 "coverage_gaps": coverage_gaps,
-                "coverage_certified": coverage_certified}
+                "coverage_certified": coverage_certified,
+                "miss_slots": miss_slots}
 
 
 
@@ -3789,14 +3795,9 @@ class MdCGOS(MdCG):
     #: 数字/专名**——所以按「实体抽取」做的缺口判据在 179 题上命中 0/179，永远不会触发。
     #: 正确形状不是「报告缺口」，而是**按槽位词直取档案卡**：命中即注入，绕过分类配额。
     #: 判据故意窄：只认「问这件事」的词，不认泛泛的话题词。
-    _SLOT_TRIGGERS = (
-        ("姓名", ("全名", "名字", "姓名", "叫什么", "咋写"), "role"),
-        ("家庭", ("爸妈", "父母", "家里", "家人", "父亲", "母亲"), "role"),
-        ("职业", ("职业", "干什么", "做啥", "上班", "工作"), "role"),
-        ("学历", ("学历", "上学", "读书", "毕业"), "role"),
-        ("年龄", ("多大", "年龄", "几岁"), "role"),
-        ("城市", ("城市", "住哪", "住在", "什么地方"), "place"),
-    )
+    # 词表单一真源在 md_cg/coverage.py::SLOT_TRIGGERS（三列：槽位 / 触发词 / 卡种类）——
+    # 这里只做别名，避免两份词表漂移（同一天里已经因为两份词表踩过一次）。
+    from .coverage import SLOT_TRIGGERS as _SLOT_TRIGGERS
 
     # 生效条件：无参；返回自述轮次节点（写时登记的小索引，limit 控制注入量）
     def _selfstmt_nodes(self, limit=None):

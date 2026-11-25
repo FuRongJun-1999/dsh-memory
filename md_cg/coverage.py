@@ -20,6 +20,33 @@ import re
 
 #: 派生条目的 id 前缀（情景层资料卡：profile-role / profile-event / ...）
 DERIVED_PREFIXES = ("profile-",)
+
+# ===== 槽位：触发词（query 侧）× 证据词（pack 侧）=====
+# issue #1005（2026-11-24 测评端实测）：真实失败题是「我全名咋写」「爸妈退休前各干什么」这类
+# **槽位型提问**——不含日期/数字/专名，所以实体级判据在 179 题上命中 0/179。
+# 这里改为槽位级：query 命中某个槽位的触发词，就在 pack 正文里找该槽位的**证据词**；
+# 找不到就报 `miss_slots`（**不是** coverage_gaps，不上调认证位——避免把语义改写误判成缺口）。
+#
+# 单一真源：`mdcos._profile_candidates` 的槽位卡注入也从这里取词表。
+#: 三列：(槽位名, 触发词, 对应资料卡种类 role/place)——第三列供 mdcos 注入槽位卡用
+SLOT_TRIGGERS = (
+    ("姓名", ("全名", "名字", "姓名", "叫什么", "咋写"), "role"),
+    ("家庭", ("爸妈", "父母", "家里", "家人", "父亲", "母亲"), "role"),
+    ("职业", ("职业", "干什么", "做啥", "上班", "工作"), "role"),
+    ("学历", ("学历", "上学", "读书", "毕业"), "role"),
+    ("年龄", ("多大", "年龄", "几岁"), "role"),
+    ("城市", ("城市", "住哪", "住在", "什么地方"), "place"),
+)
+
+#: 证据词（pack 侧）：出现任意一个，就认为该槽位有材料
+SLOT_EVIDENCE = {
+    "姓名": ("叫", "名字", "姓名", "全名"),
+    "家庭": ("爸", "妈", "父母", "家里", "父亲", "母亲", "家人"),
+    "职业": ("工作", "职业", "上班", "单位", "干", "做"),
+    "学历": ("学", "毕业", "学历", "学校", "专业"),
+    "年龄": ("岁", "年龄"),
+    "城市": ("住", "城市", "地方", "区", "县"),
+}
 #: skipped 里属于「被预算裁掉」的 reason（其余 reason 是资格/摘录类，不算覆盖缺口）
 BUDGET_REASONS = ("oversize_or_over_budget", "budget_exhausted")
 
@@ -116,3 +143,36 @@ def gaps(pack, skipped=None, used=None, budget=None, extra=None,
         if isinstance(extra_gap, dict) and extra_gap.get("code"):
             out.append(extra_gap)
     return out, not out
+
+
+def slot_gaps(pack, query):
+    """槽位级「这项没材料」信号（issue #1005，2026-11-24）。**独立于 coverage_gaps**。
+
+    动机：测评端 27/27 道真实失败题都报 `coverage_certified=True`——现有 anchor_missing
+    要求「无词面命中 **且** 分数贴基准」，而真实失败是「有少量词面重合、但必需要素缺失」，
+    两个条件都不满足 ⇒ 这个信号在最该报警的地方从不报警。
+
+    这里补的是**不同的问题**：不问「整体像不像答非所问」，只问「query 点名的那个槽位，
+    pack 里有没有它的一丁点材料」。没有就如实说这一项没有——但**不升级为缺口、不动认证位**：
+    槽位判断是弱信号，语义改写时容易误报，让它只做「我不确定」的提示。
+
+    返回 [{"slot": 槽位名, "detail": 说明}]，无命中槽位或材料齐备时返回 []。
+    """
+    q = str(query or "")
+    if not q:
+        return []
+    hit = [s for s, words, _k in SLOT_TRIGGERS if any(w in q for w in words)]
+    if not hit:
+        return []
+    body = "\n".join(
+        str((e or {}).get("content") or (e or {}).get("content_dated") or "")
+        for e in (pack or []))
+    if not body:
+        return [{"slot": s, "detail": "pack 为空，没有「%s」这一项的材料" % s} for s in hit]
+    out = []
+    for slot in hit:
+        ev = SLOT_EVIDENCE.get(slot) or ()
+        if ev and not any(w in body for w in ev):
+            out.append({"slot": slot,
+                        "detail": "材料里没有「%s」这一项（回答前先说明这点不确定）" % slot})
+    return out
