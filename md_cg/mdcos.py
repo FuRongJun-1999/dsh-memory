@@ -3556,7 +3556,12 @@ class MdCGOS(MdCG):
         # 取不到合法时间戳时不编造：置 None（下游按缺失处理，不得当今天）。
         for _e in pack or []:
             _fm = _e.get("frontmatter") or {}
-            _ts = _fm.get("created_at") or _fm.get("valid_from")
+            # issue #1005（2026-11-25 使用者裁定）：**时间戳一律按「收到」算**——
+            # 发送时刻对我们不可见，只有「收到这条消息」是能观测到的事实。
+            # `received_at` 由摄取/写入侧带入（缺省不写，老节点回落 created_at，行为不变）。
+            # 这个戳只用于排序与「我们何时知道」；要回答「他什么时候说的」，看正文里
+            # reldate 换算后的括号日期，那里没有就说明原话没提。
+            _ts = _fm.get("received_at") or _fm.get("created_at") or _fm.get("valid_from")
             _d = None
             if _ts is not None:
                 try:
@@ -3758,7 +3763,8 @@ class MdCGOS(MdCG):
         groups: dict = {}
         for e in pack or []:
             fm = e.get("frontmatter") or {}
-            ts = fm.get("created_at") or fm.get("valid_from")
+            # issue #1005（2026-11-25）：时间戳一律按「收到」算（同 pack 渲染口径）
+            ts = fm.get("received_at") or fm.get("created_at") or fm.get("valid_from")
             date = ""
             if ts is not None:
                 try:
@@ -3946,7 +3952,8 @@ class MdCGOS(MdCG):
         out = []
         for e in pack or []:
             fm = e.get("frontmatter") or {}
-            ts = fm.get("created_at") or fm.get("valid_from")
+            # issue #1005（2026-11-25）：时间戳一律按「收到」算（同 pack 渲染口径）
+            ts = fm.get("received_at") or fm.get("created_at") or fm.get("valid_from")
             date = None
             if ts is not None:
                 try:
