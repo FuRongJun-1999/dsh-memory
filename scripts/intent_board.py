@@ -14,6 +14,7 @@
 import glob
 import io
 import json
+import math
 import os
 import re
 import sys
@@ -239,12 +240,44 @@ def _intent_gap(root):
 
 
 def _as_ts(v):
-    """把读数转成时间戳；坏值（字符串、列表、负数）一律当「未知」。"""
+    """把读数转成时间戳；坏值（布尔、字符串、列表、NaN/Inf、非正数）一律当「未知」。"""
+    if isinstance(v, bool):
+        return None
     try:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    return f if f > 0 else None
+    return f if (math.isfinite(f) and f > 0) else None
+
+
+_PRIVATE_DOMAIN_TAG = "域:私密"
+_ENC_PREFIX = "<!-- mdcg-enc:"
+_PUBLIC_SAFE_SENS = frozenset(("public", "internal"))
+
+
+def _md_cell(text, max_len=None):
+    """转义 Markdown 表格单元：去换行、防竖线破表与尖括号 HTML 注入。"""
+    s = str(text if text is not None else "")
+    s = s.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").strip()
+    if max_len is not None:
+        s = s[:max_len]
+    return s.replace("|", "\\|").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _sens_is_public_safe(sens):
+    """公开看板密级判定（fail-closed）：仅 None 或规范化后的 public/internal 放行。"""
+    if sens is None:
+        return True
+    try:
+        from md_cg.crypto import is_encrypted_level, normalize_sensitivity
+        if is_encrypted_level(sens):
+            return False
+        norm = normalize_sensitivity(sens)
+    except Exception:  # noqa: BLE001
+        if not isinstance(sens, str):
+            return False
+        norm = sens.strip().lower() or None
+    return norm in _PUBLIC_SAFE_SENS
 
 
 def _fmt_gap(sec):
@@ -357,36 +390,74 @@ def _rotation(records):
     return tail, last
 
 
-def _diary(root, limit=40):
-    """标签含「日记」的节点：先用索引筛，再逐个取正文首行。"""
+def _diary(root, limit=40, private=False):
+    """标签含「日记」的节点：先用索引筛，再逐个取正文首行。
+
+    公开视图（private=False，默认）fail-closed 过滤私密域（域:私密）、
+    非 public/internal 密级（restricted/private/secret/非法档）以及
+    密文信封（<!-- mdcg-enc:...），防止隐私明文或密文指纹进入 docs/日记看板.md。
+    """
     out = []
+    g = None
     try:
         from md_cg.mdcos import MdCGOS
         g = MdCGOS(root, actor="board")
         idx = (getattr(g, "index", {}) or {}).get("nodes") or {}
     except Exception:  # noqa: BLE001
         return out
-    for nid, e in idx.items():
-        if "日记" not in ((e or {}).get("tags") or []):
-            continue
-        content = ""
-        try:
-            content = str((g.get(nid) or {}).get("content") or "")
-        except Exception:  # noqa: BLE001
-            pass
-        head = ""
-        for line in content.splitlines():
-            if line.strip():
-                head = line.strip().lstrip("#").strip()[:56]
-                break
-        created = float((e or {}).get("created_at") or 0)
-        date = time.strftime("%Y-%m-%d %H:%M", time.localtime(created)) if created else "—"
-        out.append({"id": nid, "date": date, "head": head})
+    try:
+        for nid, e in list(idx.items()):
+            entry = e if isinstance(e, dict) else {}
+            idx_tags = entry.get("tags") or []
+            if not isinstance(idx_tags, (list, tuple, set)):
+                idx_tags = []
+            if "日记" not in idx_tags:
+                continue
+            if not private:
+                if any(str(t) == _PRIVATE_DOMAIN_TAG for t in idx_tags):
+                    continue
+                if not _sens_is_public_safe(entry.get("sensitivity")):
+                    continue
+            node = None
+            try:
+                node = g.get(nid)
+            except Exception:  # noqa: BLE001
+                node = None
+            if not private:
+                if not isinstance(node, dict):
+                    continue
+                fm = node.get("frontmatter")
+                if fm is not None and not isinstance(fm, dict):
+                    continue
+                fm = fm or {}
+                fm_tags = fm.get("tags") or []
+                if isinstance(fm_tags, (list, tuple, set)) and any(
+                        str(t) == _PRIVATE_DOMAIN_TAG for t in fm_tags):
+                    continue
+                if not _sens_is_public_safe(fm.get("sensitivity")):
+                    continue
+            content = str((node or {}).get("content") or "") if isinstance(node, dict) else ""
+            if not private and _ENC_PREFIX in content:
+                continue
+            head = ""
+            for line in content.splitlines():
+                if line.strip():
+                    head = line.strip().lstrip("#").strip()[:56]
+                    break
+            created = _as_ts(entry.get("created_at"))
+            date = time.strftime("%Y-%m-%d %H:%M", time.localtime(created)) if created else "—"
+            out.append({"id": nid, "date": date, "head": _md_cell(head)})
+    finally:
+        if g is not None and hasattr(g, "close"):
+            try:
+                g.close()
+            except Exception:  # noqa: BLE001
+                pass
     out.sort(key=lambda x: x["date"], reverse=True)
     return out[:limit]
 
 
-def _section_heartbeat(A, root, now):
+def _section_heartbeat(A, root, now, private=False):
     """第一节：心跳（按端分列）。"""
     stamps = _stamps(root)
     warns = []
@@ -399,25 +470,41 @@ def _section_heartbeat(A, root, now):
     A("| 端（戳名） | pid | 写者存活 | 最近一跳 | 距今 | 最近动作 | 最近错误 |")
     A("|---|---|---|---|---|---|---|")
     for s in stamps:
-        d = s["data"]
-        done = d.get("last_tick_done") or {}
+        d = s.get("data")
+        if not isinstance(d, dict):
+            d = {}
+        done = d.get("last_tick_done")
+        if not isinstance(done, dict):
+            done = {}
         err = d.get("last_tick_error")
         pid = d.get("pid")
         alive = _alive(pid)
-        ts = float(d.get("ts") or 0)
+        ts = _as_ts(d.get("ts"))
         age = max(0.0, now - ts) if ts else None
-        err_txt = "无" if not err else (str(err.get("name") or "") + "：" + str(err.get("error"))[:40])
+        if not err:
+            err_txt = "无"
+        elif private:
+            if isinstance(err, dict):
+                err_txt = _md_cell(str(err.get("name") or "") + "：" + str(err.get("error") or "")[:40])
+            else:
+                err_txt = _md_cell(str(err)[:40])
+        else:
+            # 公开看板不输出原始异常明细（防路径/密文/内部状态泄漏）
+            ename = _md_cell(err.get("name"), 24) if isinstance(err, dict) and err.get("name") else ""
+            err_txt = (ename + "：已发生错误（详情见私有看板）") if ename else "已发生错误（详情见私有看板）"
+        sname = _md_cell(s.get("name") or "—")
+        done_txt = _md_cell(done.get("name") or "—") + (" · ok" if done.get("ok") else "")
         A("| %s | %s | %s | %s | %s | %s | %s |" % (
-            s["name"], pid,
+            sname, _md_cell(pid if pid is not None else "—"),
             {True: "是", False: "**否**", None: "未知"}[alive],
-            d.get("iso") or "—",
+            _md_cell(d.get("iso") or "—"),
             ("—" if age is None else "%.0f 秒" % age),
-            str(done.get("name") or "—") + (" · ok" if done.get("ok") else ""),
+            done_txt,
             err_txt))
         if alive is False:
-            warns.append("%s 的戳写者已退出（%s）——读到的是残留。" % (s["name"], pid))
+            warns.append("%s 的戳写者已退出（%s）——读到的是残留。" % (sname, _md_cell(pid)))
         elif age is not None and age > 1200:
-            warns.append("%s 心跳滞后 %.0f 分钟（正常 10 分钟）。" % (s["name"], age / 60.0))
+            warns.append("%s 心跳滞后 %.0f 分钟（正常 10 分钟）。" % (sname, age / 60.0))
     A("")
     if len(stamps) > 1:
         A("> ⚠ 本机有 **%d 个端**共用戳目录；若戳名都是 `md_cg` 会互相覆盖。" % len(stamps))
@@ -445,7 +532,7 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     A("> 本页由 `scripts/intent_board.py` 生成，**勿手改**（下次生成会覆盖）。")
     A("> 生成于 %s" % time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(now)))
     A("")
-    _section_heartbeat(A, root, now)
+    _section_heartbeat(A, root, now, private=private)
     _section_trigger(A, root, now, we_dir=we_dir, private=private, sessions_root=sessions_root)
     A("## 三、它在动，还是在往前走")
     A("")
@@ -477,7 +564,16 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
     A("")
     A("## 五、日记目录")
     A("")
-    entries = _diary(root)
+    if private:
+        try:
+            entries = _diary(root, private=True)
+        except TypeError:
+            entries = _diary(root)
+    else:
+        entries = _diary(root)
+    if not private:
+        entries = [e for e in (entries or [])
+                   if isinstance(e, dict) and _ENC_PREFIX not in str(e.get("head") or "")]
     if not entries:
         A("（还没有日记——心跳捡到题之后，需要有人在前面想一遍并写下来。）")
     else:
@@ -485,7 +581,9 @@ def render(root, now=None, we_dir=None, private=False, sessions_root=None):
         A("|---|---|---|")
         for e in entries:
             A("| %s | `%s` | %s |" % (
-                e["date"], (e["id"] if private else _mask_id(e["id"])), e["head"]))
+                _md_cell(e.get("date") or "—"),
+                (e["id"] if private else _mask_id(e["id"])),
+                _md_cell(e.get("head") or "")))
     A("")
     A("---")
     A("")

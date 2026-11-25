@@ -170,37 +170,56 @@ def _write_jsonl(cg, out_path: str, entries, include_content: bool = True,
     written = skipped = 0
     by_layer = {}
     t0 = time.time()
-    with open(tmp, "w", encoding="utf-8") as f:
-        for nid, e in entries:
-            row = _row(cg, nid, e, include_content=include_content)
-            if row is None:
-                skipped += 1           # 不可读：计数上报，不静默丢
-                continue
-            f.write(json.dumps(row, ensure_ascii=False) + "\n")
-            written += 1
-            lay = row.get("layer") or "?"
-            by_layer[lay] = by_layer.get(lay, 0) + 1
-            if written % 500 == 0:
-                f.flush()              # 定期刷盘，控制缓冲区
-    # issue #78 并发面：**先原子占位、再发布**。占位失败/发布失败都不留垃圾。
     claimed = None
-    if claim:
-        out_path = _claim_path(out_path)
-        claimed = out_path
+    published = False
     try:
-        publish(tmp, out_path)         # 流式 + 原子：要么完整、要么无
-    except BaseException:
-        # 内容未落地：占位是本调用独占的空文件，撤掉它（别留空快照），临时件同样清掉
-        if claimed:
-            try:
-                os.remove(claimed)
-            except OSError:
-                pass
+        # SEC-A2-14：导出可含解密后的 private/secret 明文——以 0o600 独占创建临时件
+        # 并在任何写循环/占位/发布异常时确保清理 .tmp，不留明文孤儿文件。
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
-            os.remove(tmp)
+            f = os.fdopen(fd, "w", encoding="utf-8")
+        except BaseException:
+            os.close(fd)
+            raise
+        with f:
+            for nid, e in entries:
+                row = _row(cg, nid, e, include_content=include_content)
+                if row is None:
+                    skipped += 1           # 不可读：计数上报，不静默丢
+                    continue
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+                written += 1
+                lay = row.get("layer") or "?"
+                by_layer[lay] = by_layer.get(lay, 0) + 1
+                if written % 500 == 0:
+                    f.flush()              # 定期刷盘，控制缓冲区
+        try:
+            os.chmod(tmp, 0o600)
         except OSError:
             pass
-        raise
+        # issue #78 并发面：**先原子占位、再发布**。占位失败/发布失败都不留垃圾。
+        if claim:
+            out_path = _claim_path(out_path)
+            claimed = out_path
+        publish(tmp, out_path)             # 流式 + 原子：要么完整、要么无
+        published = True
+        try:
+            os.chmod(out_path, 0o600)
+        except OSError:
+            pass
+    finally:
+        if not published:
+            # 内容未落地：占位是本调用独占的空文件，撤掉它（别留空快照），临时件同样清掉
+            if claimed:
+                try:
+                    os.remove(claimed)
+                except OSError:
+                    pass
+            try:
+                if os.path.exists(tmp):
+                    os.remove(tmp)
+            except OSError:
+                pass
     return {"ok": True, "out": out_path, "written": written,
             "skipped_unreadable": skipped, "by_layer": by_layer,
             "bytes": os.path.getsize(out_path),

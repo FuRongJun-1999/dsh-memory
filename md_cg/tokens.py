@@ -28,6 +28,7 @@ import argparse
 import hashlib
 import hmac
 import json
+import math
 import os
 import secrets
 import sys
@@ -483,11 +484,55 @@ def _save(data: dict, path: str = None):
     for _tid, _rec in ((_disk or {}).get("tokens") or {}).items():
         if _tid not in _tk:
             _tk[_tid] = _rec
-    atomic_write(p, json.dumps(data, ensure_ascii=False, indent=1))
+    try:
+        payload = json.dumps(data, ensure_ascii=False, indent=1, allow_nan=False)
+    except ValueError as e:
+        raise TokenError(f"令牌库快照含非法非有限数值（NaN/Inf），拒绝落盘：{e}") from e
+    atomic_write(p, payload)
     try:
         os.chmod(p, 0o600)          # 令牌摘要文件不可被其他用户读
     except OSError:
         pass
+
+
+# 生效条件：ttl 为 None 时返回 None；ttl 为 bool、无法转 float（含溢出）或非有限（NaN/±inf）时一律抛 TokenError（fail-closed）；数值为 0 时沿用既有无界/继承父界契约返回 None；其余有限非零数（含正数及签发已过期测试凭据用的负数）返回有限 float。
+def _validate_ttl(ttl):
+    """校验令牌有效期 ttl（fail-closed：拒 bool / NaN / ±inf / 溢出 / 非数值；0 沿用无界/继承父界契约，有限负数保留签发已过期凭据语义）。"""
+    if ttl is None:
+        return None
+    if isinstance(ttl, bool):
+        raise TokenError("ttl 不能为布尔值")
+    try:
+        val = float(ttl)
+    except (TypeError, ValueError, OverflowError) as e:
+        raise TokenError(f"ttl 必须为有限数值：{ttl!r}") from e
+    if not math.isfinite(val):
+        raise TokenError(f"ttl 必须为有限数值：{ttl!r}")
+    if val == 0.0:
+        return None
+    return val
+
+
+# 生效条件：exp 为 None 时返回 None；exp 为 bool、无法转 float（含溢出）或非有限（NaN/±inf）时抛 TokenError（fail-closed）；常规非零 exp 走壁钟判定（if exp and now > float(exp)），假值零纪元（0/0.0）同样按 now > val 判过期，过期以 expired_msg 抛 TokenError；未过期返回有限 float。
+def _check_expires_at(exp, now: float, expired_msg: str):
+    """校验单条记录的 expires_at（fail-closed：非有限/非法类型一律拒绝，随后按壁钟判过期）。"""
+    if exp is None:
+        return None
+    if isinstance(exp, bool):
+        raise TokenError("令牌过期时间非法（布尔值）")
+    try:
+        val = float(exp)
+    except (TypeError, ValueError, OverflowError) as e:
+        raise TokenError(f"令牌过期时间非法：{exp!r}") from e
+    if not math.isfinite(val):
+        raise TokenError(f"令牌过期时间非法（非有限数值）：{exp!r}")
+    # 常规非零路径保留既定壁钟表达式（与 FI-M01 读码基线对齐），同时对假值零纪元（0/0.0）
+    # 补齐 fail-closed 过期判定，防止篡改 expires_at=0 绕过过期检查。
+    if exp and now > float(exp):
+        raise TokenError(expired_msg)
+    if not exp and now > val:
+        raise TokenError(expired_msg)
+    return val
 
 
 # 生效条件：secret 经 encode("utf-8") 后取 sha256 的 hexdigest；secret 非 str 时按其 encode 失败抛出。
@@ -608,6 +653,7 @@ def issue(role: str, actor: str = None, clearance: str = None,
     spec = role_spec(role)
     _authorize_issue(role, spec, path=path, authorized_by=_authorized_by,
                      allow_bootstrap=_allow_bootstrap)
+    ttl_val = _validate_ttl(ttl)
     clearance = _clamp_level(clearance or spec["clearance_cap"],
                              spec["clearance_cap"])
     layers = _narrow(layers_allow, spec["layers_allow"])
@@ -640,6 +686,11 @@ def issue(role: str, actor: str = None, clearance: str = None,
                 " 即可按角色默认全集（[\"*\"]）签发。" % (len(_gap), "/".join(_gap)))
     token_id, secret = "tk_" + secrets.token_hex(6), secrets.token_urlsafe(32)
     now = time.time()
+    expires_at = None
+    if ttl_val is not None:
+        expires_at = now + ttl_val
+        if not math.isfinite(expires_at):
+            raise TokenError(f"ttl 溢出（过期时间非有限数值）：{ttl!r}")
     rec = {
         "role": role, "actor": actor or role, "tenant": tenant,
         "clearance": clearance,
@@ -651,7 +702,7 @@ def issue(role: str, actor: str = None, clearance: str = None,
                           else list(dict.fromkeys(str(x) for x in sessions_read))),
         "delegable": bool(spec["delegable"] if delegable is None else delegable),
         "parent": parent, "issued_by": issued_by, "issued_at": now,
-        "expires_at": (now + float(ttl)) if ttl else None,
+        "expires_at": expires_at,
         "revoked_at": None, "label": label, "hash": _hash(secret),
     }
     # N199：读-改-写整段收进令牌库跨进程临界区——无锁时后写者用陈旧快照整份
@@ -684,9 +735,7 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
     if not hmac.compare_digest(str(rec.get("hash") or ""), _hash(secret)):
         raise TokenError("令牌密钥不匹配")
     now = time.time()
-    exp = rec.get("expires_at")
-    if exp and now > float(exp):
-        raise TokenError("令牌已过期")
+    exp = _check_expires_at(rec.get("expires_at"), now, "令牌已过期")
     # N123（2026-09-25 止血）：过期沿派生链传播——父令牌过期后，其派生子令牌
     # 一并失效（与 revoke 级联 tokens.revoke 的语义对齐；存量库中修复前派生的
     # 未夹紧子令牌由此兜底）。delegable=False 封口使链深常态为 2，开销可忽略。
@@ -704,10 +753,9 @@ def verify_token(token: str, tenant: str = None, path: str = None) -> Principal:
                 f"[mdcg-tokens] ⚠ 令牌 {token_id} 的祖先 {pid} 记录缺失，"
                 f"该祖先的过期校验被跳过（吊销不受影响——revoke 已级联物化）。\n")
             break
-        a_exp = ancestor.get("expires_at")
-        if a_exp and now > float(a_exp):
-            raise TokenError(
-                f"令牌已失效：派生链祖先 {pid} 已过期（过期沿派生链传播）")
+        _check_expires_at(
+            ancestor.get("expires_at"), now,
+            f"令牌已失效：派生链祖先 {pid} 已过期（过期沿派生链传播）")
         pid = ancestor.get("parent")
     # ② N62（第 5 轮成立，2026-09-27）：租户绑定被入参覆盖由告警改 fail-closed
     # 拒绝——形参 tenant（MCP 侧来自 MDCG_TENANT）非空且与令牌记录
@@ -758,6 +806,7 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
            layers_allow=None, ops_allow=None, sessions_read=None):
     """设计者令牌派生受限子令牌：权限只能收窄，子令牌默认不可再派生。"""
     parent = verify_token(parent_token, path=path)
+    ttl_val = _validate_ttl(ttl)
     # N199：本函数的「读-改-写」必须与父令牌的**落盘态复核**同处一个临界区
     # （原先无锁，并发 revoke 与之交错时会产出「父已吊销、子仍有效」的凭据：
     # 吊销级联只覆盖它落锁那一刻盘上已存在的子令牌）。持锁后 revoke 只能落在
@@ -812,11 +861,17 @@ def derive(parent_token: str, role: str, actor: str = None, ttl: float = None,
         # 通过 verify_token，授权回收被长 TTL 子令牌旁路）。父无界（expires_at
         # 为 None）时不夹紧，取请求值；子未指定 ttl 时沿用父界（含无界）。
         now = time.time()
-        pexp = prec.get("expires_at")
-        want_exp = (now + float(ttl)) if ttl else pexp
+        pexp = _check_expires_at(
+            prec.get("expires_at"), now,
+            f"父令牌 {parent.token_id} 已过期，拒绝派生")
+        if ttl_val is not None:
+            want_exp = now + ttl_val
+            if not math.isfinite(want_exp):
+                raise TokenError(f"ttl 溢出（过期时间非有限数值）：{ttl!r}")
+        else:
+            want_exp = pexp
         final_exp = want_exp
-        if want_exp is not None and pexp is not None \
-                and float(want_exp) > float(pexp):
+        if want_exp is not None and pexp is not None and want_exp > pexp:
             final_exp = pexp
             clamped.append("expires_at")
         token_id, secret = ("tk_" + secrets.token_hex(6),

@@ -45,6 +45,7 @@ import hashlib
 import json
 import math
 import os
+import threading
 import time
 
 from . import lifecycle, nodefile, protect
@@ -267,6 +268,9 @@ def _can_use_bigram_index(cg):
     return isinstance(idx, dict) and isinstance(idx.get("nodes"), dict)
 
 
+_BIGRAM_INIT_LOCK = threading.Lock()
+
+
 class _LayerBigramIndex:
     """Per-layer incremental inverted bigram index for exact `redundancy()`.
 
@@ -278,6 +282,7 @@ class _LayerBigramIndex:
 
     __slots__ = (
         "layer_key",
+        "_lock",
         "initialized",
         "write_gen",
         "total_nodes_seen",
@@ -292,6 +297,7 @@ class _LayerBigramIndex:
 
     def __init__(self, layer_key):
         self.layer_key = layer_key
+        self._lock = threading.RLock()
         self.initialized = False
         self.write_gen = -1
         self.total_nodes_seen = -1
@@ -330,100 +336,115 @@ class _LayerBigramIndex:
                 p.add(nid)
 
     def sync(self, cg, raw_nodes, dirty):
-        # Capture write_gen before snapshotting raw_nodes so any concurrent
-        # write during sync advances dirty.write_gen past cur_gen and forces
-        # the next call to re-sync rather than serving stale postings.
-        cur_gen = dirty.write_gen
-        if (self.initialized
-                and self.write_gen == cur_gen
-                and self.total_nodes_seen == len(raw_nodes)
-                and not self.retry_nids):
-            return
+        # Serialize sync() under self._lock (A1-03): concurrent syncs across a
+        # write previously interleaved _remove_doc/_add_doc and could commit
+        # write_gen == dirty.write_gen over stale docs/postings permanently.
+        with self._lock:
+            for _attempt in range(2):
+                # Capture write_gen & broad_gen BEFORE snapshotting raw_nodes
+                # so any concurrent write during sync advances dirty past
+                # gen_before and prevents committing stale postings as fresh.
+                gen_before = dirty.write_gen
+                broad_before = dirty.broad_gen
+                if (self.initialized
+                        and self.write_gen == gen_before
+                        and self.total_nodes_seen == len(raw_nodes)
+                        and not self.retry_nids):
+                    return
 
-        # W7 G1a concurrency guard: snapshot live nodes dict before iterating.
-        nodes_snap = dict(raw_nodes)
-        layer_key = self.layer_key
-        path_gen = dirty.path_gen
+                # W7 G1a concurrency guard: snapshot live nodes dict before iterating.
+                nodes_snap = dict(raw_nodes)
+                layer_key = self.layer_key
+                path_gen = dirty.path_gen
 
-        new_layer_nids = set()
-        docs = self.docs
-        doc_pos = self.doc_pos
-        doc_meta = self.doc_meta
-        skipped = self.skipped
-        retry_nids = self.retry_nids
+                new_layer_nids = set()
+                docs = self.docs
+                doc_pos = self.doc_pos
+                doc_meta = self.doc_meta
+                skipped = self.skipped
+                retry_nids = self.retry_nids
 
-        pos = 0
-        for nid, entry in nodes_snap.items():
-            e = entry or {}
-            if layer_key and str(e.get("layer") or "") != layer_key:
-                continue
-            new_layer_nids.add(nid)
-            path = e.get("path")
-            sens = e.get("sensitivity")
-            sess = e.get("session")
-            valid_path = isinstance(path, str) and bool(path)
-            p_gen = path_gen.get(path, 0) if valid_path else -1
+                pos = 0
+                for nid, entry in nodes_snap.items():
+                    e = entry or {}
+                    if layer_key and str(e.get("layer") or "") != layer_key:
+                        continue
+                    new_layer_nids.add(nid)
+                    path = e.get("path")
+                    sens = e.get("sensitivity")
+                    sess = e.get("session")
+                    valid_path = isinstance(path, str) and bool(path)
+                    p_gen = path_gen.get(path, 0) if valid_path else -1
 
-            meta = doc_meta.get(nid)
-            if (meta is not None and valid_path
-                    and meta[1] == path and meta[2] == sens and meta[3] == sess
-                    and p_gen <= meta[0]):
-                doc_pos[nid] = pos
-                pos += 1
-                continue
+                    meta = doc_meta.get(nid)
+                    if (meta is not None and valid_path
+                            and meta[1] == path and meta[2] == sens and meta[3] == sess
+                            and p_gen <= meta[0]):
+                        doc_pos[nid] = pos
+                        pos += 1
+                        continue
 
-            if nid not in retry_nids:
-                smeta = skipped.get(nid)
-                if (smeta is not None and valid_path
-                        and smeta[1] == path and smeta[2] == sens
-                        and smeta[3] == sess and p_gen <= smeta[0]):
+                    if nid not in retry_nids:
+                        smeta = skipped.get(nid)
+                        if (smeta is not None and valid_path
+                                and smeta[1] == path and smeta[2] == sens
+                                and smeta[3] == sess and p_gen <= smeta[0]):
+                            pos += 1
+                            continue
+
+                    if nid in docs:
+                        self._remove_doc(nid)
+                    skipped.pop(nid, None)
+                    retry_nids.discard(nid)
+
+                    tf_before = _fsutil.TRANSIENT_READ_FAILURES
+                    errored = False
+                    try:
+                        node = cg.get(nid, probe=False)
+                    except Exception:
+                        node = None
+                        errored = True
+                    # Re-read entry metadata after cg.get (MdCGSecure._readable may
+                    # backfill e["sensitivity"] in place on first read).
+                    sens_after = e.get("sensitivity")
+                    sess_after = e.get("session")
+                    if not node:
+                        if errored or _fsutil.TRANSIENT_READ_FAILURES != tf_before:
+                            # C-3: never negatively cache transient read failures.
+                            retry_nids.add(nid)
+                        else:
+                            skipped[nid] = (gen_before, path, sens_after, sess_after)
+                        pos += 1
+                        continue
+                    body = bigrams(payload(node.get("content") or ""))
+                    if not body:
+                        skipped[nid] = (gen_before, path, sens_after, sess_after)
+                        pos += 1
+                        continue
+                    self._add_doc(nid, pos, body, (gen_before, path, sens_after, sess_after))
                     pos += 1
-                    continue
 
-            if nid in docs:
-                self._remove_doc(nid)
-            skipped.pop(nid, None)
-            retry_nids.discard(nid)
+                gone = self.layer_nids - new_layer_nids
+                if gone:
+                    for nid in gone:
+                        if nid in docs:
+                            self._remove_doc(nid)
+                        skipped.pop(nid, None)
+                        retry_nids.discard(nid)
 
-            tf_before = _fsutil.TRANSIENT_READ_FAILURES
-            errored = False
-            try:
-                node = cg.get(nid, probe=False)
-            except Exception:
-                node = None
-                errored = True
-            # Re-read entry metadata after cg.get (MdCGSecure._readable may
-            # backfill e["sensitivity"] in place on first read).
-            sens_after = e.get("sensitivity")
-            sess_after = e.get("session")
-            if not node:
-                if errored or _fsutil.TRANSIENT_READ_FAILURES != tf_before:
-                    # C-3: never negatively cache transient read failures.
-                    retry_nids.add(nid)
-                else:
-                    skipped[nid] = (cur_gen, path, sens_after, sess_after)
-                pos += 1
-                continue
-            body = bigrams(payload(node.get("content") or ""))
-            if not body:
-                skipped[nid] = (cur_gen, path, sens_after, sess_after)
-                pos += 1
-                continue
-            self._add_doc(nid, pos, body, (cur_gen, path, sens_after, sess_after))
-            pos += 1
-
-        gone = self.layer_nids - new_layer_nids
-        if gone:
-            for nid in gone:
-                if nid in docs:
-                    self._remove_doc(nid)
-                skipped.pop(nid, None)
-                retry_nids.discard(nid)
-
-        self.layer_nids = new_layer_nids
-        self.total_nodes_seen = len(nodes_snap)
-        self.write_gen = cur_gen
-        self.initialized = True
+                self.layer_nids = new_layer_nids
+                if (dirty.write_gen == gen_before
+                        and dirty.broad_gen == broad_before
+                        and len(raw_nodes) == len(nodes_snap)):
+                    self.total_nodes_seen = len(nodes_snap)
+                    self.write_gen = gen_before
+                    self.initialized = True
+                    return
+                # Generation drifted during sync: leave write_gen uncommitted
+                # so the retry (or the next sync) re-scans mutated entries.
+                self.write_gen = -1
+                self.total_nodes_seen = -1
+                self.initialized = False
 
     def query(self, new, exclude=None):
         """Exact Rare-First Prefix-Filter + Dynamic Upper-Bound Branch-and-Bound.
@@ -439,6 +460,10 @@ class _LayerBigramIndex:
         tie). Tie-breaking strictly selects the smallest `doc_pos` (matching
         the linear scan's `cov > best["max"]`).
         """
+        with self._lock:
+            return self._query_locked(new, exclude=exclude)
+
+    def _query_locked(self, new, exclude=None):
         layer_nids = self.layer_nids
         candidate_total = len(layer_nids) - (
             1 if exclude is not None and exclude in layer_nids else 0
@@ -583,6 +608,7 @@ class _ForgettingBigramIndex:
     """
 
     __slots__ = (
+        "_lock",
         "nodes_ref",
         "dirty_ref",
         "access_key",
@@ -592,38 +618,42 @@ class _ForgettingBigramIndex:
     )
 
     def __init__(self):
+        self._lock = threading.RLock()
         self.clear()
 
     def clear(self):
-        self.nodes_ref = None
-        self.dirty_ref = None
-        self.access_key = None
-        self.broad_gen = -1
-        self.layers = {}
-        self.last_stats = None
+        with self._lock:
+            self.nodes_ref = None
+            self.dirty_ref = None
+            self.access_key = None
+            self.broad_gen = -1
+            self.layers = {}
+            self.last_stats = None
 
     def query_layer(self, cg, raw_nodes, dirty, new, layer, exclude=None):
-        access = _redundancy_access_key(cg)
-        if (self.nodes_ref is not raw_nodes
-                or self.dirty_ref is not dirty
-                or self.access_key != access
-                or self.broad_gen != dirty.broad_gen):
-            self.clear()
-            self.nodes_ref = raw_nodes
-            self.dirty_ref = dirty
-            self.access_key = access
-            self.broad_gen = dirty.broad_gen
+        with self._lock:
+            access = _redundancy_access_key(cg)
+            broad_before = dirty.broad_gen
+            if (self.nodes_ref is not raw_nodes
+                    or self.dirty_ref is not dirty
+                    or self.access_key != access
+                    or self.broad_gen != broad_before):
+                self.clear()
+                self.nodes_ref = raw_nodes
+                self.dirty_ref = dirty
+                self.access_key = access
+                self.broad_gen = broad_before
 
-        layer_key = str(layer) if layer else ""
-        layer_idx = self.layers.get(layer_key)
-        if layer_idx is None:
-            layer_idx = _LayerBigramIndex(layer_key)
-            self.layers[layer_key] = layer_idx
+            layer_key = str(layer) if layer else ""
+            layer_idx = self.layers.get(layer_key)
+            if layer_idx is None:
+                layer_idx = _LayerBigramIndex(layer_key)
+                self.layers[layer_key] = layer_idx
 
-        layer_idx.sync(cg, raw_nodes, dirty)
-        result, stats = layer_idx.query(new, exclude=exclude)
-        self.last_stats = stats
-        return result
+            layer_idx.sync(cg, raw_nodes, dirty)
+            result, stats = layer_idx.query(new, exclude=exclude)
+            self.last_stats = stats
+            return result
 
 
 # 生效条件：先判断 content 经 payload/bigrams 是否为空集（空集直接返回零值 best，不带 truncated 键）；随后循环/索引前经 cg._maybe_reload_index() 单探一次（N276）。若 limit is None、cg 具备真实读缓存与 _DirtyDict 脏集（非测试桩/未关读缓存/未在实例上覆写 get/_readable/_open_content），且未通过 MDCG_MAX_COMPARE_CAP 把自适应上限显式压到同层候选数以下，则走按层增量维护的精确稀有优先前缀过滤 + 动态上界分支定界倒排索引（对全层可读非空候选求数学精确最大覆盖度、零截断，并按 cg.index["nodes"] 顺序精确打破平局）；否则回落线性路径——按 cg.index["nodes"] 顺序扫描候选、受 limit / _adaptive_limit 约束，截断时（scanned<candidate_total）如实落 candidate_total 与 truncated=True（#358/#929 契约不变）。
@@ -680,8 +710,11 @@ def redundancy(cg, content, layer="contextual", exclude=None, limit=None):
         if use_exact:
             idx = getattr(cg, "_forgetting_bigram_index", None)
             if idx is None:
-                idx = _ForgettingBigramIndex()
-                cg._forgetting_bigram_index = idx
+                with _BIGRAM_INIT_LOCK:
+                    idx = getattr(cg, "_forgetting_bigram_index", None)
+                    if idx is None:
+                        idx = _ForgettingBigramIndex()
+                        cg._forgetting_bigram_index = idx
             return idx.query_layer(cg, raw_nodes, cg._dirty, new,
                                    layer=layer, exclude=exclude)
 
@@ -1206,7 +1239,12 @@ def reinforce(cg, node_id, delta=0.05, override=False, actor=None,
         # 补，口径与 `_sync_edge_entry` 一致。
         _dirty = getattr(cg, "_dirty", None)
         if isinstance(_dirty, dict):
-            _dirty[node_id] = e
+            _dlock = getattr(cg, "_dirty_lock", None)
+            if _dlock is not None:
+                with _dlock:
+                    _dirty[node_id] = e
+            else:
+                _dirty[node_id] = e
     return {"node_id": node_id, "importance": imp,
             "merge_count": fm["merge_count"], "protected": bool(fm.get("protected")),
             # 新正文去向（②）：写进了哪个节点/哪一行——调用方不必猜。
