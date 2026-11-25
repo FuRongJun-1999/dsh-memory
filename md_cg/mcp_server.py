@@ -2628,7 +2628,10 @@ def _task_call(cg, a):
 
 
 #: require 词别名：新 op 复用既有 op 词，不给令牌 face 引入新词（对账见 scripts/check_op_table_parity.py）。
-_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}
+_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read",
+                   # profiles（重建资料卡）落盘才需写权限；dry_run 缺省只算不写，
+                   # 但权限词按**最严路径**取 write，避免「预览放行、落盘才拒」的分裂。
+                   "profiles": "write"}
 
 # 生效条件：op 取 a.get("op") 转 str 去空白并 lower；缺失时按参数签名回推（含 content→write / query|node_id→read / intent→route；无签名可推时维持 read），op=="help" 在角色闸门之前直通 _help_call；其余 op 先经 cg.principal.require_op(op)（越权即 AccessDenied）再按 alias→内联名→cli 表分派；未识别 op 抛 ValueError；fork：op=="forget" 的**删除**分支走 cg.forget_gated（三档自治批次②：档位判定在既有资格闸之后，变更确认档出变更单且不软删；restore 分支不变），op=="write" 经 writepipe 默认链（链尾 autonomy 档位闸）；
 def _gate_link_signers_file(a):
@@ -3205,6 +3208,13 @@ def _cg_dispatch(cg, a):
         #   state_event（写账本）→ "write"；state_view（只读回放+租约）→ "read"。
         # 用显式别名表而不是嵌套三元：check_op_table_parity 按本表对账（见 _REQUIRE_ALIAS）。
         _p.require_op(_REQUIRE_ALIAS.get(op, op))
+    if op == "profiles":
+        # issue #1005（2026-11-25）：**重建资料卡的显式入口**。此前 `profiles.build`
+        # 只有内部与测试在调，没有任何工具面入口——改完抽取规则后使用者无法让
+        # 存量卡跟上，只能找开发者跑脚本。dry_run 缺省 True（预览放行不落盘）。
+        from . import profiles as _prof
+        return _prof.build(cg, dry_run=bool(a.get("dry_run", True)),
+                           limit=(a.get("limit") or None))
     if op == "write":
         # issue #980 问题 4（2026-11-17）：content_kind 缺省时**补 text**，
         # 否则闸门按「未知内容类型 ''」判 BLINDSPOT——报错不说人话、模型要试三次。
