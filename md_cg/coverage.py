@@ -47,6 +47,34 @@ SLOT_EVIDENCE = {
     "年龄": ("岁", "年龄"),
     "城市": ("住", "城市", "地方", "区", "县"),
 }
+
+# ===== 子项级（2026-11-25）：槽位是粗筐，子项才是需求 =====
+# 测评端实测：「爸妈退休前各干什么」里母亲职业缺失时，按槽位整体判会认为「家庭」有材料
+# （因为出现了「妈」），于是 miss_slots 静默。改成按「人物 × 属性」拆子项后才会报。
+PERSON_WORDS = (
+    ("父亲", ("爸", "父亲")),
+    ("母亲", ("妈", "母亲")),
+)
+PERSON_WORDS_DICT = {p: w for p, w in PERSON_WORDS}
+
+#: 属性（query 侧触发词）
+ATTR_WORDS = (
+    ("职业", ("职业", "干什么", "做啥", "上班", "工作", "退休前", "干活", "做什么")),
+    ("年龄", ("多大", "年龄", "几岁")),
+    ("学历", ("学历", "上学", "读书", "毕业", "专业")),
+    ("城市", ("城市", "住哪", "住在", "什么地方")),
+    ("姓名", ("名字", "姓名", "全名", "叫什么")),
+)
+
+#: 属性（pack 侧证据词）：与触发词分开——问法窄、材料宽，宁可多认有
+ATTR_EVIDENCE = {
+    "职业": ("工作", "职业", "上班", "单位", "退休", "教师", "工人", "医生", "工程师",
+             "职员", "开店", "经营", "厂", "公司", "干过", "做过"),
+    "年龄": ("岁", "年龄", "年生", "出生"),
+    "学历": ("学", "毕业", "学历", "学校", "专业", "本科", "大专", "中专", "硕士", "博士", "高中"),
+    "城市": ("住", "城市", "地方", "区", "县", "镇", "搬到", "老家"),
+    "姓名": ("叫", "名字", "姓名", "全名"),
+}
 #: skipped 里属于「被预算裁掉」的 reason（其余 reason 是资格/摘录类，不算覆盖缺口）
 BUDGET_REASONS = ("oversize_or_over_budget", "budget_exhausted")
 
@@ -146,33 +174,70 @@ def gaps(pack, skipped=None, used=None, budget=None, extra=None,
 
 
 def slot_gaps(pack, query):
-    """槽位级「这项没材料」信号（issue #1005，2026-11-24）。**独立于 coverage_gaps**。
+    """子项级「这项没材料」信号（issue #1005，2026-11-24 二次修正）。**独立于 coverage_gaps**。
 
     动机：测评端 27/27 道真实失败题都报 `coverage_certified=True`——现有 anchor_missing
     要求「无词面命中 **且** 分数贴基准」，而真实失败是「有少量词面重合、但必需要素缺失」，
     两个条件都不满足 ⇒ 这个信号在最该报警的地方从不报警。
 
-    这里补的是**不同的问题**：不问「整体像不像答非所问」，只问「query 点名的那个槽位，
-    pack 里有没有它的一丁点材料」。没有就如实说这一项没有——但**不升级为缺口、不动认证位**：
-    槽位判断是弱信号，语义改写时容易误报，让它只做「我不确定」的提示。
+    **2026-11-25 修正（测评端实测反馈）**：第一版按槽位整体判，`家庭` 只认「爸/妈」任一
+    出现就算有证据——于是「父母退休前各干什么」里母亲职业缺失时 `miss_slots` 仍是空。
+    **槽位是粗筐，子项才是需求**：改成先抽「人物 × 属性」组合（父亲·职业 / 母亲·职业…），
+    再逐项在 pack 的**同一段**里找「人物词 + 属性证据词」是否共现。
 
-    返回 [{"slot": 槽位名, "detail": 说明}]，无命中槽位或材料齐备时返回 []。
+    仍然**不升级为缺口、不动认证位**：子项判断是弱信号，只做「我不确定」的提示。
+
+    返回 [{"slot": 子项名, "detail": 说明}]，无命中或材料齐备时返回 []。
     """
     q = str(query or "")
     if not q:
         return []
-    hit = [s for s, words, _k in SLOT_TRIGGERS if any(w in q for w in words)]
-    if not hit:
-        return []
-    body = "\n".join(
-        str((e or {}).get("content") or (e or {}).get("content_dated") or "")
-        for e in (pack or []))
-    if not body:
-        return [{"slot": s, "detail": "pack 为空，没有「%s」这一项的材料" % s} for s in hit]
+    paras = [str((e or {}).get("content") or (e or {}).get("content_dated") or "")
+             for e in (pack or [])]
+    paras = [x for x in paras if x.strip()]
+    if not paras:
+        paras = []
+
+    # ① 抽 query 里的属性（职业/年龄/学历/城市/姓名）
+    attrs = [a for a, words in ATTR_WORDS if any(w in q for w in words)]
+    if not attrs:
+        # 没有可拆的属性：退回槽位整体口径（保持既有行为）
+        hit = [s for s, words, _k in SLOT_TRIGGERS if any(w in q for w in words)]
+        if not hit:
+            return []
+        body = "\n".join(paras)
+        if not body:
+            return [{"slot": s, "detail": "pack 为空，没有「%s」这一项的材料" % s} for s in hit]
+        out = []
+        for slot in hit:
+            ev = SLOT_EVIDENCE.get(slot) or ()
+            if ev and not any(w in body for w in ev):
+                out.append({"slot": slot,
+                            "detail": "材料里没有「%s」这一项（回答前先说明这点不确定）" % slot})
+        return out
+
+    # ② 抽 query 里的人物（父母要拆成父亲/母亲两个子项）
+    persons = [p for p, words in PERSON_WORDS if any(w in q for w in words)]
+    if not persons:
+        persons = ["本人"]
+
+    def _has(person, attr):
+        pwords = PERSON_WORDS_DICT.get(person, ())
+        awords = ATTR_EVIDENCE.get(attr, ())
+        if not awords:
+            return True
+        for para in paras:
+            if pwords and not any(w in para for w in pwords):
+                continue
+            if any(w in para for w in awords):
+                return True
+        return False
+
     out = []
-    for slot in hit:
-        ev = SLOT_EVIDENCE.get(slot) or ()
-        if ev and not any(w in body for w in ev):
-            out.append({"slot": slot,
-                        "detail": "材料里没有「%s」这一项（回答前先说明这点不确定）" % slot})
+    for person in persons:
+        for attr in attrs:
+            if not _has(person, attr):
+                label = attr if person == "本人" else "%s·%s" % (person, attr)
+                out.append({"slot": label,
+                            "detail": "材料里没有「%s」这一项（回答前先说明这点不确定）" % label})
     return out
