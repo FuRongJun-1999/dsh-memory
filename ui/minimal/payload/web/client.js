@@ -8,18 +8,52 @@ function Icon({size=16}) {
 // （主 frame 的请求带 marker，能过 host 的 web-document 门）；/lingshu 直连路由保持不变。
 // 桥的状态必须在**模块级**：ref 每次渲染都是新函数，若状态写在 Panel 内会重复绑 listener（复核 0077）。
 const BRIDGE = { frame: null, bound: false };
+const ALLOWED_BRIDGE_METHODS = new Set(['GET', 'POST']);
 function onFrameRef(node) {
   BRIDGE.frame = node;
   if (!node || BRIDGE.bound) return;
   BRIDGE.bound = true;
   window.addEventListener('message', (ev) => {
-    const d = ev.data || {};
-    if (d.__lingshu !== 'req') return;
-    if (BRIDGE.frame && ev.source !== BRIDGE.frame.contentWindow) return;
+    const d = ev.data;
+    if (!d || typeof d !== 'object' || d.__lingshu !== 'req') return;
+    if (!BRIDGE.frame || !BRIDGE.frame.contentWindow || ev.source !== BRIDGE.frame.contentWindow) return;
     const reply = (payload) => {
-      try { BRIDGE.frame.contentWindow.postMessage(Object.assign({ __lingshu: 'res', id: d.id }, payload), '*'); } catch (e) { /* frame 已卸载 */ }
+      try {
+        if (!BRIDGE.frame || !BRIDGE.frame.contentWindow) return;
+        BRIDGE.frame.contentWindow.postMessage(Object.assign({ __lingshu: 'res', id: d.id }, payload), '*');
+      } catch (e) { /* frame 已卸载 */ }
     };
-    fetch(d.url, { method: d.method || 'GET', body: (d.body == null ? undefined : d.body), headers: d.headers || {}, credentials: 'same-origin' })
+    const baseOrigin = window.location && window.location.origin;
+    if (!baseOrigin || baseOrigin === 'null') {
+      reply({ error: 'invalid_origin' });
+      return;
+    }
+    let targetUrl;
+    try {
+      targetUrl = new URL(String(d.url || ''), baseOrigin);
+    } catch (e) {
+      reply({ error: 'invalid_url' });
+      return;
+    }
+    if (
+      targetUrl.origin !== baseOrigin
+      || targetUrl.username
+      || targetUrl.password
+      || !targetUrl.pathname.startsWith('/plugins/lingshu/')
+      || /%2e/i.test(targetUrl.pathname)
+      || targetUrl.pathname.includes('\\')
+    ) {
+      reply({ error: 'url_not_allowed' });
+      return;
+    }
+    const method = String(d.method || 'GET').toUpperCase();
+    if (!ALLOWED_BRIDGE_METHODS.has(method)) {
+      reply({ error: 'method_not_allowed' });
+      return;
+    }
+    const headers = (d.headers && typeof d.headers === 'object' && !Array.isArray(d.headers)) ? d.headers : {};
+    const body = (method === 'GET' || d.body == null) ? undefined : d.body;
+    fetch(targetUrl.pathname + targetUrl.search, { method, body, headers, credentials: 'same-origin' })
       .then(async (r) => reply({ ok: r.ok, status: r.status, text: await r.text() }))
       .catch((e) => reply({ error: String((e && e.message) || e) }));
   });

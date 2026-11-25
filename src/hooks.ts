@@ -612,7 +612,10 @@ export function formatTimelineDecayed(payload: unknown, opts?: { includeIdentity
   return truncateSafe(out.join('\n'), RECALL_MAX_CHARS)   // issue #762：拼完再切也不劈代理对
 }
 
-/** 身份锚点块（issue #635）：只取永久层（self/anchor），独立预算。 */
+/** 身份锚点块（issue #635 / SEC-A2-08）：只取永久层（self/anchor），独立预算；
+ *  不得复用 RECALL_SKIP_LAYERS（#929 把 structural/rejected 纳入跳过集合后，复用会把
+ *  否证记忆与审计记录注入「【灵枢身份锚点】」）。 */
+const IDENTITY_LAYERS = new Set(['self', 'anchor'])
 export const IDENTITY_MAX_ITEMS = 3
 export const IDENTITY_MAX_CHARS = 640
 export const IDENTITY_ITEM_CHARS = 160
@@ -625,7 +628,7 @@ export function renderIdentityAnchors(payload: unknown): string {
   const out: string[] = []
   for (const it of items) {
     const layer = String(it['layer'] ?? '')
-    if (!RECALL_SKIP_LAYERS.has(layer)) continue
+    if (!IDENTITY_LAYERS.has(layer)) continue
     const preview = String(it['preview'] ?? '').replace(/\s+/g, ' ').trim()
     if (!preview) continue
     const safe = redactKeepPlaceholders(preview)
@@ -912,7 +915,7 @@ const READ_PREVIEW_MAX = 300
  *
  *  只做**读取侧归一**：不改检索、不改写入、不改渲染循环的字段名。
  *  `usable === false`（issue #722 条件闸判不可用）由调用方剔除，本函数只透出。 */
-function normalizeReadItems(payload: unknown): Array<Record<string, unknown>> {
+export function normalizeReadItems(payload: unknown): Array<Record<string, unknown>> {
   const isObj = (v: unknown): v is Record<string, unknown> =>
     !!v && typeof v === 'object' && !Array.isArray(v)
   const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : [])
@@ -931,12 +934,17 @@ function normalizeReadItems(payload: unknown): Array<Record<string, unknown>> {
     const content = String(node['content'] ?? '')
     const preview = String(node['preview'] ?? content).replace(/\s+/g, ' ').trim()
     if (!preview) continue
+    const tags = Array.isArray(node['tags'])
+      ? node['tags']
+      : (Array.isArray(fm['tags']) ? fm['tags'] : (Array.isArray(raw['tags']) ? raw['tags'] : []))
+    // issue #563 ① / #762（SEC-A2-08）：先脱敏、再按码元安全截断——
+    // 防止跨 READ_PREVIEW_MAX(300) 边界的凭据被截半漏脱敏，并防止增补平面 emoji 代理对被 raw slice 劈开。
+    const safePreview = redactKeepPlaceholders(preview)
     out.push({
       id: node['id'],
       layer: node['layer'] ?? fm['layer'] ?? '',
-      // 预览口径对齐 hottier（`PREVIEW_MAX = 300`）：主库 content 最长 50 KiB，
-      // 不截断会让单条吃掉整块预算（本块另有 RECALL_MAX_CHARS 总闸）。
-      preview: preview.length > READ_PREVIEW_MAX ? preview.slice(0, READ_PREVIEW_MAX) : preview,
+      tags,
+      preview: truncateSafe(safePreview, READ_PREVIEW_MAX),
       score: typeof raw['score'] === 'number' ? raw['score'] : node['score'],
       usable: raw['usable'] ?? node['usable'],
     })
@@ -1237,11 +1245,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
               const kr = await graph.read(q749.slice(0, 200), { k: recallLimit })
               // issue #749 修复：主库形态是 `{meta, results:[{node}]}`、热层是 `{items}`，
               // 旧实现只认后者（而热层运行时从未构建）⇒ 本块恒空。归一后两条路径都能浮现。
+              const unit749 = sessionUnitOf(sid)
               knowItems = normalizeReadItems(kr)
                 // 只取非 contextual 层：contextual 由 timeline 块负责，避免同一批裸消息被两条通路各贴一遍。
                 .filter((it) => String((it || {})['layer'] ?? '') !== 'contextual')
                 // 条件闸判不可用（issue #722）的不进注入面
                 .filter((it) => it['usable'] !== false)
+                // SEC-A2-08：与 timeline 同口径过滤——拦 self/anchor/rejected 以及日常会话的 structural/audit/audit_trace
+                .filter((it) => !recallSkipItem(it, unit749))
             }
           } catch (err) {
             ctx.logger.info(`dsh-memory: 跨会话知识检索未生效（已跳过）: ${redactForLog(err)}`)
@@ -1273,7 +1284,9 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
           if (knowItems.length) {
             const seenIds = new Set<string>()
             const lines749: string[] = []
+            const unit749Merge = sessionUnitOf(sid)
             for (const it of knowItems) {
+              if (recallSkipItem(it, unit749Merge)) continue
               const id749 = String((it || {})['id'] ?? '')
               if (!id749 || seenIds.has(id749)) continue
               seenIds.add(id749)
