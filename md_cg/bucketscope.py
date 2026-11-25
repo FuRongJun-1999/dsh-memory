@@ -20,6 +20,9 @@ import re
 import time
 
 from . import bucketindex as _bi
+from . import crypto as _crypto
+from . import lifecycle as _lifecycle
+from . import trust as _trust
 
 #: 单次桶召回上限（与 recent_tail 同一量级，避免撑爆预算）。
 CAP = 8
@@ -56,6 +59,45 @@ def _terms(q):
 MAX_SCAN = 800
 
 
+_ISOLATED_LAYERS = ("rejected", "unresolved", "goals")
+_PRIVATE_DOMAIN_TAG = "域:私密"
+
+
+def _node_eligible(store, nid, node, validity=False, now=None):
+    """桶补召回候选资格闸（与 MdCGOS._candidates 同口径，fail-closed）：
+      · 剔除退役节点（archived ∪ superseded，#562）
+      · 剔除隔离层节点（rejected / unresolved / goals）
+      · 剔除未解封密文（crypto.is_encrypted）与私密域标签（域:私密）
+      · validity=True 时剔除已过期节点
+    """
+    if not isinstance(node, dict):
+        return False
+    idx_nodes = (getattr(store, "index", None) or {}).get("nodes") or {}
+    entry = idx_nodes.get(nid)
+    fm = node.get("frontmatter") or {}
+    if not isinstance(fm, dict):
+        fm = {}
+    for src in (entry, node, fm):
+        if not isinstance(src, dict):
+            continue
+        if _lifecycle.is_retired(src):
+            return False
+        layer = src.get("layer")
+        if layer and str(layer).strip().lower() in _ISOLATED_LAYERS:
+            return False
+        tags = src.get("tags") or ()
+        if isinstance(tags, (list, tuple, set)):
+            for t in tags:
+                if str(t).strip() == _PRIVATE_DOMAIN_TAG:
+                    return False
+    raw_content = node.get("content")
+    if _crypto.is_encrypted(raw_content):
+        return False
+    if validity and _is_expired(node, now):
+        return False
+    return True
+
+
 def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=False,
           fill_rest=False):
     """桶内按词面命中筛选（确定性）：命中词数降序 → **时间降序** → id；取前 cap。
@@ -68,11 +110,10 @@ def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=Fal
     之后**追加的，若不在源头过滤，调用方显式要求的「排除过期」会被补召回推翻。
     """
     scored = []
-    for nid in list(ids)[:MAX_SCAN]:
+    scan_ids = list(ids)[:MAX_SCAN]
+    for nid in scan_ids:
         node = store.get(nid)
-        if not node:
-            continue
-        if validity and _is_expired(node, now):
+        if not _node_eligible(store, nid, node, validity=validity, now=now):
             continue
         text = str(node.get("content") or "").lower()
         hits = sum(1 for t in terms if t in text)
@@ -86,12 +127,14 @@ def _pick(store, ids, terms, cap, validity=False, now=None, fallback_recency=Fal
     # 只命中 114 ⇒ 116 被丢）。现改为：命中优先，**按时间序补足到 cap**。
     if fill_rest and len(out) < cap:
         chosen = {n.get("id") for n, _s, _q, _p in out}
-        # 补足路径同样要过 validity 闸（#856 守卫抓到的漏洞：
-        # 早先只对「词面命中」的节点做了过期过滤，`fill_rest` 会把过期节点补进来，
-        # 等于把 #843 的修复在另一条分支上绕过了）。
-        rest = [n for n in (store.get(i) for i in list(ids)[:MAX_SCAN])
-                if n and n.get("id") not in chosen
-                and not (validity and _is_expired(n, now))]
+        # 补足路径同样过候选资格闸与 validity 闸（#856 守卫 + 退役/隔离/密文过滤）。
+        rest = []
+        for i in scan_ids:
+            n = store.get(i)
+            if not _node_eligible(store, i, n, validity=validity, now=now):
+                continue
+            if n.get("id") not in chosen:
+                rest.append(n)
         rest.sort(key=lambda n: (_recency_key(n), str(n.get("id"))))
         for n in rest[:cap - len(out)]:
             out.append((n, 0.0, {"reason": "bucket_scope",
@@ -222,22 +265,28 @@ def _early_intent(query):
 
 
 def _is_expired(node, now=None):
-    """节点是否已过期（valid_until 早于 now）。
+    """节点是否已过期（与 trust.is_expired 同源单点，并兼容 validUntil 别名）。
 
-    判据与检索面一致：只认 frontmatter.valid_until（ISO 日期/时间），解析失败不算过期
-    （宁放过不错杀——过期是显式字段，不是推断）。
+    正确处理显式 UTC/偏移时区（Z / +HH:MM）、数值 epoch（秒/毫秒）及
+    effective_until / valid_until / expires_at / validUntil；拒绝 bool，
+    解析失败仍返回 False（宁放过不错杀）。
     """
-    fm = node.get("frontmatter") or {}
-    until = fm.get("valid_until") or fm.get("validUntil")
-    if not until:
+    if not isinstance(node, dict):
         return False
-    t = now if now is not None else time.time()
-    raw = str(until).strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
-        try:
-            return time.mktime(time.strptime(raw[:19], fmt)) < float(t)
-        except ValueError:
-            continue
+    fm = node.get("frontmatter") or {}
+    if not isinstance(fm, dict):
+        return False
+    t = time.time() if now is None else float(now)
+    # 过滤掉 bool 伪时间戳后再委托 trust.is_expired
+    clean_fm = {k: v for k, v in fm.items()
+                if not (isinstance(v, bool) and (k in _trust.UNTIL_ALIASES or k in _trust.FROM_ALIASES))}
+    if _trust.is_expired(clean_fm, now=t):
+        return True
+    camel = fm.get("validUntil")
+    if camel is not None and not isinstance(camel, bool):
+        end = _trust.parse_time(camel)
+        if end is not None and t > end:
+            return True
     return False
 
 
@@ -304,6 +353,8 @@ def scope_recall(store, query, session, now, cap=DEFAULT_CAP, validity=False):
                     picked_b = _pick(store, _bids, terms, BUCKET_SCOPE_QUOTA,
                                      validity=validity, now=now)
                     for node, score, qual, prov in picked_b:
+                        if node.get("id") in seen:
+                            continue
                         qual = dict(qual)
                         qual["bucket"] = _key
                         out.append((node, score, qual, prov))

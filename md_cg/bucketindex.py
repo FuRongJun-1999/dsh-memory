@@ -20,9 +20,14 @@
 from __future__ import annotations
 
 import json
+import math
 import os
+import threading
 import time
 
+from . import crypto as _crypto
+from . import fsutil as _fsutil
+from . import lifecycle as _lifecycle
 from .bm25 import tokenize as _bm25_tokenize
 
 DAYS_FILE = "_days.json"
@@ -35,11 +40,51 @@ SKEL_CHARS_PER_NODE = 600
 SKEL_CHARS_PER_BUCKET = 20000
 
 
+_ISOLATED_LAYERS = ("rejected", "unresolved", "goals")
+_PRIVATE_DOMAIN_TAG = "域:私密"
+
+
+def _is_sensitive_or_private(rec, fm=None):
+    """节点是否属密级加密/受限/私密域（明文与词项不得写入明文桶索引）。"""
+    for src in (rec, fm):
+        if not isinstance(src, dict):
+            continue
+        sens = src.get("sensitivity")
+        if sens:
+            s = str(sens).strip().lower()
+            if s == "restricted" or _crypto.is_encrypted_level(s):
+                return True
+        tags = src.get("tags") or ()
+        if isinstance(tags, (list, tuple, set)):
+            for t in tags:
+                if str(t).strip() == _PRIVATE_DOMAIN_TAG:
+                    return True
+    return False
+
+
+def _is_non_recallable(rec, fm=None):
+    """退役（archived/superseded）或隔离层（rejected/unresolved/goals）节点。"""
+    for src in (rec, fm):
+        if not isinstance(src, dict):
+            continue
+        if _lifecycle.is_retired(src):
+            return True
+        layer = src.get("layer")
+        if layer and str(layer).strip().lower() in _ISOLATED_LAYERS:
+            return True
+    return False
+
+
 def day_of(ts):
-    """epoch 秒 → 本地日期字符串；不可解析返回 None。"""
+    """epoch 秒 → 本地日期字符串；不可解析/bool/非有限返回 None。"""
+    if isinstance(ts, bool):
+        return None
     try:
-        return time.strftime("%Y-%m-%d", time.localtime(float(ts)))
-    except (TypeError, ValueError, OSError):
+        v = float(ts)
+        if not math.isfinite(v):
+            return None
+        return time.strftime("%Y-%m-%d", time.localtime(v))
+    except (TypeError, ValueError, OSError, OverflowError):
         return None
 
 
@@ -108,15 +153,25 @@ def build(store, write=True, with_content=False, content_limit=400):
         # 与检索面**同口径**分词（bm25.tokenize：汉字单字 + 相邻二元）。
         # 早期版本按标点切整句，查询里的短词（「商人」「蒙德城广场」）整词匹配不上，
         # 生产共现实测只有 34%；换成 n-gram 粒度后才可能与 bench 的「子串语义」对齐。
+        # 密文/受限/私密域与退役/隔离层节点不得向明文桶词表与骨架泄露正文或词项
+        if _is_sensitive_or_private(rec, fm) or _is_non_recallable(rec, fm):
+            continue
         text = " ".join(blob).lower()
+        body = ""
         if with_content:
             node = store.get(nid)
-            body = str((node or {}).get("content") or "")[:content_limit * 8].lower()
-            if body:
-                text = text + " " + body
-                content_terms += 1
+            nfm = (node or {}).get("frontmatter") if isinstance(node, dict) else None
+            raw_content = (node or {}).get("content") if isinstance(node, dict) else None
+            if (node
+                    and not _is_sensitive_or_private(node, nfm)
+                    and not _is_non_recallable(node, nfm)
+                    and not _crypto.is_encrypted(raw_content)):
+                body = str(raw_content or "")[:content_limit * 8].lower()
+                if body:
+                    text = text + " " + body
+                    content_terms += 1
         toks = list(_bm25_tokenize(text))
-        skel_part = (body if with_content else text)[:SKEL_CHARS_PER_NODE]
+        skel_part = (body if (with_content and body) else text)[:SKEL_CHARS_PER_NODE]
         for bucket in names:
             skel[bucket] = (skel.get(bucket, "") + "　" + skel_part)[:SKEL_CHARS_PER_BUCKET]
             bag = terms.setdefault(bucket, {})
@@ -133,10 +188,7 @@ def build(store, write=True, with_content=False, content_limit=400):
             for name, data in ((DAYS_FILE, days), (SESSIONS_FILE, sessions),
                               (TERMS_FILE, terms), (SKEL_FILE, skel)):
                 path = os.path.join(root, name)
-                tmp = path + ".tmp"
-                with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-                    json.dump(data, fh, ensure_ascii=False)
-                os.replace(tmp, path)
+                _fsutil.atomic_write(path, json.dumps(data, ensure_ascii=False))
             # 构建统计落盘（含 purposes / projects 副键计数）：读面 info 由此取，零重算。
             _write_meta(store, out, time.time())
     return out
@@ -178,6 +230,8 @@ AUTO_ENV = "MDCG_BUCKET_AUTO"
 INTERVAL_ENV = "MDCG_BUCKET_INTERVAL_H"
 
 _RUNNING = {"on": False}
+_RUNNING_LOCK = threading.Lock()
+_RUNNING_ROOTS = set()
 
 
 def _meta_path(store):
@@ -221,10 +275,7 @@ def _write_meta(store, stats, ts):
     try:
         payload = dict(stats)
         payload["ts"] = ts
-        tmp = p + ".tmp"
-        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
-            json.dump(payload, fh, ensure_ascii=False)
-        os.replace(tmp, p)
+        _fsutil.atomic_write(p, json.dumps(payload, ensure_ascii=False))
     except OSError:
         pass
 
@@ -246,11 +297,21 @@ def maybe_auto_rebuild(store, interval_h=None, background=True):
     if os.environ.get("MDCG_BUCKET_AUTO", "1") == "0":
         return {"rebuilt": False, "reason": "disabled"}
     if interval_h is not None:          # 显式参数优先（0 = 强制重建）
-        interval = float(interval_h)
+        if isinstance(interval_h, bool):
+            interval = DEFAULT_INTERVAL_H
+        else:
+            try:
+                interval = float(interval_h)
+            except (TypeError, ValueError):
+                interval = DEFAULT_INTERVAL_H
+            if not math.isfinite(interval) or interval < 0.0:
+                interval = DEFAULT_INTERVAL_H
     else:
         try:
             interval = float(os.environ.get("MDCG_BUCKET_INTERVAL_H", "20"))
         except ValueError:
+            interval = DEFAULT_INTERVAL_H
+        if not math.isfinite(interval) or interval < 0.0:
             interval = DEFAULT_INTERVAL_H
     # Single read of ts: the original read last_build_ts twice here, so a rebuild
     # thread writing the meta between the two reads made age_h disagree with the
@@ -263,22 +324,33 @@ def maybe_auto_rebuild(store, interval_h=None, background=True):
     age_h = None if last_ts <= 0 else (time.time() - last_ts) / 3600.0
     if last_ts > 0 and age_h < interval:
         return {"rebuilt": False, "reason": "fresh", "age_h": _age_round(age_h)}
-    if _RUNNING["on"]:
-        return {"rebuilt": False, "reason": "running", "age_h": _age_round(age_h)}
+    root_raw = getattr(store, "root", None)
+    root_key = os.path.abspath(str(root_raw)) if root_raw else f"mem:{id(store)}"
+    with _RUNNING_LOCK:
+        if root_key in _RUNNING_ROOTS:
+            return {"rebuilt": False, "reason": "running", "age_h": _age_round(age_h)}
+        _RUNNING_ROOTS.add(root_key)
+        _RUNNING["on"] = True
 
     def _job():
-        _RUNNING["on"] = True
         try:
             stats = build(store, write=True)
             _write_meta(store, stats, time.time())
         except Exception:          # noqa: BLE001 —— 后台失败不得影响主流程
             pass
         finally:
-            _RUNNING["on"] = False
+            with _RUNNING_LOCK:
+                _RUNNING_ROOTS.discard(root_key)
+                _RUNNING["on"] = bool(_RUNNING_ROOTS)
 
     if background:
-        import threading
-        threading.Thread(target=_job, daemon=True).start()
+        try:
+            threading.Thread(target=_job, daemon=True).start()
+        except Exception:          # noqa: BLE001 —— 启动线程失败必须释放占锁
+            with _RUNNING_LOCK:
+                _RUNNING_ROOTS.discard(root_key)
+                _RUNNING["on"] = bool(_RUNNING_ROOTS)
+            return {"rebuilt": False, "reason": "spawn_failed", "age_h": _age_round(age_h)}
         return {"rebuilt": True, "reason": "stale", "age_h": _age_round(age_h), "async": True}
     _job()
     return {"rebuilt": True, "reason": "stale", "age_h": _age_round(age_h), "async": False}
