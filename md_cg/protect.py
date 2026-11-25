@@ -695,7 +695,12 @@ def mark(cg, node_id, reason):
         # （文件已改，下一次 compact/rebuild 的 _scan_nodes 会带上该标记）。
         _dirty = getattr(cg, "_dirty", None)
         if isinstance(_dirty, dict):
-            _dirty[node_id] = e
+            _dlock = getattr(cg, "_dirty_lock", None)
+            if _dlock is not None:
+                with _dlock:
+                    _dirty[node_id] = e
+            else:
+                _dirty[node_id] = e
             _flush = getattr(cg, "flush", None)
             if callable(_flush):
                 try:

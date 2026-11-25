@@ -316,7 +316,12 @@ def _land(cg, node_id, path, fm, content, preimage_fm=None, force=False,
         e = None
     if e is not None:
         cg.index["nodes"][node_id] = e
-        cg._dirty[node_id] = e
+        _dlock = getattr(cg, "_dirty_lock", None)
+        if _dlock is not None:
+            with _dlock:
+                cg._dirty[node_id] = e
+        else:
+            cg._dirty[node_id] = e
     _subgraph.invalidate_cache(cg)
     chain.invalidate_cache(cg)
     trust.invalidate_cache(cg)

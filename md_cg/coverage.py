@@ -52,8 +52,8 @@ SLOT_EVIDENCE = {
 # 测评端实测：「爸妈退休前各干什么」里母亲职业缺失时，按槽位整体判会认为「家庭」有材料
 # （因为出现了「妈」），于是 miss_slots 静默。改成按「人物 × 属性」拆子项后才会报。
 PERSON_WORDS = (
-    ("父亲", ("爸", "父亲")),
-    ("母亲", ("妈", "母亲")),
+    ("父亲", ("爸", "父亲", "父母", "双亲")),
+    ("母亲", ("妈", "母亲", "父母", "双亲")),
 )
 PERSON_WORDS_DICT = {p: w for p, w in PERSON_WORDS}
 
@@ -192,8 +192,8 @@ def slot_gaps(pack, query):
     q = str(query or "")
     if not q:
         return []
-    paras = [str((e or {}).get("content") or (e or {}).get("content_dated") or "")
-             for e in (pack or [])]
+    paras = [str(e.get("content") or e.get("content_dated") or "")
+             for e in (pack or []) if isinstance(e, dict)]
     paras = [x for x in paras if x.strip()]
     if not paras:
         paras = []

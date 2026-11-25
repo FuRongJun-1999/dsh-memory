@@ -700,10 +700,13 @@ def _gate_audit(ctx):
                 "moved_to": "rejected", "verdict": verdict,
                 "hint": _reject_hint(verdict)}
     from .mcp_server import _proposal_extras
+    _pextra = _proposal_extras(a, verdict)
+    if a.get("received_at") is not None:
+        _pextra.setdefault("received_at", a["received_at"])
     pr = cg.propose(ctx["nid"], a.get("content", ""), info=True,
                     layer=a.get("layer") or "knowledge",
                     tags=a.get("tags"), condition_space=a.get("condition_space"),
-                    **_proposal_extras(a, verdict))
+                    **_pextra)
     out = {"ok": True, "id": ctx["nid"], "pid": pr["pid"], "committed": False,
            "moved_to": "review_queue", "verdict": verdict,
            "hint": "这是校验闸门的正常行为（verdict=%s）：内容未达 ACCEPT，"
@@ -796,11 +799,14 @@ def _gate_consistency(ctx):
         return {"ok": False, "id": ctx["nid"], "committed": False,
                 "moved_to": "conflict_rejected",
                 "consistency": cvd, "verdict": ctx["verdict"]}
+    _pextra_c = _proposal_extras(a, ctx["verdict"])
+    if a.get("received_at") is not None:
+        _pextra_c.setdefault("received_at", a["received_at"])
     pr = cg.propose(ctx["nid"], a.get("content", ""), info=True,
                     layer=a.get("layer") or "knowledge",
                     tags=a.get("tags"),
                     condition_space=a.get("condition_space"),
-                    **_proposal_extras(a, ctx["verdict"]))
+                    **_pextra_c)
     out = {"ok": False, "id": ctx["nid"], "pid": pr["pid"],
            "committed": False,
            "moved_to": "review_queue", "consistency": cvd,
@@ -871,6 +877,9 @@ def _write_values(ctx) -> dict:
         # issue #722 反馈：`cg(op=write, aliases=...)` 曾静默丢弃——读侧 `_like`
         # 早已把 aliases 并进召回串，写侧这条唯一取值点漏了它。
         "aliases": a.get("aliases"),
+        # issue #1005：收到时刻透传（与 mdcg_remember gated 分支同口径；
+        # 未传时为 None，读侧回落 created_at，既有行为不变）。
+        "received_at": a.get("received_at"),
         "condition_space": a.get("condition_space"),
         "verification_basis": (a.get("verification_basis")
                                or (ctx.get("verdict") or {}).get("basis")),
@@ -934,6 +943,9 @@ _OUTLET_PARAMS = (
     # 本条表是两出口形参的唯一真源，缺此格则 `_outlet_kwargs` 不产出该键。
     # 两列都填 `"aliases"`（不填 None）⇒ 不进 `_OUTLET_ONLY` 的双向核对范围。
     ("aliases", "aliases", "aliases"),
+    # issue #1005：收到时刻两出口同源透传（remember_gated(**kw) → add(**kw) → fm）。
+    # 两列都填 `"received_at"`（不填 None）⇒ 不进 `_OUTLET_ONLY` 的双向核对范围。
+    ("received_at", "received_at", "received_at"),
 )
 
 #: 值为 None 的格（＝该出口无此形参）的**登记理由**。守卫双向核对：
@@ -1173,15 +1185,24 @@ def _after_trust(ctx, out):
 
 
 # 生效条件：a 的 content_kind 非 hyperedge 即返回 {}，为 hyperedge 时延迟导入
-# hyperedge.EXTRA_FM_KEYS 收集 a 中非 None 的对应键返回（其余写入零键透传）；
+# hyperedge.EXTRA_FM_KEYS 收集 a 中非 None 且未被 _OUTLET_PARAMS direct 列 / layer
+# 覆盖的对应键返回（避免与 _outlet_kwargs("direct", ctx) 同名键碰撞；其余写入零键透传）；
 def _hyperedge_extra(a):
     """hyperedge 写入的 fm 扩展键透传。计划决策 2：超边写入走 write 动词既有
     审核链、不造新通道——链尾执行器是唯一落盘点，cg.add 经 **extra 落 fm，
-    故扩展键在此透传；落盘面丢字段 = 上游声明静默失效。延迟导入防循环依赖。"""
+    故扩展键在此透传；落盘面丢字段 = 上游声明静默失效。延迟导入防循环依赖。
+
+    已由 `_OUTLET_PARAMS` direct 出口承载的同名键（如 issue #1005 补齐的
+    `received_at`）以及显式形参 `layer` 不在此重复输出，避免 `_executor` 调用
+    `cg.add(..., **_outlet_kwargs("direct", ctx), **_hyperedge_extra(a))`
+    触发 `TypeError: got multiple values for keyword argument`。
+    """
     if (a.get("content_kind") or "").strip() != "hyperedge":
         return {}
     from . import hyperedge as _he
-    return {k: a[k] for k in _he.EXTRA_FM_KEYS if a.get(k) is not None}
+    _covered = {p[2] for p in _OUTLET_PARAMS if p[2] is not None} | {"layer"}
+    return {k: a[k] for k in _he.EXTRA_FM_KEYS
+            if k not in _covered and a.get(k) is not None}
 
 
 #: #492 观测读数调用计数：把「有没有算」从耗时读数变成可断言的整数。
@@ -1321,7 +1342,9 @@ _AUTONOMY_META_KEYS = ("tags", "condition_space", "verification_basis",
                        "override",
                        # issue #722 反馈（yunluo4444 实测）：确认档出单 → accept 重放时曾丢 aliases
                        # （直写有、走审核队列后没有），与 issue50-c F1「两条路径元数据不等价」同族。
-                       "aliases")
+                       "aliases",
+                       # issue #1005：确认档出单 → accept 重放保住 received_at（与直写元数据等价）。
+                       "received_at")
 
 
 # 生效条件：ctx 的 a/cg/nid 就绪时以 forgetting.prior_node 判「同 id 已存在」（存在=C 改写、不存在=A 新增）并交 autonomy_modes.decide 判定——ALLOW 返回 None 放行（与改动前同一条链）；FORBID 返回 ok=False/moved_to="autonomy_forbidden" 的终态（fail-closed，不落盘、不出单）；CONFIRM 经 autonomy_modes.propose_mutation 出变更单（复用既有 propose 单点）并返回 ok=True/committed=False/moved_to="review_queue" 的终态（**不落盘**）；
