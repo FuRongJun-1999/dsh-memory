@@ -104,7 +104,10 @@ ALL_OPS = ("state_view", "help", "info", "route", "read", "write", "goal", "task
            #        ROLE_SPECS.ops_allow 白名单零改动；登记于本表只为
            #        「op 三处同步」契约（ALL_OPS == cg 工具 schema == 分发分支，
            #        见 test_p27/test_p29/test_p30/test_p31 防漏改守卫）。
-           "audit", "state_event")
+           "audit", "state_event",
+           # 2026-11-25（issue #1005）：profiles 重建资料卡——进 pack 的是卡，
+           # 卡过期等于事实过期；写口（落盘才需 write），dry_run 缺省只算不写。
+           "profiles")
 
 
 # 设计者令牌**应覆盖**的面：读面 + 裁决面（「能不能查看、能不能裁决」）。

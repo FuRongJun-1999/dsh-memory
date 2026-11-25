@@ -588,6 +588,19 @@ _OP_TABLE = {
     ),
         ),
     },
+    "profiles": {
+        "doc_order": 38,
+        "doc": "重建人物资料卡（profile-*）：从既有节点**确定性聚合**，无模型抽取；dry_run=True（缺省）只算不写，dry_run=False 才落盘；抽取规则变更后用它让存量卡跟上（issue #1005）；",
+        "impl": "inline",
+        "require": "write",
+        "params": (
+            "dry_run",
+            "limit",
+        ),
+        "actions": (),
+        "default_action": None,
+        "sigs": (),
+    },
     "state_view": {
         "doc_order": 37,
         "doc": "状态视图：账本回放 + stable 租约（TTL/weak）+ 同主体多槽位联合（终态求解用）。",

@@ -113,6 +113,7 @@ FUNC_DESC: dict[tuple[str, str], str] = {
     ("cg", "recent"): "最近记忆（事件窗口）",
     ("cg", "state_event"): "状态事件记账（追加五元事件；查询走 stg(state_chain)）",
     ("cg", "state_view"): "状态视图（账本回放 + stable 租约 TTL/weak + 同主体多槽位联合，终态求解用）",
+    ("cg", "profiles"): "重建人物资料卡（profile-*；dry_run 缺省只算不写，抽取规则变更后用它让存量卡跟上）",
     ("cg", "verify"): "外部裁决回填（节点证据验证）",
     ("cg", "review"): "审核队列（DEFER / 提案裁决）",
     ("cg", "forget"): "主动遗忘 / 恢复",

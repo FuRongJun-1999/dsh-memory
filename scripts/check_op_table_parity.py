@@ -525,9 +525,10 @@ def mutations() -> tuple:
         变异点随之移到别名表——判据（表 ↔ dispatch 的 require 词必须一致）不变。
         """
         inp = dict(inp)
+        # 变异点取**键值对**而不是整行：别名表 2026-11-25 起了多行 + 注释后，
+        # 整行 replace 静默失效（变异不生效 ⇒ 误报「守卫无判别力」）。
         src = inp["src_ms"].replace(
-            '_REQUIRE_ALIAS = {"state_event": "write", "state_view": "read"}',
-            '_REQUIRE_ALIAS = {"state_event": "read", "state_view": "read"}')
+            '"state_event": "write"', '"state_event": "read"', 1)
         inp["src_ms"] = src
         inp["tree_ms"] = ast.parse(src)
         return inp
