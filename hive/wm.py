@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -84,6 +85,108 @@ def _git_ok(wm: str, *args: str) -> str:
 def _read_json(path: str) -> dict:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+_RESERVED_WIN_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+_JOB_ID_BAD_CHARS = set('/\\:*?"<>|~^@{}[]')
+_GIT_REF_BAD_CHARS = set('\\:*?"<>|~^@{}[]')
+_GIT_SHA_RE = re.compile(r"^[0-9a-fA-F]{4,64}$")
+_GIT_HEAD_EXPR_RE = re.compile(r"^HEAD(?:(?:~[0-9]*|\^[0-9]*))*$")
+
+
+def _is_reserved_win_name(seg: str) -> bool:
+    base = seg.split(".", 1)[0].upper()
+    return base in _RESERVED_WIN_NAMES
+
+
+def _has_invisible_or_control(s: str) -> bool:
+    for c in s:
+        u = ord(c)
+        if u <= 0x1F or 0x7F <= u <= 0x9F:
+            return True
+        if 0x200B <= u <= 0x200F or 0x202A <= u <= 0x202E or 0x2066 <= u <= 0x2069 or u == 0xFEFF:
+            return True
+    return False
+
+
+# 生效条件：job_id 为非空字符串、无首尾/内部空白、不以 `-` 开头、不以 `.` 结尾、不为 `.`/`..`、不含 `..` 且按 `_` 分段无 `.`/`..`、不含路径/驱动器/控制/不可见/通配符（含 `:` `/` `\`）、不命中 Windows 保留设备名时返回 None；否则返回以「非法 job_id」开头的错误文案。
+def _validate_job_id(job_id) -> str | None:
+    if not isinstance(job_id, str) or not job_id:
+        return f"非法 job_id {job_id!r}：须为非空单一路径段"
+    if len(job_id) > 200:
+        return f"非法 job_id {job_id!r}：长度超限（>200）"
+    if job_id.strip() != job_id or any(c.isspace() for c in job_id):
+        return f"非法 job_id {job_id!r}：不得含空白字符"
+    if job_id.startswith("-"):
+        return f"非法 job_id {job_id!r}：不得以 `-` 开头（防 git 选项注入）"
+    if job_id in (".", "..") or job_id.startswith(".") or job_id.endswith(".") or ".." in job_id:
+        return (f"非法 job_id {job_id!r}：须为单一路径段（含 . / .. 或首尾点即拒，"
+                f"防穿越删库/越权读）")
+    if any(seg in (".", "..") for seg in job_id.split("_")):
+        return f"非法 job_id {job_id!r}：不得含相对路径段（`.` / `..`）"
+    if _has_invisible_or_control(job_id) or any(c in _JOB_ID_BAD_CHARS for c in job_id):
+        return (f"非法 job_id {job_id!r}：须为单一路径段（含 / \\ : 控制或保留字符即拒，"
+                f"防驱动器相对路径穿越与选项注入）")
+    if os.path.splitdrive(job_id)[0]:
+        return f"非法 job_id {job_id!r}：不得含驱动器前缀（防 Windows 盘符相对路径穿越）"
+    if _is_reserved_win_name(job_id) or any(_is_reserved_win_name(seg) for seg in job_id.split("_")):
+        return f"非法 job_id {job_id!r}：命中 Windows 保留设备名"
+    return None
+
+
+# 生效条件：先过 _validate_job_id(job_id)，再解析 realpath(wm/jobs/<job_id>) 并经 os.path.commonpath 断言其严格留在 realpath(wm/jobs) 之下；通过返回 (dest, None)，否则返回 (None, err)。
+def _resolve_under_jobs(wm: str, job_id: str) -> tuple[str | None, str | None]:
+    err = _validate_job_id(job_id)
+    if err is not None:
+        return None, err
+    jobs_root = os.path.realpath(os.path.join(os.path.abspath(wm), "jobs"))
+    dest = os.path.realpath(os.path.join(jobs_root, job_id))
+    try:
+        inside = (dest != jobs_root
+                  and os.path.commonpath([os.path.normcase(dest),
+                                          os.path.normcase(jobs_root)])
+                  == os.path.normcase(jobs_root))
+    except ValueError:
+        inside = False
+    if not inside:
+        return None, (f"非法 job_id {job_id!r}：解析路径越出 wm/jobs 根目录"
+                      f"（防穿越删库/越权读）")
+    return dest, None
+
+
+# 生效条件：ref 为非空合法 git 分支/引用名（不以 `-` 开头、无空白/控制字符、不含 `..` / `@{` / `//` / 反斜杠与 git 元字符、段级不以 `.` 起止且不以 `.lock` 结尾）时返回 None，否则返回错误文案。
+def _validate_git_ref(ref, label: str = "branch") -> str | None:
+    if not isinstance(ref, str) or not ref:
+        return f"非法 {label} {ref!r}：须为非空 git 引用名"
+    if len(ref) > 256:
+        return f"非法 {label} {ref!r}：长度超限"
+    if ref.startswith("-"):
+        return f"非法 {label} {ref!r}：不得以 `-` 开头（防 git 选项注入）"
+    if any(c.isspace() for c in ref) or _has_invisible_or_control(ref):
+        return f"非法 {label} {ref!r}：不得含空白或控制字符"
+    if ".." in ref or "@{" in ref or "//" in ref or ref.startswith("/") or ref.endswith("/"):
+        return f"非法 {label} {ref!r}：含非法 git 引用语法"
+    if any(c in _GIT_REF_BAD_CHARS for c in ref):
+        return f"非法 {label} {ref!r}：含非法 git 元字符"
+    for seg in ref.split("/"):
+        if not seg or seg in (".", "..") or seg.startswith(".") or seg.endswith(".") or seg.endswith(".lock"):
+            return f"非法 {label} {ref!r}：引用路径段非法"
+    return None
+
+
+# 生效条件：sha 为合法十六进制提交哈希（4-64 位）、HEAD[~N][^N] 或通过 _validate_git_ref 的引用名（均拒 `-` 开头与 `..` 范围）时返回 None，否则返回错误文案。
+def _validate_git_commit(sha) -> str | None:
+    if not isinstance(sha, str) or not sha:
+        return f"非法 commit {sha!r}：须为非空提交哈希或引用"
+    if sha.startswith("-"):
+        return f"非法 commit {sha!r}：不得以 `-` 开头（防 git 选项注入）"
+    if _GIT_SHA_RE.fullmatch(sha) or _GIT_HEAD_EXPR_RE.fullmatch(sha):
+        return None
+    return _validate_git_ref(sha, label="commit")
 
 
 # ---------------------------------------------------------------- 三级闸命令
@@ -194,11 +297,13 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
         return {"ok": False, "error": f"{spec_path} 不存在（任务规格缺失，不可复现）"}
 
     job_id = str(result.get("job_id") or os.path.basename(job))
-    if job_id in (".", "..") or "/" in job_id or "\\" in job_id:
-        return {"ok": False, "error": (
-            f"非法 job_id {job_id!r}：须为单一路径段（含 / \\ .. 即拒，"
-            f"防穿越删库——result.json 产物不可信）")}
+    dest, jid_err = _resolve_under_jobs(wm, job_id)
+    if jid_err is not None:
+        return {"ok": False, "error": jid_err}
     branch = branch or f"task/{job_id}"
+    br_err = _validate_git_ref(branch, label="branch")
+    if br_err is not None:
+        return {"ok": False, "error": br_err}
 
     # artifacts 存在性预检（v10 N83 止血，2026-09-25）：校验先于任何 staging
     # 写入。旧序（拷 spec/result/log 后才校验）在 artifacts 缺失早退时把
@@ -213,7 +318,6 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
                 return {"ok": False, "error": f"artifacts 缺失: {src}"}
             art_srcs.append(src)
 
-    dest = os.path.join(wm, "jobs", job_id)
     try:
         # staging：白名单拷贝进 wm 仓（product = spec + result + log + artifacts）
         if os.path.isdir(dest):
@@ -246,8 +350,8 @@ def cmd_snapshot(job: str, wm: str, artifacts: str | None = None,
         # 抛 WmError（正传播中的原异常经 from 链保留、消息并入）。
         head = ""
         try:
-            _git_ok(wm, "checkout", "-B", branch)
-            _git_ok(wm, "add", "jobs")
+            _git_ok(wm, "checkout", "-B", branch, "--")
+            _git_ok(wm, "add", "--", "jobs")
             model = result.get("model") or "?"
             dur = result.get("duration_s")
             msg = f"task {job_id} verdict=ok model={model}" + (f" duration_s={dur}" if dur else "")
@@ -335,23 +439,29 @@ def cmd_progress(job: str | None = None, wm: str | None = None,
         entries, total = _read_progress(path, limit)
         ref, source = path, "job"
     elif wm and job_id:
-        # 路径段校验（v8 N67，2026-09-25）：--job-id 拼进工作区路径
-        # （os.path.join）与 git ref（task/<id>:jobs/<id>/...）两处，
-        # `../../victim` 可越权读 wm 仓外任意 JSONL 并全文回显——
-        # 与 cmd_snapshot 同款四行模板（姊妹面防御一致）。
-        if job_id in (".", "..") or "/" in job_id or "\\" in job_id:
-            return {"ok": False, "error": (
-                f"非法 job_id {job_id!r}：须为单一路径段（含 / \\ .. 即拒，"
-                f"防穿越越权读——progress 面 job_id 不可信）")}
+        # 路径段校验（v8 N67 + 驱盘符/commonpath 纵深加固）：--job-id 拼进工作区
+        # 路径与 git ref 两处，统一经 _resolve_under_jobs 严格限缩在 wm/jobs 内。
         wm = os.path.abspath(wm)
-        path = os.path.join(wm, "jobs", job_id, PROGRESS_FILE)
-        if os.path.isfile(path):
-            entries, total = _read_progress(path, limit)
+        dest, jid_err = _resolve_under_jobs(wm, job_id)
+        if jid_err is not None:
+            return {"ok": False, "error": jid_err}
+        path = os.path.join(dest, PROGRESS_FILE)
+        real_path = os.path.realpath(path)
+        try:
+            _prog_inside = (os.path.commonpath([os.path.normcase(real_path),
+                                                os.path.normcase(dest)])
+                            == os.path.normcase(dest))
+        except ValueError:
+            _prog_inside = False
+        if not _prog_inside:
+            return {"ok": False, "error": f"非法 job_id {job_id!r}：进展卡路径越出 wm/jobs 目录"}
+        if os.path.isfile(real_path):
+            entries, total = _read_progress(real_path, limit)
             ref, source = path, "wm"
         else:
             branch = f"task/{job_id}"
             rel = f"jobs/{job_id}/{PROGRESS_FILE}"
-            r = _git(wm, "show", f"{branch}:{rel}")
+            r = _git(wm, "show", "--end-of-options", f"{branch}:{rel}")
             if r.returncode != 0:
                 return {
                     "ok": False, "source": "wm", "path": path,
@@ -373,13 +483,17 @@ def cmd_progress(job: str | None = None, wm: str | None = None,
             "handoff": handoff, "entries": entries}
 
 
-# 生效条件：wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，merge 须在 main 上执行"错误；等于 "main" 时执行 git merge --no-ff branch，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip())、error 为该拼接 strip 后截 500 字符，returncode == 0 时 rev-parse --short HEAD 并返回 {"ok": True, "merged": branch, "commit": head}。
+# 生效条件：branch 先过 _validate_git_ref（非法即返回 ok False），wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，merge 须在 main 上执行"错误；等于 "main" 时执行 git merge --no-ff -m ... --end-of-options branch，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip())、error 为该拼接 strip 后截 500 字符，returncode == 0 时 rev-parse --short HEAD 并返回 {"ok": True, "merged": branch, "commit": head}。
 def cmd_merge(branch: str, wm: str) -> dict:
     """主代理显式合并任务分支到 main；冲突诚实报错不自动解决。"""
+    br_err = _validate_git_ref(branch, label="branch")
+    if br_err is not None:
+        return {"ok": False, "error": br_err}
     cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
     if cur != "main":
         return {"ok": False, "error": f"当前在 {cur}，merge 须在 main 上执行（主代理操作契约）"}
-    r = _git(wm, "merge", "--no-ff", branch, "-m", f"merge {branch} into main")
+    r = _git(wm, "merge", "--no-ff", "-m", f"merge {branch} into main",
+             "--end-of-options", branch)
     if r.returncode != 0:
         out = (r.stdout + r.stderr).strip()
         return {
@@ -393,19 +507,25 @@ def cmd_merge(branch: str, wm: str) -> dict:
     return {"ok": True, "merged": branch, "commit": head}
 
 
-# 生效条件：wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，revert 须在 main 上执行"错误；等于 "main" 时用 rev-list --parents -n1 sha 的字段数 > 2 判断 merge 并据此在 git revert --no-edit 上附加 ("-m","1")，执行 git revert ... sha，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip()) 与截 500 字符 error，成功则 rev-parse --short HEAD 并返回 {"ok": True, "reverted": sha, "commit": head}。
+# 生效条件：sha 先过 _validate_git_commit（非法即返回 ok False），wm 上 rev-parse --abbrev-ref HEAD 的结果 strip 后不等于 "main" 时返回 f"当前在 {cur}，revert 须在 main 上执行"错误；等于 "main" 时用 rev-list --parents -n1 --end-of-options sha -- 的字段数 > 2 判断 merge 并据此在 git revert --no-edit 上附加 ("-m","1")，执行 git revert ... --end-of-options sha，returncode != 0 时返回 conflict=("CONFLICT" in (r.stdout+r.stderr).strip()) 与截 500 字符 error，成功则 rev-parse --short HEAD 并返回 {"ok": True, "reverted": sha, "commit": head}。
 def cmd_revert(sha: str, wm: str) -> dict:
     """回退到任意提交点（生成反向提交，历史不丢=全记）；冲突同样诚实。
 
     merge commit（--no-ff 的任务合并）自动加 -m 1：保留主线侧、撤销分支引入的
     变更——即「撤销某次任务合并」的工作记忆语义。
     """
+    sha_err = _validate_git_commit(sha)
+    if sha_err is not None:
+        return {"ok": False, "error": sha_err}
     cur = _git_ok(wm, "rev-parse", "--abbrev-ref", "HEAD").strip()
     if cur != "main":
         return {"ok": False, "error": f"当前在 {cur}，revert 须在 main 上执行"}
     # rev-list --parents -n1 <sha> → "<sha> <p1> [p2 ...]"；>2 个字段 = merge
-    parents = _git_ok(wm, "rev-list", "--parents", "-n1", sha).split()
-    args = ("revert", "--no-edit") + (("-m", "1") if len(parents) > 2 else ()) + (sha,)
+    parents = _git_ok(wm, "rev-list", "--parents", "-n1",
+                      "--end-of-options", sha, "--").split()
+    args = (("revert", "--no-edit")
+            + (("-m", "1") if len(parents) > 2 else ())
+            + ("--end-of-options", sha))
     r = _git(wm, *args)
     if r.returncode != 0:
         out = (r.stdout + r.stderr).strip()
@@ -415,10 +535,16 @@ def cmd_revert(sha: str, wm: str) -> dict:
     return {"ok": True, "reverted": sha, "commit": head}
 
 
-# 生效条件：wm 上执行 git log --oneline f"-n{limit}" ref，其中 ref 取 branch 为真值时的 branch、branch 为假值（None/空串）时回落 "main"（limit=0 时即 -n0），返回 {"ok": True, "ref": ref, "log": out.splitlines() 中的非空行}。
+# 生效条件：ref 取 branch 为真值时的 branch、branch 为假值（None/空串）时回落 "main"，先过 _validate_git_ref（防 `--output=` 等 git 选项注入）与非负整数 limit 校验；通过后 wm 上执行 git log --oneline f"-n{limit}" --end-of-options ref --，返回 {"ok": True, "ref": ref, "log": out.splitlines() 中的非空行}。
 def cmd_log(wm: str, branch: str | None = None, limit: int = 20) -> dict:
     ref = branch or "main"
-    out = _git_ok(wm, "log", "--oneline", f"-n{limit}", ref)
+    ref_err = _validate_git_ref(ref, label="branch")
+    if ref_err is not None:
+        return {"ok": False, "error": ref_err}
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+        return {"ok": False, "error": f"非法 limit {limit!r}：须为非负整数"}
+    out = _git_ok(wm, "log", "--oneline", f"-n{limit}",
+                  "--end-of-options", ref, "--")
     return {"ok": True, "ref": ref, "log": [ln for ln in out.splitlines() if ln.strip()]}
 
 
