@@ -1090,7 +1090,12 @@ def _apply_offset(cg, offset, *, override=False, min_evidence=1, actor=None):
             # 凭空产生写入代际与自重载。
             _dirty = getattr(cg, "_dirty", None)
             if isinstance(_dirty, dict):
-                _dirty[nid] = e
+                _dlock = getattr(cg, "_dirty_lock", None)
+                if _dlock is not None:
+                    with _dlock:
+                        _dirty[nid] = e
+                else:
+                    _dirty[nid] = e
             adjusted += 1
         except Exception:                                 # noqa: BLE001
             pass

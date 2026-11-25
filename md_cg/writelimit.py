@@ -511,7 +511,12 @@ def converge_into(cg, target: str, content: str, override=False, actor=None,
                       "last_merge_at": fm["last_merge_at"]})
         if fm.get("merge_sources"):
             entry["merge_sources"] = fm["merge_sources"]
-        cg._dirty[target] = entry
+        _dlock = getattr(cg, "_dirty_lock", None)
+        if _dlock is not None:
+            with _dlock:
+                cg._dirty[target] = entry
+        else:
+            cg._dirty[target] = entry
     return {"ok": True, "merge_count": fm["merge_count"],
             "content_sink": {
                 "node_id": target,
@@ -683,7 +688,12 @@ def _demote(cg, e: dict, actor: str = "sustain_tidy") -> None:
     if entry is not None:
         entry.update({"tags": tags, "importance": fm["importance"],
                       lifecycle.STATE_FIELD: fm.get(lifecycle.STATE_FIELD)})
-        cg._dirty[e["id"]] = entry
+        _dlock = getattr(cg, "_dirty_lock", None)
+        if _dlock is not None:
+            with _dlock:
+                cg._dirty[e["id"]] = entry
+        else:
+            cg._dirty[e["id"]] = entry
 
 
 # 生效条件：形参 cg 使 _load(cg) 返回 dict 时，返回 enabled()、st["sigs"] 计数、nid 为真的 live_sigs、st["rate"] 键数与 STATE_FILE 组成的摘要；
