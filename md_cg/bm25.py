@@ -77,7 +77,8 @@ def access_key(cg):
     expires = getattr(principal, "expires_at", None)
     return (fingerprint, bool(expires and expires <= time.time()),
             tuple(getattr(principal, name, None) for name in (
-                "tenant", "actor", "session", "clearance", "role")))
+                "tenant", "actor", "session", "clearance", "role")),
+            bool(getattr(principal, "can_admin", False)))
 
 
 class _PoolView(Sequence):
@@ -782,7 +783,7 @@ class BM25Index:
 
         def seed_block(b):
             nonlocal blocks_evaluated
-            if b in scored_blocks or math.isinf(block_best[b][0]):
+            if b in scored_blocks or block_best[b][0] == math.inf:
                 return False
             aligned = []
             bits = 0
@@ -903,7 +904,7 @@ class BM25Index:
                 cursors = next_cursors
                 continue
             block = pivot_block
-            if block not in scored_blocks and not math.isinf(block_best[block][0]):
+            if block not in scored_blocks and block_best[block][0] != math.inf:
                 # Every cursor in cursors[:pivot_idx + 1] has c[0] == block,
                 # so sorting by _CURSOR_KEY=(c[0], c[2]) already guarantees
                 # ascending original query-term order (c[2]).
