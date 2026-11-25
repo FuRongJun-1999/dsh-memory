@@ -58,46 +58,119 @@ _DEFAULT_ROOTS = (
 )
 
 
+class DegradeEnvError(RuntimeError):
+    """环境或压缩帧读取错误（fail-closed：main 返回退出码 2，不伪装为 0 或 1）。"""
+
+
+def _zstd_decompress_tail(path, size, tail_mb):
+    """从 zstd 日志尾部解压内容；尾窗无帧头或命中伪帧头时自动放大窗口至全文件。"""
+    if _zstd is None:
+        raise DegradeEnvError("日志是 zstd 压缩帧，但本机没有 zstandard 模块")
+    tail_bytes = (int(tail_mb) * 1024 * 1024) if (tail_mb is not None and int(tail_mb) > 0) else size
+    windows = []
+    for cand in (tail_bytes, max(tail_bytes * 4, 16 << 20), size):
+        w = min(size, max(1, cand))
+        if w not in windows:
+            windows.append(w)
+    last_err = None
+    for win in windows:
+        start = max(0, size - win)
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            raw = fh.read()
+        idx = raw.find(_MAGIC)
+        if idx < 0:
+            if win < size:
+                continue
+            raise DegradeEnvError("zstd 日志缺少有效帧头：%s" % path)
+        try:
+            return _zstd.ZstdDecompressor().stream_reader(io.BytesIO(raw[idx:])).read()
+        except Exception as exc:  # noqa: BLE001
+            last_err = exc
+            if win < size:
+                continue
+            raise DegradeEnvError("zstd 日志解压失败（%s）：%s" % (path, exc)) from exc
+    raise DegradeEnvError("zstd 日志解压失败（%s）：%s" % (path, last_err))
+
+
 def _iter_lines(path, tail_mb):
     """产出日志里的 JSON 行；压缩帧就地解压，尾部只读最后 tail_mb MB。"""
     size = os.path.getsize(path)
-    start = max(0, size - int(tail_mb) * 1024 * 1024)
+    if size <= 0:
+        return
     with open(path, "rb") as fh:
-        fh.seek(start)
-        blob = fh.read()
-    if start and _MAGIC in blob:
-        blob = blob[blob.find(_MAGIC):]
-    if _MAGIC in blob[:8] or _MAGIC in blob:
-        if _zstd is None:
-            raise RuntimeError("日志是 zstd 压缩帧，但本机没有 zstandard 模块")
-        blob = _zstd.ZstdDecompressor().stream_reader(io.BytesIO(blob[blob.find(_MAGIC):])).read()
+        head = fh.read(4)
+    is_zstd = (head == _MAGIC) or path.endswith(".zstd")
+    if is_zstd:
+        blob = _zstd_decompress_tail(path, size, tail_mb)
+    else:
+        tail_bytes = (int(tail_mb) * 1024 * 1024) if (tail_mb is not None and int(tail_mb) > 0) else size
+        start = max(0, size - tail_bytes)
+        with open(path, "rb") as fh:
+            fh.seek(start)
+            blob = fh.read()
+        if _MAGIC in blob:
+            blob = _zstd_decompress_tail(path, size, tail_mb)
+        elif start > 0:
+            # 尾部截断大概率落在某行中间：丢弃半截首行，防止整文件被 JSONDecodeError 静默跳过
+            nl = blob.find(b"\n")
+            if nl >= 0:
+                blob = blob[nl + 1:]
+            else:
+                with open(path, "rb") as fh:
+                    blob = fh.read()
     for line in blob.decode("utf-8", "replace").splitlines():
         if line.strip():
             yield line
+
+
+def _iter_events(path, tail_mb):
+    """逐行解析 JSON 对象事件；忽略截断残行与非 dict JSON 行，保留环境异常传播。"""
+    for line in _iter_lines(path, tail_mb):
+        try:
+            ev = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(ev, dict):
+            yield ev
 
 
 def aggregate(events):
     """按 turn 聚合：{turn: {thinking, body_len, tool_calls, reason, nag}}（不存正文）。"""
     turns = {}
     for e in events:
+        if not isinstance(e, dict):
+            continue
         t = e.get("type")
-        d = e.get("data") or {}
+        d = e.get("data")
+        if not isinstance(d, dict):
+            d = {}
         if t == "turn/end":
             rec = turns.setdefault(d.get("turn"), _new_turn())
-            rec["reason"] = ((d.get("reason") or {}).get("kind")) or rec["reason"]
+            reason = d.get("reason")
+            if isinstance(reason, dict) and reason.get("kind"):
+                rec["reason"] = reason.get("kind")
         elif t == "assistant/message":
             rec = turns.setdefault(d.get("turn"), _new_turn())
             rec["msgs"] += 1
-            for b in ((d.get("message") or {}).get("content") or []):
+            msg = d.get("message")
+            blocks = (msg.get("content") if isinstance(msg, dict) else None) or []
+            if not isinstance(blocks, list):
+                continue
+            for b in blocks:
                 if not isinstance(b, dict):
                     continue
                 kind = b.get("type")
                 if kind == "text":
-                    rec["body_len"] += len(b.get("text") or "")
+                    txt = b.get("text")
+                    if isinstance(txt, str):
+                        rec["body_len"] += len(txt)
                 elif kind == "tool-call":
                     rec["tool_calls"] += 1
                 elif kind == "reasoning":
-                    rec["thinking"] += (b.get("text") or b.get("reasoning") or "")
+                    rtxt = b.get("text") or b.get("reasoning") or ""
+                    if isinstance(rtxt, str):
+                        rec["thinking"] += rtxt
     for rec in turns.values():
         rec["nag"] = nag_runs(rec["thinking"])
     return turns
@@ -129,10 +202,7 @@ def classify(turns):
 
 
 def scan_file(path, tail_mb):
-    try:
-        turns = aggregate(json.loads(x) for x in _iter_lines(path, tail_mb))
-    except json.JSONDecodeError:
-        return None
+    turns = aggregate(_iter_events(path, tail_mb))
     if not turns:
         return None
     return classify(turns)
@@ -165,7 +235,11 @@ def main(argv=None):
     results, total = [], {"turns": 0, "completed": 0, "blank": 0, "dead": 0, "done": 0}
     skipped = 0
     for path in sorted(files):
-        r = scan_file(path, args.tail_mb)
+        try:
+            r = scan_file(path, args.tail_mb)
+        except (DegradeEnvError, RuntimeError, OSError) as exc:
+            sys.stderr.write("degrade_watch: %s\n" % exc)
+            return 2
         if r is None:
             skipped += 1
             continue

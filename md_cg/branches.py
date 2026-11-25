@@ -138,7 +138,7 @@ def fork(cg, node_ids, branch_id=None, note=None) -> dict:
             continue
         fm = _fm_of(rec)
         bid = branch_node_id(nid, branch_id)
-        if cg.get(bid):
+        if cg.get(bid) or bid in ((getattr(cg, "index", None) or {}).get("nodes") or {}):
             skipped.append({"id": nid, "why": "副本已存在：%s" % bid})
             continue
         # 密级随副本携带（issue #243）：不传则 add 归一为 internal，声明
@@ -182,7 +182,7 @@ def search(cg, query: str, branch_id: str, **kw):
     return cg.search(query, branch=str(branch_id or "").strip().lower(), **kw)
 
 
-# 生效条件：当 node_id 经 str 转换并 strip 后含 '@'、cg.index['nodes'] 中存在该 id 且其 branch_id 非空、content 不是 dict 且不是 None 时返回 {'ok': True, 'node': nid, 'branch_id': ...}，否则返回 {'ok': False, 'error': ...}。
+# 生效条件：当 node_id 经 str 转换并 strip 后含 '@'、cg.index['nodes'] 中存在该 id 且其 branch_id 非空、cg.get(nid) 返回真值（当前身份可见）、content 不是 dict 且不是 None 时返回 {'ok': True, 'node': nid, 'branch_id': ...}，否则返回 {'ok': False, 'error': ...}。
 def rewrite(cg, node_id, content, tags=None, importance=None,
             actor="branch_rewrite", **extra) -> dict:
     """分支实验改写的**唯一正路**（防裸 add 丢分支归属）。
@@ -208,6 +208,8 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
     if not e or not e.get("branch_id"):
         return {"ok": False, "error": "分支节点不存在或无分支归属：%s" % nid}
     rec = cg.get(nid)
+    if not rec:
+        return {"ok": False, "error": "分支节点不存在或不可见：%s" % nid}
     fm = _fm_of(rec)
     if isinstance(content, dict) or content is None:
         return {"ok": False, "error": "content 须为字符串"}
@@ -251,7 +253,7 @@ def rewrite(cg, node_id, content, tags=None, importance=None,
     return {"ok": True, "node": nid, "branch_id": e.get("branch_id")}
 
 
-# 生效条件：调用 merge(cg, branch_id, reason=None) 时，先取 bid=str(branch_id or "").strip().lower() 与 _iter_branch_nodes(cg, bid)，若结果为空返回 {"ok": False, "error": ...}；否则遍历每个分支节点，若其 branched_from 取不到主支节点则记 skipped，否则把分支内容用 cg.add 回写主支（override=True、derived_from 追加分支 nid、relation="merged_from" 等），最终返回 ok=bool(merged) 等。
+# 生效条件：调用 merge(cg, branch_id, reason=None) 时，先取 bid=str(branch_id or "").strip().lower() 与 _iter_branch_nodes(cg, bid)，若结果为空返回 {"ok": False, "error": ...}；否则遍历每个分支节点，若其 branched_from 取不到主支节点或 cg.get(nid) 不可见则记 skipped，否则把分支内容用 cg.add 回写主支（override=True、derived_from 追加分支 nid、relation="merged_from" 等），最终返回 ok=bool(merged) 等。
 def merge(cg, branch_id, reason=None) -> dict:
     """把分支上的改写按 branched_from 溯源回写主支。
 
@@ -274,6 +276,9 @@ def merge(cg, branch_id, reason=None) -> dict:
             skipped.append({"id": nid, "why": "主支节点不存在：%s" % orig})
             continue
         src = cg.get(nid)
+        if not src:
+            skipped.append({"id": nid, "why": "分支节点不存在或不可见：%s" % nid})
+            continue
         old_fm = _fm_of(rec)
         src_fm = _fm_of(src)
         # 密级闸（issue #243）：回写前先判会不会降密级——分支被升到更高档后

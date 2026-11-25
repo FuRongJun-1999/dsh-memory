@@ -314,7 +314,9 @@ def _collect(cg, subjects=None, since=None) -> list:
                 break
         if not subj or (want and subj not in want):
             continue
-        node = cg.get(nid) or {}
+        node = cg.get(nid)
+        if not node:
+            continue
         fm = node.get("frontmatter") or {}
         ts = fm.get("ts") or fm.get("created_at") or e.get("ts") or 0
         if since and ts and float(ts) < float(since):
@@ -808,7 +810,9 @@ def evidence(cg, *, subject: str = None, source: str = None,
             continue
         if source and src != source:
             continue
-        node = cg.get(nid) or {}
+        node = cg.get(nid)
+        if not node:
+            continue
         out.append({"node_id": nid, "subject": subj, "source": src,
                     "layer": e.get("layer"),
                     "content": (node.get("content") or "")[:400]})
