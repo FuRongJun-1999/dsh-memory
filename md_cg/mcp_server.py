@@ -5714,7 +5714,12 @@ def _dispatch(cg, name, args):
                 consistency=bool(a.get("consistency", True)),
                 on_conflict=a.get("on_conflict") or "defer",
                 derived_from=_split_ids(a.get("derived_from")),
-                relation=a.get("relation"))
+                relation=a.get("relation"),
+                # issue #1005（2026-11-25）：**收到时刻**透传（`remember_gated(**kw)`
+                # → `add(**kw)` → fm）。这戳只用于排序与「我们何时知道的」；
+                # 「他何时说的」看原话里提到的时间（reldate 按它换算）。
+                # 不传 ⇒ 零落键，既有 fm 形态逐位不变。
+                received_at=a.get("received_at"))
             res.setdefault("ok", res.get("verdict") == "ACCEPT")
             _w = locals().get("_warn749")
             if _w and isinstance(res, dict):

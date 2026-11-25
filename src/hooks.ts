@@ -954,6 +954,15 @@ function isRelayedMessage(source: unknown): boolean {
  *
  *  mdcg 为 null（config.mdcg.enabled=false）时自动记忆整体停用：记忆真源是
  *  认知图，没有它就没有可写的去处——**不会退回 AEIS**（AEIS 已不存记忆）。 */
+/** 这条事件的「收到时刻」（秒）。判据（使用者 2026-11-25）：**发送不可见，收到才可见。**
+ *
+ *  宿主给每个事件写 `time`（毫秒），那就是我们能观测到的唯一时间事实。
+ *  取不到/非法 → null（**不猜现在**）：宁可没有这个戳，也不编一个。 */
+export function eventReceivedAt(event: unknown): number | null {
+  const t = (event as { time?: unknown } | null | undefined)?.time
+  return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t / 1000 : null
+}
+
 export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: MemoryHooksOptions): () => void {
   if (!mdcg) {
     ctx.logger.warn('dsh-memory: 认知图未启用（config.mdcg.enabled=false），自动记忆已停用')
@@ -1002,16 +1011,24 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *
    *  ⚠️ 子代理会话（H1 会话级）由调用点**更早**拦回（在取 sid 之前），不在此重判
    *  ——与自动记忆同口径：委派指令不进真人窗口。 */
-  const windowEntry = (event: SessionEvent): { role: 'user' | 'assistant'; text: string } | null => {
+  // issue #1005（2026-11-25 使用者裁定）：**时间戳一律按「收到」算**——
+  // 发送不可见，收到才可见。`event.time` 是宿主记录这条事件的毫秒时刻，
+  // 它就是「我们收到这条消息」的时间；写进 `meta.received_at`（秒）后，
+  // 服务端 `remember_event` 会原样保留（它对 meta 只做 setdefault）。
+  // 这个戳只用于排序与「我们何时知道的」；要断言「他什么时候说的」，看原话里
+  // 自己提到的时间（reldate 按 received_at 换算），原话没提就是没提。
+  const windowEntry = (event: SessionEvent):
+    { role: 'user' | 'assistant'; text: string; receivedAt: number | null } | null => {
+    const _at = eventReceivedAt(event)
     if (event.type === 'user/message') {
       if (isRelayedMessage(event.data.source)) return null
       if (event.data.source?.kind !== 'user') return null
       const text = extractText(event.data.content)
-      return text ? { role: 'user', text } : null
+      return text ? { role: 'user', text, receivedAt: _at } : null
     }
     if (event.type === 'assistant/message') {
       const text = extractText(event.data.message.content)
-      return text ? { role: 'assistant', text } : null
+      return text ? { role: 'assistant', text, receivedAt: _at } : null
     }
     return null
   }
@@ -1502,10 +1519,14 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (safe === null) { audit.skipped('sanitized', 'user'); return }
       // issue #749：留一份最近用户文本，供 assemble 侧做查询式检索
       rememberUserText(String(sid || ''), safe)
+      // issue #1005（2026-11-25）：知识面节点也带「收到时刻」——与短期窗口同口径。
+      // 这个戳只说明「我们何时知道的」；要断言「他何时说的」，看原话里提到的时间。
+      const _atUser = eventReceivedAt(event)
       memorize('user', 'user', (g) => g.remember(safe, {
         condition_space: condSpace('user'),
         role: 'user', tags: ['dsh', 'user'], importance: opts.importance,
         ...sessionTag, ...sessionPrivacy, ...dedupeWrite,
+        ...(_atUser !== null ? { received_at: _atUser } : {}),
       }))
       // T4：用用户消息做一次语义召回——md_cg 的读取会记 access log（复用观测，
       // 供 importance / scrub 陈旧度使用），同时预热检索路径。
@@ -1525,10 +1546,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       if (!text) return
       const safe = sanitize(text)
       if (safe === null) { audit.skipped('sanitized', 'assistant'); return }
+      const _atAsst = eventReceivedAt(event)
       memorize('assistant', 'assistant', (g) => g.remember(safe, {
         condition_space: condSpace('assistant'),
         role: 'assistant', tags: ['dsh', 'assistant'], importance: opts.importance * 0.8,
         ...sessionTag, ...sessionPrivacy, ...dedupeWrite,
+        ...(_atAsst !== null ? { received_at: _atAsst } : {}),
       }))
     } else if (event.type === 'tool/result' && opts.toolResult && !excludedSession) {
       if (event.data.error) return
@@ -1555,7 +1578,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const entry = windowEntry(event)
       if (entry) {
         const safe = sanitize(entry.text)
-        if (safe !== null) noteRecent(entry.role, safe, { ...sessionTag })
+        if (safe !== null) {
+          // 收到时间随 meta 下发（服务端 setdefault 不覆盖调用方键）
+          const _meta: Record<string, unknown> = { ...sessionTag }
+          if (entry.receivedAt !== null) _meta.received_at = entry.receivedAt
+          noteRecent(entry.role, safe, _meta)
+        }
       }
     }
   })
