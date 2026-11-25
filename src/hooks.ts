@@ -1002,16 +1002,27 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
    *
    *  ⚠️ 子代理会话（H1 会话级）由调用点**更早**拦回（在取 sid 之前），不在此重判
    *  ——与自动记忆同口径：委派指令不进真人窗口。 */
-  const windowEntry = (event: SessionEvent): { role: 'user' | 'assistant'; text: string } | null => {
+  // issue #1005（2026-11-25 使用者裁定）：**时间戳一律按「收到」算**——
+  // 发送不可见，收到才可见。`event.time` 是宿主记录这条事件的毫秒时刻，
+  // 它就是「我们收到这条消息」的时间；写进 `meta.received_at`（秒）后，
+  // 服务端 `remember_event` 会原样保留（它对 meta 只做 setdefault）。
+  // 这个戳只用于排序与「我们何时知道的」；要断言「他什么时候说的」，看原话里
+  // 自己提到的时间（reldate 按 received_at 换算），原话没提就是没提。
+  const windowEntry = (event: SessionEvent):
+    { role: 'user' | 'assistant'; text: string; receivedAt: number | null } | null => {
+    const _at = ((): number | null => {
+      const t = (event as { time?: unknown }).time
+      return typeof t === 'number' && Number.isFinite(t) && t > 0 ? t / 1000 : null
+    })()
     if (event.type === 'user/message') {
       if (isRelayedMessage(event.data.source)) return null
       if (event.data.source?.kind !== 'user') return null
       const text = extractText(event.data.content)
-      return text ? { role: 'user', text } : null
+      return text ? { role: 'user', text, receivedAt: _at } : null
     }
     if (event.type === 'assistant/message') {
       const text = extractText(event.data.message.content)
-      return text ? { role: 'assistant', text } : null
+      return text ? { role: 'assistant', text, receivedAt: _at } : null
     }
     return null
   }
@@ -1555,7 +1566,12 @@ export function installMemoryHooks(ctx: Context, mdcg: MdcgClient | null, opts: 
       const entry = windowEntry(event)
       if (entry) {
         const safe = sanitize(entry.text)
-        if (safe !== null) noteRecent(entry.role, safe, { ...sessionTag })
+        if (safe !== null) {
+          // 收到时间随 meta 下发（服务端 setdefault 不覆盖调用方键）
+          const _meta: Record<string, unknown> = { ...sessionTag }
+          if (entry.receivedAt !== null) _meta.received_at = entry.receivedAt
+          noteRecent(entry.role, safe, _meta)
+        }
       }
     }
   })
