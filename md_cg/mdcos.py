@@ -48,6 +48,7 @@ class _ScopeCtx:
         self._prev_s_set = getattr(tls, "session_set", False)
         if self._principal is not None:
             tls.principal = self._principal
+            chain.invalidate_cache(self._owner)
         if self._session is not _SCOPE_UNSET:
             tls.session = self._session
             tls.session_set = True
@@ -63,6 +64,7 @@ class _ScopeCtx:
                     pass
             else:
                 tls.principal = self._prev_p
+            chain.invalidate_cache(self._owner)
         if self._session is not _SCOPE_UNSET:
             if self._prev_s_set:
                 tls.session = self._prev_s
@@ -1420,13 +1422,14 @@ class MdCGOS(MdCG):
                                 continue
                         kw[_ik] = _ov
             nid = super().add(node_id, content, layer=layer, **kw)
-            e = self.index["nodes"].get(nid)
-            if e is not None and role is not None:
-                e["role"] = role
-            if e is not None and _sess:
-                e["session"] = _sess
-            if e is not None and (role is not None or _sess):
-                self._dirty[nid] = e
+            with self._dirty_lock:
+                e = self.index["nodes"].get(nid)
+                if e is not None and role is not None:
+                    e["role"] = role
+                if e is not None and _sess:
+                    e["session"] = _sess
+                if e is not None and (role is not None or _sess):
+                    self._dirty[nid] = e
             # 审计与写面同 sens（写归因三态，2026-10-07）：本节点 frontmatter.session
             # 由 `_attribution(kw, sens)` 落定，审计记录须经**同一 sens** 过三态单点，
             # 否则未声明档审计记进程随机、节点记 unattributed（字面分叉）。
@@ -2627,6 +2630,7 @@ class MdCGOS(MdCG):
         # 资格、paths/fusion/judge_ranking/goal_text 等改变排序——不入键会让
         # 默认查询命中工作角色口径的缓存（资格泄漏），方向与时间算子同属
         # 「静默错答」。清单真源 = hotcache._KEYED_EXTRA。
+        from . import bm25 as _bm25_access
         _cache_extra = {
             "include_work": bool(include_work), "roles": roles,
             "paths": tuple(paths or ()), "path_weights": path_weights,
@@ -2635,11 +2639,17 @@ class MdCGOS(MdCG):
             "fusion": (fusion if fusion not in ("union", "auto") else
                        (fusion, union_q, union_max_candidates)),
             "judge": bool(judge), "judge_ranking": bool(judge_ranking),
+            "strict_conditions": bool(strict_conditions),
             "goal_text": goal_text, "context": context,
             "early_stop_threshold": early_stop_threshold,
             # 进程级开关也改口径（v14 只补了参数面）：MDCG_SEMANTIC /
             # MDCG_EN_ATOMS / MDCG_UNIFY_QUERY 等不入键即跨口径命中（2026-09-24 修复）。
             "env_switch": _hc.env_switch_key(),
+            # 身份与密钥态（principal + DEK + can_admin + expiry）所有检索路一律入键
+            # （不限于 bm25 路）：防止非-bm25 默认/中文路径跨身份命中 HotCache，
+            # 杜绝 Admin→Guest 经 meta.provenance 泄漏密级节点/边条件明文，及 Guest→Admin
+            # 缓存投毒压制 secret/private 结果。
+            "bm25_access": _bm25_access.access_key(self),
             # #153：**索引代际进键**——写路径推进代际 ⇒ 旧代缓存命中自然失配
             # （无需全清；命中率只在代际变化时受影响，其余查询照常命中）。
             "index_gen": self._index_generation(),
@@ -2647,9 +2657,6 @@ class MdCGOS(MdCG):
         if _ta_q is not None:
             _cache_extra["time_anchor"] = (_ta_q[0][0].isoformat(),
                                            _ta_q[0][1].isoformat(), _ta_q[1])
-        if "bm25" in paths:
-            from . import bm25
-            _cache_extra["bm25_access"] = bm25.access_key(self)
         # 不可稳定进键的参数（自定义可调用 query_expand）：非默认即**绕行**
         # 缓存（读+写双侧闭合）——fail-closed，宁可不用缓存也不串味。
         _bypass = query_expand is not None
@@ -3217,6 +3224,25 @@ class MdCGOS(MdCG):
         return _agg(pack, query, min_members=min_members, max_groups=max_groups)
 
     @staticmethod
+    def _entry_timestamp(fm):
+        """解析条目时间戳（received_at → created_at → valid_from），兼容 epoch 数值与 ISO 字符串。"""
+        if not isinstance(fm, dict):
+            return None
+        for key in ("received_at", "created_at", "valid_from"):
+            val = fm.get(key)
+            if val is None or val == "":
+                continue
+            try:
+                num = float(val)
+                if math.isfinite(num):
+                    return num
+            except (TypeError, ValueError):
+                parsed = trust.parse_time(val)
+                if parsed is not None and math.isfinite(parsed):
+                    return parsed
+        return None
+
+    @staticmethod
     def card_of(node, content=None):
         """把一条记忆压成**标题卡**（issue #1005 补充①）。
 
@@ -3237,10 +3263,19 @@ class MdCGOS(MdCG):
         if isinstance(tags, str):
             tags = [tags]
         date = ""
-        for key in ("created_at_date", "valid_from", "created_at", "t"):
-            if fm.get(key):
-                date = str(fm[key])[:10]
-                break
+        if fm.get("created_at_date"):
+            date = str(fm["created_at_date"])[:10]
+        else:
+            _ts = MdCGOS._entry_timestamp(fm)
+            if _ts is None and fm.get("t") not in (None, ""):
+                _ts = MdCGOS._entry_timestamp({"received_at": fm.get("t")})
+            if _ts is not None:
+                try:
+                    date = time.strftime("%Y-%m-%d", time.localtime(_ts))
+                except (TypeError, ValueError, OSError, OverflowError):
+                    date = ""
+            elif fm.get("t"):
+                date = str(fm["t"])[:10]
         parts = ["【卡】" + (title or "(无标题)")]
         if tags:
             parts.append("标签: " + ", ".join(str(x) for x in list(tags)[:6]))
@@ -3319,26 +3354,90 @@ class MdCGOS(MdCG):
             # recall 的候选集里却 0 条（paths.lexical=1）」——断点在**候选生成**，不在过滤。
             # 故按**实体标签直取**资料卡并入候选：确定性、与词法切词无关，卡不再依赖 lexical 命中。
             try:
-                _extra = self._profile_candidates(query)
+                _elig_now = now if now is not None else time.time()
+                _en_t, _ax_t, _why_t = trust.check_time_args(
+                    start_time, end_time, start_operator, end_operator, time_axis)
+                _qs_t = trust.parse_time(start_time) if _en_t else None
+                _qe_t = trust.parse_time(end_time) if _en_t else None
+                _has_readable = hasattr(self, "_readable")
+
+                def _recall_eligible(_node):
+                    if not isinstance(_node, dict):
+                        return False
+                    _nid = _node.get("id")
+                    _rec = (self.index.get("nodes") or {}).get(_nid)
+                    _fm = _node.get("frontmatter") or {}
+                    _eff = dict(_rec) if isinstance(_rec, dict) else {}
+                    for _fk, _fv in _fm.items():
+                        if _fv is not None:
+                            _eff[_fk] = _fv
+                    if _eff.get("layer") in NEG_ROUTE_LAYERS:
+                        return False
+                    if lifecycle.is_retired(_eff) or (
+                            isinstance(_rec, dict) and lifecycle.is_retired(_rec)):
+                        return False
+                    if _eff.get("branch_id") not in (None, branch):
+                        return False
+                    if layer and _eff.get("layer") != layer:
+                        return False
+                    if _has_readable:
+                        if not self._readable(_eff, session=session):
+                            return False
+                    elif session and session != "*" and _eff.get("session") != session:
+                        return False
+                    if validity and trust.is_expired(_eff, now=_elig_now):
+                        return False
+                    _r = _eff.get("role")
+                    if roles is not None:
+                        if _r not in roles:
+                            return False
+                    elif view is not None:
+                        if not roleviews.matches(_eff, view):
+                            return False
+                    elif not include_work and _r in WORK_ROLES:
+                        return False
+                    if _en_t:
+                        _m, _miss = trust.window_matches_node(
+                            _eff, _ax_t, _qs_t, _qe_t,
+                            start_operator, end_operator)
+                        if _miss:
+                            if _ax_t == "observed":
+                                return False
+                        elif not _m:
+                            return False
+                    return True
+
+                _prof_cands = [it for it in self._profile_candidates(query)
+                               if _recall_eligible(it[0])]
                 # 【外测 2026-11-12】34/39 个值「原轮次没进 pack」；而资料卡每条事实带「来源 <id>」
                 # ⇒ 把**被注入卡的源轮次**一并拉进候选：卡给属性、源轮次给原句。
-                _extra += self._profile_source_nodes(_extra, limit=4)
+                _extra = list(_prof_cands)
+                _extra += [it for it in self._profile_source_nodes(_prof_cands, limit=4)
+                           if _recall_eligible(it[0])]
                 # 【外测 2026-11-12 实验】自述轮次通例召回：值覆盖 12.8%→35.9%、题级全命中 1/19→6/19。
                 # 零模型、与题目无关；读时只 load 小索引（写时登记），不扫全库。
-                _extra += self._selfstmt_nodes(limit=6)
+                _extra += [it for it in self._selfstmt_nodes(limit=6)
+                           if _recall_eligible(it[0])]
                 if _extra:
                     _seen = {r[0].get("id") for r in results if r and r[0]}
+                    _slot_seen = set()
+                    _injected = 0
                     for _n, _sc, _q, _p in _extra:
+                        _nid = _n.get("id")
                         # issue #1005（2026-11-24 二次修正）：**槽位卡不参与候选竞争**。
                         # 测评端带卡复测：卡进候选池会挤掉原话轮次，救回 3 题、赔掉 17 题
                         # （P17-CASE-025 四道全灭）。故槽位卡单独收集，装包后按独立配额追加。
                         if str(_p or "") == "profile_slot":
-                            _slot_cards.append((_n, _sc, _q, _p))
+                            if _nid not in _slot_seen:
+                                _slot_seen.add(_nid)
+                                _slot_cards.append((_n, _sc, _q, _p))
                             continue
-                        if _n.get("id") not in _seen:
+                        if _nid not in _seen:
+                            _seen.add(_nid)
                             results.append((_n, _sc, _q, _p))
+                            _injected += 1
                     if isinstance(meta, dict):
-                        meta["profile_injected"] = len(results) - len(_seen)
+                        meta["profile_injected"] = _injected
                         meta["profile_slot_cards"] = len(_slot_cards)
             except Exception:            # noqa: BLE001 —— 注入面不拖崩召回
                 pass
@@ -3526,56 +3625,11 @@ class MdCGOS(MdCG):
                 det_reranked = True
         except Exception:                # noqa: BLE001 —— 重排失败回退原序，绝不拖崩装包
             det_reranked = False
-        # ===== 读取策略改造 · A 项：跨轮状态聚合（Ornn8 测评建议①，+2~4 点最大头）=====
-        # 病灶（report 原文）：「答案状态散在轮9 和轮20 两条里，检索给了直接相关的一条，
-        # 拼不出完整状态」——这是**记忆组织**问题：search 只按单轮相关性给材料。
-        # 本段不改排序、不改打分，只在**装包之后**追加一个聚合视图：同一话题的命中条目
-        # 按时间排在一起，附「该话题的状态时间线」，让调用方能拼出完整状态。
-        # 关闭：MDCG_TOPIC_AGG=0。
-        aggregates = []
-        try:
-            if int(os.environ.get("MDCG_TOPIC_AGG", "1")) > 0 and len(pack) >= 2:
-                aggregates = self._topic_aggregates(pack, query)
-        except Exception:            # noqa: BLE001 —— 聚合面不拖崩装包
-            aggregates = []
         if isinstance(meta, dict):
             meta["det_reranked"] = det_reranked
             if det_reranked:
                 meta["det_clock_source"] = _clock_source
                 meta["det_mode"] = _mode
-        # 【2026-11-11 外测】状态序列必须作为**一等公民**进材料：
-        # 实测（Ornn8 B 类 19 题）——模型面对 20–30 条按检索分排的片段，
-        # **没有确定性的时序依据**去选「最早那次」：同一题两次跑给出不同锚点，
-        # 提示词让它「按日期排序再取最早」，它排的是自己回忆的顺序而不是材料里的日期序。
-        # 这里按 created_at 升序给出 (date, id, head) 三列——模型读表即得时序，不必归纳。
-        # 注意：这是**节点级**时间线（不含实体/槽位抽取），是「状态追踪」的便宜中间态。
-        # 【2026-11-12 外测】pack 条目自带**格式化日期**：`frontmatter.created_at` 是 epoch 浮点，
-        # 下游任何 `str(v)[:10]` 都会截出 `1784043360` 这种假日期（外测脚手架真实踩过：
-        # 材料前缀变成 `[1784043360]`，模型被喂了机器值；连带把『模型编造时间戳』这条归因带偏）。
-        # 结构性根治：在这里给出 `created_at_date`（YYYY-MM-DD），下游不该再自己截字符串。
-        # 取不到合法时间戳时不编造：置 None（下游按缺失处理，不得当今天）。
-        for _e in pack or []:
-            _fm = _e.get("frontmatter") or {}
-            # issue #1005（2026-11-25 使用者裁定）：**时间戳一律按「收到」算**——
-            # 发送时刻对我们不可见，只有「收到这条消息」是能观测到的事实。
-            # `received_at` 由摄取/写入侧带入（缺省不写，老节点回落 created_at，行为不变）。
-            # 这个戳只用于排序与「我们何时知道」；要回答「他什么时候说的」，看正文里
-            # reldate 换算后的括号日期，那里没有就说明原话没提。
-            _ts = _fm.get("received_at") or _fm.get("created_at") or _fm.get("valid_from")
-            _d = None
-            if _ts is not None:
-                try:
-                    _d = time.strftime("%Y-%m-%d", time.localtime(float(_ts)))
-                except (TypeError, ValueError, OSError):
-                    _d = None
-            _e["created_at_date"] = _d
-            # 【2026-11-12 使用者裁定】相对日期**确定性地**补绝对日期，且内联在正文里：
-            # 外测判官原文：视图节给了绝对日期，模型仍照抄「周一/昨天」⇒ 平行章节被忽略，
-            # 只有正文内联标注才会被读到。锚点取本条的陈述时刻（created_at），不是今天。
-            try:
-                _e["content_dated"] = reldate.annotate(_e.get("content") or "", _ts)
-            except Exception:            # noqa: BLE001 —— 标注失败不拖崩装包，退化为原文
-                _e["content_dated"] = _e.get("content")
         # 【情景层 v0.1 / 档1 验收主因】资料卡配额：外测实测每题 pack 里挤进 16–30 张 profile 卡，
         # 把 30 条名额吃光，**正确的那张反而被挤掉**（这是档 1 未涨分的第一机制，比错名更普遍）。
         # 故对 profile-* 单独设上限（缺省 3，`MDCG_PROFILE_CARDS` 可调），按已有 score 取前 N。
@@ -3597,14 +3651,19 @@ class MdCGOS(MdCG):
             # 【外测 ③ 回退 4→2】配额不能把「score 最高的那张」也按类型筛掉：
             # 给 1 个豁免位，其余再按类型优先补足。
             _by_score = sorted(_profs, key=lambda x: -(float(x[1].get("score") or 0.0)))
-            if _by_score:
+            if _by_score and _prof_cap > 0:
                 _keep.add(_by_score[0][0])
             for _i, _e in sorted(_profs, key=_rank):
                 if len(_keep) >= _prof_cap:
                     break
                 _keep.add(_i)
-            pack = [e for i, e in enumerate(pack)
-                    if i in _keep or not str(e.get("id") or "").startswith("profile-")]
+            _kept_pack = []
+            for i, e in enumerate(pack):
+                if i in _keep or not str(e.get("id") or "").startswith("profile-"):
+                    _kept_pack.append(e)
+                else:
+                    used = max(0, used - int(e.get("tokens") or 0))
+            pack = _kept_pack
         # ===== issue #1005 二次修正：槽位卡「配额外增量追加」=====
         # 测评端带卡复测（2026-11-24）：槽位卡若进候选池参与名额竞争，救回 3 题、赔掉 17 题
         # （P17-CASE-025 四道全灭）——它挤掉了原本靠原话轮次拿到的证据。
@@ -3640,12 +3699,6 @@ class MdCGOS(MdCG):
                     slot_cards_added += 1
         except Exception:            # noqa: BLE001 —— 卡注入面绝不拖崩装包
             slot_cards_added = 0
-        timeline = self._pack_timeline(pack)
-        # 【2026-11-11 外测第二阶段】实测「原文+timeline」B 类 19 题稳定通过 2→15；
-        # 「只给 timeline」仍达 14 ⇒ 信息大半在序列里。剩下的 4 题属「改期终态 / 多要素合成」，
-        # 需要**按主题归并**的序列（不是全表一张）。这里用已有字段做廉价归并：
-        # 优先 frontmatter.bucket（条件桶 cond_<topic>_<hash> 天然是主题轴），其次首个 tag。
-        timeline_groups = self._pack_timeline_groups(pack)
         # ===== issue #1005 ①②：随包下发判读合同 + 如实报覆盖缺口 =====
         # ① 合同计入预算（不从预算外额外送）：按合同自身 token 数从**尾部**（最低分）
         #    裁掉等量条目，保证「材料 + 合同」总量不超 budget_tokens。
@@ -3653,7 +3706,6 @@ class MdCGOS(MdCG):
         #    未认证 ≠ 错，只表示「调用方该自己判断材料够不够」。
         policy_text, coverage_gaps, coverage_certified, miss_slots = "", [], True, []
         try:
-            from . import coverage as _coverage
             from . import reading_policy as _policy
             policy_text = _policy.payload()
             if policy_text:
@@ -3678,11 +3730,18 @@ class MdCGOS(MdCG):
                         policy_text = ""
                     else:
                         used += _ptok
-            # ===== issue #1005 ③ 修正：raw 保底只在「原话缺失」时补位 =====
-            # 位置很关键：必须放在**所有裁剪之后**（尤其是给判读合同腾预算那一段，它从尾部
-            # 按最低分裁条目）。第一版放在裁剪之前，实测 pack 里 3 条原话被随后裁到只剩 1 条，
-            # 而检查早已跑完 ⇒ 配额形同虚设（调试读数：检查时 raw_cnt=3，最终 pack 只剩 1 条）。
-            _raw_min2 = max(0, int(os.environ.get("MDCG_RAW_MIN", "2") or 0))
+        except Exception:            # noqa: BLE001 —— 合同面不拖崩装包
+            policy_text = ""
+        # ===== issue #1005 ③ 修正：raw 保底只在「原话缺失」时补位 =====
+        # 位置很关键：必须放在**所有裁剪之后**（尤其是给判读合同腾预算那一段，它从尾部
+        # 按最低分裁条目）。严守 budget_tokens 硬上限：先腾派生位（必要时按
+        # max_item_tokens 摘录），仍装不下则原子回滚已腾条目，绝不超预算。
+        try:
+            from . import coverage as _coverage
+            try:
+                _raw_min2 = max(0, int(os.environ.get("MDCG_RAW_MIN", "2") or 0))
+            except ValueError:
+                _raw_min2 = 2
             if _raw_min2 and pack:
                 _raw_cnt2 = sum(1 for e in pack if not _coverage.is_derived(e))
                 if _raw_cnt2 < _raw_min2:
@@ -3690,45 +3749,124 @@ class MdCGOS(MdCG):
                     for _n2, _sc2, _q2, _pv2 in items:
                         if _raw_cnt2 >= _raw_min2:
                             break
-                        if _n2.get("id") in _have2 or _coverage.is_derived(_n2):
+                        _nid2 = _n2.get("id")
+                        if _nid2 in _have2 or _coverage.is_derived(_n2):
                             continue
                         _txt2 = str(_n2.get("content") or "")
-                        _t22 = est_tokens(self.card_of(_n2, _txt2)) if card_mode else est_tokens(_txt2)
+                        _content2 = self.card_of(_n2, _txt2) if card_mode else _txt2
+                        _t22 = est_tokens(_content2)
                         if _t22 <= 0:
                             continue
+                        _evicted = []
+                        _trunc2 = False
+                        _excerpt2 = None
                         if used + _t22 > budget_tokens:
-                            _victim2 = None
-                            for _i2 in range(len(pack) - 1, -1, -1):
-                                if _coverage.is_derived(pack[_i2]):
-                                    _victim2 = _i2
-                                    break
-                            if _victim2 is None:
-                                break
-                            used -= int(pack[_victim2].get("tokens") or 0)
-                            del pack[_victim2]
+                            _derived_toks = sum(
+                                int(e.get("tokens") or 0) for e in pack
+                                if _coverage.is_derived(e))
+                            _can_fit_full = (used - _derived_toks + _t22 <= budget_tokens)
+                            if _can_fit_full:
+                                while used + _t22 > budget_tokens:
+                                    _victim2 = None
+                                    for _i2 in range(len(pack) - 1, -1, -1):
+                                        if _coverage.is_derived(pack[_i2]):
+                                            _victim2 = _i2
+                                            break
+                                    if _victim2 is None:
+                                        break
+                                    _v_item = pack.pop(_victim2)
+                                    _evicted.append((_victim2, _v_item))
+                                    used -= int(_v_item.get("tokens") or 0)
+                            elif not max_item_tokens:
+                                continue
+                            else:
+                                while budget_tokens - used < max_item_tokens:
+                                    _victim2 = None
+                                    for _i2 in range(len(pack) - 1, -1, -1):
+                                        if _coverage.is_derived(pack[_i2]):
+                                            _victim2 = _i2
+                                            break
+                                    if _victim2 is None:
+                                        break
+                                    _v_item = pack.pop(_victim2)
+                                    _evicted.append((_victim2, _v_item))
+                                    used -= int(_v_item.get("tokens") or 0)
+                            if used + _t22 > budget_tokens:
+                                _room2 = budget_tokens - used
+                                if max_item_tokens and _room2 >= min_excerpt:
+                                    _keep2 = min(max_item_tokens, _room2)
+                                    if excerpt_strategy == "query":
+                                        from .query_excerpt import select
+                                        _excerpt2 = select(_content2, query, _keep2)
+                                        _content2 = _excerpt2["content"]
+                                    else:
+                                        _content2 = excerpt_tokens(_content2, _keep2)
+                                    _t22 = est_tokens(_content2)
+                                    _trunc2 = True
+                            if _t22 <= 0 or used + _t22 > budget_tokens:
+                                for _v_idx, _v_item in reversed(_evicted):
+                                    pack.insert(_v_idx, _v_item)
+                                    used += int(_v_item.get("tokens") or 0)
+                                continue
                         _fm22 = _n2.get("frontmatter") or {}
-                        pack.append({"id": _n2.get("id"), "score": _sc2,
-                                     "state": (_q2 or {}).get("state"),
-                                     "tokens": _t22,
-                                     "content": self.card_of(_n2, _txt2) if card_mode else _txt2,
-                                     "frontmatter": _fm22,
-                                     "provenance": _pv2 or [],
-                                     "metadata": {"state": (_q2 or {}).get("state"),
-                                                  "reason": (_q2 or {}).get("reason"),
-                                                  "raw_quota": True}})
+                        _entry2 = {"id": _nid2, "score": _sc2,
+                                   "state": (_q2 or {}).get("state"),
+                                   "tokens": _t22,
+                                   "content": _content2,
+                                   "frontmatter": _fm22,
+                                   "provenance": _pv2 or [],
+                                   "metadata": {"state": (_q2 or {}).get("state"),
+                                                "reason": (_q2 or {}).get("reason"),
+                                                "raw_quota": True}}
+                        if card_mode:
+                            _entry2["card"] = True
+                        if _trunc2:
+                            _entry2["truncated"] = True
+                        if _excerpt2 is not None:
+                            _entry2["excerpt"] = {
+                                _ek: _ev for _ek, _ev in _excerpt2.items()
+                                if _ek != "content"}
+                        pack.append(_entry2)
                         used += _t22
+                        _have2.add(_nid2)
                         _raw_cnt2 += 1
                         raw_min_applied += 1
+        except Exception:            # noqa: BLE001 —— raw 保底不拖崩装包
+            pass
+        # 【2026-11-12 外测】对**终态 pack**（含主装包 / bucket_scope / slot_cards / raw_min）
+        # 统一补 `created_at_date`（YYYY-MM-DD）与 `content_dated`（相对日期内联换算）。
+        for _e in pack or []:
+            _fm = _e.get("frontmatter") or {}
+            _ts = self._entry_timestamp(_fm)
+            _d = None
+            if _ts is not None:
+                try:
+                    _d = time.strftime("%Y-%m-%d", time.localtime(_ts))
+                except (TypeError, ValueError, OSError, OverflowError):
+                    _d = None
+            _e["created_at_date"] = _d
+            try:
+                _e["content_dated"] = reldate.annotate(_e.get("content") or "", _ts)
+            except Exception:            # noqa: BLE001 —— 标注失败不拖崩装包，退化为原文
+                _e["content_dated"] = _e.get("content")
+        # ===== 读取策略改造 · A 项：跨轮状态聚合（对终态 pack 生成，避免与裁剪/补位脱节）=====
+        aggregates = []
+        try:
+            if int(os.environ.get("MDCG_TOPIC_AGG", "1")) > 0 and len(pack) >= 2:
+                aggregates = self._topic_aggregates(pack, query)
+        except Exception:            # noqa: BLE001 —— 聚合面不拖崩装包
+            aggregates = []
+        timeline = self._pack_timeline(pack)
+        timeline_groups = self._pack_timeline_groups(pack)
+        try:
+            from . import coverage as _coverage
             coverage_gaps, coverage_certified = _coverage.gaps(
                 pack, skipped, used, budget_tokens, query=query,
                 baseline=1.0 / (RRF_K + 1))
             # issue #1005（2026-11-24）：槽位级「这项没材料」——与 coverage_gaps 分开报。
-            # 实测 27/27 道真实失败题 coverage_certified 都是 True；现有 anchor_missing 要求
-            # 「无词面命中 且 分数贴基准」，而真实失败是「有少量重合、但要素缺失」，故从不触发。
-            # 这里只做弱信号：报「哪一项没证据」，不擅自动认证位。
             miss_slots = _coverage.slot_gaps(pack, query)
         except Exception:            # noqa: BLE001 —— 判读面不拖崩装包
-            policy_text, coverage_gaps, coverage_certified, miss_slots = "", [], True, []
+            coverage_gaps, coverage_certified, miss_slots = [], True, []
         if isinstance(meta, dict):
             # issue #1005 ③：raw 保底是否真的动手（0 = 队列前段已是原话/无原话，未改序）
             meta["raw_min_applied"] = raw_min_applied
@@ -3764,12 +3902,12 @@ class MdCGOS(MdCG):
         for e in pack or []:
             fm = e.get("frontmatter") or {}
             # issue #1005（2026-11-25）：时间戳一律按「收到」算（同 pack 渲染口径）
-            ts = fm.get("received_at") or fm.get("created_at") or fm.get("valid_from")
+            ts = self._entry_timestamp(fm)
             date = ""
             if ts is not None:
                 try:
-                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
-                except (TypeError, ValueError, OSError):
+                    date = time.strftime("%Y-%m-%d", time.localtime(ts))
+                except (TypeError, ValueError, OSError, OverflowError):
                     date = ""
             head = ""
             for line in str(e.get("content") or "").splitlines():
@@ -3953,12 +4091,12 @@ class MdCGOS(MdCG):
         for e in pack or []:
             fm = e.get("frontmatter") or {}
             # issue #1005（2026-11-25）：时间戳一律按「收到」算（同 pack 渲染口径）
-            ts = fm.get("received_at") or fm.get("created_at") or fm.get("valid_from")
+            ts = self._entry_timestamp(fm)
             date = None
             if ts is not None:
                 try:
-                    date = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
-                except (TypeError, ValueError, OSError):
+                    date = time.strftime("%Y-%m-%d", time.localtime(ts))
+                except (TypeError, ValueError, OSError, OverflowError):
                     date = None
             body = ""
             for line in str(e.get("content") or "").splitlines():
@@ -5581,8 +5719,9 @@ class MdCGOS(MdCG):
                     with open(tp, encoding="utf-8") as f:
                         fm2, c2 = nodefile.loads(f.read())
                     e2 = self._node_entry(tp, tgt["path"].split("/")[0], fm2, c2)
-                    self.index["nodes"][target] = e2
-                    self._dirty[target] = e2
+                    with self._dirty_lock:
+                        self.index["nodes"][target] = e2
+                        self._dirty[target] = e2
                 except OSError:
                     pass    # 单文件重读失败（极罕见）：条目留旧值，下次 rebuild 对账
                 self.flush()
@@ -8302,10 +8441,11 @@ class MdCGSecure(MdCGOS):
 
 # 生效条件：仅当 self.index["nodes"] 中已存在 nid 时，把该条目的 sensitivity 置为 sens 并标记进 self._dirty；nid 不存在则不做任何事、无返回。
     def _index_sensitivity(self, nid, sens):
-        e = self.index["nodes"].get(nid)
-        if e is not None:
-            e["sensitivity"] = sens
-            self._dirty[nid] = e
+        with self._dirty_lock:
+            e = self.index["nodes"].get(nid)
+            if e is not None:
+                e["sensitivity"] = sens
+                self._dirty[nid] = e
 
     # ---------- 写：权限校验 ----------
 
@@ -8676,8 +8816,10 @@ class MdCGSecure(MdCGOS):
             # mark_dependents 把任意层依赖者置 doubted。三态同为「对被验证
             # 内容的写」，同一闸口一起接上。
             self._maybe_reload_index()
-            e = ((self.index.get("nodes") or {}).get(node_id)
-                 or (getattr(self, "_dirty", None) or {}).get(node_id))
+            e = (self.index.get("nodes") or {}).get(node_id)
+            if e is None:
+                with self._dirty_lock:
+                    e = (getattr(self, "_dirty", None) or {}).get(node_id)
             if e:
                 protect.require_layer(
                     self, node_id, layer=e.get("layer"),
@@ -8971,16 +9113,21 @@ class MdCGSecure(MdCGOS):
             kw.get("start_time"), kw.get("end_time"), kw.get("start_operator"),
             kw.get("end_operator"), kw.get("time_axis"))
         keep = []
+        dropped_ids = set()
         for r in res:
-            e = self.index["nodes"].get(r[0]["id"], r[0])
+            nid = r[0]["id"]
+            e = self.index["nodes"].get(nid, r[0])
             if not self._readable(e, session=session):
+                dropped_ids.add(nid)
                 continue
             # 会话归属兜底已并入 _readable（session 传参）：共享档跨会话可见、
             # 绑定档（private/secret）按归属会话判定（图扩展绕过 _candidates
             # 的串台路径由它一并挡住，与 validity/view 同层兜底）。
             if view is not None and not roleviews.matches(e, view):
+                dropped_ids.add(nid)
                 continue
             if validity and trust.is_expired(e, now=now):
+                dropped_ids.add(nid)
                 continue
             if _en_t:
                 _m, _miss = trust.window_matches_node(
@@ -8989,10 +9136,53 @@ class MdCGSecure(MdCGOS):
                     kw.get("start_operator"), kw.get("end_operator"))
                 if _miss:
                     if _ax_t == "observed":
+                        dropped_ids.add(nid)
                         continue          # 观察轴 fail-closed（与候选层同策略）
                 elif not _m:
+                    dropped_ids.add(nid)
                     continue
             keep.append(r)
+        if isinstance(meta, dict) and isinstance(meta.get("provenance"), dict):
+            _nodes_idx = self.index.get("nodes") or {}
+            _prov = meta["provenance"]
+
+            def _prov_id_ok(_pid):
+                if _pid in dropped_ids:
+                    return False
+                _pe = _nodes_idx.get(_pid)
+                if _pe is not None and not self._readable(_pe, session=session):
+                    return False
+                return True
+
+            _pruned = False
+            _clean_prov = {}
+            for _pid, _plist in _prov.items():
+                if not _prov_id_ok(_pid):
+                    _pruned = True
+                    continue
+                if isinstance(_plist, list):
+                    _kept_entries = []
+                    for _pitem in _plist:
+                        if isinstance(_pitem, dict) and isinstance(_pitem.get("chain"), list):
+                            if any(not _prov_id_ok(_hop) for _hop in _pitem["chain"]):
+                                _pruned = True
+                                continue
+                        _kept_entries.append(_pitem)
+                    if _kept_entries or not _plist:
+                        _clean_prov[_pid] = _kept_entries
+                else:
+                    _clean_prov[_pid] = _plist
+            if _pruned:
+                meta = dict(meta)
+                meta["provenance"] = _clean_prov
+                _pfp = meta.get("path_fingerprint")
+                if isinstance(_pfp, dict) and isinstance(_pfp.get("paths"), dict):
+                    _pfp2 = dict(_pfp)
+                    _ppaths2 = dict(_pfp["paths"])
+                    if "provenance" in _ppaths2:
+                        _ppaths2["provenance"] = _clean_prov
+                        _pfp2["paths"] = _ppaths2
+                        meta["path_fingerprint"] = _pfp2
         return keep, meta
 
     # ---------- 管理：需 can_admin ----------
