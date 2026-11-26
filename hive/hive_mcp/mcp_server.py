@@ -575,9 +575,13 @@ def _result_anchor_key() -> str | None:
     两面分叉。env 形态已按 Rust 语义读文件（守卫 C 组冻结两侧）。
     """
 
-    def _env(k: str) -> str | None:
+    def _env_raw(k: str) -> str | None:
         v = (os.environ.get(k) or "").strip()
-        return _ascii_lower(v) or None
+        return v or None
+
+    def _env(k: str) -> str | None:
+        v = _env_raw(k)
+        return _ascii_lower(v) if v else None
 
     cfg, _err = _load_local_config()
     for k in _RESULT_KEY_KEYS:
@@ -588,7 +592,7 @@ def _result_anchor_key() -> str | None:
         v = _env(k)
         if v:
             return v
-    f = _env("HIVE_ORCH_TOKEN_FILE")
+    f = _env_raw("HIVE_ORCH_TOKEN_FILE")
     if f:
         try:
             with open(f, "r", encoding="utf-8") as fh:

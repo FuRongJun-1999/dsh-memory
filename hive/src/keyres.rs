@@ -46,11 +46,11 @@ pub fn resolve_key_from_env() -> Option<String> {
     let env = |k: &str| {
         std::env::var(k)
             .ok()
-            .map(|v| v.trim().to_ascii_lowercase())
+            .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
     };
     if let Some(t) = env("HIVE_ORCH_TOKEN") {
-        return Some(t);
+        return Some(t.to_ascii_lowercase());
     }
     if let Some(f) = env("HIVE_ORCH_TOKEN_FILE") {
         if let Ok(s) = std::fs::read_to_string(&f) {
@@ -127,6 +127,23 @@ mod tests {
         std::env::set_var("HIVE_ORCH_TOKEN_FILE", tokfile.to_str().unwrap());
         assert_eq!(resolve_key_from_env().as_deref(), Some("tok-file-up"));
         std::env::remove_var("HIVE_ORCH_TOKEN_FILE");
+
+        // 7) 路径大小写保留：含大写目录/文件名的 HIVE_ORCH_TOKEN_FILE 不得被折小写（Linux 大小写敏感）
+        let upper_dir = std::env::temp_dir()
+            .join(format!("N190-UpperCaseDir-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&upper_dir);
+        let upper_tokfile = upper_dir.join("ProdTokenFile.TXT");
+        std::fs::write(&upper_tokfile, "  MIXED-Case-Token  \n").unwrap();
+        std::env::remove_var("HIVE_ORCH_TOKEN");
+        std::env::set_var("HIVE_ORCH_TOKEN_FILE", upper_tokfile.to_str().unwrap());
+        assert_eq!(
+            resolve_key_from_env().as_deref(),
+            Some("mixed-case-token"),
+            "HIVE_ORCH_TOKEN_FILE 路径大小写必须保留，仅文件内容折小写"
+        );
+        std::env::remove_var("HIVE_ORCH_TOKEN_FILE");
+        let _ = std::fs::remove_file(&upper_tokfile);
+        let _ = std::fs::remove_dir(&upper_dir);
 
         // 恢复现场
         let _ = std::fs::remove_file(&tokfile);
