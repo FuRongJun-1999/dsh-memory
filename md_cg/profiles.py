@@ -41,6 +41,29 @@ LAYER = "knowledge"
 SNIPPET_MAX = 60
 #: 单个资料卡最多保留的事实条数（超出按最近保留）。
 MAX_FACTS = 40
+#: 私密域标签（与 mcp_server.PRIVATE_DOMAIN_TAG 同口径；禁止聚合进明文资料卡）。
+PRIVATE_DOMAIN_TAG = "域:私密"
+
+
+# 生效条件：sens 为节点密级；加密档（private/secret 及变体）、restricted 或未知/非法密级返回 True（fail-closed）
+def _is_sensitive_for_profiles(sens) -> bool:
+    """是否禁止聚合进明文资料卡（fail-closed）：仅放行未设/空串/public/internal。"""
+    if sens is None or sens == "":
+        return False
+    from . import crypto as _cr
+    if _cr.is_encrypted_level(sens):
+        return True
+    return _cr.normalize_sensitivity(sens) not in ("public", "internal")
+
+
+# 生效条件：tags 为 frontmatter 或索引条目的 tags 字段；命中 域:私密 返回 True
+def _has_private_domain(tags) -> bool:
+    """节点是否带私密域标签（域:私密）；兼容 str / 序列写法。"""
+    if isinstance(tags, str):
+        return tags.strip() == PRIVATE_DOMAIN_TAG
+    if not isinstance(tags, (list, tuple, set, frozenset)):
+        return False
+    return any(str(t).strip() == PRIVATE_DOMAIN_TAG for t in tags if t is not None)
 
 
 # 生效条件：s 为任意实体名；返回只含合法 node_id 字符的 slug（长度 ≤48）
@@ -94,10 +117,12 @@ def render(kind, name, facts, dossier=None):
             _tt = v.get("t") if isinstance(v, dict) else None
             _stamp = ""
             if _tt:
-                try:
-                    _stamp = "（%s）" % time.strftime("%Y-%m", time.localtime(float(_tt)))
-                except (TypeError, ValueError, OSError):
-                    _stamp = ""
+                _tt_num = _dos._parse_ts(_tt)
+                if _tt_num is not None:
+                    try:
+                        _stamp = "（%s）" % time.strftime("%Y-%m", time.localtime(_tt_num))
+                    except (TypeError, ValueError, OSError, OverflowError):
+                        _stamp = ""
             body.append("- %s：%s%s" % (k, _vv, _stamp))
         for k in _LIST_ORDER:
             v = dossier.get(k)
@@ -132,35 +157,89 @@ def render(kind, name, facts, dossier=None):
     return "\n".join(head + body) + "\n"
 
 
-# 生效条件：cg 提供 index/get/add；返回 {"scanned", "cards", "written", "skipped", "facts"}
+# 生效条件：cg 提供 index/get/add；全量扫描合法源节点（fail-closed 排除加密/敏感/受限/私密域/负路由层/退役节点），limit 仅限单次产出/写入卡数而不截断源节点扫描（防止局部扫描覆写毁坏既有完整卡）
 def build(cg, dry_run=True, limit=None):
     """扫描既有节点 → 按实体聚合 → 写成资料卡（幂等；dry_run 只算不写）。"""
-    from . import reldate
+    from . import crypto as _cr
+    from . import lifecycle as _lc
+    from .mdcg import NEG_ROUTE_LAYERS
     nodes = (cg.index.get("nodes") or {})
-    buckets = {}          # (kind, name) -> [(date, nid, snippet)]
+    buckets = {}            # (kind, name) -> [(date, nid, snippet)]
     _declared_nids = set()  # 带 diary 声明的来源节点（用于卡来源标记）
-    st = {"scanned": 0, "cards": 0, "written": 0, "skipped": 0, "facts": 0,
-          "dry_run": bool(dry_run), "declared": 0, "extracted": 0}
-    for nid, e in list(nodes.items()):
+    _vetted = {}            # nid -> (fm, content) 仅保留已通过密级/私密域闸且进入 buckets 的节点
+    _card_limit = None
+    if limit is not None and not isinstance(limit, bool):
+        try:
+            _lim_val = int(limit)
+            if _lim_val > 0:
+                _card_limit = _lim_val
+        except (TypeError, ValueError):
+            _card_limit = None
+    st = {
+        "scanned": 0, "cards": 0, "written": 0, "skipped": 0, "facts": 0,
+        "dry_run": bool(dry_run), "declared": 0, "extracted": 0,
+        "excluded_sensitive": 0, "excluded_private_domain": 0,
+        "excluded_layer": 0, "excluded_retired": 0, "unreadable": 0,
+        "skipped_limit": 0, "truncated": False,
+    }
+    for nid, raw_e in list(nodes.items()):
         if str(nid).startswith(PREFIX):
             continue
-        if limit and st["scanned"] >= int(limit):
-            break
-        node = cg.get(nid)
+        e = raw_e if isinstance(raw_e, dict) else {}
+        # ① 索引预筛（免读盘/免解密）：负路由层、退役、加密/受限/未知密级、私密域一律跳过
+        if str(e.get("layer") or "") in NEG_ROUTE_LAYERS:
+            st["excluded_layer"] += 1
+            continue
+        if _lc.is_retired(e):
+            st["excluded_retired"] += 1
+            continue
+        if _is_sensitive_for_profiles(e.get("sensitivity")) or bool(e.get("encrypted")):
+            st["excluded_sensitive"] += 1
+            continue
+        if _has_private_domain(e.get("tags")):
+            st["excluded_private_domain"] += 1
+            continue
+        try:
+            node = cg.get(nid)
+        except Exception:
+            st["unreadable"] += 1
+            continue
         if not node:
+            st["unreadable"] += 1
+            continue
+        fm = node.get("frontmatter")
+        if not isinstance(fm, dict):
+            fm = {}
+        content = str(node.get("content") or "")
+        # ② 正文/frontmatter 复核（纵深防御：索引陈旧或缺失字段时仍 fail-closed 拦截）
+        if str(fm.get("layer") or e.get("layer") or "") in NEG_ROUTE_LAYERS:
+            st["excluded_layer"] += 1
+            continue
+        if _lc.is_retired(fm):
+            st["excluded_retired"] += 1
+            continue
+        if (_is_sensitive_for_profiles(fm.get("sensitivity"))
+                or bool(fm.get("encrypted"))
+                or content.lstrip().startswith(_cr.ENC_PREFIX)
+                or _cr.is_encrypted(content)):
+            st["excluded_sensitive"] += 1
+            continue
+        tags = fm.get("tags") or []
+        if _has_private_domain(tags):
+            st["excluded_private_domain"] += 1
             continue
         st["scanned"] += 1
-        fm = node.get("frontmatter") or {}
-        content = node.get("content") or ""
         ts = fm.get("created_at")
         day = ""
         if ts is not None:
-            try:
-                day = time.strftime("%Y-%m-%d", time.localtime(float(ts)))
-            except (TypeError, ValueError, OSError):
-                day = ""
-        tags = fm.get("tags") or []
+            _ts_num = _dos._parse_ts(ts)
+            if _ts_num is not None:
+                try:
+                    day = time.strftime("%Y-%m-%d", time.localtime(_ts_num))
+                except (TypeError, ValueError, OSError, OverflowError):
+                    day = ""
         snip = _snippet(content)
+        _used = False
         # 【情景层 v0.1】diary 声明优先：角色名是闭集，由写入声明（零抽取）。
         # 外测实证：靠正则猜名字会抽出 profile-person-号你 这类错卡，正确卡反被淹没。
         diary = fm.get("diary") if isinstance(fm.get("diary"), dict) else None
@@ -171,15 +250,21 @@ def build(cg, dry_run=True, limit=None):
                 v = str(diary.get(key) or "").strip()
                 if v:
                     buckets.setdefault(("role", v), []).append((day, nid, snip))
+                    _used = True
             for pp in (diary.get("participants") or []):
                 v = str(pp or "").strip()
                 if v and _en.gate_name(v):
                     buckets.setdefault(("person", v), []).append((day, nid, snip))
+                    _used = True
             pl = str(diary.get("place") or "").strip()
             if pl:
                 buckets.setdefault(("place", pl), []).append((day, nid, snip))
+                _used = True
             if day:
                 buckets.setdefault(("event", day), []).append((day, nid, snip))
+                _used = True
+            if _used:
+                _vetted[nid] = (fm, content)
             continue
         # 【外测实证 2026-11-12】只传 diary 的节点极少时，role/person 卡会**完全不产出**，
         # 注入就只能塞事件卡（对属性题无用）。故补一条**角色兜底**：
@@ -192,14 +277,24 @@ def build(cg, dry_run=True, limit=None):
                       (os.environ.get("MDCG_ROLE_AI") or _ROLE_AI).strip())
             if _rname:
                 buckets.setdefault(("role", _rname), []).append((day, nid, snip))
+                _used = True
         # 回落：无 diary 的存量节点按确定性抽取（卡标 extracted，与 declared 不混报）
         for name in _en.persons(content, tags):
             buckets.setdefault(("person", name), []).append((day, nid, snip))
+            _used = True
         for name in _en.places(content, tags):
             buckets.setdefault(("place", name), []).append((day, nid, snip))
+            _used = True
         if day and any(k in content for k in ("约定", "约好", "碰面", "聚餐", "改期", "会议")):
             buckets.setdefault(("event", day), []).append((day, nid, snip))
+            _used = True
+        if _used:
+            _vetted[nid] = (fm, content)
     for (kind, name), facts in sorted(buckets.items()):
+        if dry_run and _card_limit is not None and st["cards"] >= _card_limit:
+            st["truncated"] = True
+            st["skipped_limit"] += 1
+            continue
         # 去重 + 稳定排序（日期, 节点 id）⇒ 增量：新节点只会往后追加
         seen, uniq = set(), []
         for f in sorted(facts, key=lambda x: (x[0] or "", x[1])):
@@ -218,18 +313,18 @@ def build(cg, dry_run=True, limit=None):
                 if _nid in _seen_dos:
                     continue
                 _seen_dos.add(_nid)
-                _n = cg.get(_nid) or {}
-                _fm = _n.get("frontmatter") or {}
+                _fm, _nc = _vetted.get(_nid) or ({}, "")
                 # ① 先并入**声明/LLM 填表**的档案（fm.dossier，带 ev_span、经原文复核）
                 # 档案可能落在 fm.dossier，也可能被未知 kwarg 收进 fm.extra.dossier，
                 # 两处都读（口径单点：先顶层，后 extra）。
                 _dec = _fm.get("dossier")
                 if not isinstance(_dec, dict):
-                    _dec = (_fm.get("extra") or {}).get("dossier")
+                    _ext = _fm.get("extra")
+                    _dec = _ext.get("dossier") if isinstance(_ext, dict) else None
                 # ② 再补**规则抽取**的档案（LLM 没填的字段由规则兜底；不覆盖已有值）
-                _rule = _dos.extract(_n.get("content") or "", _fm.get("created_at"), _nid)
+                _rule = _dos.extract(_nc, _fm.get("created_at"), _nid)
                 # 【证据权重】自我介绍/声明的条目权重大于泛提；合并时弱者不得覆盖强者。
-                _w = _dos.weight_of(_n.get("content") or "")
+                _w = _dos.weight_of(_nc)
                 for _fk, _fv in _rule.items():
                     _fv = dict(_fv)
                     _fv["w"] = _w
@@ -239,7 +334,7 @@ def build(cg, dry_run=True, limit=None):
                 # 声明/LLM 填表的档案同样按该节点权重入账
                 if isinstance(_dec, dict) and _dec:
                     for _fk, _fv in _dec.items():
-                        if _fk.startswith("_"):
+                        if not isinstance(_fk, str) or _fk.startswith("_"):
                             continue
                         _fv = dict(_fv) if isinstance(_fv, dict) else {"value": _fv}
                         _fv.setdefault("w", _w)
@@ -250,17 +345,24 @@ def build(cg, dry_run=True, limit=None):
         st["facts"] += len(uniq)
         text = render(kind, name, uniq, dossier=_dos_all)
         nid = card_id(kind, name)
-        prev = cg.get(nid)
+        try:
+            prev = cg.get(nid)
+        except Exception:
+            prev = None
         if prev and (prev.get("content") or "") == text:
             st["skipped"] += 1
             continue
         if dry_run:
             continue
+        if _card_limit is not None and st["written"] >= _card_limit:
+            st["truncated"] = True
+            st["skipped_limit"] += 1
+            continue
         # 辅助面（物品/情绪）只进 tags：用于辅助检索，不参与状态
         aux = _en.auxiliary(" ".join(f[2] for f in uniq))
         tags = ["%s%s" % (kind, ":" + name if kind != "event" else ""),
                 "profile", "%s:%s" % (kind, name)]
-        _src = "declared" if any(nid in _declared_nids for _d, nid, _s in uniq) else "extracted"
+        _src = "declared" if any(_fnid in _declared_nids for _d, _fnid, _s in uniq) else "extracted"
         st[_src] = st.get(_src, 0) + 1
         tags.append("card_source:" + _src)
         tags += ["obj:" + o for o in aux["objects"][:8]]
@@ -278,8 +380,8 @@ def build(cg, dry_run=True, limit=None):
         import time as _t
         _sess = {}
         for _f in uniq:
-            _n = cg.get(_f[1]) or {}
-            _s = ((_n.get("frontmatter") or {}).get("session"))
+            _fm_s, _ = _vetted.get(_f[1]) or ({}, "")
+            _s = _fm_s.get("session")
             if _s:
                 _sess[_s] = _sess.get(_s, 0) + 1
         if _sess:

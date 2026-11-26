@@ -25,7 +25,10 @@
 """
 from __future__ import annotations
 
+from datetime import datetime
+import math
 import re
+import time
 
 _RULES = (
     ("姓名", re.compile(r"(?:我叫|我的名字是|我名字叫|叫我)([\u4e00-\u9fa5]{2,4})(?=[，,。！!；;\s]|$)")),
@@ -110,45 +113,128 @@ def weight_of(text):
     return 1
 
 
+# 生效条件：val 为任意时间戳形态（数字/数字串/ISO 日期或日期时间串）；返回有限 epoch 秒，不可解析返回 None
+def _parse_ts(val):
+    """安全解析陈述时刻：支持 epoch 秒/毫秒、数字串及 ISO 日期字符串，拒绝 bool 与非有限数。"""
+    if val is None or val == "" or isinstance(val, bool):
+        return None
+    try:
+        from . import trust as _tr
+        ts = _tr.parse_time(val)
+        if ts is not None and math.isfinite(float(ts)):
+            return float(ts)
+    except Exception:
+        pass
+    if isinstance(val, str):
+        s = val.strip().replace("/", "-")
+        if s:
+            try:
+                ts = datetime.fromisoformat(s).timestamp()
+                if math.isfinite(ts):
+                    return float(ts)
+            except (ValueError, OverflowError, OSError):
+                pass
+            try:
+                ts = time.mktime(time.strptime(s, "%Y-%m"))
+                if math.isfinite(ts):
+                    return float(ts)
+            except (ValueError, OverflowError, OSError):
+                pass
+    return None
+
+
+# 生效条件：val 为任意权重值；返回有限 float，非法/bool 回落 0.0
+def _weight_num(val) -> float:
+    if val is None or isinstance(val, bool):
+        return 0.0
+    try:
+        f = float(val)
+        return f if math.isfinite(f) else 0.0
+    except (TypeError, ValueError, OverflowError):
+        return 0.0
+
+
+# 生效条件：val 为字段条目（dict 或裸值）；返回浅拷贝后的条目 dict，序列字段若收到单条业务 dict 自动包成单元素列表
+def _as_entry(val, is_list: bool = False) -> dict:
+    if isinstance(val, dict):
+        if is_list and "value" not in val:
+            return {"value": [dict(val)]}
+        return dict(val)
+    return {"value": val}
+
+
+# 生效条件：raw 为 LIST_FIELDS 的 value（list/tuple/str/dict/None）；返回条目列表（不把 str 拆成单字符）
+def _as_list_items(raw) -> list:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, (list, tuple)):
+        out = []
+        for it in raw:
+            if it is None:
+                continue
+            if isinstance(it, str) and not it.strip():
+                continue
+            out.append(it)
+        return out
+    if isinstance(raw, str):
+        return [raw] if raw.strip() else []
+    if isinstance(raw, dict):
+        return [raw] if raw else []
+    return [raw]
+
+
+# 生效条件：it 为 LIST_FIELDS 的单条元素（dict / str / 其他标量）；返回用于去重比较的可哈希键
+def _list_item_key(it):
+    # issue #909：dict 项的去重键只比**业务字段**，排除 `_` 前缀证据键（如 `_raw`）；
+    # 非 dict 项（如 list[str] 里的字符串）按规范化文本去重，不再因调用 `.items()` 崩溃。
+    if isinstance(it, dict):
+        return ("dict", tuple(sorted(
+            (str(a), str(b)) for a, b in it.items()
+            if not str(a).startswith("_") and b not in (None, "")
+        )))
+    if isinstance(it, str):
+        return ("str", it.strip())
+    return ("val", str(it).strip())
+
+
 # 生效条件：old/new 为两条档案 dict；返回合并结果（新值覆盖；旧值进 _history 不丢）
 def merge(old, new):
     """档案增量合并：同字段取**较新**的值，旧值保留在 _history。"""
-    out = dict(old or {})
-    hist = dict(out.get("_history") or {})
-    for k, v in (new or {}).items():
-        if k.startswith("_"):
+    out = dict(old) if isinstance(old, dict) else {}
+    raw_hist = out.get("_history")
+    hist = ({hk: list(hv) for hk, hv in raw_hist.items() if isinstance(hv, list)}
+            if isinstance(raw_hist, dict) else {})
+    for k, raw_v in (new.items() if isinstance(new, dict) else ()):
+        if not isinstance(k, str) or k.startswith("_"):
             continue
-        prev = out.get(k)
-        if prev and prev.get("value") == v.get("value"):
+        is_list = k in LIST_FIELDS
+        v = _as_entry(raw_v, is_list=is_list)
+        raw_prev = out.get(k)
+        prev = _as_entry(raw_prev, is_list=is_list) if raw_prev is not None else None
+        # 【序列型】经历/家庭：按项去重追加（不同项都保留，不互相覆盖；兼容 str / list[str] / list[dict]）
+        if is_list:
+            _old = _as_list_items(prev.get("value") if prev is not None else None)
+            _new = _as_list_items(v.get("value"))
+            _merged, _seen = [], set()
+            for _it in _old + _new:
+                _ik = _list_item_key(_it)
+                if _ik not in _seen:
+                    _seen.add(_ik)
+                    _merged.append(_it)
+            base = dict(prev) if prev is not None else dict(v)
+            base["value"] = _merged
+            if prev is not None and _weight_num(v.get("w")) > _weight_num(prev.get("w")):
+                base["w"] = v["w"]
+            out[k] = base
+            continue
+        if prev is not None and prev.get("value") == v.get("value"):
             # 同值：仅抬高权重、补 ev_span（不新增历史）
-            if (v.get("w") or 0) > (prev.get("w") or 0):
-                prev["w"] = v["w"]
-            continue
-        # 【序列型】经历/家庭：按项去重追加（不同项都保留，不互相覆盖）
-        if k in LIST_FIELDS and isinstance(prev, dict) and isinstance(v, dict):
-            _old = list(prev.get("value") or [])
-            _new = list(v.get("value") or [])
-            def _key(it):
-                # issue #909：去重键只比**业务字段**，必须排除 `_raw` 这类证据键——
-                # 否则「同一段经历、只有原文摘录不同」会被拆成两项，而渲染端又跳过下划线键，
-                # 于是资料卡里出现两行完全相同的内容（实测：示例工坊 | 学徒 ×2）。
-                # 证据仍可回查：保留首条的 `_raw`，来源节点另在事实行（来源 <id>）里。
-                return tuple(sorted((str(a), str(b)) for a, b in (it or {}).items()
-                                    if not str(a).startswith("_")
-                                    and b not in (None, "")))
-            _seen = {_key(x) for x in _old}
-            for _it in _new:
-                if _key(_it) not in _seen:
-                    _old.append(_it)
-                    _seen.add(_key(_it))
-            prev = dict(prev)
-            prev["value"] = _old
-            if (v.get("w") or 0) > (prev.get("w") or 0):
+            if _weight_num(v.get("w")) > _weight_num(prev.get("w")):
                 prev["w"] = v["w"]
             out[k] = prev
             continue
-        if prev:
-            _pw, _nw = (prev.get("w") or 0), (v.get("w") or 0)
+        if prev is not None:
+            _pw, _nw = _weight_num(prev.get("w")), _weight_num(v.get("w"))
             # 【证据权重】强证据胜；同权重时只有时间可变字段允许较新值覆盖，
             # 其余**保留旧值**——避免「在包里」这类弱证据盖掉自我介绍的姓名/城市。
             if _nw < _pw:
@@ -160,8 +246,8 @@ def merge(old, new):
             # issue #893：时间可变字段（年龄）同权重下也要看**陈述时刻**，
             # 不能「后写者胜」——补录一条更早的陈述（t 更小）会把 30 回退成 29。
             if _nw == _pw and k in TIME_VARYING:
-                _pt, _nt = prev.get("t"), v.get("t")
-                if _pt is not None and _nt is not None and float(_nt) <= float(_pt):
+                _pt, _nt = _parse_ts(prev.get("t")), _parse_ts(v.get("t"))
+                if _pt is not None and _nt is not None and _nt <= _pt:
                     hist.setdefault(k, []).append(v)
                     continue
             hist.setdefault(k, []).append(prev)
