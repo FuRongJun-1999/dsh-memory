@@ -247,6 +247,7 @@ impl<'a> Parser<'a> {
                                 if self.b.get(self.i) == Some(&b'\\')
                                     && self.b.get(self.i + 1) == Some(&b'u')
                                 {
+                                    let saved = self.i;
                                     self.i += 2;
                                     let lo = self.hex4()?;
                                     if (0xDC00..0xE000).contains(&lo) {
@@ -258,7 +259,7 @@ impl<'a> Parser<'a> {
                                         );
                                         continue;
                                     }
-                                    out.push('\u{fffd}');
+                                    self.i = saved;
                                 }
                                 out.push('\u{fffd}');
                             } else {
@@ -307,9 +308,11 @@ impl<'a> Parser<'a> {
             }
         }
         let s = std::str::from_utf8(&self.b[start..self.i]).map_err(|e| e.to_string())?;
-        s.parse::<f64>()
-            .map(Json::Num)
-            .map_err(|e| format!("坏数字 {s}: {e}"))
+        let n = s.parse::<f64>().map_err(|e| format!("坏数字 {s}: {e}"))?;
+        if !n.is_finite() {
+            return Err(format!("非有限数字 {s}"));
+        }
+        Ok(Json::Num(n))
     }
 }
 
@@ -409,5 +412,26 @@ mod parse_tests {
     fn nesting_within_limit_parses() {
         let ok = format!("{}{}", "[".repeat(64), "]".repeat(64));
         assert!(parse(&ok).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod surrogate_and_number_guard_tests {
+    use super::*;
+
+    #[test]
+    fn lone_high_surrogate_preserves_following_escape() {
+        assert_eq!(parse(r#""\uD83D\u0041""#).unwrap().as_str(), Some("\u{fffd}A"));
+        assert_eq!(
+            parse(r#""\uD83D\uD83D\uDE00""#).unwrap().as_str(),
+            Some("\u{fffd}\u{1f600}")
+        );
+        assert_eq!(parse(r#""\uD83D\uDE00""#).unwrap().as_str(), Some("\u{1f600}"));
+    }
+
+    #[test]
+    fn nonfinite_overflow_number_rejected() {
+        assert!(parse("1e400").is_err());
+        assert!(parse("-1e400").is_err());
     }
 }
