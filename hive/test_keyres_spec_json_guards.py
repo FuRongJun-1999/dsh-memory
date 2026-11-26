@@ -26,9 +26,9 @@ def _load_mcp_server():
 
 class HiveKeyresSpecJsonGuards(unittest.TestCase):
     def test_mcp_result_anchor_key_preserves_token_file_path_casing(self):
-        mod = _load_mcp_server()
         opened: list[str] = []
         raw_path = "/Etc/Hive/UpperCase/ProdToken.TXT"
+        missing_cfg = "/nonexistent/hive_guard_missing.json"
 
         def fake_open(path, *args, **kwargs):
             opened.append(str(path))
@@ -38,33 +38,37 @@ class HiveKeyresSpecJsonGuards(unittest.TestCase):
 
         env_overrides = {
             "HIVE_ORCH_TOKEN_FILE": f"  {raw_path}  ",
-            "HIVE_CONFIG": "/nonexistent/hive_guard_missing.json",
+            "HIVE_CONFIG": missing_cfg,
         }
         with mock.patch.dict(os.environ, env_overrides, clear=False):
             os.environ.pop("HIVE_ORCH_TOKEN", None)
-            with mock.patch("builtins.open", side_effect=fake_open):
-                got = mod._result_anchor_key()
+            mod = _load_mcp_server()
+            with mock.patch.object(mod, "CONFIG_LOCAL", missing_cfg):
+                with mock.patch("builtins.open", side_effect=fake_open):
+                    got = mod._result_anchor_key()
 
         self.assertEqual(opened, [raw_path], f"path casing was altered: {opened!r}")
         self.assertEqual(got, "mixed-token-value")
 
     def test_mcp_result_anchor_key_real_temp_file_mixed_case(self):
-        mod = _load_mcp_server()
         td = tempfile.mkdtemp(prefix="HiveAnchorUpper_")
         try:
             tok_file = os.path.join(td, "UpperCaseToken.TXT")
+            absent_cfg = os.path.join(td, "absent.json")
             with open(tok_file, "w", encoding="utf-8") as fh:
                 fh.write("  ABC-Def-123  \n")
             with mock.patch.dict(
                 os.environ,
                 {
                     "HIVE_ORCH_TOKEN_FILE": tok_file,
-                    "HIVE_CONFIG": os.path.join(td, "absent.json"),
+                    "HIVE_CONFIG": absent_cfg,
                 },
                 clear=False,
             ):
                 os.environ.pop("HIVE_ORCH_TOKEN", None)
-                self.assertEqual(mod._result_anchor_key(), "abc-def-123")
+                mod = _load_mcp_server()
+                with mock.patch.object(mod, "CONFIG_LOCAL", absent_cfg):
+                    self.assertEqual(mod._result_anchor_key(), "abc-def-123")
         finally:
             shutil.rmtree(td, ignore_errors=True)
 

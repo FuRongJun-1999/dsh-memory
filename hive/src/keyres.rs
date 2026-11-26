@@ -133,8 +133,7 @@ mod tests {
             .join(format!("N190-UpperCaseDir-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&upper_dir);
         let upper_tokfile = upper_dir.join("ProdTokenFile.TXT");
-        std::fs::write(&upper_tokfile, "  MIXED-Case-Token  
-").unwrap();
+        std::fs::write(&upper_tokfile, "  MIXED-Case-Token  \n").unwrap();
         std::env::remove_var("HIVE_ORCH_TOKEN");
         std::env::set_var("HIVE_ORCH_TOKEN_FILE", upper_tokfile.to_str().unwrap());
         assert_eq!(
