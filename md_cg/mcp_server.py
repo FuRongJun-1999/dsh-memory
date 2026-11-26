@@ -3088,6 +3088,10 @@ def _try_hot_first(cg, a, q):
             # 重建连续失败（≥3 次）⇒ 不再打回主库：否则热层一旦确定性失败，每次 read 都吃
             # 24 秒主库，比「旧答案」更糟（#1002 复审 P1-1）。改为**带标注的陈旧直答**。
             _degraded = int(_HOT_BUILD.get("fails") or 0) >= 3
+            # 2026-11-26：**正在重建时不得打回主库**。旧逻辑把「后台重建中」(非常数 36s) 也一并
+            # return None，而重建只要 30~90s、主库一次 24~36s——等待期反而更慢，且热层永远
+            # 追不上写入（每写一条 is_fresh 就翻 False）。改为：重建中 ⇒ 用陈旧热层直答（0.15s）
+            # 并按 _tail 自曝「后台重建中」；仅当重建**连续失败**（_degraded）或未启动时才回主库。
             if (not _hot_only) and (not _degraded) and _age is not None and _age > _hot_stale_ok():
                 return None                # 陈旧超宽限：宁可慢一轮，不给过期答案
         _stale = bool(_exists and not _fresh)
@@ -3132,8 +3136,52 @@ def _try_hot_first(cg, a, q):
                 return None
         if not items:
             return None
+        # 2026-11-26：**常驻命中豁免分数门槛**。hot_score 是命中密度，单关键词查询上限只有
+        # 1.0（「人物树」实测 top=1.0），恒低于 _HOT_MIN_SCORE=2.0 ⇒ 单词查询被永久打回主库
+        # （0.10s → 13.19s，两边差 130 倍）。判据：首条命中带「常驻」标签——那是使用者裁定
+        # 「永远在热层」的核心记忆（hottier 组 3，优先级高于 self/anchor），主库不会有更好的
+        # 第一名，此时等主库只买到更慢。非常驻仍按原门槛（宁严勿错不变）。
+        _resident_hit = False
         if not _hot_only and top < _HOT_MIN_SCORE:
+            try:
+                _rec1 = ((_hot or {}).get("nodes") or {}).get(items[0].get("id")) or {}
+                _resident_hit = "常驻" in (_rec1.get("tags") or [])
+            except Exception:
+                _resident_hit = False
+        if not _hot_only and top < _HOT_MIN_SCORE and not _resident_hit:
             return None
+        # 2026-11-26（使用者裁定）：**自指查询不再绕过热层**——热层必须能回答「我是谁 /
+        # 我们约定过什么」，这正是人物树存在的意义。热层不做关系排序（保持原命中序），
+        # 但人物树的枝索引/主干（tags 含「人物树」）按 importance 补位到最前：
+        # 它们是树的入口，本来就不该靠词法运气撞进来。
+        _pin_n = 0
+        if any(w in (q or "") for w in ("我", "我们", "自己", "约定", "相识", "相爱", "身份", "来历")):
+            try:
+                # 入口优先于分数：枝索引（类别目录）永远第一，主干（关系×自我）第二，
+                # 其余按 importance——否则一个 0.92 的普通节点会挤掉「目录」自己。
+                def _prio(n):
+                    _tg = n.get("tags") or []
+                    if "枝索引" in _tg:
+                        return 0
+                    if "关系" in _tg and "自我" in _tg:
+                        return 1
+                    return 2
+                _tree = [n for n in ((_hot or {}).get("nodes") or {}).values()
+                         if isinstance(n, dict) and "人物树" in (n.get("tags") or [])
+                         and _hot_item_allowed(cg, a, n.get("id"), n)]
+                _tree.sort(key=lambda n: (_prio(n),
+                                          -float(n.get("importance") or 0.0),
+                                          -float(n.get("t") or 0.0)))
+                if _tree:
+                    _pin_s = max(float(top), _HOT_MIN_SCORE)
+                    # 只补**入口两位**（枝索引 + 主干）：补多了会把真正的内容挤到后面，
+                    # 问「我们的亲密约定」时该先看到约定本身，而不是四层目录。
+                    _pin = [dict(n, hot_score=_pin_s) for n in _tree[:2]]
+                    _pin_ids = {n.get("id") for n in _pin}
+                    items = _pin + [i for i in items if i.get("id") not in _pin_ids]
+                    _pin_n = len(_pin)
+            except Exception:
+                _pin_n = 0
         return {"ok": True, "query": q, "k": k, "count": len(items),
                 "items": [{"id": i.get("id"), "layer": i.get("layer"),
                             "preview": i.get("preview"), "score": i.get("hot_score"),
@@ -3141,6 +3189,7 @@ def _try_hot_first(cg, a, q):
                 "source": "hot",
                 "meta": {"hot_only": _hot_only, "mode": ("browse" if _browse else "match"),
                          "hot_first": {"used": True, "hits": len(items), "top": top,
+                                       "pinned": _pin_n,
                                        "candidates": meta.get("candidates"),
                                        "built_at": meta.get("built_at"),
                                        # #1002：陈旧度必须外露——使用者要能看出「这份热层多老」
@@ -3840,12 +3889,30 @@ def _cg_dispatch(cg, a):
         # 先撞热层会拿到一堆「近的」而不是「关乎我的」。
         _theory_keys_early = ('智能系统', '元认知', '协定式', '自我赋予', '红线', '退化',
                               '信任', '情感权重', '五条件', '七维度', 'P_trust')  # 理论查询同样绕热层
-        if (any(w in (q or "") for w in _theory_keys_early)
-                or any(w in (q or "") for w in ("我", "我们", "约定", "相识", "相爱", "身份", "来历"))):
+        # 2026-11-26（使用者裁定）：自指查询**不再**强制绕过热层——人物树就在热层里
+        # （persona_branches / trunk / 六枝成员均标「人物树」+「常驻」），热层补位后
+        # 能直接回答「我是谁 / 我们约定过什么」，不必为关系排序吃 13 秒主库。
+        # 理论问法仍绕过（热层不做理论专用路加权）。
+        if any(w in (q or "") for w in _theory_keys_early):
             a = dict(a, hot_first=False)
         _hf = _try_hot_first(cg, a, q)
         if _hf is not None:
-            return _hf
+            # 2026-11-26：**热层直答必须回 read 契约（results）**。此前直接 return _hf，
+            # 而它只有 items（{id,preview,score,source}）——上层读 results 恒为空，
+            # 于是「快了但没内容」，等于换个方式失忆（实测 0.216s / ids=[]）。
+            # 热层只存 preview，正文仍回主库逐条按密级取（不绕密级，_node_view 统一形状）。
+            _hrows = []
+            for _it in (_hf.get("items") or []):
+                _n = cg.get(_it.get("id")) or {}
+                if not _n:
+                    continue
+                _hrows.append({"node": _node_view(_n),
+                               "score": _it.get("score"),
+                               "state": None, "reason": None,
+                               "source": "hot"})
+            if not _hrows:
+                return None
+            return _final_out(dict(_hf, results=_hrows), cg, a, slim=True)
 
         search_args = dict(layer=a.get("layer"), k=_int_arg(a, "k", 20),
                            context=_ctx, session=a.get("session"),
@@ -3920,15 +3987,31 @@ def _cg_dispatch(cg, a):
             try:
                 _sres, _ = cg.search(q, k=6, layer="self", record=False)
                 if _sres:
-                    _have = {(x[0] or {}).get("id") for x in res}
-                    _extra = [x for x in _sres if (x[0] or {}).get("id") not in _have]
-                    _extra = [(x[0], float(x[1]) + 0.5, x[2]) for x in _extra]  # 自我层策展权威
-                    if _extra:
-                        res = list(res) + _extra
+                    # 2026-11-26：去重不得吃掉提分。旧逻辑把「已在主结果里」的节点整条排除出
+                    # _extra，而这些节点恰是目标本身的弱匹配（0.015 混进主结果），自我层
+                    # 0.72 的高分因此白算——实测「我们的约定」主干 persona_trunk_* 落到第 9、
+                    # 「人物树」同理。改为：已有节点取 max(原分, 自我层分+加权)，新节点追加。
+                    _idx = {}
+                    for _i, _x in enumerate(res):
+                        _idx.setdefault((_x[0] or {}).get("id"), _i)
+                    _merged = 0
+                    _promoted = 0
+                    for _x in _sres:
+                        _nid = (_x[0] or {}).get("id")
+                        _b = float(_x[1]) + 0.5
+                        if _nid in _idx:
+                            _i = _idx[_nid]
+                            if float(res[_i][1]) < _b:
+                                res[_i] = (res[_i][0], _b, res[_i][2])
+                                _promoted += 1
+                        else:
+                            res.append((_x[0], _b, _x[2]))
+                            _merged += 1
+                    if _merged or _promoted:
                         res.sort(key=lambda x: -float(x[1]))
                     if isinstance(meta, dict):
                         # 合并数**恒写**（含 0）：0 也要可审计
-                        meta["self_route"] = {"merged": len(_extra)}
+                        meta["self_route"] = {"merged": _merged, "promoted": _promoted}
             except Exception:
                 pass
         res, _boosted = _time_intent_boost(res, q)

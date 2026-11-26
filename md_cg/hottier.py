@@ -49,7 +49,12 @@ MAX_NODES = 6000
 #: preview 截断
 PREVIEW_MAX = 300
 
-_TOKEN = re.compile(r"[\u4e00-\u9fff]{1,4}|[A-Za-z0-9_]{2,}")
+# 2026-11-26：中文改 **bigram** 索引。此前是 [\u4e00-\u9fff]{1,4}——按每 4 字硬切，
+# 「我们的亲密约定」被切成 ['我们的亲','密约定']，而同一词在正文里因起始位置不同被切成别的块，
+# 于是长中文查询在热层里**零命中**（实测 raw hot: []），只能回落主库吃 13 秒。
+# bigram 让任意两字词恒可命中，索引膨胀约 3~4 倍（本地派生文件，重建 3 秒）。
+_TOKEN = re.compile(r"[\u4e00-\u9fff]+|[A-Za-z0-9_]{2,}")
+_CJK = re.compile(r"^[\u4e00-\u9fff]+$")
 
 
 def _hot_dir(root: str) -> str:
@@ -144,7 +149,19 @@ def tokens(text) -> list:
         s = _rt.fold_variants(text)
     except Exception:
         s = str(text or "").lower()
-    return [t for t in _TOKEN.findall(s) if t.strip()]
+    out = []
+    for raw in _TOKEN.findall(s):
+        raw = raw.strip()
+        if not raw:
+            continue
+        if _CJK.match(raw):
+            if len(raw) <= 2:
+                out.append(raw)
+            else:
+                out.extend(raw[i:i + 2] for i in range(len(raw) - 1))
+        else:
+            out.append(raw)
+    return out
 
 
 def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTANCE_MIN,
@@ -224,6 +241,10 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             skipped_sens_ids.add(nid)
             continue
         _norm_sens = _cr.normalize_sensitivity(_raw_sens) if _raw_sens else "internal"
+        _raw_alias = fm.get("aliases") or fm.get("alias") or []
+        if isinstance(_raw_alias, str):
+            _raw_alias = [_raw_alias]
+        _aliases = [str(x) for x in (_raw_alias or []) if str(x).strip()]
         _raw_tags = fm.get("tags") if "tags" in fm else (_ev.get("tags") or [])
         if isinstance(_raw_tags, str):
             _raw_tags = [_raw_tags]
@@ -245,7 +266,10 @@ def build(cg, *, recent_days: int = RECENT_DAYS, importance_min: float = IMPORTA
             "session": fm.get("session") or "",
             "sensitivity": _norm_sens,
             "tags": _tags_list,
-            "preview": re.sub(r"\s+", " ", body).strip()[:PREVIEW_MAX],
+            # 2026-11-26：aliases（标题/别名）拼在 preview 最前——「回礼」这种查询
+            # 打的正是篇名，而 preview 原先只有正文，篇名不在索引里 ⇒ 搜全名命中不到本篇。
+            "preview": ((("【" + "/".join(str(x) for x in _aliases) + "】") if _aliases else "")
+                        + re.sub(r"\s+", " ", body).strip())[:PREVIEW_MAX],
             "content_hash": _h,
         }
     # 兜底口径：self/anchor 若仍因上限被挤掉（理论不该发生），显式记为 truncated
@@ -375,6 +399,11 @@ def search(cg, query: str, *, k: int = 10, root: str = "", hot=None, visible_fn=
     for tok in set(q):
         for nid in h["postings"].get(tok, []):
             score[nid] = score.get(nid, 0.0) + 1.0
+            # 2026-11-26：篇名命中加权。preview 头 40 字是 aliases/标题——
+            # 问「回礼」时该先给《回礼》，而不是给正文里顺带提到「回礼」的另一篇。
+            _pv = str((h["nodes"].get(nid) or {}).get("preview") or "")[:40]
+            if tok in _pv:
+                score[nid] = score[nid] + 1.0
     if not score:
         return {"items": [], "meta": {"available": True, "reason": "no_token_hit",
                                         "built_at": h["meta"].get("built_at")}}
