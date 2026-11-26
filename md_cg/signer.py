@@ -35,10 +35,11 @@ import json
 import os
 import secrets
 import sys
+import tempfile
 import time
 
 from .datapath import aux_root
-from .fsutil import publish
+from .fsutil import FileLock, publish
 
 SIGNER_ENV = "MDCG_SIGNER"
 SIGNER_MODULE_ENV = "MDCG_SIGNER_MODULE"
@@ -212,7 +213,6 @@ def _autoload():
     mod = (os.environ.get(SIGNER_MODULE_ENV) or "").strip()
     if not mod or mod in _LOADED_MODULES:
         return
-    _LOADED_MODULES.add(mod)
     try:
         m = importlib.import_module(mod)
     except Exception as e:                     # 加载失败不静默：留给调用方判定
@@ -221,6 +221,7 @@ def _autoload():
     if not callable(reg):
         raise SignerError(f"签名器模块 {mod} 未提供 register()")
     reg()
+    _LOADED_MODULES.add(mod)
 
 
 # 生效条件：name 去空白后非空（为空取 default_name()）且该名已在 _REGISTRY 时构造实例，实例须具备可调用的 sign/verify 否则抛 SignerError；factory 形参含 key_file 时以 key_file 传入构造。
@@ -264,7 +265,7 @@ def key_file_path(path: str = None) -> str:
     return path or os.environ.get(KEY_FILE_ENV) or DEFAULT_KEY_FILE
 
 
-# 生效条件：key_file_path(path) 处可读出非空内容时返回该内容 bytes，否则生成 secrets.token_urlsafe(32) 密钥、经 save_key 落盘后返回该密钥。
+# 生效条件：key_file_path(path) 处可读出非空内容时返回该内容 bytes，否则持 FileLock 原子独占首建并落盘 secrets.token_urlsafe(32) 密钥后返回该密钥。
 def load_key(path: str = None) -> bytes:
     p = key_file_path(path)
     if os.path.exists(p):
@@ -272,23 +273,49 @@ def load_key(path: str = None) -> bytes:
             raw = f.read().strip()
         if raw:
             return raw
-    key = secrets.token_urlsafe(32).encode("utf-8")
-    save_key(key, p)
-    return key
+    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
+    with FileLock(p, timeout=10.0, strict=True):
+        if os.path.exists(p):
+            with open(p, "rb") as f:
+                raw = f.read().strip()
+            if raw:
+                return raw
+        key = secrets.token_urlsafe(32).encode("utf-8")
+        save_key(key, p)
+        return key
 
 
-# 生效条件：key 为 bytes 时原样写、否则 str(key).encode('utf-8')，写入 key_file_path(path) 同目录的临时文件后 publish（带 Windows 短重试的 os.replace）覆盖到该路径并返回它。
+# 生效条件：key 为 bytes 时原样写、否则 str(key).encode('utf-8')，写入 key_file_path(path) 同目录的 0o600 唯一临时文件并 fsync 后 publish（带 Windows 短重试的 os.replace）覆盖到该路径并返回它。
 def save_key(key: bytes, path: str = None) -> str:
     p = key_file_path(path)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    tmp = p + ".tmp"
-    with open(tmp, "wb") as f:
-        f.write(key if isinstance(key, bytes) else str(key).encode("utf-8"))
+    d = os.path.dirname(os.path.abspath(p)) or "."
+    os.makedirs(d, exist_ok=True)
+    data = key if isinstance(key, bytes) else str(key).encode("utf-8")
+    fd, tmp = tempfile.mkstemp(prefix="." + os.path.basename(p) + ".tmp-", dir=d)
     try:
-        os.chmod(tmp, 0o600)
-    except OSError:
-        pass
-    publish(tmp, p)
+        try:
+            os.fchmod(fd, 0o600)
+        except (AttributeError, OSError):
+            pass
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
+            f.flush()
+            try:
+                os.fsync(f.fileno())
+            except OSError:
+                pass
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
+        publish(tmp, p)
+        tmp = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
     return p
 
 
@@ -427,17 +454,27 @@ def weaker_than(pol: dict, base: dict) -> str:
             < _FAIL_RANK.get(base.get("on_verify_fail"), 0)):
         return ("on_verify_fail 由 %s 降为 %s"
                 % (base.get("on_verify_fail"), pol.get("on_verify_fail")))
+    if "sign_on" in base and "sign_on" in pol:
+        base_on = _normalize({"sign_on": base.get("sign_on")})["sign_on"]
+        pol_on = _normalize({"sign_on": pol.get("sign_on")})["sign_on"]
+        removed = sorted(set(base_on) - set(pol_on))
+        if removed:
+            return "sign_on 移除了 %s" % ",".join(removed)
     return ""
 
 
 def loosening(subsystem: str, path: str = None, **kw) -> str:
     """按 set_policy 的**同一合并口径**预判「新策略相对现行策略是否放宽」。
 
-    放宽返回原因串，否则 ''。更换 signer（换验签实现）按放宽处理（保守侧：要求
-    管理权）。本函数**不写盘、无副作用**；`set_policy` 仍是唯一落盘点。
+    放宽返回原因串，否则 ''。更换 signer / default_signer（换验签实现）按放宽处理
+    （保守侧：要求管理权）。本函数**不写盘、无副作用**；`set_policy` 仍是唯一落盘点。
     """
+    d = load_policies(path)
     cur = policy_for(subsystem, path)
     new = {k: v for k, v in kw.items() if v is not None and k != "path"}
+    cur_default = d.get("default_signer") or DEFAULT_SIGNER
+    if new.get("default_signer") and new["default_signer"] != cur_default:
+        return "default_signer 由 %s 换为 %s" % (cur_default, new["default_signer"])
     if "signer" in new and new["signer"] != cur.get("signer"):
         return "signer 由 %s 换为 %s" % (cur.get("signer"), new["signer"])
     nxt = dict(cur)

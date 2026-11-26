@@ -23,9 +23,12 @@ from __future__ import annotations
 
 import io
 import json
+import math
 import os
 import re
 import time
+
+from . import fsutil as _fsutil
 
 GATES_FILE = '_gates.json'
 GATE_LOG = '_gates.jsonl'
@@ -73,18 +76,28 @@ def match_trigger(text, spec):
     return True, 'ok'
 
 
+def _finite_float(val):
+    if isinstance(val, bool) or not isinstance(val, (int, float)):
+        return None
+    f = float(val)
+    return f if math.isfinite(f) else None
+
+
 def is_quoted(text):
-    """粗判：整段是引用/转述形态（块引用、代码块、带「据说/他说/引用」前缀）。
+    """粗判：引用/转述/代码块/不可信记忆标记形态。
     宁可误判成引用（不开），也不误开。"""
     t = str(text or '').strip()
     if not t:
         return True
+    if 'untrusted-memory' in t.lower():
+        return True
     lines = [l for l in t.splitlines() if l.strip()]
-    if lines and all(l.lstrip().startswith(('>', '|')) for l in lines):
+    if lines and (all(l.lstrip().startswith(('>', '|')) for l in lines)
+                  or any(l.lstrip().startswith('>') for l in lines)):
         return True
-    if t.startswith('```'):
+    if '```' in t or '~~~' in t:
         return True
-    for m in ('据说', '他说', '她说', '引用', '转载', '转述', '原文是', 'untrusted-memory'):
+    for m in ('据说', '他说', '她说', '引用', '转载', '转述', '原文是'):
         if m in t[:40]:
             return True
     return False
@@ -100,13 +113,32 @@ def _read_state(root):
 
 
 def _write_state(root, d):
-    with io.open(_path(root, '_gate_state.json'), 'w', encoding='utf-8', newline=chr(10)) as f:
-        json.dump(d, f, ensure_ascii=False, indent=2)
+    p = _path(root, '_gate_state.json')
+    _fsutil.atomic_write(p, json.dumps(d, ensure_ascii=False, indent=2))
+    try:
+        os.chmod(p, 0o600)
+    except OSError:
+        pass
 
 
 def _log(root, row):
     with io.open(_path(root, GATE_LOG), 'a', encoding='utf-8', newline=chr(10)) as f:
         f.write(json.dumps(row, ensure_ascii=False) + chr(10))
+
+
+def _active_window(rec, now):
+    """解析 (opened, ttl, left)；任何非有限/非正/未来时钟回落 None（fail-closed）。"""
+    if not isinstance(rec, dict):
+        return None
+    now_f = _finite_float(time.time() if now is None else now)
+    opened = _finite_float(rec.get('opened_at'))
+    ttl = _finite_float(rec.get('ttl'))
+    if now_f is None or opened is None or ttl is None or ttl <= 0.0:
+        return None
+    elapsed = now_f - opened
+    if not math.isfinite(elapsed) or elapsed < 0.0 or elapsed >= ttl:
+        return None
+    return opened, ttl, ttl - elapsed
 
 
 def open_gate(root, name, text, source='', ttl=DEFAULT_TTL, now=None):
@@ -115,22 +147,33 @@ def open_gate(root, name, text, source='', ttl=DEFAULT_TTL, now=None):
     source 必须显式等于 'user'（调用方对「这是本人当轮原话」负责）；
     其它一切取值（memory / quote / relay / 空）一律拒开。
     """
-    now = time.time() if now is None else float(now)
-    spec = load_specs(root).get(str(name)) or {}
-    if not spec:
+    now_f = _finite_float(time.time() if now is None else now)
+    if now_f is None:
+        return {'ok': False, 'reason': '非法时钟值（now 须为有限数值）'}
+    ttl_f = _finite_float(ttl)
+    if ttl_f is None or ttl_f <= 0.0:
+        return {'ok': False, 'reason': '非法 ttl（须为正有限秒数）：%r' % (ttl,)}
+    spec = load_specs(root).get(str(name))
+    if not isinstance(spec, dict) or not spec:
         return {'ok': False, 'reason': '未配置该闸（fail-closed）'}
     if str(source or '') != 'user':
         return {'ok': False, 'reason': '来源不是本人原话：%r' % (source,)}
     if is_quoted(text):
         return {'ok': False, 'reason': '引用/转述形态，不触发'}
-    ok, why = match_trigger(text, spec)
+    try:
+        ok, why = match_trigger(text, spec)
+    except Exception as exc:
+        return {'ok': False, 'reason': '闸配置损坏：%s' % (type(exc).__name__,)}
     if not ok:
         return {'ok': False, 'reason': why}
-    st = _read_state(root)
-    st[str(name)] = {'opened_at': now, 'ttl': float(ttl)}
-    _write_state(root, st)
-    _log(root, {'t': round(now, 1), 'gate': str(name), 'event': 'open', 'ttl': float(ttl), 'source': 'user'})
-    return {'ok': True, 'reason': '已开', 'ttl': float(ttl)}
+    try:
+        st = _read_state(root)
+        st[str(name)] = {'opened_at': now_f, 'ttl': ttl_f}
+        _write_state(root, st)
+        _log(root, {'t': round(now_f, 1), 'gate': str(name), 'event': 'open', 'ttl': ttl_f, 'source': 'user'})
+    except OSError as exc:
+        return {'ok': False, 'reason': '状态落盘失败：%s' % (type(exc).__name__,)}
+    return {'ok': True, 'reason': '已开', 'ttl': ttl_f}
 
 
 STAMP_MARK = '开闸依据：'
@@ -140,20 +183,20 @@ STAMP_MARK = '开闸依据：'
 # 为什么是"留痕"不是"拦截"：代码拦不住一次直写，但能要求每次私密写入带上开闸证据，
 # 事后由 we_time 审计核对——**没证据的私密节点可被发现**，这才是可追责的形态。
 def stamp(root, name, now=None):
-    now = time.time() if now is None else float(now)
+    now_f = _finite_float(time.time() if now is None else now)
+    if now_f is None:
+        return None
     rec = _read_state(root).get(str(name))
-    if not isinstance(rec, dict):
+    win = _active_window(rec, now_f)
+    if win is None:
         return None
+    opened, ttl, _left = win
     try:
-        opened = float(rec.get('opened_at') or 0)
-        ttl = float(rec.get('ttl') or 0)
-    except (TypeError, ValueError):
+        return '%s%s / ttl %ds / at %s' % (
+            STAMP_MARK, time.strftime('%Y-%m-%d %H:%M', time.localtime(opened)),
+            int(ttl), time.strftime('%Y-%m-%d %H:%M', time.localtime(now_f)))
+    except (OSError, OverflowError, ValueError):
         return None
-    if (now - opened) >= ttl:
-        return None
-    return '%s%s / ttl %ds / at %s' % (
-        STAMP_MARK, time.strftime('%Y-%m-%d %H:%M', time.localtime(opened)),
-        int(ttl), time.strftime('%Y-%m-%d %H:%M', time.localtime(now)))
 
 
 # 生效条件：闸开着返回 True；否则抛 GateClosed。给"必须硬拦"的调用点用。
@@ -168,35 +211,32 @@ def require(root, name, now=None):
 
 
 def close_gate(root, name, reason='', now=None):
-    now = time.time() if now is None else float(now)
+    now_f = _finite_float(time.time() if now is None else now)
+    if now_f is None:
+        now_f = time.time()
     st = _read_state(root)
     if str(name) in st:
         st.pop(str(name), None)
         _write_state(root, st)
-    _log(root, {'t': round(now, 1), 'gate': str(name), 'event': 'close', 'reason': str(reason)[:60]})
+    _log(root, {'t': round(now_f, 1), 'gate': str(name), 'event': 'close', 'reason': str(reason)[:60]})
     return {'ok': True}
 
 
 def is_open(root, name, now=None):
-    now = time.time() if now is None else float(now)
     rec = _read_state(root).get(str(name))
-    if not isinstance(rec, dict):
-        return False
-    try:
-        return (now - float(rec.get('opened_at') or 0)) < float(rec.get('ttl') or 0)
-    except (TypeError, ValueError):
-        return False
+    return _active_window(rec, now) is not None
 
 
 def state(root, now=None):
     """读数：只给「开没开 + 还剩多久」，**不回显口令**。"""
-    now = time.time() if now is None else float(now)
+    now_f = _finite_float(time.time() if now is None else now)
     out = {}
+    st = _read_state(root)
     for name in load_specs(root):
-        rec = _read_state(root).get(name)
-        if isinstance(rec, dict):
-            left = float(rec.get('ttl') or 0) - (now - float(rec.get('opened_at') or 0))
-            out[name] = {'open': left > 0, 'left_s': round(max(0.0, left), 1)}
+        rec = st.get(name)
+        win = _active_window(rec, now_f) if now_f is not None else None
+        if win is not None:
+            out[name] = {'open': True, 'left_s': round(max(0.0, win[2]), 1)}
         else:
             out[name] = {'open': False, 'left_s': 0.0}
     return out
