@@ -55,7 +55,10 @@ def _is_sensitive_or_private(rec, fm=None):
             if s == "restricted" or _crypto.is_encrypted_level(s):
                 return True
         tags = src.get("tags") or ()
-        if isinstance(tags, (list, tuple, set)):
+        if isinstance(tags, str):
+            if tags.strip() == _PRIVATE_DOMAIN_TAG:
+                return True
+        elif isinstance(tags, (list, tuple, set)):
             for t in tags:
                 if str(t).strip() == _PRIVATE_DOMAIN_TAG:
                     return True
@@ -162,10 +165,12 @@ def build(store, write=True, with_content=False, content_limit=400):
             node = store.get(nid)
             nfm = (node or {}).get("frontmatter") if isinstance(node, dict) else None
             raw_content = (node or {}).get("content") if isinstance(node, dict) else None
-            if (node
-                    and not _is_sensitive_or_private(node, nfm)
-                    and not _is_non_recallable(node, nfm)
-                    and not _crypto.is_encrypted(raw_content)):
+            if node and (
+                    _is_sensitive_or_private(node, nfm)
+                    or _is_non_recallable(node, nfm)
+                    or _crypto.is_encrypted(raw_content)):
+                continue
+            if node:
                 body = str(raw_content or "")[:content_limit * 8].lower()
                 if body:
                     text = text + " " + body

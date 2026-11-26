@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import math
 import os
 import re
 import time
@@ -86,7 +87,10 @@ def _node_eligible(store, nid, node, validity=False, now=None):
         if layer and str(layer).strip().lower() in _ISOLATED_LAYERS:
             return False
         tags = src.get("tags") or ()
-        if isinstance(tags, (list, tuple, set)):
+        if isinstance(tags, str):
+            if tags.strip() == _PRIVATE_DOMAIN_TAG:
+                return False
+        elif isinstance(tags, (list, tuple, set)):
             for t in tags:
                 if str(t).strip() == _PRIVATE_DOMAIN_TAG:
                     return False
@@ -276,7 +280,17 @@ def _is_expired(node, now=None):
     fm = node.get("frontmatter") or {}
     if not isinstance(fm, dict):
         return False
-    t = time.time() if now is None else float(now)
+    if now is None:
+        t = time.time()
+    else:
+        if isinstance(now, bool):
+            return False
+        try:
+            t = float(now)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(t):
+            return False
     # 过滤掉 bool 伪时间戳后再委托 trust.is_expired
     clean_fm = {k: v for k, v in fm.items()
                 if not (isinstance(v, bool) and (k in _trust.UNTIL_ALIASES or k in _trust.FROM_ALIASES))}

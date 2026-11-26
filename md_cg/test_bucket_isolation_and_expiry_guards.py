@@ -101,6 +101,28 @@ class TestBucketIsolationAndExpiryGuards(unittest.TestCase):
             self.assertNotIn(tok, terms_txt)
         self.assertIn("public_ok_token_11", skel_txt)
 
+        # Even if store.index is stale and lacks sensitivity, disk frontmatter sensitivity=private
+        # must skip both body and metadata tags from _bucketskel.json / _bucketterms.json.
+        class _StaleIdxStore:
+            root = os.path.join(self._tmp, "stale_idx")
+            index = {"nodes": {"n_stale": {
+                "id": "n_stale", "created_at": now, "session": "sess_a",
+                "tags": ["stale_secret_tag_xyz"],
+            }}}
+            def get(self, nid):
+                return {"id": nid, "content": "STALE_SECRET_BODY",
+                        "frontmatter": {"sensitivity": "private", "created_at": now}}
+
+        os.makedirs(_StaleIdxStore.root, exist_ok=True)
+        BI.build(_StaleIdxStore(), write=True, with_content=True)
+        with open(os.path.join(_StaleIdxStore.root, BI.SKEL_FILE), encoding="utf-8") as fh:
+            stale_skel = fh.read()
+        with open(os.path.join(_StaleIdxStore.root, BI.TERMS_FILE), encoding="utf-8") as fh:
+            stale_terms = fh.read()
+        self.assertNotIn("stale_secret_tag_xyz", stale_skel)
+        self.assertNotIn("stale_secret_body", stale_skel)
+        self.assertNotIn("xyz", stale_terms)
+
     def test_02_default_recall_and_pick_block_retired_isolated_ciphertext_and_private_domain(self):
         now = 1760000000.0
         self.cg.add("n_arch", "archived memory alpha_query", layer="contextual", session="sess_a", created_at=now)
