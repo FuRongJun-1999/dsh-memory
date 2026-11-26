@@ -194,7 +194,7 @@ def _edge_conf(edge):
     try:
         raw = edge.get("confidence", 1.0)
         if isinstance(raw, bool):
-            return 1.0
+            return 0.0
         val = float(raw)
     except (AttributeError, TypeError, ValueError):
         return 1.0
@@ -642,6 +642,10 @@ def _generate(cg, start_id, horizon, max_branches, semantic=True):
     if not start_id or start_id not in _nodes(cg) or not _node_visible(cg, start_id):
         return {"status": "start_not_found", "start_id": start_id,
                 "routes": [], "meta": {"reason": "节点不存在"}}
+    if isinstance(horizon, bool):
+        raise ValueError(f"horizon 不接受 bool：{horizon!r}")
+    if isinstance(max_branches, bool):
+        raise ValueError(f"max_branches 不接受 bool：{max_branches!r}")
     horizon = max(1, min(int(horizon), HORIZON_HARD))
     max_branches = max(1, min(int(max_branches), MAX_BRANCHES_HARD))
     ver = hit_rate(cg)
@@ -954,8 +958,20 @@ def _write_gap(cg, bid, step, actor):
         sens = _sg.node_sensitivity(cg, bid)
         if sens is None:
             return None
+        disk_fm = None
+        if not crypto.is_encrypted_level(sens):
+            try:
+                src_node = cg.get(bid)
+            except Exception:
+                src_node = None
+            if isinstance(src_node, dict):
+                disk_fm = src_node.get("frontmatter") or {}
+                fm_sens = _sg._sensitivity_of(disk_fm)
+                sens = _sg._higher_sensitivity(sens, fm_sens)
+                if sens is None:
+                    return None
         add_kw["sensitivity"] = sens
-        if "域:私密" in (src_entry.get("tags") or ()):
+        if _sg._node_has_private_domain(cg, bid, entry=src_entry, fm=disk_fm):
             tags.append("域:私密")
         if crypto.is_encrypted_level(sens):
             desc_txt = "（高密级盲区，正文不抄入线索节点）"
@@ -1124,9 +1140,12 @@ def causal_path(cg, a_id, b_id, max_depth=5):
     if not start or not goal:
         return {"ok": False, "error": "missing_node",
                 "detail": "需要 a_id 与 b_id"}
+    if isinstance(max_depth, bool):
+        raise ValueError(f"max_depth 不接受 bool：{max_depth!r}")
+    depth_limit = max(1, int(max_depth))
     if not _node_visible(cg, start) or not _node_visible(cg, goal):
         return {"ok": True, "reachable": False, "path": None, "length": None,
-                "max_depth": max(1, int(max_depth)),
+                "max_depth": depth_limit,
                 "note": "无因果路径：节点不可见或不存在"}
     if start == goal:
         return {"ok": True, "reachable": True, "path": [start], "length": 0,

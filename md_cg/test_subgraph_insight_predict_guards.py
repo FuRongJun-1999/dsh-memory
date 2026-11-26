@@ -313,6 +313,112 @@ class SubgraphInsightPredictGuards(unittest.TestCase):
         self.assertIn("域:私密", gnd["frontmatter"].get("tags") or [])
         self.assertNotIn("机密未决问题正文XYZ", gnd["content"])
 
+    def test_subgraph_scoped_scope_no_cross_principal_cache_leak(self):
+        # Admin populates children_index / parents_index on the shared MdCGSecure instance,
+        # then guest reads through scoped_scope AND direct principal reassignment.
+        adm_ch = subgraph.children_index(self.cg_a)
+        adm_pa = subgraph.parents_index(self.cg_a)
+        self.assertIn("sec_child", adm_ch.get("pub_root", []))
+        self.assertIn("pub_root", adm_pa.get("sec_child", []))
+
+        with self.cg_a.scoped_scope(principal=self.guest):
+            self.assertNotIn("sec_child", subgraph.children_index(self.cg_a).get("pub_root", []))
+            self.assertNotIn("sec_child", subgraph.parents_index(self.cg_a))
+            ex = subgraph.expand(self.cg_a, "pub_root")
+            self.assertNotIn("sec_child", ex["nodes"])
+
+        # Reverse direction: guest view must not poison admin view either
+        orig_p = self.cg_a.principal
+        try:
+            self.cg_a.principal = self.guest
+            self.assertNotIn("sec_child", subgraph.children_index(self.cg_a).get("pub_root", []))
+            self.cg_a.principal = orig_p
+            self.assertIn("sec_child", subgraph.children_index(self.cg_a).get("pub_root", []))
+        finally:
+            self.cg_a.principal = orig_p
+
+    def test_stale_index_no_sensitivity_downgrade_or_private_domain_drop(self):
+        # Disk has secret + 域:私密 while stale index says internal + []
+        self.cg_a.add(
+            "stale_sec_priv",
+            "# 功能名：陈旧索引机密\n# 生效条件：绝密部署参数\n# 不适用条件：公开\n",
+            layer="contextual",
+            sensitivity="secret",
+            tags=["域:私密"],
+        )
+        ent = self.cg_a.index["nodes"]["stale_sec_priv"]
+        orig_sens, orig_tags = ent.get("sensitivity"), list(ent.get("tags") or [])
+        try:
+            ent["sensitivity"] = "internal"
+            ent["tags"] = []
+
+            rec = subgraph.reconstruct_scene(self.cg_a, ids=["stale_sec_priv"], apply=True)
+            self.assertEqual(rec["condition_space"]["sensitivity"], "secret")
+            sid = rec["scene_id"]
+            scene_node = self.cg_a.get(sid)
+            self.assertEqual(scene_node["frontmatter"].get("sensitivity"), "secret")
+            self.assertIn("域:私密", scene_node["frontmatter"].get("tags") or [])
+
+            step = {"description": "绝密部署参数正文", "hint": "待补", "terminal": "unresolved"}
+            gid = predict._write_gap(self.cg_a, "stale_sec_priv", step, actor="insight")
+            self.assertIsNotNone(gid)
+            gnd = self.cg_a.get(gid)
+            self.assertEqual(gnd["frontmatter"].get("sensitivity"), "secret")
+            self.assertIn("域:私密", gnd["frontmatter"].get("tags") or [])
+            self.assertNotIn("绝密部署参数正文", gnd["content"])
+        finally:
+            ent["sensitivity"] = orig_sens
+            ent["tags"] = orig_tags
+
+    def test_insight_governance_tags_basis_and_nonfinite_window_guards(self):
+        r = insight.record(
+            self.cg_a,
+            statement="不可伪造的未验证洞见",
+            tags=[insight.TAG_VERIFIED, insight.TAG_FALSIFIED, "custom_tag"],
+            verification_basis="data",
+            insight_reason="forged",
+        )
+        nd = self.cg_a.get(r["node_id"])
+        fm = nd["frontmatter"]
+        self.assertEqual(fm.get("insight_state"), insight.STATE_PENDING)
+        self.assertNotEqual(fm.get("verification_basis"), "data")
+        self.assertNotIn(insight.TAG_VERIFIED, fm.get("tags") or [])
+        self.assertNotIn(insight.TAG_FALSIFIED, fm.get("tags") or [])
+        self.assertIn("custom_tag", fm.get("tags") or [])
+        self.assertIsNone(fm.get("insight_reason"))
+
+        for bad_val in (float("nan"), float("inf"), True):
+            with self.assertRaises(ValueError):
+                insight.outlook(self.cg_a, now=bad_val)
+            with self.assertRaises(ValueError):
+                insight.report(self.cg_a, now=bad_val)
+            with self.assertRaises(ValueError):
+                insight.report(self.cg_a, window_days=bad_val)
+        with self.assertRaises(ValueError):
+            insight.report(self.cg_a, window_days=-1.0)
+
+    def test_subgraph_separation_validate_and_predict_bool_nan_guards(self):
+        with self.assertRaises(ValueError):
+            subgraph.separation_pairs(self.cg_a, min_jaccard=float("nan"))
+        with self.assertRaises(ValueError):
+            subgraph.separation_pairs(self.cg_a, max_cond_overlap=float("inf"))
+        with self.assertRaises(ValueError):
+            subgraph.separation_pairs(self.cg_a, max_nodes=True)
+        res_neg = subgraph.separation_pairs(self.cg_a, max_nodes=-1, limit=-1)
+        self.assertEqual(res_neg["scanned"], 0)
+        self.assertEqual(res_neg["candidates"], [])
+
+        val_neg = subgraph.validate(self.cg_a, limit=-1, max_scan=-1)
+        self.assertEqual(val_neg["scanned"], 0)
+        self.assertEqual(val_neg["items"], [])
+        with self.assertRaises(ValueError):
+            subgraph.validate(self.cg_a, limit=True)
+
+        self.assertEqual(predict._edge_conf({"confidence": False}), 0.0)
+        self.assertEqual(predict._edge_conf({"confidence": True}), 0.0)
+        with self.assertRaises(ValueError):
+            predict.causal_path(self.cg_a, "pub_root", "pub_leaf", max_depth=True)
+
 
 if __name__ == "__main__":
     try:

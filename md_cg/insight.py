@@ -206,7 +206,10 @@ def record(cg, statement=None, conditions=None, category="", source="",
                 "state": fm.get("insight_state"), "window": w,
                 "existed_before": True, "duplicate": True,
                 "note": "同正文事件已存在，未重复写入（幂等）"}
-    tg = [TAG_EVENT] + [str(t) for t in (tags or [])]
+    tg = [TAG_EVENT] + [
+        str(t) for t in (tags or [])
+        if str(t) not in (TAG_VERIFIED, TAG_FALSIFIED)
+    ]
     if category:
         tg.append("insight_cat:%s" % category)
     body = statement if statement.endswith("\n") else statement + "\n"
@@ -229,7 +232,10 @@ def record(cg, statement=None, conditions=None, category="", source="",
         "insight_evidence": [],
         "insight_history": [],
     }
-    _reserved = frozenset(fm_extra.keys()) | {"protected", "protection_reason"}
+    _reserved = frozenset(fm_extra.keys()) | {
+        "protected", "protection_reason", "verification_basis",
+        "insight_reason", "tags", "layer", "importance", "actor",
+    }
     merged_extra = {k: v for k, v in extra.items() if k not in _reserved}
     merged_extra.update(fm_extra)
     cg.add(nid, body, layer=INSIGHT_LAYER, tags=tg,
@@ -402,7 +408,16 @@ def list_events(cg, state=None, limit=0):
                     "created_at": fm.get("created_at"),
                     "evidence_count": len(fm.get("insight_evidence") or []),
                     "reason": fm.get("insight_reason")})
-    out.sort(key=lambda x: x.get("created_at") or 0)
+    def _ts_key(val):
+        if val is None or isinstance(val, bool):
+            return 0.0
+        try:
+            fv = float(val)
+        except (TypeError, ValueError):
+            return 0.0
+        return fv if math.isfinite(fv) else 0.0
+
+    out.sort(key=lambda x: _ts_key(x.get("created_at")))
     if limit is None:
         return out
     if isinstance(limit, bool):
@@ -413,6 +428,20 @@ def list_events(cg, state=None, limit=0):
     return out[-lim:] if lim > 0 else out
 
 
+def _coerce_finite_opt(val, name, *, allow_neg=True):
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        raise ValueError(f"{name} 不接受 bool：{val!r}")
+    try:
+        fv = float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是有限数值：{val!r}") from exc
+    if not math.isfinite(fv) or (not allow_neg and fv < 0.0):
+        raise ValueError(f"{name} 必须是有限数值：{val!r}")
+    return fv
+
+
 # 生效条件：now 为 None/0 等假值时取 time.time()，window_days 为真值时按 now - window_days*86400 过滤 created_at；已裁决数 verified+falsified < CER_MIN_SAMPLES 时直接返回 cer/se/two_se/significant 为 None、layer_state="insufficient" 的结果，否则按 p=verified/denom 算出 se 与 significant，significant 为假时 p<0.3 取 degraded、否则 watch，significant 为真时 p≥0.5 取 reliable、否则 watch。
 def report(cg, window_days=None, now=None):
     """CER 条件有效洞见率报告（样本不足不判定）。
@@ -420,11 +449,22 @@ def report(cg, window_days=None, now=None):
     CER = verified /（verified + falsified）；显著性带宽 = 2×SE，
     SE = sqrt(p(1-p)/n)。层状态：reliable / watch / degraded / insufficient。
     """
-    now = float(now or time.time())
+    now_v = _coerce_finite_opt(now, "now")
+    now = float(now_v or time.time())
+    wd_v = _coerce_finite_opt(window_days, "window_days", allow_neg=False)
     events = list_events(cg)
-    if window_days:
-        lo = now - float(window_days) * 86400.0
-        events = [e for e in events if (e.get("created_at") or 0) >= lo]
+    if wd_v:
+        lo = now - wd_v * 86400.0
+        def _ev_ts(e):
+            v = e.get("created_at")
+            if v is None or isinstance(v, bool):
+                return 0.0
+            try:
+                fv = float(v)
+                return fv if math.isfinite(fv) else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+        events = [e for e in events if _ev_ts(e) >= lo]
     n = len(events)
     verified = sum(1 for e in events if e["state"] == STATE_VERIFIED)
     falsified = sum(1 for e in events if e["state"] == STATE_FALSIFIED)
@@ -495,7 +535,8 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
     rd = float(recent_days)
     if not math.isfinite(rd) or rd < 0.0:
         raise ValueError(f"recent_days 必须是非负有限数：{recent_days!r}")
-    now = float(now or time.time())
+    now_v = _coerce_finite_opt(now, "now")
+    now = float(now_v or time.time())
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     vis_items = [(nid, e) for nid, e in list(nodes.items()) if _sec.visible_to(cg, e)]
     total = len(vis_items)

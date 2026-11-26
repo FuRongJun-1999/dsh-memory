@@ -167,6 +167,24 @@ def _is_private_domain_tags(tags):
     return "域:私密" in (tags or ())
 
 
+def _node_has_private_domain(cg, nid, entry=None, fm=None):
+    """检查节点是否含 域:私密 标签（索引与盘面 frontmatter 并集，防索引陈旧漏标）。"""
+    e = entry if isinstance(entry, dict) else (
+        ((getattr(cg, "index", None) or {}).get("nodes") or {}).get(nid)
+    )
+    if isinstance(e, dict) and _is_private_domain_tags(e.get("tags")):
+        return True
+    if isinstance(fm, dict):
+        return _is_private_domain_tags(fm.get("tags"))
+    try:
+        node = cg.get(nid)
+    except Exception:
+        node = None
+    return bool(isinstance(node, dict) and _is_private_domain_tags(
+        (node.get("frontmatter") or {}).get("tags")
+    ))
+
+
 def _safe_nonneg_int(val, name, default=None):
     if val is None:
         return default
@@ -175,15 +193,38 @@ def _safe_nonneg_int(val, name, default=None):
     return max(0, int(val))
 
 
+def _safe_finite_float(val, name):
+    if isinstance(val, bool) or val is None:
+        raise ValueError(f"{name} 必须是有限数值：{val!r}")
+    try:
+        fv = float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是有限数值：{val!r}") from exc
+    if not math.isfinite(fv):
+        raise ValueError(f"{name} 必须是有限数值（非 inf/nan）：{val!r}")
+    return fv
+
+
+def _higher_sensitivity(s1, s2):
+    """返回两密级中更严格者；任一为 None 则 fail-closed 返回 None。"""
+    if s1 is None or s2 is None:
+        return None
+    from . import security as _sec
+    return s1 if _sec._rank(s1) >= _sec._rank(s2) else s2
+
+
 def children_index(cg):
     """全局正查；声明和边共用单一方向规则，保留首次出现顺序。"""
     _ensure_cache_generation(cg)          # #343 换代守卫
-    idx = getattr(cg, "_subgraph_children", None)
-    if idx is not None:
-        return idx
+    has_vis = _has_visibility_guard(cg)
+    # 带主体的安全实例可在同一对象上通过 scoped_scope/principal 切换身份，
+    # 不得读写无主体维度的共享 _subgraph_children 缓存，防止高权视图泄漏给低权主体。
+    if not has_vis:
+        idx = getattr(cg, "_subgraph_children", None)
+        if idx is not None:
+            return idx
     idx, pairs = {}, set()
     nodes_map = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    has_vis = _has_visibility_guard(cg)
     for pid, entry in list(nodes_map.items()):
         if has_vis and not _entry_visible(cg, entry):
             continue
@@ -195,10 +236,11 @@ def children_index(cg):
                 continue
             pairs.add((child, parent))
             idx.setdefault(parent, []).append(child)
-    try:
-        cg._subgraph_children = idx
-    except Exception:
-        pass
+    if not has_vis:
+        try:
+            cg._subgraph_children = idx
+        except Exception:
+            pass
     return idx
 
 
@@ -212,12 +254,13 @@ def children(cg, nid):
 def parents_index(cg):
     """全局反查；与 children_index 共用规范化后的同一边集合。"""
     _ensure_cache_generation(cg)          # #343 换代守卫
-    idx = getattr(cg, "_subgraph_parents", None)
-    if idx is not None:
-        return idx
+    has_vis = _has_visibility_guard(cg)
+    if not has_vis:
+        idx = getattr(cg, "_subgraph_parents", None)
+        if idx is not None:
+            return idx
     idx, pairs = {}, set()
     nodes_map = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    has_vis = _has_visibility_guard(cg)
     for pid, entry in list(nodes_map.items()):
         if has_vis and not _entry_visible(cg, entry):
             continue
@@ -229,10 +272,11 @@ def parents_index(cg):
                 continue
             pairs.add((child, parent))
             idx.setdefault(child, []).append(parent)
-    try:
-        cg._subgraph_parents = idx
-    except Exception:
-        pass
+    if not has_vis:
+        try:
+            cg._subgraph_parents = idx
+        except Exception:
+            pass
     return idx
 
 
@@ -279,6 +323,7 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
         if not _sec.node_visible(cg, nid):
             return {"root": nid, "nodes": [], "paths": {}, "edges": [],
                     "n_nodes": 0, "n_edges": 0, "truncated": False}
+    cmap = children_index(cg)
     seen, edges, truncated = {}, [], False
     seen_edges = set()
     queue = deque([(nid, 0, nid)])
@@ -290,7 +335,7 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
             truncated = True
             break
         seen[cur] = path
-        adjacency = children_index(cg).get(cur) or ()
+        adjacency = cmap.get(cur) or ()
         if max_depth is not None and depth >= max_depth:
             if adjacency:
                 truncated = True
@@ -375,13 +420,16 @@ def _cycle_entries(parent):
 # 生效条件：max_scan 只限源节点处理数，以全节点快照判断悬空端点；层级关系统一经 _hierarchy_pairs，报告自环/悬空/多父，再检查首父投影的环；保留旧声明图的报告顺序、路径和 limit*4 缓冲上限。
 def validate(cg, limit=50, max_scan=None):
     """声明和边使用同一层级模型；有多父即报错，环沿首父投影诊断。"""
+    limit = _safe_nonneg_int(limit, "limit", 50)
     nodes_map = (getattr(cg, "index", None) or {}).get("nodes") or {}
     has_vis = _has_visibility_guard(cg)
     all_known = [nid for nid, e in list(nodes_map.items())
                  if (not has_vis or _entry_visible(cg, e))]
     known = all_known
-    if max_scan:
-        known = known[:int(max_scan)]
+    if max_scan is not None:
+        max_scan_i = _safe_nonneg_int(max_scan, "max_scan")
+        if max_scan != 0:
+            known = known[:max_scan_i]
     known_set = set(all_known)
     parent, issues, seen_pairs = {}, [], set()
 
@@ -532,6 +580,10 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
           truncated, note}。只读，不写盘。
     """
     from . import consistency
+    max_nodes_i = _safe_nonneg_int(max_nodes, "max_nodes", SEP_MAX_NODES)
+    limit_i = _safe_nonneg_int(limit, "limit", SEP_MAX_PAIRS)
+    min_jac_f = _safe_finite_float(min_jaccard, "min_jaccard")
+    max_ov_f = _safe_finite_float(max_cond_overlap, "max_cond_overlap")
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     has_vis = _has_visibility_guard(cg)
     pool = [nid for nid, e in list(nodes.items())
@@ -541,8 +593,8 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
         want = {str(x) for x in ids}
         pool = [nid for nid in pool if nid in want]
     pool.sort()
-    truncated = len(pool) > int(max_nodes)
-    pool = pool[:int(max_nodes)]
+    truncated = len(pool) > max_nodes_i
+    pool = pool[:max_nodes_i]
     cache = {}
     for nid in pool:
         got = _node_terms_and_grams(cg, nid)
@@ -559,13 +611,13 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
                 continue
             compared += 1
             jac = inter / float(len(gi | gj) or 1)
-            if jac < float(min_jaccard):
+            if jac < min_jac_f:
                 continue
             a, b = keys[i], keys[j]
             cd = consistency.condition_distinct(
                 cache[a]["pos"], cache[a]["neg"],
                 cache[b]["pos"], cache[b]["neg"])
-            if not cd["distinct"] or cd["overlap"] > float(max_cond_overlap):
+            if not cd["distinct"] or cd["overlap"] > max_ov_f:
                 continue                       # 条件相同 → 是重复，不是分离
             out.append({
                 "a": a, "b": b,
@@ -578,7 +630,7 @@ def separation_pairs(cg, layer=None, ids=None, max_nodes=SEP_MAX_NODES,
             })
     out.sort(key=lambda x: (-x["jaccard"], x["a"], x["b"]))
     return {"scanned": len(keys), "compared": compared,
-            "candidates": out[:int(limit)],
+            "candidates": out[:limit_i],
             "total_candidates": len(out), "truncated": truncated,
             "note": "只读候选；apply=True 才写分离边"}
 
@@ -777,6 +829,7 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
     nodes_map = (getattr(cg, "index", None) or {}).get("nodes") or {}
     has_vis = _has_visibility_guard(cg)
     pos_sets, neg_sets, per, visible_anchors = [], [], {}, []
+    disk_sens_overrides = {}
     for nid in anchor_ids:
         e = nodes_map.get(nid)
         if has_vis:
@@ -797,6 +850,7 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
         fm = node.get("frontmatter") or {}
         raw_content = node.get("content") or ""
         fm_sens = _sensitivity_of(fm)
+        disk_sens_overrides[nid] = fm_sens
         if fm_sens is None or crypto.is_encrypted_level(fm_sens) or crypto.is_encrypted(raw_content):
             per[nid] = {"effective": [], "non_applicable": []}
             continue
@@ -806,10 +860,16 @@ def _condition_space(cg, anchor_ids, declared_terms=None):
         per[nid] = {"effective": sorted(pos)[:8], "non_applicable": sorted(neg)[:8]}
     common = _shared_terms(pos_sets)
     individual = [t for t in _uniq_terms(pos_sets) if t not in common]
+    eff_sens = derive_sensitivity(cg, visible_anchors)
+    if eff_sens is not None:
+        for fm_sens in disk_sens_overrides.values():
+            eff_sens = _higher_sensitivity(eff_sens, fm_sens)
+            if eff_sens is None:
+                break
     return {"common": common, "individual": individual,
             "non_applicable": _uniq_terms(neg_sets),
             "declared": list(declared_terms or []), "per_anchor": per,
-            "sensitivity": derive_sensitivity(cg, visible_anchors)}
+            "sensitivity": eff_sens}
 
 
 # 生效条件：以 cg.index["nodes"] 为节点池（layer 为真时只保留 layer 等于该值的节点，池按 max_nodes 截断），由 clues 词项与 ids 收集锚点并截取 limit 个，锚点为空则返回 status="blindspot" 且 condition_space=None，否则返回 status="reconstructed"（neighbors 为真时按链邻接补边并在 max_nodes 内补节点，apply 为真且算出的 scene_id 尚不在 nodes 中时再写入该情境节点并记日志）；
@@ -941,7 +1001,7 @@ def reconstruct_scene(cg, clues=None, ids=None, conditions=None, layer=None,
                 % ("、".join(clue_terms[:6]) or "线索", common_txt, len(anchor_ids),
                    "、".join(anchor_ids), neg_txt))
             has_priv_dom = any(
-                _is_private_domain_tags((vis_nodes.get(aid) or {}).get("tags"))
+                _node_has_private_domain(cg, aid, entry=vis_nodes.get(aid))
                 for aid in anchor_ids
             )
             scene_tags = ["scene", "reconstructed"]
