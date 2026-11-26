@@ -17,6 +17,7 @@ from __future__ import annotations
 import math
 import os
 import re
+import threading
 
 from . import bucketindex as _bi
 
@@ -69,9 +70,26 @@ def _meta_blob(store, nid):
     return " ".join(parts).lower()
 
 
-#: 桶词表缓存（按文件 mtime 失效）：1.6MB JSON 每次 _load 要 0.5s，缓存后毫秒级。
+#: 桶词表缓存（按规范路径 + st_mtime_ns + size + ino 失效，线程安全）：1.6MB JSON 每次 _load 要 0.5s，缓存后毫秒级。
+_CACHE_LOCK = threading.Lock()
 _TABLE_CACHE = {"key": None, "table": None}
 _SKEL_CACHE = {"key": None, "table": None}
+
+
+def _load_cached(cache, store, filename):
+    root = getattr(store, "root", None) or ""
+    path = os.path.abspath(os.path.join(str(root), filename)) if root else ""
+    try:
+        st = os.stat(path)
+        key = (path, st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        key = None
+    with _CACHE_LOCK:
+        if key is None or cache["key"] != key or cache["table"] is None:
+            data = _bi._load(store, filename) or {}
+            cache["table"] = data
+            cache["key"] = key
+        return cache["table"]
 
 
 def score_buckets(store, query, max_nodes_per_bucket=None):
@@ -81,17 +99,7 @@ def score_buckets(store, query, max_nodes_per_bucket=None):
     桶词表在**建桶时**顺手落盘（主库 0.36 秒），查询期只做字典运算。
     """
     ts = terms(query)
-    root = getattr(store, "root", None) or ""
-    path = (root + "/" + _bi.TERMS_FILE) if root else ""
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime, st.st_size)
-    except OSError:
-        key = None
-    if _TABLE_CACHE["key"] != key or _TABLE_CACHE["table"] is None:
-        _TABLE_CACHE["table"] = _bi._load(store, _bi.TERMS_FILE) or {}
-        _TABLE_CACHE["key"] = key
-    table = _TABLE_CACHE["table"]
+    table = _load_cached(_TABLE_CACHE, store, _bi.TERMS_FILE)
     if not table or not ts:
         return []
     total = max(1, len(table))
@@ -120,17 +128,7 @@ def score_buckets(store, query, max_nodes_per_bucket=None):
 
 def _table_and_df(store, ts):
     """取桶词表 + 每词的 df（多少桶含它）。两条打分路共用。"""
-    root = getattr(store, "root", None) or ""
-    path = (root + "/" + _bi.TERMS_FILE) if root else ""
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime, st.st_size)
-    except OSError:
-        key = None
-    if _TABLE_CACHE["key"] != key or _TABLE_CACHE["table"] is None:
-        _TABLE_CACHE["table"] = _bi._load(store, _bi.TERMS_FILE) or {}
-        _TABLE_CACHE["key"] = key
-    table = _TABLE_CACHE["table"]
+    table = _load_cached(_TABLE_CACHE, store, _bi.TERMS_FILE)
     total = max(1, len(table))
     doc_hits = {t: 0 for t in ts}
     for _bucket, bag in table.items():
@@ -184,18 +182,8 @@ def cooc_bucket_scores(store, query, min_terms=2, min_term_len=2):
 
 
 def _skel_table(store):
-    """读桶文本骨架（`_bucketskel.json`），带 mtime 缓存。"""
-    root = getattr(store, "root", None) or ""
-    path = (root + "/" + _bi.SKEL_FILE) if root else ""
-    try:
-        st = os.stat(path)
-        key = (path, st.st_mtime, st.st_size)
-    except OSError:
-        key = None
-    if _SKEL_CACHE["key"] != key or _SKEL_CACHE["table"] is None:
-        _SKEL_CACHE["table"] = _bi._load(store, _bi.SKEL_FILE) or {}
-        _SKEL_CACHE["key"] = key
-    return _SKEL_CACHE["table"]
+    """读桶文本骨架（`_bucketskel.json`），带线程安全 mtime_ns 缓存。"""
+    return _load_cached(_SKEL_CACHE, store, _bi.SKEL_FILE)
 
 
 def pick_scopes(store, query, session=None, limit=3, now=None):
