@@ -52,10 +52,54 @@ _FORBIDDEN_KEYS = {"prompt", "content", "spec", "api_key", "base", "model",
 #: 不指定 stdin 时子进程继承父进程 stdin（常驻宿主下是 JSON-RPC 活管道），
 #: 读 stdin 的子进程会悬挂（先例形态 `md_cg/run_tests.py:105`）。
 _GIT_TIMEOUT_S = 120
+_ITER_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,79}")
+_RESERVED_WIN_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
 
 
 class InteropSanityError(ValueError):
     """verdict 脱敏门禁违规（入库即公开，违规内容不得落盘）。"""
+
+
+def validate_iter_id(iter_id) -> str:
+    """iter_id 路径段白名单（单一真源：freeze / dispatch / write_verdict / verify_runner 共用）。
+
+    须以字母或数字开头、仅含 [A-Za-z0-9_.-]（1-80 字符），拒 `.` / `..` / 含 `..` / 尾点 /
+    路径分隔符 / 盘符 `:` / 控制字符 / Windows 保留设备名。违规抛 ValueError。
+    """
+    if not isinstance(iter_id, str) or not _ITER_ID_RE.fullmatch(iter_id):
+        raise ValueError(f"iter_id 非法（入库路径组成部分）: {iter_id!r}")
+    if ".." in iter_id or iter_id.endswith("."):
+        raise ValueError(f"iter_id 非法（入库路径组成部分）: {iter_id!r}")
+    if iter_id.split(".", 1)[0].upper() in _RESERVED_WIN_NAMES:
+        raise ValueError(f"iter_id 非法（命中 Windows 保留设备名）: {iter_id!r}")
+    return iter_id
+
+
+def _ensure_within(path: str, base: str, iter_id: str) -> str:
+    """断言 realpath(path) 严格位于 realpath(base) 之下（防符号链接与路径穿越逃逸）。"""
+    real_base = os.path.realpath(base)
+    real_path = os.path.realpath(path)
+    try:
+        inside = (real_path != real_base
+                  and os.path.commonpath([os.path.normcase(real_path),
+                                          os.path.normcase(real_base)])
+                  == os.path.normcase(real_base))
+    except ValueError:
+        inside = False
+    if not inside:
+        raise ValueError(f"iter_id 非法（目标路径越出 hive/interop）: {iter_id!r}")
+    return real_path
+
+
+def interop_iter_dir(repo: str, iter_id: str) -> str:
+    """校验 iter_id 并返回严格受控于 <repo>/hive/interop/ 之下的目录绝对路径。"""
+    it = validate_iter_id(iter_id)
+    base = os.path.realpath(os.path.join(os.path.abspath(repo), "hive", "interop"))
+    return _ensure_within(os.path.join(base, it), base, it)
 
 
 def _manifest_module():
@@ -117,6 +161,7 @@ def freeze(iter_id: str, out_dir: str = None) -> dict:
     注意（issue #37 J6）：verify_runner 固定读 repo 标准位置——显式 out_dir
     冻结的凭证**不被 runner 识别**（仅适用于单测/离线留痕），此处显式警告。
     """
+    iter_id = validate_iter_id(iter_id)
     if out_dir is not None:
         sys.stderr.write("[interop] 警告：显式 out_dir 的冻结凭证不被 "
                          "verify_runner 识别（runner 固定读 hive/interop/"
@@ -132,9 +177,9 @@ def freeze(iter_id: str, out_dir: str = None) -> dict:
         "missing_patterns": manifest.get("missing_patterns") or [],
     }
     if out_dir is None:
-        out_dir = os.path.join(HERE, "hive", "interop", iter_id)
+        out_dir = interop_iter_dir(HERE, iter_id)
     os.makedirs(out_dir, exist_ok=True)
-    fp = os.path.join(out_dir, "frozen.json")
+    fp = _ensure_within(os.path.join(out_dir, "frozen.json"), out_dir, iter_id)
     with open(fp, "w", encoding="utf-8") as f:
         json.dump(credential, f, ensure_ascii=False, indent=2)
     credential["_path"] = fp
@@ -279,6 +324,7 @@ def dispatch_verify_job(verifier_jobs_dir: str, iter_id: str,
     subject_fingerprint 经 spec.env 传给验证执行器（主实例候选的判据面指纹，
     A2 的比对输入）。
     """
+    iter_id = validate_iter_id(iter_id)
     jobs = os.path.abspath(verifier_jobs_dir)
 # N126-ANCHOR-BEGIN
     # 产出侧（issue #126 B-2a）：派发即冻结本轮判据面——A3 的比对基准。
@@ -337,19 +383,17 @@ def write_verdict_to_repo(verdict: dict, repo: str = HERE,
     """
     sanity_check_verdict(verdict)
     shape_check_verdict(verdict)
-    it = verdict.get("iter_id") or ""
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", it):
-        raise ValueError(f"iter_id 非法（入库路径组成部分）: {it!r}")
-    out_dir = os.path.join(repo, "hive", "interop", it)
+    it = validate_iter_id(verdict.get("iter_id") or "")
+    out_dir = interop_iter_dir(repo, it)
     os.makedirs(out_dir, exist_ok=True)
-    fp = os.path.join(out_dir, "verdict.json")
+    fp = _ensure_within(os.path.join(out_dir, "verdict.json"), out_dir, it)
     with open(fp, "w", encoding="utf-8") as f:
         json.dump(verdict, f, ensure_ascii=False, indent=2)
     out = {"ok": True, "path": fp}
     if do_commit:
         import subprocess
         try:
-            r1 = subprocess.run(["git", "add", os.path.relpath(fp, repo)],
+            r1 = subprocess.run(["git", "add", "--", os.path.relpath(fp, os.path.realpath(repo))],
                                 cwd=repo, capture_output=True, text=True,
                                 encoding="utf-8", errors="replace",
                                 timeout=_GIT_TIMEOUT_S,

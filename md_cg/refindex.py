@@ -1137,16 +1137,19 @@ def prune_dangling(cg, *, only_roots=None, dry_run: bool = False,
 def _is_under(child: str, parent: str) -> bool:
     """child 是否在 parent 之下（路径感知，不是字符串前缀）。"""
     try:
-        c = os.path.realpath(child or "")
-        p = os.path.realpath(parent or "")
+        c = os.path.normcase(os.path.realpath(child or ""))
+        p = os.path.normcase(os.path.realpath(parent or ""))
     except Exception:
         return False
     if not c or not p or c == p:
         return False
-    return c.startswith(p.rstrip(os.sep) + os.sep)
+    try:
+        return os.path.commonpath([c, p]) == p
+    except ValueError:
+        return False
 
 
-# 生效条件：cg 传入；只读遍历 code/doc 节点的 ref，按 (kind, realpath) 分组找「内层 root ⊂ 外层 root」的双写
+# 生效条件：cg 传入；只读遍历 code/doc 节点的 ref，按 (kind, realpath(join(root, path))) 分组找「内层 root ⊂ 外层 root」的双写
 def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
     """扫描存量嵌套根重复。返回 (plan, stats)。
 
@@ -1155,7 +1158,9 @@ def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
 
     判据（三条同时成立才进 plan）：
       ① 同 kind（code_ref 与 doc_ref 后缀面不相交，是两种域，不能互判）；
-      ② 两个节点的 ref 指向**同一 realpath 文件**；
+      ② 两个节点的 ref 指向**同一 realpath 文件**（相对 path 必须相对各自 `ref["root"]`
+         解析，绝不相对进程 CWD——否则不同目录同名文件如 `README.md` 与 `docs/README.md`
+         会碰撞误删，而真嵌套重复 `docs/guide.md` 与 `guide.md` 反而漏判）；
       ③ 两节点的 root 互相嵌套（一内一外）⇒ 判**内层那套**为重复（外层已覆盖同一物理文件）。
 
     不改变 node_id 键（#352-E：改键会动存量 id 稳定性）；不碰多源根合法多域。
@@ -1163,7 +1168,7 @@ def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
     nodes = (getattr(cg, "index", {}) or {}).get("nodes") or {}
     scanned = 0
     truncated = False
-    by_kind = {}   # kind -> {realpath: [ {nid, root, path} ]}
+    by_kind = {}   # kind -> {normcase_realpath: [ {node_id, root, root_key, path} ]}
     for nid in list(nodes):
         e = nodes.get(nid) or {}
         tags = e.get("tags") or []
@@ -1182,23 +1187,37 @@ def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
         kind, ref = ref_of(node)
         if not ref or not ref.get("root") or not ref.get("path"):
             continue
+        raw_root = ref["root"]
+        raw_path = ref["path"]
+        if not isinstance(raw_root, str) or not isinstance(raw_path, str):
+            continue
+        is_abs = os.path.isabs(raw_path)
+        if not is_abs and (os.path.splitdrive(raw_path)[0]
+                           or raw_path.startswith(("/", "\\"))):
+            continue
         try:
-            rp = os.path.realpath(ref["path"])
+            root_rp = os.path.realpath(raw_root)
+            joined = raw_path if is_abs else os.path.join(root_rp, raw_path)
+            rp = os.path.realpath(joined)
         except Exception:
             continue
-        by_kind.setdefault(kind or "", {}).setdefault(rp, []).append(
-            {"node_id": nid, "root": os.path.realpath(ref["root"]), "path": rp})
+        if not _is_under(rp, root_rp):
+            continue
+        rp_key = os.path.normcase(rp)
+        root_key = os.path.normcase(root_rp)
+        by_kind.setdefault(kind or "", {}).setdefault(rp_key, []).append(
+            {"node_id": nid, "root": root_rp, "root_key": root_key, "path": rp})
     plan = []
     groups = 0
     for kind, per_file in by_kind.items():
-        for rp, entries in per_file.items():
-            roots = {e["root"] for e in entries}
+        for _rp_key, entries in per_file.items():
+            roots = {e["root_key"] for e in entries}
             if len(roots) < 2:
                 continue
             inner = []
             for e in entries:
                 outer_has = any(
-                    o["root"] != e["root"] and _is_under(e["root"], o["root"])
+                    o["root_key"] != e["root_key"] and _is_under(e["root"], o["root"])
                     for o in entries)
                 if outer_has:
                     inner.append(e)
@@ -1206,7 +1225,7 @@ def _nested_dup_scan(cg, max_nodes: int = MAX_CHECK):
                 groups += 1
                 for e in inner:
                     plan.append({"node_id": e["node_id"], "kind": kind,
-                                 "root": e["root"], "path": rp,
+                                 "root": e["root"], "path": e["path"],
                                  "reason": "内层根与外层根指向同一物理文件（#770）"})
     return plan, {"scanned": scanned, "truncated": truncated, "groups": groups,
                   "files": len(by_kind.get("code_ref", {})) + len(by_kind.get("doc_ref", {}))}

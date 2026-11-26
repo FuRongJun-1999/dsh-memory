@@ -146,6 +146,7 @@ ENV_SECRET_FAMILIES = (
     ('password', r'(?:^|_)PASS(?:WORD|WD)?(?:$|_)'),
     ('credential', r'(?:^|_)CREDENTIALS?(?:$|_)'),
     ('designer_key', r'^AEIS_DESIGNER_KEY$'),
+    ('result_anchor', r'^HIVE_RESULT_ANCHOR$'),
 )  #: 手写唯一真源；新增族只改这里
 #: _PII_PATTERNS 式派生视图
 ENV_SECRET_RES = tuple((label, re.compile(pat)) for label, pat in ENV_SECRET_FAMILIES)
@@ -362,7 +363,8 @@ def run_cmd(job_dir: str) -> int:
 
     env = {str(k): str(v) for k, v in (spec.get("env") or {}).items()}
     # issue #464：剥离敏感键后再叠加 —— serve 凭据（*_KEY/TOKEN/SECRET/PASSWORD、
-    # AEIS_DESIGNER_KEY）不得经子任务外带；清单派生自 ENV_SECRET_FAMILIES（单一真源）。
+    # AEIS_DESIGNER_KEY、HIVE_RESULT_ANCHOR 完整性锚）不得经子任务外带；
+    # 清单派生自 ENV_SECRET_FAMILIES（单一真源）。_write_result 仍从本进程 os.environ 回写锚。
     env = strip_secret_env(env)
     env = {**strip_secret_env(dict(os.environ)), **env}
     env.setdefault("PYTHONUTF8", "1")

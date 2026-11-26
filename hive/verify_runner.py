@@ -23,8 +23,9 @@ import time
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, REPO)
-from md_cg.interop import (assert_a1, assert_a2, assert_a3, make_verdict,
-                           sanity_check_verdict, shape_check_verdict)
+from md_cg.interop import (assert_a1, assert_a2, assert_a3, interop_iter_dir,
+                           make_verdict, sanity_check_verdict,
+                           shape_check_verdict, validate_iter_id)
 from md_cg.mdcos import sig  # noqa: F401  保持与库同源初始化
 
 
@@ -104,15 +105,14 @@ def _compose_semantics(a_ok: bool, suite_ok: bool):
 def main(argv):
     iter_id = argv[1] if len(argv) > 1 else ""
 
-    # iter_id 白名单（v2 N5/N11，2026-09-25）：CLI 直跑时 argv[1] 是半信任输入
-    # ——`..\` 穿越/绝对路径/含分隔符形态在 :frozen_fp/:out_fp 裸拼时可越出
-    # hive/interop/ 从仓库外读 frozen.json 并 makedirs+写 verdict.json。与姊妹
-    # 入口 write_verdict_to_repo（md_cg/interop.py:316）同模板统一防御；不过即
-    # 诚实留痕退出（rc=2），在任何路径拼接之前 fail-closed，不触盘。
-    if not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", iter_id):
-        print(json.dumps({"ok": False,
-                          "error": f"iter_id 非法（入库路径组成部分）: {iter_id!r}"},
-                         ensure_ascii=False))
+    # iter_id 白名单 + 目录逃逸校验（v2 N5/N11 + 拒 `.`/`..` 与 realpath 逃逸）：
+    # 复用 md_cg.interop.validate_iter_id / interop_iter_dir 单一真源，在任何触盘与
+    # 角色检查之前 fail-closed（rc=2），防止 `.` / `..` / 盘符 / 符号链接逃出 hive/interop/。
+    try:
+        iter_id = validate_iter_id(iter_id)
+        iter_dir = interop_iter_dir(REPO, iter_id)
+    except ValueError as e:
+        print(json.dumps({"ok": False, "error": str(e)}, ensure_ascii=False))
         return 2
 
     role = (os.environ.get("HIVE_ROLE") or "").strip()
@@ -127,9 +127,21 @@ def main(argv):
                          ensure_ascii=False))
         return 3
 
-    frozen_fp = os.path.join(REPO, "hive", "interop", iter_id, "frozen.json")
+    frozen_fp = os.path.realpath(os.path.join(iter_dir, "frozen.json"))
     try:
-        frozen = json.load(open(frozen_fp, encoding="utf-8"))
+        _in_iter = (os.path.commonpath([os.path.normcase(frozen_fp),
+                                        os.path.normcase(iter_dir)])
+                    == os.path.normcase(iter_dir))
+    except ValueError:
+        _in_iter = False
+    if not _in_iter:
+        print(json.dumps({"ok": False,
+                          "error": f"iter_id 非法（frozen.json 越出受控目录）: {iter_id!r}"},
+                         ensure_ascii=False))
+        return 2
+    try:
+        with open(frozen_fp, encoding="utf-8") as _ff:
+            frozen = json.load(_ff)
     except (OSError, ValueError) as e:
         print(json.dumps({"ok": False,
                           "error": f"冻结凭证不可读（{frozen_fp}）: {e}"}))
@@ -190,7 +202,18 @@ def main(argv):
     sanity_check_verdict(v)
     shape_check_verdict(v)
 
-    out_fp = os.path.join(REPO, "hive", "interop", iter_id, "verdict.json")
+    out_fp = os.path.realpath(os.path.join(iter_dir, "verdict.json"))
+    try:
+        _out_in_iter = (os.path.commonpath([os.path.normcase(out_fp),
+                                            os.path.normcase(iter_dir)])
+                        == os.path.normcase(iter_dir))
+    except ValueError:
+        _out_in_iter = False
+    if not _out_in_iter:
+        print(json.dumps({"ok": False,
+                          "error": f"iter_id 非法（verdict.json 越出受控目录）: {iter_id!r}"},
+                         ensure_ascii=False))
+        return 2
     os.makedirs(os.path.dirname(out_fp), exist_ok=True)
     with open(out_fp, "w", encoding="utf-8") as f:
         json.dump(v, f, ensure_ascii=False, indent=2)
