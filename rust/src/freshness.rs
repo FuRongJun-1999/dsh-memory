@@ -69,7 +69,9 @@ pub fn enabled() -> bool {
 pub fn now() -> f64 {
     if let Some(v) = env_str("MDCG_FRESHNESS_NOW") {
         if let Ok(f) = v.trim().parse::<f64>() {
-            return f;
+            if f.is_finite() {
+                return f;
+            }
         }
     }
     std::time::SystemTime::now()
@@ -82,7 +84,7 @@ pub fn now() -> f64 {
 pub fn gamma() -> f64 {
     if let Some(v) = env_str("MDCG_TEMPORAL_GAMMA") {
         if let Ok(g) = v.trim().parse::<f64>() {
-            if g > 0.0 {
+            if g.is_finite() && g > 0.0 {
                 return g;
             }
         }
@@ -95,12 +97,19 @@ pub fn protected_floor(importance: f64, protected: bool) -> f64 {
     if !protected {
         return SCORE_FLOOR;
     }
-    let imp = if importance > 0.0 { importance } else { 1.0 };
+    let imp = if importance.is_finite() && importance > 0.0 {
+        importance
+    } else {
+        1.0
+    };
     (IMPORTANCE_PROTECT / imp).max(SCORE_FLOOR).min(1.0)
 }
 
 /// 访问刷新/降权乘子（门槛与步长照抄 AEIS；`last_access > 0` 一条同 Python）。
 pub fn refresh_factor(access_count: f64, last_access: f64, importance: f64) -> f64 {
+    if !access_count.is_finite() || !last_access.is_finite() || !importance.is_finite() {
+        return 1.0;
+    }
     let ac = access_count as i64;
     if importance >= REHEARSAL_THRESHOLD && last_access > 0.0 && ac % CYCLE == 0 {
         return 1.0 + GAIN;
@@ -117,7 +126,7 @@ pub fn factor(created_at: f64, access_count: f64, last_access: f64,
     if !enabled() {
         return 1.0;
     }
-    let dt_days = if created_at > 0.0 {
+    let dt_days = if created_at.is_finite() && ref_now.is_finite() && created_at > 0.0 {
         let d = (ref_now - created_at).abs() / SECONDS_PER_DAY;
         // 粒度=整日（向下取整；abs 后恒为正，trunc == floor）
         ((d / DT_QUANTUM_DAYS).trunc()) * DT_QUANTUM_DAYS
@@ -167,5 +176,54 @@ mod tests {
     fn rehearsal_needs_last_access() {
         assert!((refresh_factor(40.0, 0.0, 0.8) - 1.0).abs() < 1e-12);
         assert!((refresh_factor(40.0, 1.0, 0.8) - 1.01).abs() < 1e-12);
+    }
+}
+
+#[cfg(test)]
+mod nonfinite_guard_tests {
+    use super::*;
+
+    #[test]
+    fn nonfinite_inputs_produce_finite_factor() {
+        for (ca, ac, la, imp, now_v) in [
+            (f64::NAN, 0.0, 0.0, 0.5, 1800000000.0),
+            (f64::INFINITY, 0.0, 0.0, 0.5, 1800000000.0),
+            (1800000000.0, f64::NAN, 0.0, 0.5, 1800000000.0),
+            (1800000000.0, 0.0, f64::INFINITY, f64::NAN, 1800000000.0),
+            (1800000000.0, 0.0, 0.0, 0.8, f64::NAN),
+            (1800000000.0, 0.0, 0.0, 0.8, f64::INFINITY),
+            (1.0e308, 0.0, 0.0, 1.0e-320, -1.0e308),
+        ] {
+            let f = factor(ca, ac, la, imp, true, now_v);
+            assert!(f.is_finite(), "factor must be finite, got {f}");
+        }
+        assert!(protected_floor(f64::NAN, true).is_finite());
+        assert!(protected_floor(f64::INFINITY, true).is_finite());
+        assert_eq!(refresh_factor(f64::NAN, 1.0, 0.9), 1.0);
+        assert_eq!(refresh_factor(0.0, f64::INFINITY, 0.1), 1.0);
+    }
+
+    #[test]
+    fn nonfinite_env_gamma_and_now_ignored() {
+        let old_g = std::env::var("MDCG_TEMPORAL_GAMMA").ok();
+        let old_n = std::env::var("MDCG_FRESHNESS_NOW").ok();
+        std::env::set_var("MDCG_TEMPORAL_GAMMA", "inf");
+        let g = gamma();
+        assert!(g.is_finite() && g > 0.0, "inf gamma must fallback, got {g}");
+        std::env::set_var("MDCG_TEMPORAL_GAMMA", "NaN");
+        let g2 = gamma();
+        assert!(g2.is_finite() && g2 > 0.0, "NaN gamma must fallback, got {g2}");
+        std::env::set_var("MDCG_FRESHNESS_NOW", "NaN");
+        assert!(now().is_finite(), "NaN now must fallback");
+        std::env::set_var("MDCG_FRESHNESS_NOW", "inf");
+        assert!(now().is_finite(), "inf now must fallback");
+        match old_g {
+            Some(v) => std::env::set_var("MDCG_TEMPORAL_GAMMA", v),
+            None => std::env::remove_var("MDCG_TEMPORAL_GAMMA"),
+        }
+        match old_n {
+            Some(v) => std::env::set_var("MDCG_FRESHNESS_NOW", v),
+            None => std::env::remove_var("MDCG_FRESHNESS_NOW"),
+        }
     }
 }

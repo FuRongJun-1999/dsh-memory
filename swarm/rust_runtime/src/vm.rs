@@ -26,6 +26,8 @@ const DEFAULT_CONDITION_SPACE: &str = "默认";
 const CONDITION_SPACE_NAMES: [&str; 5] = ["伴侣", "工作", "默认", "恢复默认", "default"];
 const TRUST_COMPONENT_NAMES: [&str; 5] =
     ["P_trust", "T_pred", "T_context", "E_weight", "情感权重"];
+/// CALL 帧深上限（对齐 Python `condition_vm.VM_MAX_CALL_DEPTH = 512`，issue #326-③）
+const VM_MAX_CALL_DEPTH: usize = 512;
 
 /// SEMANTICS.md §1 写面标「—」的只读内建名（N272）：写入 → `VmError::Error`。
 /// 与 compiler/{name_checker,condition_vm}.py 的 `READONLY_BUILTIN_NAMES` 同集
@@ -310,9 +312,9 @@ impl VM {
         let mut symbols = symbols;
         let mut trust = trust;
         if let Some(v) = symbols.remove(BUILTIN_TRUST_VALUE) {
-            if !is_num(&v) {
+            if !is_num(&v) || !as_f64(&v).is_finite() {
                 return Err(VmError::Error(format!(
-                    "名实不符：{} 初值需数值，得到 {:?}",
+                    "名实不符：{} 初值需有限数值，得到 {:?}",
                     BUILTIN_TRUST_VALUE, v
                 )));
             }
@@ -322,11 +324,11 @@ impl VM {
         self.symbols = symbols;
         self.trust_parts = HashMap::new();
         for n in TRUST_COMPONENT_NAMES.iter() {
-            if let Some(v) = self.symbols.remove(*n) {
-                if is_num(&v) {
-                    self.trust_parts.insert((*n).to_string(), as_f64(&v));
-                }
-            }
+            let init = match self.symbols.remove(*n) {
+                Some(v) if is_num(&v) && as_f64(&v).is_finite() => as_f64(&v),
+                _ => 0.0,
+            };
+            self.trust_parts.insert((*n).to_string(), init);
         }
         self.condition_stack = condition_stack;
         self.trust_value = trust;
@@ -417,9 +419,9 @@ impl VM {
                 let key = expect_str(&instr.arg)?.to_string();
                 let v = self.pop()?;
                 if key == BUILTIN_TRUST_VALUE {
-                    if !is_num(&v) {
+                    if !is_num(&v) || !as_f64(&v).is_finite() {
                         return Err(VmError::Error(format!(
-                            "{} 只能写数值，得到 {:?}",
+                            "{} 只能写数值（且须为有限数），得到 {:?}",
                             BUILTIN_TRUST_VALUE, v
                         )));
                     }
@@ -437,8 +439,11 @@ impl VM {
                 } else if let Some(slot) = self.trust_parts.get_mut(&key) {
                     // 信任分量写入（get_mut 而非 contains_key+insert：
                     // 后者触发 clippy map_entry 警告，测试要求零警告）
-                    if !is_num(&v) {
-                        return Err(VmError::Error(format!("{} 只能写数值", key)));
+                    if !is_num(&v) || !as_f64(&v).is_finite() {
+                        return Err(VmError::Error(format!(
+                            "{} 只能写数值（且须为有限数）",
+                            key
+                        )));
                     }
                     *slot = as_f64(&v);
                 } else if is_readonly_builtin(&key) {
@@ -474,7 +479,16 @@ impl VM {
                     Arg::Int(i) => *i as f64,
                     _ => return Err(VmError::Error("DE 参数需数值".into())),
                 };
-                self.trust_value += d;
+                if !d.is_finite() {
+                    return Err(VmError::Error(format!("DE 参数需有限数值，得到 {d}")));
+                }
+                let next = self.trust_value + d;
+                if !next.is_finite() {
+                    return Err(VmError::Error(format!(
+                        "DE 累积结果越出有限数范围（{next}）"
+                    )));
+                }
+                self.trust_value = next;
             }
             "ZIRAN" => {
                 // 恢复默认条件空间：弹栈到根（保留首帧；空栈保持空）
@@ -490,6 +504,11 @@ impl VM {
             }
             "ZHIZU" => {
                 let (threshold, addr) = expect_threshold(&instr.arg)?;
+                if !threshold.is_finite() {
+                    return Err(VmError::Error(format!(
+                        "ZHIZU 阈值需有限数值，得到 {threshold}"
+                    )));
+                }
                 if self.trust_value >= threshold {
                     self.set_ip(addr)?; // N244
                 }
@@ -530,6 +549,12 @@ impl VM {
                     args.push(self.pop()?);
                 }
                 args.reverse();
+                if self.call_stack.len() >= VM_MAX_CALL_DEPTH {
+                    return Err(VmError::Error(format!(
+                        "CALL 帧深超出上限 {VM_MAX_CALL_DEPTH}（当前 {}）",
+                        self.call_stack.len()
+                    )));
+                }
                 let frame = CallFrame {
                     ret_ip: self.ip,
                     symbols: self.symbols.clone(),
@@ -924,5 +949,79 @@ mod trust_round_tests {
             terminal_trust(-0.0).is_sign_negative(),
             "负零应保持符号（round(-0.0,3) == -0.0）"
         );
+    }
+}
+
+#[cfg(test)]
+mod parity_and_resource_guard_tests {
+    use super::*;
+
+    fn ins(op: &str, arg: Arg) -> Instr {
+        Instr {
+            op: op.to_string(),
+            arg,
+        }
+    }
+
+    #[test]
+    fn trust_components_preinitialized_and_type_checked() {
+        // Unseeded LOAD_NAME P_trust must succeed with 0.0 (matching Python condition_vm.py)
+        let load_code = [
+            ins("LOAD_NAME", Arg::Str("P_trust".into())),
+            ins("ZHI", Arg::None),
+        ];
+        let st = match VM::new().run(&load_code, HashMap::new(), 0.0, Vec::new(), 1000) {
+            Ok(st) => st,
+            Err(_) => panic!("unseeded P_trust must load as 0.0"),
+        };
+        assert_eq!(st.stack, vec![Value::Float(0.0)]);
+
+        // Unseeded STORE_NAME P_trust = "bad" must be rejected, not fall into symbols
+        let bad_store = [
+            ins("PUSH_CONST", Arg::Str("bad".into())),
+            ins("STORE_NAME", Arg::Str("P_trust".into())),
+        ];
+        assert!(
+            matches!(
+                VM::new().run(&bad_store, HashMap::new(), 0.0, Vec::new(), 1000),
+                Err(VmError::Error(_))
+            ),
+            "STORE_NAME P_trust with string must return VmError::Error"
+        );
+
+        // Non-finite writes to 信任值 / P_trust / DE / ZHIZU must be rejected
+        for code in [
+            vec![
+                ins("PUSH_CONST", Arg::Float(f64::NAN)),
+                ins("STORE_NAME", Arg::Str("信任值".into())),
+            ],
+            vec![
+                ins("PUSH_CONST", Arg::Float(f64::INFINITY)),
+                ins("STORE_NAME", Arg::Str("P_trust".into())),
+            ],
+            vec![ins("DE", Arg::Float(f64::INFINITY))],
+            vec![ins("ZHIZU", Arg::Threshold(f64::NAN, 1))],
+        ] {
+            assert!(
+                matches!(
+                    VM::new().run(&code, HashMap::new(), 0.0, Vec::new(), 1000),
+                    Err(VmError::Error(_))
+                ),
+                "non-finite builtin/op must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn deep_recursion_hits_call_depth_limit() {
+        // Recursive function calling itself at entry 0
+        let code = [ins("CALL", Arg::CallSig(0, vec![]))];
+        match VM::new().run(&code, HashMap::new(), 0.0, Vec::new(), 100_000) {
+            Err(VmError::Error(e)) => assert!(
+                e.contains("CALL 帧深超出上限"),
+                "expected call_depth error, got {e}"
+            ),
+            other => panic!("expected call_depth error, got {:?}", other.is_ok()),
+        }
     }
 }

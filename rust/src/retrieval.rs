@@ -213,6 +213,24 @@ pub fn graph(
 /// 为什么只在 lexical 路开（`fuse` 里仅传给 lexical）见 `freshness.rs` 头注：
 /// Python 的 `_score` 只服务 lexical/bucket 两路，entity/graph 的分数在别处产生
 /// ——若在 `sort_path` 里对每一路都乘一次，entity 路的两侧名次就会分叉。
+/// Total-order descending comparator for f64 scores/importances.
+/// Non-finite values (NaN / ±inf) sort strictly last instead of violating
+/// transitivity and panicking inside `slice::sort_by` (Rust 1.81+).
+/// `-0.0` is normalized to `+0.0` so tie-breaking falls through to secondary keys.
+#[inline]
+fn cmp_f64_desc(a: f64, b: f64) -> std::cmp::Ordering {
+    let norm = |x: f64| -> f64 {
+        if !x.is_finite() {
+            f64::NEG_INFINITY
+        } else if x == 0.0 {
+            0.0
+        } else {
+            x
+        }
+    };
+    norm(b).total_cmp(&norm(a))
+}
+
 pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>], apply_freshness: bool) {
     if apply_freshness && crate::freshness::enabled() {
         let now = crate::freshness::now();
@@ -225,13 +243,11 @@ pub fn sort_path(hits: &mut [Hit], docs: &[Option<Doc>], apply_freshness: bool) 
         }
     }
     hits.sort_by(|a, b| {
-        b.score
-            .partial_cmp(&a.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
+        cmp_f64_desc(a.score, b.score)
             .then_with(|| {
                 let ia = docs[a.idx].as_ref().map(|d| d.importance).unwrap_or(0.0);
                 let ib = docs[b.idx].as_ref().map(|d| d.importance).unwrap_or(0.0);
-                ib.partial_cmp(&ia).unwrap_or(std::cmp::Ordering::Equal)
+                cmp_f64_desc(ia, ib)
             })
             .then_with(|| {
                 let ida = docs[a.idx].as_ref().map(|d| d.id.clone()).unwrap_or_default();
@@ -274,7 +290,8 @@ pub fn fuse(
     }
 
     for (name, hits) in &sorted_paths {
-        let w = *weights.get(*name).unwrap_or(&1.0);
+        let raw_w = *weights.get(*name).unwrap_or(&1.0);
+        let w = if raw_w.is_finite() { raw_w } else { 0.0 };
         for (rank0, hit) in hits.iter().take(PATH_TAKE).enumerate() {
             let nid = match docs[hit.idx].as_ref() {
                 Some(d) => d.id.clone(),
@@ -315,10 +332,85 @@ pub fn fuse(
     fused.sort_by(|a, b| {
         let ida = docs[a.0].as_ref().map(|d| d.id.clone()).unwrap_or_default();
         let idb = docs[b.0].as_ref().map(|d| d.id.clone()).unwrap_or_default();
-        b.1.partial_cmp(&a.1)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| ida.cmp(&idb))
+        cmp_f64_desc(a.1, b.1).then_with(|| ida.cmp(&idb))
     });
     fused.truncate(k);
     fused
+}
+
+#[cfg(test)]
+mod nan_sort_guard_tests {
+    use super::*;
+    fn mk_doc(id: &str, importance: f64) -> Doc {
+        Doc {
+            id: id.to_string(),
+            importance,
+            tags: Vec::new(),
+            tags_joined: String::new(),
+            like_body_lower: String::new(),
+            tags_joined_lower: String::new(),
+            content: String::new(),
+            stripped: String::new(),
+            db_len: 0,
+            lit: None,
+            edges: Vec::new(),
+            created_at: 0.0,
+            access_count: 0.0,
+            last_access: 0.0,
+            protected: false,
+        }
+    }
+
+    #[test]
+    fn sort_path_and_fuse_never_panic_on_nan_or_inf() {
+        let docs: Vec<Option<Doc>> = (0..25)
+            .map(|i| {
+                let imp = if i % 5 == 0 { f64::NAN } else { 0.5 };
+                Some(mk_doc(&format!("d{i:02}"), imp))
+            })
+            .collect();
+        let mut hits: Vec<Hit> = (0..25)
+            .map(|i| Hit {
+                idx: i,
+                score: match i % 4 {
+                    0 => f64::NAN,
+                    1 => f64::INFINITY,
+                    2 => 1.0 / (i as f64 + 1.0),
+                    _ => -0.0,
+                },
+            })
+            .collect();
+        sort_path(&mut hits, &docs, false);
+        assert_eq!(hits.len(), 25);
+        // Finite positive scores must rank ahead of NaN/Inf
+        assert!(hits[0].score.is_finite() && hits[0].score > 0.0);
+
+        let mut weights = HashMap::new();
+        weights.insert("lexical".to_string(), f64::NAN);
+        weights.insert("entity".to_string(), 1.0);
+        let paths = vec![("lexical", hits.clone()), ("entity", hits)];
+        let fused = fuse(&paths, &docs, 10, &weights, false);
+        assert_eq!(fused.len(), 10);
+        assert!(fused.iter().all(|(_, s)| s.is_finite()));
+
+        // 200-element stress test that triggered Rust 1.81+ driftsort total-order panic pre-fix
+        let big_docs: Vec<Option<Doc>> = (0..200)
+            .map(|i| Some(mk_doc(&format!("d{:04}", 200 - i), 0.5)))
+            .collect();
+        let mut big_hits: Vec<Hit> = (0..200)
+            .map(|i| Hit {
+                idx: i,
+                score: match i % 5 {
+                    0 | 3 => f64::NAN,
+                    1 => 100.0 - (i as f64),
+                    2 => (i as f64) * 0.5,
+                    _ => 50.0,
+                },
+            })
+            .collect();
+        sort_path(&mut big_hits, &big_docs, false);
+        assert_eq!(big_hits.len(), 200);
+        assert!(big_hits[0].score.is_finite() && big_hits[0].score >= 99.0);
+        assert!(big_hits.last().unwrap().score.is_nan());
+    }
 }

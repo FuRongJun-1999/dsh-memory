@@ -168,10 +168,15 @@ mod serde_like {
                     "true" => Value::Bool(true),
                     "false" => Value::Bool(false),
                     "null" => Value::Null,
-                    _ => Value::Num(
-                        raw.parse::<f64>()
-                            .map_err(|_| format!("非法数值 {raw}"))?,
-                    ),
+                    _ => {
+                        let n = raw
+                            .parse::<f64>()
+                            .map_err(|_| format!("非法数值 {raw}"))?;
+                        if !n.is_finite() {
+                            return Err(format!("非法非有限数值 {raw}"));
+                        }
+                        Value::Num(n)
+                    }
                 })
             }
             None => Err("JSON 意外结束".into()),
@@ -300,7 +305,7 @@ pub fn serve(code: &[pbc::Instr], instance_id: &str) -> i32 {
                         }
                     }
                     if let Some(serde_like::Value::Num(n)) = m.get("round_no") {
-                        if *n >= 1.0 {
+                        if n.is_finite() && *n >= 1.0 && *n <= 9_007_199_254_740_991.0 {
                             round_no = *n as u64;
                         }
                     }
@@ -413,5 +418,28 @@ mod escape_parity_tests {
         }
         let shallow = format!("{}{}{}", "[".repeat(100), "1", "]".repeat(100));
         assert!(parse(&shallow).is_ok(), "上限内结构被误拒（上限过紧）");
+    }
+}
+
+#[cfg(test)]
+mod nonfinite_json_tests {
+    use super::serde_like;
+
+    #[test]
+    fn rejects_nan_and_infinity_numbers() {
+        for raw in [
+            r#"{"trust":NaN}"#,
+            r#"{"trust":inf}"#,
+            r#"{"trust":-inf}"#,
+            r#"{"trust":infinity}"#,
+            r#"{"trust":1e400}"#,
+            r#"{"round_no":inf}"#,
+        ] {
+            assert!(
+                serde_like::parse(raw).is_err(),
+                "must reject non-finite JSON number: {raw}"
+            );
+        }
+        assert!(serde_like::parse(r#"{"trust":0.5,"round_no":2}"#).is_ok());
     }
 }
