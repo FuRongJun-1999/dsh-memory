@@ -325,7 +325,19 @@ def load_master_key(master_file=None, env_var=MASTER_ENV, create=True):
         return _decode_master_key(raw, f"环境变量 {env_var}")
     path = master_file or MASTER_FILE
     if os.path.exists(path):
-        return _read_master_key_file(path)
+        try:
+            return _read_master_key_file(path)
+        except CryptoError:
+            # 可能正命中并发首建 O_EXCL 创建与写盘/fsync 之间的 0 字节窗口：
+            # 持 FileLock 重试读盘，确认真正损坏后再 fail-closed 抛 CryptoError。
+            try:
+                with FileLock(path, timeout=10.0, strict=True):
+                    if os.path.exists(path):
+                        return _read_master_key_file(path)
+            except TimeoutError as e:
+                raise CryptoError(f"主密钥文件锁竞争超时：{path}") from e
+            except OSError:
+                return _read_master_key_file(path)
     if not create:
         return None
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
@@ -651,6 +663,7 @@ def verify_encrypted(content, dek=None, node_id="", tenant="", actor=""):
         body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
         if ":" in body:
             body = body.split(":", 1)[1]
+        body = body.strip()
         raw = _b64d(body)
     except Exception:
         return False
@@ -709,6 +722,7 @@ def open_node(content, dek, node_id, tenant, actor):
     body = body[len(ENC_PREFIX):-len(ENC_SUFFIX)]
     if ":" in body:                        # 新格式：<enc_id_fp>:<b64>
         body = body.split(":", 1)[1]
+    body = body.strip()
     try:
         decoded = _b64d(body)
     except (ValueError, UnicodeEncodeError) as e:

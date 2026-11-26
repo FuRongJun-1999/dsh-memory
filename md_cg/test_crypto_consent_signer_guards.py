@@ -43,6 +43,15 @@ class TestCryptoHardening(unittest.TestCase):
         sealed = crypto.seal_node("real secret", dek, "n1", "t", "a")
         self.assertTrue(crypto.verify_encrypted(sealed))
         self.assertTrue(crypto.verify_encrypted(sealed, dek, "n1", "t", "a"))
+        # Outer whitespace around base64 segment (as in test_b1_foreign_read step 7) remains valid,
+        # while internal spaces inside base64 payload must still be rejected.
+        padded_env = sealed[:-len(crypto.ENC_SUFFIX)] + " " + crypto.ENC_SUFFIX
+        self.assertTrue(crypto.verify_encrypted(padded_env))
+        self.assertEqual(crypto.open_node(padded_env, dek, "n1", "t", "a"), "real secret")
+        inner = sealed[len(crypto.ENC_PREFIX):-len(crypto.ENC_SUFFIX)]
+        fp_seg, b64_seg = inner.split(":", 1)
+        spaced_mid = crypto.ENC_PREFIX + fp_seg + ":" + b64_seg[:8] + " " + b64_seg[8:] + crypto.ENC_SUFFIX
+        self.assertFalse(crypto.verify_encrypted(spaced_mid))
 
     def test_02_load_master_key_validates_strict_b64_length_and_concurrent_creation(self):
         env_var = "MDCG_TEST_B2_MK"
@@ -82,6 +91,47 @@ class TestCryptoHardening(unittest.TestCase):
         self.assertEqual(len(results), 4)
         self.assertEqual(len(set(results)), 1)
         self.assertEqual(len(results[0]), crypto.KEY_LEN)
+
+        # Deterministic mid-write 0-byte window: reader arriving after O_EXCL create
+        # but before write completes must wait on FileLock and converge (both create=True/False)
+        for reader_create in (True, False):
+            mid_path = os.path.join(self._tmp, f"mid_{reader_create}", "master.key")
+            orig_fdopen = crypto.os.fdopen
+            created_ev = threading.Event()
+            release_ev = threading.Event()
+            r_creator, r_reader = [], []
+
+            def paused_fdopen(fd, *a, **kw):
+                fh = orig_fdopen(fd, *a, **kw)
+                if not created_ev.is_set():
+                    created_ev.set()
+                    release_ev.wait(timeout=3.0)
+                return fh
+
+            def creator():
+                r_creator.append(crypto.load_master_key(mid_path, env_var="MDCG_NO_SUCH_MK", create=True))
+
+            def reader():
+                created_ev.wait(timeout=3.0)
+                # Let creator resume slightly after reader enters load_master_key
+                threading.Timer(0.05, release_ev.set).start()
+                r_reader.append(crypto.load_master_key(mid_path, env_var="MDCG_NO_SUCH_MK", create=reader_create))
+
+            crypto.os.fdopen = paused_fdopen
+            try:
+                t_c = threading.Thread(target=creator)
+                t_r = threading.Thread(target=reader)
+                t_c.start()
+                t_r.start()
+                t_c.join(timeout=10.0)
+                t_r.join(timeout=10.0)
+            finally:
+                release_ev.set()
+                crypto.os.fdopen = orig_fdopen
+            self.assertEqual(len(r_creator), 1)
+            self.assertEqual(len(r_reader), 1)
+            self.assertEqual(r_creator[0], r_reader[0])
+            self.assertEqual(len(r_reader[0]), crypto.KEY_LEN)
 
     def test_03_unwrap_dek_malformed_envelopes_raise_locked_error_and_non_utf8_md_safe(self):
         fp = crypto.identity_fingerprint("t", "a")
