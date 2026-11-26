@@ -144,8 +144,10 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
 
     let timeout_s = match v.get("timeout_s") {
         None => DEFAULT_TIMEOUT_S,
-        Some(Json::Num(n)) if *n >= 1.0 => *n as u64,
-        Some(_) => return Err("timeout_s 必须为正数".to_string()),
+        Some(Json::Num(n)) if n.is_finite() && *n >= 1.0 && *n <= 9_007_199_254_740_991.0 => {
+            *n as u64
+        }
+        Some(_) => return Err("timeout_s 必须为有限正数".to_string()),
     };
     if !(MIN_TIMEOUT_S..=MAX_TIMEOUT_S).contains(&timeout_s) {
         return Err(format!(
@@ -155,13 +157,13 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
 
     let max_tokens = match v.get("max_tokens") {
         None | Some(Json::Null) => None,
-        Some(Json::Num(n)) if *n >= 1.0 => Some(*n),
-        Some(_) => return Err("max_tokens 必须为正数".to_string()),
+        Some(Json::Num(n)) if n.is_finite() && *n >= 1.0 => Some(*n),
+        Some(_) => return Err("max_tokens 必须为有限正数".to_string()),
     };
 
     let temperature = match v.get("temperature") {
         None | Some(Json::Null) => None,
-        Some(Json::Num(n)) if (0.0..=2.0).contains(n) => Some(*n),
+        Some(Json::Num(n)) if n.is_finite() && (0.0..=2.0).contains(n) => Some(*n),
         Some(_) => return Err("temperature 必须在 [0, 2]".to_string()),
     };
 
@@ -190,8 +192,10 @@ pub fn validate_lenient(v: &Json) -> Result<Spec, String> {
 
     let context_budget_tokens = match v.get("context_budget_tokens") {
         None | Some(Json::Null) => None,
-        Some(Json::Num(n)) if *n >= 1.0 => Some(*n as u64),
-        Some(_) => return Err("context_budget_tokens 必须为正数".to_string()),
+        Some(Json::Num(n)) if n.is_finite() && *n >= 1.0 && *n <= 9_007_199_254_740_991.0 => {
+            Some(*n as u64)
+        }
+        Some(_) => return Err("context_budget_tokens 必须为有限正数".to_string()),
     };
 
     let depends_on = v
@@ -283,6 +287,29 @@ mod tests {
     fn temperature_bounds() {
         let v = crate::json::parse(r#"{"model":"m","user_prompt":"x","temperature":2.5}"#).unwrap();
         assert!(validate(&v, Path::new(".")).is_err());
+    }
+
+    #[test]
+    fn nonfinite_and_overflow_numeric_fields_rejected() {
+        let make = |field: &str, val: f64| {
+            Json::Obj(vec![
+                ("model".into(), Json::Str("m".into())),
+                ("user_prompt".into(), Json::Str("x".into())),
+                (field.into(), Json::Num(val)),
+            ])
+        };
+        for field in ["timeout_s", "max_tokens", "temperature", "context_budget_tokens"] {
+            for bad in [f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+                assert!(
+                    validate_lenient(&make(field, bad)).is_err(),
+                    "{field}={bad:?} must be rejected"
+                );
+            }
+        }
+        assert!(
+            validate_lenient(&make("context_budget_tokens", 1e30)).is_err(),
+            "context_budget_tokens=1e30 must not saturate to u64::MAX"
+        );
     }
 
     #[test]
