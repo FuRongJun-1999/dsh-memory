@@ -139,6 +139,37 @@ pub fn factor(created_at: f64, access_count: f64, last_access: f64,
 }
 
 #[cfg(test)]
+static FRESHNESS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+struct EnvGuard {
+    saved: Vec<(&'static str, Option<String>)>,
+}
+
+#[cfg(test)]
+impl EnvGuard {
+    fn capture(keys: &[&'static str]) -> Self {
+        let saved = keys
+            .iter()
+            .map(|&k| (k, std::env::var(k).ok()))
+            .collect();
+        Self { saved }
+    }
+}
+
+#[cfg(test)]
+impl Drop for EnvGuard {
+    fn drop(&mut self) {
+        for (k, v) in &self.saved {
+            match v {
+                Some(val) => std::env::set_var(k, val),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -151,6 +182,8 @@ mod tests {
 
     #[test]
     fn fresh_node_factor_is_one() {
+        let _lock = FRESHNESS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _env = EnvGuard::capture(&["MDCG_FRESHNESS_NOW", "MDCG_TEMPORAL_GAMMA"]);
         // created_at = now、access_count=0、importance=0.5、未保护 → 1.0
         std::env::set_var("MDCG_FRESHNESS_NOW", "1800000000");
         let f = factor(1800000000.0, 0.0, 0.0, 0.5, false, now());
@@ -205,8 +238,8 @@ mod nonfinite_guard_tests {
 
     #[test]
     fn nonfinite_env_gamma_and_now_ignored() {
-        let old_g = std::env::var("MDCG_TEMPORAL_GAMMA").ok();
-        let old_n = std::env::var("MDCG_FRESHNESS_NOW").ok();
+        let _lock = FRESHNESS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let _env = EnvGuard::capture(&["MDCG_TEMPORAL_GAMMA", "MDCG_FRESHNESS_NOW"]);
         std::env::set_var("MDCG_TEMPORAL_GAMMA", "inf");
         let g = gamma();
         assert!(g.is_finite() && g > 0.0, "inf gamma must fallback, got {g}");
@@ -217,13 +250,5 @@ mod nonfinite_guard_tests {
         assert!(now().is_finite(), "NaN now must fallback");
         std::env::set_var("MDCG_FRESHNESS_NOW", "inf");
         assert!(now().is_finite(), "inf now must fallback");
-        match old_g {
-            Some(v) => std::env::set_var("MDCG_TEMPORAL_GAMMA", v),
-            None => std::env::remove_var("MDCG_TEMPORAL_GAMMA"),
-        }
-        match old_n {
-            Some(v) => std::env::set_var("MDCG_FRESHNESS_NOW", v),
-            None => std::env::remove_var("MDCG_FRESHNESS_NOW"),
-        }
     }
 }
