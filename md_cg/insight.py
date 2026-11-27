@@ -86,17 +86,19 @@ def _append(cg, rec):
 
 # 生效条件：getattr(cg,"index",None) 或其 "nodes" 为 None/假值时返回空列表，否则返回 nodes 中 (e or {}).get("tags") or [] 含 TAG_EVENT 的节点 id 列表。
 def _events(cg):
-    """全部洞见事件节点 id（按 index 层标签粗筛，避免全量读盘）。"""
+    """全部洞见事件节点 id（按 index 层标签粗筛，避免全量读盘；尊重可见性）。"""
+    from . import security as _sec
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
     return [nid for nid, e in list(nodes.items())
-            if TAG_EVENT in ((e or {}).get("tags") or [])]
+            if _sec.visible_to(cg, e) and TAG_EVENT in ((e or {}).get("tags") or [])]
 
 
 # 生效条件：cg 具备 get，node_id 经 str(node_id or "").strip() 后非空（0/空串等假值回落空串即返回 None）、cg.get(nid) 返回真值节点、且该节点 frontmatter 的 tags（缺键或假值时按 [] 计）包含 TAG_EVENT 时返回该节点，否则返回 None。
 def _read_event(cg, node_id):
     """读洞见事件节点；非事件节点（标签不符）返回 None。"""
+    from . import security as _sec
     nid = str(node_id or "").strip()
-    if not nid:
+    if not nid or not _sec.node_visible(cg, nid):
         return None
     try:
         node = cg.get(nid)
@@ -118,10 +120,16 @@ def normalize(conditions=None):
     raw = dict(conditions or {})
     missing = [k for k in CONDITION_KEYS if k not in raw]
     out = {}
-    try:
-        c1 = float(raw.get("retrievability", 0.0) or 0.0)
-    except (TypeError, ValueError):
+    raw_c1 = raw.get("retrievability", 0.0)
+    if isinstance(raw_c1, bool) or raw_c1 is None:
         c1 = 0.0
+    else:
+        try:
+            c1 = float(raw_c1)
+        except (TypeError, ValueError):
+            c1 = 0.0
+        if not math.isfinite(c1):
+            c1 = 0.0
     out["retrievability"] = min(1.0, max(0.0, c1))
     out["outside_observer"] = bool(raw.get("outside_observer", False))
     cd = raw.get("cross_domain") or []
@@ -131,10 +139,17 @@ def normalize(conditions=None):
     out["premise_questioned"] = bool(raw.get("premise_questioned", False))
     pr = str(raw.get("pressure") or "medium").strip().lower()
     out["pressure"] = pr if pr in PRESSURES else "medium"
-    try:
-        out["continuity_turns"] = max(0, int(raw.get("continuity_turns") or 0))
-    except (TypeError, ValueError):
+    raw_ct = raw.get("continuity_turns")
+    if isinstance(raw_ct, bool) or raw_ct is None:
         out["continuity_turns"] = 0
+    else:
+        try:
+            if isinstance(raw_ct, float) and not math.isfinite(raw_ct):
+                out["continuity_turns"] = 0
+            else:
+                out["continuity_turns"] = max(0, int(raw_ct))
+        except (TypeError, ValueError, OverflowError):
+            out["continuity_turns"] = 0
     out["externalized"] = bool(raw.get("externalized", False))
     tn = str(raw.get("tone") or "neutral").strip().lower()
     out["tone"] = tn if tn in TONES else "neutral"
@@ -191,10 +206,21 @@ def record(cg, statement=None, conditions=None, category="", source="",
                 "state": fm.get("insight_state"), "window": w,
                 "existed_before": True, "duplicate": True,
                 "note": "同正文事件已存在，未重复写入（幂等）"}
-    tg = [TAG_EVENT] + [str(t) for t in (tags or [])]
+    tg = [TAG_EVENT] + [
+        str(t) for t in (tags or [])
+        if str(t) not in (TAG_VERIFIED, TAG_FALSIFIED)
+    ]
     if category:
         tg.append("insight_cat:%s" % category)
     body = statement if statement.endswith("\n") else statement + "\n"
+    if isinstance(importance, bool):
+        raise ValueError(f"importance 必须是有限数值（非 bool）：{importance!r}")
+    try:
+        imp_val = float(importance)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"importance 必须是有限数值：{importance!r}") from exc
+    if not math.isfinite(imp_val):
+        raise ValueError(f"importance 必须是有限数值（非 inf/nan）：{importance!r}")
     fm_extra = {
         "insight_state": STATE_PENDING,
         "insight_category": category,
@@ -206,9 +232,14 @@ def record(cg, statement=None, conditions=None, category="", source="",
         "insight_evidence": [],
         "insight_history": [],
     }
-    fm_extra.update(extra)
+    _reserved = frozenset(fm_extra.keys()) | {
+        "protected", "protection_reason", "verification_basis",
+        "insight_reason", "tags", "layer", "importance", "actor",
+    }
+    merged_extra = {k: v for k, v in extra.items() if k not in _reserved}
+    merged_extra.update(fm_extra)
     cg.add(nid, body, layer=INSIGHT_LAYER, tags=tg,
-           importance=float(importance), actor=actor, **fm_extra)
+           importance=imp_val, actor=actor, **merged_extra)
     _append(cg, {"action": "record", "node_id": nid, "category": category,
                  "source": source, "window_open": w["open"],
                  "blocked_by": w["blocked_by"], "missing": w["missing"],
@@ -300,7 +331,14 @@ def verify(cg, node_id=None, evidence=None, v_types=None, verdict=None,
     tg = [t for t in (fm.get("tags") or []) if t not in (TAG_VERIFIED, TAG_FALSIFIED)]
     if final == STATE_VERIFIED:
         tg.append(TAG_VERIFIED)
-        fm["importance"] = max(float(fm.get("importance") or 0.0), VERIFY_IMPORTANCE_FLOOR)
+        raw_imp = fm.get("importance")
+        try:
+            cur_imp = 0.0 if (isinstance(raw_imp, bool) or raw_imp is None) else float(raw_imp)
+        except (TypeError, ValueError):
+            cur_imp = 0.0
+        if not math.isfinite(cur_imp):
+            cur_imp = 0.0
+        fm["importance"] = max(cur_imp, VERIFY_IMPORTANCE_FLOOR)
         fm["protected"] = True
         fm["protection_reason"] = "insight_verified"
         fm["verification_basis"] = "data"
@@ -370,8 +408,38 @@ def list_events(cg, state=None, limit=0):
                     "created_at": fm.get("created_at"),
                     "evidence_count": len(fm.get("insight_evidence") or []),
                     "reason": fm.get("insight_reason")})
-    out.sort(key=lambda x: x.get("created_at") or 0)
-    return out[-int(limit):] if limit else out
+    def _ts_key(val):
+        if val is None or isinstance(val, bool):
+            return 0.0
+        try:
+            fv = float(val)
+        except (TypeError, ValueError):
+            return 0.0
+        return fv if math.isfinite(fv) else 0.0
+
+    out.sort(key=lambda x: _ts_key(x.get("created_at")))
+    if limit is None:
+        return out
+    if isinstance(limit, bool):
+        raise ValueError(f"limit 不接受 bool：{limit!r}")
+    lim = int(limit)
+    if lim < 0:
+        return []
+    return out[-lim:] if lim > 0 else out
+
+
+def _coerce_finite_opt(val, name, *, allow_neg=True):
+    if val is None:
+        return None
+    if isinstance(val, bool):
+        raise ValueError(f"{name} 不接受 bool：{val!r}")
+    try:
+        fv = float(val)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{name} 必须是有限数值：{val!r}") from exc
+    if not math.isfinite(fv) or (not allow_neg and fv < 0.0):
+        raise ValueError(f"{name} 必须是有限数值：{val!r}")
+    return fv
 
 
 # 生效条件：now 为 None/0 等假值时取 time.time()，window_days 为真值时按 now - window_days*86400 过滤 created_at；已裁决数 verified+falsified < CER_MIN_SAMPLES 时直接返回 cer/se/two_se/significant 为 None、layer_state="insufficient" 的结果，否则按 p=verified/denom 算出 se 与 significant，significant 为假时 p<0.3 取 degraded、否则 watch，significant 为真时 p≥0.5 取 reliable、否则 watch。
@@ -381,11 +449,22 @@ def report(cg, window_days=None, now=None):
     CER = verified /（verified + falsified）；显著性带宽 = 2×SE，
     SE = sqrt(p(1-p)/n)。层状态：reliable / watch / degraded / insufficient。
     """
-    now = float(now or time.time())
+    now_v = _coerce_finite_opt(now, "now")
+    now = float(now_v or time.time())
+    wd_v = _coerce_finite_opt(window_days, "window_days", allow_neg=False)
     events = list_events(cg)
-    if window_days:
-        lo = now - float(window_days) * 86400.0
-        events = [e for e in events if (e.get("created_at") or 0) >= lo]
+    if wd_v:
+        lo = now - wd_v * 86400.0
+        def _ev_ts(e):
+            v = e.get("created_at")
+            if v is None or isinstance(v, bool):
+                return 0.0
+            try:
+                fv = float(v)
+                return fv if math.isfinite(fv) else 0.0
+            except (TypeError, ValueError):
+                return 0.0
+        events = [e for e in events if _ev_ts(e) >= lo]
     n = len(events)
     verified = sum(1 for e in events if e["state"] == STATE_VERIFIED)
     falsified = sum(1 for e in events if e["state"] == STATE_FALSIFIED)
@@ -447,21 +526,35 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
     诚实边界：本函数只做**结构描述与差距定位**，不判有效性、不替调用方下结论；
     样本不足或指标缺失时返回 None / 显式缺口，而不是编一个数。
     """
-    now = float(now or time.time())
+    from . import security as _sec
+    if isinstance(sample_limit, bool):
+        raise ValueError(f"sample_limit 不接受 bool：{sample_limit!r}")
+    sample_limit = max(0, int(sample_limit))
+    if isinstance(recent_days, bool):
+        raise ValueError(f"recent_days 不接受 bool：{recent_days!r}")
+    rd = float(recent_days)
+    if not math.isfinite(rd) or rd < 0.0:
+        raise ValueError(f"recent_days 必须是非负有限数：{recent_days!r}")
+    now_v = _coerce_finite_opt(now, "now")
+    now = float(now_v or time.time())
     nodes = (getattr(cg, "index", None) or {}).get("nodes") or {}
-    total = len(nodes)
+    vis_items = [(nid, e) for nid, e in list(nodes.items()) if _sec.visible_to(cg, e)]
+    total = len(vis_items)
     layers, basis = {}, {}
     imps, protected, no_neg, recent = [], 0, 0, 0
-    lo_recent = now - float(recent_days) * 86400.0
+    lo_recent = now - rd * 86400.0
     hi_imp_unprotected = []
-    for nid, e in list(nodes.items()):
+    for nid, e in vis_items:
         e = e or {}
         layers[_layer_of(e)] = layers.get(_layer_of(e), 0) + 1
         b = str(e.get("verification_basis") or "unset")
         basis[b] = basis.get(b, 0) + 1
+        raw_iv = e.get("importance")
         try:
-            iv = float(e.get("importance") or 0.0)
+            iv = 0.0 if (isinstance(raw_iv, bool) or raw_iv is None) else float(raw_iv)
         except (TypeError, ValueError):
+            iv = 0.0
+        if not math.isfinite(iv):
             iv = 0.0
         imps.append(iv)
         # #433：① `d1.protected` 此前只认 `protected` 位（窄：漏层保护与按分保护）⇒ 走条目口径单点；
@@ -474,8 +567,13 @@ def outlook(cg, window_days=None, sample_limit=8, recent_days=7, now=None):
         if not e.get("has_neg_conditions"):
             no_neg += 1
         ca = e.get("created_at")
-        if ca and float(ca) >= lo_recent:
-            recent += 1
+        if ca is not None and not isinstance(ca, bool):
+            try:
+                caf = float(ca)
+                if math.isfinite(caf) and caf >= lo_recent:
+                    recent += 1
+            except (TypeError, ValueError):
+                pass
 
     events = list_events(cg)
     pending = sum(1 for x in events if x["state"] == STATE_PENDING)

@@ -25,6 +25,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
 import time
@@ -68,7 +69,7 @@ try:
     W_META = float(os.environ.get("PREDICTION_META_DIM", "0") or 0.0)
 except ValueError:          # 非法值按关闭处理：默认零变更优先，不炸导入
     W_META = 0.0
-W_META = W_META if W_META > 0 else 0.0
+W_META = W_META if (math.isfinite(W_META) and W_META > 0) else 0.0
 META_PROXY = os.environ.get("PREDICTION_META_PROXY", "unmodeled_growth")
 
 SORT_KEYS = ("composite", "trend", "verification", "boundary", "balance")
@@ -140,31 +141,66 @@ def _hit_history(cg, limit=HIT_HISTORY_MAX):
 
 
 # 生效条件：传入 cg 与 nid 时返回邻接表中 nid 的出边列表 [(目标 id, 边字典)]，该键无出边则为 []；
+def _node_visible(cg, nid):
+    from . import security as _sec
+    return _sec.node_visible(cg, nid)
+
+
+def _node_is_encrypted(cg, nid, node=None):
+    from . import crypto, subgraph as _sg
+    e = _nodes(cg).get(nid)
+    if isinstance(e, dict) and e.get("sensitivity") is not None:
+        es = _sg._sensitivity_of(e)
+        if es is None or crypto.is_encrypted_level(es):
+            return True
+    if node is not None:
+        fm = node.get("frontmatter") or {}
+        fs = _sg._sensitivity_of(fm)
+        if fs is None or crypto.is_encrypted_level(fs):
+            return True
+        if crypto.is_encrypted(node.get("content") or ""):
+            return True
+    return False
+
+
 def _out_edges(cg, nid):
     """出边（含层级边）：[(target_id, edge_dict)]，复用 chain 邻接缓存。"""
+    if not _node_visible(cg, nid):
+        return []
     from . import chain
-    return list((chain.adjacency(cg).get(nid) or []))
+    return [(tgt, e) for tgt, e in (chain.adjacency(cg).get(nid) or [])
+            if _node_visible(cg, tgt)]
 
 
 # 生效条件：传入 cg 与 nid 时返回邻接表中所有以 nid 为目标的源节点集合，无入边则为空集；
 def _in_sources(cg, nid):
     """入边来源集合（父节点）：用于 D-002「共同父节点」结构模式判定。"""
+    if not _node_visible(cg, nid):
+        return set()
     from . import chain
     adj = chain.adjacency(cg)
     srcs = set()
     for src, outs in adj.items():
+        if not _node_visible(cg, src):
+            continue
         for tgt, _e in outs:
             if tgt == nid:
                 srcs.add(src)
     return srcs
 
 
-# 生效条件：传入 edge 的 'confidence' 可转 float 时返回裁剪到 [0.0,1.0] 的值，取键失败或转换抛 AttributeError/TypeError/ValueError 时返回 1.0；
+# 生效条件：传入 edge 的 'confidence' 可转有限 float 时返回裁剪到 [0.0,1.0] 的值，非有限数 fail-closed 返回 0.0，取键失败或转换抛 AttributeError/TypeError/ValueError 时返回 1.0；
 def _edge_conf(edge):
     try:
-        return max(0.0, min(1.0, float(edge.get("confidence", 1.0))))
+        raw = edge.get("confidence", 1.0)
+        if isinstance(raw, bool):
+            return 0.0
+        val = float(raw)
     except (AttributeError, TypeError, ValueError):
         return 1.0
+    if not math.isfinite(val):
+        return 0.0
+    return max(0.0, min(1.0, val))
 
 
 # ---------------------------------------------------------------- D-002 过滤门
@@ -214,6 +250,8 @@ def causal_gate(cg, a_id, b_id):
       2. 共同父节点（结构模式）
       3. 偏好权重 > 0.5（D-005 策略显式授权）
     """
+    if not _node_visible(cg, a_id) or not _node_visible(cg, b_id):
+        return False, "rejected_semantic_only"
     if has_causal_link(cg, a_id, b_id):
         return True, "causal_link"
     if has_structural_pattern(cg, a_id, b_id):
@@ -233,7 +271,11 @@ def semantic_neighbors(cg, node_id, k=SEMANTIC_TOP_K):
     时回退 `char_bigram_jaccard`；md_cg 无坐标，直接用检索器的二元组打分
     实现该回退路径（非新算法）。
     """
+    if not _node_visible(cg, node_id) or _node_is_encrypted(cg, node_id):
+        return []
     node = cg.get(node_id) or {}
+    if _node_is_encrypted(cg, node_id, node):
+        return []
     text = (node.get("content") or "").strip()
     if not text:
         return []
@@ -299,10 +341,14 @@ def branch_candidates(cg, node_id, semantic=True):
 # 生效条件：conf 可转 float 时裁剪到 [0,1] 得 c，按 base=1-c 返回 confidence=c 与裁剪到 [0,1] 的 [c-base*0.5, c+base*0.5] 区间，转换失败则按 c=0.0 计算；
 def _uncertainty(conf):
     """D-001 不确定带：base=1-conf，上下界 = conf ± base*0.5（AEIS 同式）。"""
-    try:
-        c = max(0.0, min(1.0, float(conf)))
-    except (TypeError, ValueError):
+    if isinstance(conf, bool):
         c = 0.0
+    else:
+        try:
+            v = float(conf)
+            c = max(0.0, min(1.0, v)) if math.isfinite(v) else 0.0
+        except (TypeError, ValueError):
+            c = 0.0
     base = 1.0 - c
     return {"confidence": round(c, 4),
             "lower": round(max(0.0, c - base * 0.5), 4),
@@ -317,12 +363,18 @@ def _boundary_consistency(cg, path):
         return 0.0
     hit = 0
     for nid in path:
+        if not _node_visible(cg, nid):
+            continue
         e = _nodes(cg).get(nid) or {}
         tags = set(e.get("tags") or [])
         if "boundary" in tags or e.get("has_neg_conditions"):
             hit += 1
             continue
+        if _node_is_encrypted(cg, nid):
+            continue
         node = cg.get(nid) or {}
+        if _node_is_encrypted(cg, nid, node):
+            continue
         if re.search(r"不适用|不确定|边界|盲区", node.get("content") or ""):
             hit += 1
     return round(hit / len(path), 4)
@@ -346,8 +398,19 @@ def extrapolation_validity(route):
     confs = route.get("confs") or []
     if len(confs) < 2:
         return "unknown"
-    steps = [confs[i] - confs[i + 1] for i in range(len(confs) - 1)]
-    if not steps:
+    vals = []
+    for x in confs:
+        if isinstance(x, bool):
+            return "unknown"
+        try:
+            fx = float(x)
+        except (TypeError, ValueError):
+            return "unknown"
+        if not math.isfinite(fx):
+            return "unknown"
+        vals.append(fx)
+    steps = [vals[i] - vals[i + 1] for i in range(len(vals) - 1)]
+    if not steps or not all(math.isfinite(s) for s in steps):
         return "unknown"
     return "smooth" if max(abs(s) for s in steps) <= 0.35 else "jump"
 
@@ -378,15 +441,26 @@ def beta_posterior(hits, prior_k=PRIOR_STRENGTH, base=BASE_HIT_RATE):
     ci95 用正态近似 mean±1.96σ（零依赖；样本大时近似良好，小样本区间
     偏窄，故另带 samples 供阅读方自判权重）。
     """
-    a0 = float(base) * float(prior_k)
-    b0 = (1.0 - float(base)) * float(prior_k)
+    if isinstance(prior_k, bool) or isinstance(base, bool):
+        raise ValueError("prior_k 与 base 必须为有限数值（非 bool）")
+    pk = float(prior_k)
+    bs = float(base)
+    if not (math.isfinite(pk) and math.isfinite(bs)):
+        raise ValueError("prior_k 与 base 必须为有限数值")
+    if pk < 0.0 or not (0.0 <= bs <= 1.0):
+        raise ValueError(f"非法先验参数：prior_k={prior_k!r}, base={base!r}")
+    a0 = bs * pk
+    b0 = (1.0 - bs) * pk
     xs = [bool(x) for x in (hits or [])]
     k = sum(1 for x in xs if x)
     n = len(xs)
     a, b = a0 + k, b0 + (n - k)
-    mean = a / (a + b)
-    var = (a * b) / ((a + b) ** 2 * (a + b + 1.0))
-    std = var ** 0.5
+    total = a + b
+    if total <= 0.0:
+        raise ValueError("先验强度与样本数不能同时为 0")
+    mean = a / total
+    var = max(0.0, (a * b) / (total ** 2 * (total + 1.0)))
+    std = math.sqrt(var)
     return {"alpha": round(a, 4), "beta": round(b, 4),
             "mean": round(mean, 4), "std": round(std, 4),
             "ci95": [round(max(0.0, mean - 1.96 * std), 4),
@@ -549,7 +623,11 @@ def anchor_from_description(cg, description):
 
 # 生效条件：cg.get(nid) 的 content 含非空行时返回首行去掉开头 '#' 后的前 60 字符，否则返回 nid；
 def _label(cg, nid):
+    if not _node_visible(cg, nid) or _node_is_encrypted(cg, nid):
+        return nid
     node = cg.get(nid) or {}
+    if _node_is_encrypted(cg, nid, node):
+        return nid
     for line in (node.get("content") or "").splitlines():
         s = line.strip()
         if s:
@@ -561,9 +639,13 @@ def _label(cg, nid):
 def _generate(cg, start_id, horizon, max_branches, semantic=True):
     """D-001 局部路径 DFS 生成候选未来（差异 3：增加 path 防环）。"""
     start_id = str(start_id or "").strip()
-    if not start_id or start_id not in _nodes(cg):
+    if not start_id or start_id not in _nodes(cg) or not _node_visible(cg, start_id):
         return {"status": "start_not_found", "start_id": start_id,
                 "routes": [], "meta": {"reason": "节点不存在"}}
+    if isinstance(horizon, bool):
+        raise ValueError(f"horizon 不接受 bool：{horizon!r}")
+    if isinstance(max_branches, bool):
+        raise ValueError(f"max_branches 不接受 bool：{max_branches!r}")
     horizon = max(1, min(int(horizon), HORIZON_HARD))
     max_branches = max(1, min(int(max_branches), MAX_BRANCHES_HARD))
     ver = hit_rate(cg)
@@ -867,17 +949,44 @@ def _write_gap(cg, bid, step, actor):
             return None
     except Exception:                              # noqa: BLE001
         pass
+    from . import crypto, subgraph as _sg
+    src_entry = _nodes(cg).get(bid)
+    tags = ["gap_hint", "learn"]
+    add_kw = {}
+    desc_txt = step.get("description") or bid
+    if src_entry is not None:
+        sens = _sg.node_sensitivity(cg, bid)
+        if sens is None:
+            return None
+        disk_fm = None
+        if not crypto.is_encrypted_level(sens):
+            try:
+                src_node = cg.get(bid)
+            except Exception:
+                src_node = None
+            if isinstance(src_node, dict):
+                disk_fm = src_node.get("frontmatter") or {}
+                fm_sens = _sg._sensitivity_of(disk_fm)
+                sens = _sg._higher_sensitivity(sens, fm_sens)
+                if sens is None:
+                    return None
+        add_kw["sensitivity"] = sens
+        if _sg._node_has_private_domain(cg, bid, entry=src_entry, fm=disk_fm):
+            tags.append("域:私密")
+        if crypto.is_encrypted_level(sens):
+            desc_txt = "（高密级盲区，正文不抄入线索节点）"
     content = ("# 功能名：盲区补全线索\n"
                "# 生效条件：%s\n"
                "# 子功能：为盲区补上条件/路径（待补，非既有事实）\n"
                "# 执行：%s\n"
                "# 不适用条件：结构性不可知\n"
-               % (step.get("description") or bid, step.get("hint") or ""))
+               % (desc_txt, step.get("hint") or ""))
     try:
         cg.add(nid, content, layer="contextual",
-               tags=["gap_hint", "learn"], importance=0.3,
+               tags=tags, importance=0.3,
                verification_basis="data", actor=actor,
-               gap_blindspot=bid, gap_terminal=step.get("terminal"))
+               gap_blindspot=bid, gap_terminal=step.get("terminal"),
+               **add_kw)
         return nid
     except Exception as exc:                       # noqa: BLE001
         step["write_error"] = "%s: %s" % (type(exc).__name__, exc)
@@ -997,7 +1106,7 @@ def stats(cg, limit=20):
                          else BASE_HIT_RATE),
             "beta": channel_posterior(cg),
             "dynamic": dynamic_hit_threshold(cg),
-            "recent": recs[-int(limit):] if limit else []}
+            "recent": recs[-int(limit):] if (limit and not isinstance(limit, bool) and int(limit) > 0) else []}
 
 
 # ---------------------------------------------------------------- 因果推理
@@ -1031,6 +1140,13 @@ def causal_path(cg, a_id, b_id, max_depth=5):
     if not start or not goal:
         return {"ok": False, "error": "missing_node",
                 "detail": "需要 a_id 与 b_id"}
+    if isinstance(max_depth, bool):
+        raise ValueError(f"max_depth 不接受 bool：{max_depth!r}")
+    depth_limit = max(1, int(max_depth))
+    if not _node_visible(cg, start) or not _node_visible(cg, goal):
+        return {"ok": True, "reachable": False, "path": None, "length": None,
+                "max_depth": depth_limit,
+                "note": "无因果路径：节点不可见或不存在"}
     if start == goal:
         return {"ok": True, "reachable": True, "path": [start], "length": 0,
                 "conditions": []}
@@ -1043,6 +1159,8 @@ def causal_path(cg, a_id, b_id, max_depth=5):
         if d >= depth_cap:
             continue
         for tgt, e in adj.get(cur) or []:
+            if not _node_visible(cg, tgt):
+                continue
             if chain.edge_rel(e) not in CAUSAL_BRANCH_TYPES or tgt in prev:
                 continue
             prev[tgt] = cur
