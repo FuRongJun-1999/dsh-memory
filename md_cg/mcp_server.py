@@ -214,28 +214,648 @@ def _item_tags(cg, it):
     return tags_of_item(cg, it)
 
 
-# 生效条件：读面出口统一走这里——先摘私密域，再按 detail 瘦身（slim=False 时不瘦身）。
-def _final_out(out, cg, a, slim=False):
-    include = _as_flag((a or {}).get("include_private"))
+# 生效条件：a 为调用参数 dict 或 None；include_private 入参为真或环境变量 MDCG_INCLUDE_PRIVATE 放行时返回 True，否则返回 False。
+def _private_domain_allowed(a):
+    if _as_flag((a or {}).get("include_private")):
+        return True
+    return str(os.environ.get("MDCG_INCLUDE_PRIVATE", "")).strip().lower() in ("1", "true", "on")
+
+
+# 生效条件：it 为检索/召回结果条目 dict（或含 node 子 dict）时返回非空字符串 id，否则返回 None。
+def _item_id(it):
+    if not isinstance(it, dict):
+        return None
+    node = it.get("node") if isinstance(it.get("node"), dict) else it
+    nid = node.get("id") or node.get("node_id")
+    if nid is None:
+        return None
+    s = str(nid)
+    return s if s else None
+
+
+# 生效条件：it 为召回条目 dict 时检查条目/node 的 untrusted 位与 frontmatter.untrusted（缺失 frontmatter 时回查 cg.get；对未走 cg.add 写入分类的合成 recent 条目 re_* 补充 untrusted.classify 复核）；命中返回 True，否则 False。
+def _item_is_untrusted(cg, it):
+    if not isinstance(it, dict):
+        return False
+    if it.get("untrusted"):
+        return True
+    node = it.get("node") if isinstance(it.get("node"), dict) else it
+    if node.get("untrusted"):
+        return True
+    fm = node.get("frontmatter")
+    if isinstance(fm, dict) and fm.get("untrusted"):
+        return True
+    nid = _item_id(it)
+    if nid and cg is not None and not isinstance(fm, dict):
+        try:
+            rec = cg.get(nid)
+        except Exception:  # noqa: BLE001 —— 读面不因单条回查失败而炸
+            rec = None
+        if isinstance(rec, dict) and (rec.get("frontmatter") or {}).get("untrusted"):
+            return True
+    # 近期事件合成条目（re_*，由 bucketscope 从 _recent.jsonl 注入 pack）未经过 cg.add 写入分类，
+    # frontmatter 中无 untrusted 字段，需在召回出口复核正文防 prompt-injection 穿透。
+    nodes_map = (getattr(cg, "index", None) or {}).get("nodes") if cg is not None else None
+    is_synthetic_recent = (
+        (nid is not None and nid.startswith("re_"))
+        and not (isinstance(nodes_map, dict) and nid in nodes_map)
+    )
+    if is_synthetic_recent:
+        body = node.get("content") or it.get("content") or it.get("text")
+        if isinstance(body, str) and body:
+            try:
+                from . import untrusted as _ut  # noqa: PLC0415
+                if (_ut.classify(body) or {}).get("untrusted"):
+                    return True
+            except Exception:  # noqa: BLE001 —— 分类器异常不拖崩读面
+                pass
+    return False
+
+
+# 生效条件：rec 为近期事件 dict 时检查显式 untrusted 标记与 untrusted.classify(text)；命中返回 True，否则 False。
+def _recent_is_untrusted(rec):
+    if not isinstance(rec, dict):
+        return False
+    if rec.get("untrusted"):
+        return True
+    rm = rec.get("meta")
+    if isinstance(rm, dict) and rm.get("untrusted"):
+        return True
+    text = rec.get("text")
+    if isinstance(text, str) and text:
+        try:
+            from . import untrusted as _ut  # noqa: PLC0415
+            if (_ut.classify(text) or {}).get("untrusted"):
+                return True
+        except Exception:  # noqa: BLE001 —— 分类器异常不拖崩读面
+            pass
+    return False
+
+
+# 生效条件：items 为 pack 列表、cg 为认知图实例或 None；剔除 untrusted 条目并返回 (保留列表, 剔除数, 被剔 id 集合, 被剔 token 总数)。
+def _filter_untrusted_pack(items, cg):
+    kept, dropped, dropped_ids, dropped_tok = [], 0, set(), 0
+    for it in items or []:
+        if _item_is_untrusted(cg, it):
+            dropped += 1
+            nid = _item_id(it)
+            if nid:
+                dropped_ids.add(nid)
+            if isinstance(it, dict):
+                try:
+                    dropped_tok += max(0, int(it.get("tokens") or 0))
+                except (TypeError, ValueError):
+                    pass
+            continue
+        kept.append(it)
+    return kept, dropped, dropped_ids, dropped_tok
+
+
+# 生效条件：prov_list 为单节点 provenance 列表、is_excluded 为 id 排除谓词；移除引用被排除节点的 chain/from/via/source 跳并返回新列表。
+def _clean_prov_entries(prov_list, is_excluded):
+    if not isinstance(prov_list, list):
+        return prov_list
+    cleaned = []
+    for hop in prov_list:
+        if isinstance(hop, dict):
+            ch = hop.get("chain")
+            if isinstance(ch, (list, tuple)) and any(is_excluded(c) for c in ch):
+                continue
+            if any(is_excluded(hop.get(k)) for k in ("from", "via", "source", "node_id", "id")):
+                continue
+        cleaned.append(hop)
+    return cleaned
+
+
+# 生效条件：out 为读面/召回返回 dict；按 excluded_ids 与 drop_private/drop_untrusted 同步清理 timeline、timeline_groups、aggregates、recent、skipped、meta.provenance、pack[].provenance，并在 pack 发生变化时重算 tokens_used/coverage_gaps/coverage_certified/miss_slots。
+def _prune_recall_aux(out, cg, a, excluded_ids=None, *,
+                      drop_private=False, drop_untrusted=False,
+                      dropped_tokens=0, pack_changed=False, query=None):
+    if not isinstance(out, dict):
+        return out
+    excl = {str(x) for x in (excluded_ids or ()) if x is not None and str(x) != ""}
+    priv_cache = {}
+    untr_cache = {}
+
+    def _id_is_private(nid):
+        if nid in priv_cache:
+            return priv_cache[nid]
+        ans = False
+        if cg is not None:
+            try:
+                nodes_map = (getattr(cg, "index", None) or {}).get("nodes")
+                entry = nodes_map.get(nid) if isinstance(nodes_map, dict) else None
+                if isinstance(entry, dict) and entry.get("tags") is not None:
+                    ans = PRIVATE_DOMAIN_TAG in [str(t) for t in (entry.get("tags") or ())]
+                if not ans:
+                    tags = tags_of_item(cg, {"id": nid})
+                    ans = PRIVATE_DOMAIN_TAG in [str(t) for t in (tags or ())]
+            except Exception:  # noqa: BLE001 —— 读面不因索引/回查失败而炸
+                ans = False
+        priv_cache[nid] = ans
+        return ans
+
+    def _id_is_untrusted(nid):
+        if nid in untr_cache:
+            return untr_cache[nid]
+        ans = False
+        if cg is not None:
+            try:
+                rec = cg.get(nid)
+                if isinstance(rec, dict) and (rec.get("frontmatter") or {}).get("untrusted"):
+                    ans = True
+            except Exception:  # noqa: BLE001
+                ans = False
+        untr_cache[nid] = ans
+        return ans
+
+    def _is_excluded(nid):
+        if nid is None:
+            return False
+        s = str(nid)
+        if not s:
+            return False
+        if s in excl:
+            return True
+        if drop_private and _id_is_private(s):
+            excl.add(s)
+            return True
+        if drop_untrusted and _id_is_untrusted(s):
+            excl.add(s)
+            return True
+        return False
+
+    def _row_has_private_tag(row):
+        if not isinstance(row, dict):
+            return False
+        tags = row.get("tags")
+        if tags is None and isinstance(row.get("frontmatter"), dict):
+            tags = row["frontmatter"].get("tags")
+        return PRIVATE_DOMAIN_TAG in [str(t) for t in (tags or ())]
+
+    changed = False
+    extra_dropped_tok = int(dropped_tokens or 0)
+    extra_priv_dropped = 0
+    extra_untr_dropped = 0
+
+    def _ensure_copy():
+        nonlocal out, changed
+        if not changed:
+            out = dict(out)
+            changed = True
+
+    if isinstance(out.get("recent"), list):
+        rec_new = out["recent"]
+        rec_mod = False
+        if drop_private:
+            kept_r, drop_r = drop_private_domain(
+                rec_new, lambda r: (r or {}).get("tags") or (), enabled=True)
+            if drop_r:
+                kept_objs = {id(x) for x in kept_r}
+                for orig_r in rec_new:
+                    if id(orig_r) not in kept_objs and isinstance(orig_r, dict):
+                        try:
+                            extra_dropped_tok += max(0, int(orig_r.get("tokens") or 0))
+                        except (TypeError, ValueError):
+                            pass
+                rec_new = kept_r
+                extra_priv_dropped += drop_r
+                rec_mod = True
+        if drop_untrusted and rec_new:
+            kept_ru, drop_ru = [], 0
+            for r in rec_new:
+                if _recent_is_untrusted(r):
+                    drop_ru += 1
+                    if isinstance(r, dict):
+                        try:
+                            extra_dropped_tok += max(0, int(r.get("tokens") or 0))
+                        except (TypeError, ValueError):
+                            pass
+                    continue
+                kept_ru.append(r)
+            if drop_ru:
+                rec_new = kept_ru
+                extra_untr_dropped += drop_ru
+                rec_mod = True
+        if rec_mod:
+            _ensure_copy()
+            out["recent"] = rec_new
+
+    if isinstance(out.get("timeline"), list):
+        tl_orig = out["timeline"]
+        tl_new = []
+        for row in tl_orig:
+            if isinstance(row, dict):
+                if _is_excluded(row.get("id")):
+                    continue
+                if drop_private and _row_has_private_tag(row):
+                    continue
+                if drop_untrusted and row.get("untrusted"):
+                    continue
+            tl_new.append(row)
+        if len(tl_new) != len(tl_orig):
+            _ensure_copy()
+            out["timeline"] = tl_new
+
+    if isinstance(out.get("timeline_groups"), list):
+        tg_orig = out["timeline_groups"]
+        tg_new = []
+        tg_mod = False
+        for grp in tg_orig:
+            if not isinstance(grp, dict):
+                tg_new.append(grp)
+                continue
+            if drop_private and str(grp.get("topic") or "") == PRIVATE_DOMAIN_TAG:
+                tg_mod = True
+                continue
+            g_items = grp.get("items")
+            if isinstance(g_items, list):
+                kept_gi = []
+                for it in g_items:
+                    if isinstance(it, dict):
+                        if _is_excluded(it.get("id")):
+                            continue
+                        if drop_private and _row_has_private_tag(it):
+                            continue
+                        if drop_untrusted and it.get("untrusted"):
+                            continue
+                    kept_gi.append(it)
+                if len(kept_gi) != len(g_items):
+                    tg_mod = True
+                if not kept_gi:
+                    tg_mod = True
+                    continue
+                tg_new.append(dict(grp, items=kept_gi) if len(kept_gi) != len(g_items) else grp)
+            else:
+                tg_new.append(grp)
+        if tg_mod:
+            tg_new.sort(key=lambda g: (-len(g.get("items") or ()), str(g.get("topic") or ""))
+                        if isinstance(g, dict) else (0, ""))
+            _ensure_copy()
+            out["timeline_groups"] = tg_new
+
+    if isinstance(out.get("aggregates"), list):
+        try:
+            from .topicagg import MIN_SPAN_SECONDS as _MIN_SPAN  # noqa: PLC0415
+        except Exception:  # noqa: BLE001
+            _MIN_SPAN = 30.0
+        ag_orig = out["aggregates"]
+        ag_new = []
+        ag_mod = False
+        for grp in ag_orig:
+            if not isinstance(grp, dict):
+                ag_new.append(grp)
+                continue
+            if drop_private and str(grp.get("topic") or "") == PRIVATE_DOMAIN_TAG:
+                ag_mod = True
+                continue
+            tl = grp.get("timeline")
+            if isinstance(tl, list):
+                kept_tl = []
+                for m in tl:
+                    if isinstance(m, dict):
+                        if _is_excluded(m.get("id")):
+                            continue
+                        if drop_private and _row_has_private_tag(m):
+                            continue
+                        if drop_untrusted and m.get("untrusted"):
+                            continue
+                    kept_tl.append(m)
+                if len(kept_tl) != len(tl):
+                    ag_mod = True
+                    if len(kept_tl) < 2:
+                        continue
+                    ts_vals = []
+                    for m in kept_tl:
+                        if isinstance(m, dict) and isinstance(m.get("t"), (int, float)):
+                            ts_vals.append(float(m["t"]))
+                    if len(ts_vals) == len(kept_tl) and (max(ts_vals) - min(ts_vals)) < _MIN_SPAN:
+                        continue
+                    g2 = dict(grp)
+                    g2["timeline"] = kept_tl
+                    g2["count"] = len(kept_tl)
+                    g2["ids"] = [m.get("id") for m in kept_tl if isinstance(m, dict)]
+                    ag_new.append(g2)
+                else:
+                    ag_new.append(grp)
+            elif isinstance(grp.get("ids"), list):
+                g_ids = grp["ids"]
+                kept_ids = [i for i in g_ids if not _is_excluded(i)]
+                if len(kept_ids) != len(g_ids):
+                    ag_mod = True
+                    if len(kept_ids) < 2:
+                        continue
+                    g2 = dict(grp)
+                    g2["ids"] = kept_ids
+                    g2["count"] = len(kept_ids)
+                    ag_new.append(g2)
+                else:
+                    ag_new.append(grp)
+            else:
+                ag_new.append(grp)
+        if ag_mod:
+            ag_new.sort(key=lambda g: (-int(g.get("count") or 0), str(g.get("topic") or ""))
+                        if isinstance(g, dict) else (0, ""))
+            _ensure_copy()
+            out["aggregates"] = ag_new
+
+    skipped_changed = False
+    if isinstance(out.get("skipped"), list):
+        sk_orig = out["skipped"]
+        sk_new = [s for s in sk_orig
+                  if not (isinstance(s, dict) and _is_excluded(s.get("id")))]
+        if len(sk_new) != len(sk_orig):
+            _ensure_copy()
+            out["skipped"] = sk_new
+            skipped_changed = True
+
+    if isinstance(out.get("pack"), list) and (excl or drop_private or drop_untrusted):
+        pk_orig = out["pack"]
+        pk_mod = False
+        pk_new = []
+        for it in pk_orig:
+            if isinstance(it, dict) and isinstance(it.get("provenance"), list):
+                cp = _clean_prov_entries(it["provenance"], _is_excluded)
+                if len(cp) != len(it["provenance"]):
+                    pk_mod = True
+                    it = dict(it, provenance=cp)
+            pk_new.append(it)
+        if pk_mod:
+            _ensure_copy()
+            out["pack"] = pk_new
+
+    def _clean_prov_map(pmap):
+        if not isinstance(pmap, dict):
+            return pmap, False
+        new_map = {}
+        pmod = False
+        for k, v in pmap.items():
+            if _is_excluded(k):
+                pmod = True
+                continue
+            cv = _clean_prov_entries(v, _is_excluded)
+            if isinstance(v, list) and len(cv) != len(v):
+                pmod = True
+            new_map[k] = cv
+        return new_map, pmod
+
+    if isinstance(out.get("provenance"), dict):
+        np_top, top_mod = _clean_prov_map(out["provenance"])
+        if top_mod:
+            _ensure_copy()
+            out["provenance"] = np_top
+
+    meta = out.get("meta")
+    if isinstance(meta, dict):
+        meta_mod = False
+        meta_new = meta
+
+        def _mcopy():
+            nonlocal meta_new, meta_mod
+            if not meta_mod:
+                meta_new = dict(meta_new)
+                meta_mod = True
+
+        if isinstance(meta_new.get("provenance"), dict):
+            np_m, pm_mod = _clean_prov_map(meta_new["provenance"])
+            if pm_mod:
+                _mcopy()
+                meta_new["provenance"] = np_m
+        if isinstance(meta_new.get("no_rank_signal"), list):
+            nrs_orig = meta_new["no_rank_signal"]
+            nrs_new = [x for x in nrs_orig if not _is_excluded(x)]
+            if len(nrs_new) != len(nrs_orig):
+                _mcopy()
+                meta_new["no_rank_signal"] = nrs_new
+        if isinstance(meta_new.get("rank_credibility"), dict):
+            rc_orig = meta_new["rank_credibility"]
+            rc_new = {k: v for k, v in rc_orig.items() if not _is_excluded(k)}
+            if len(rc_new) != len(rc_orig):
+                _mcopy()
+                meta_new["rank_credibility"] = rc_new
+        if isinstance(meta_new.get("path_fingerprint"), dict):
+            pf = meta_new["path_fingerprint"]
+            pf_mod = False
+            pf_paths = pf.get("paths")
+            if isinstance(pf_paths, dict) and isinstance(pf_paths.get("provenance"), dict):
+                pf_np, pf_pm = _clean_prov_map(pf_paths["provenance"])
+                if pf_pm:
+                    pf_paths = dict(pf_paths)
+                    pf_paths["provenance"] = pf_np
+                    pf_paths["used"] = sorted({
+                        str(p.get("path"))
+                        for _lst in pf_np.values() if isinstance(_lst, list)
+                        for p in _lst if isinstance(p, dict) and p.get("path") is not None
+                    })
+                    pf_paths["multi"] = sum(
+                        1 for _lst in pf_np.values() if isinstance(_lst, list)
+                        and len({p.get("path") for p in _lst if isinstance(p, dict)}) >= 2
+                    )
+                    pf_mod = True
+            pf_sel = pf.get("selection")
+            if isinstance(pf_sel, dict):
+                sel_new = pf_sel
+                sel_mod = False
+                if isinstance(sel_new.get("no_rank_signal"), list):
+                    s_nrs = [x for x in sel_new["no_rank_signal"] if not _is_excluded(x)]
+                    if len(s_nrs) != len(sel_new["no_rank_signal"]):
+                        sel_new = dict(sel_new)
+                        sel_new["no_rank_signal"] = s_nrs
+                        sel_mod = True
+                if isinstance(sel_new.get("rank_credibility"), dict):
+                    s_rc = {k: v for k, v in sel_new["rank_credibility"].items()
+                            if not _is_excluded(k)}
+                    if len(s_rc) != len(sel_new["rank_credibility"]):
+                        if not sel_mod:
+                            sel_new = dict(sel_new)
+                        sel_new["rank_credibility"] = s_rc
+                        sel_mod = True
+                if sel_mod:
+                    pf_sel = sel_new
+                    pf_mod = True
+            if pf_mod:
+                _mcopy()
+                try:
+                    from .mdcos import build_path_fingerprint as _build_pf  # noqa: PLC0415
+                    meta_new["path_fingerprint"] = _build_pf(
+                        selection=pf_sel, recursion=pf.get("recursion"), paths=pf_paths)
+                except Exception:  # noqa: BLE001
+                    meta_new["path_fingerprint"] = dict(pf, selection=pf_sel, paths=pf_paths)
+        if isinstance(meta_new.get("untrusted_among"), list):
+            ua_orig = meta_new["untrusted_among"]
+            ua_new = [u for u in ua_orig
+                      if not (isinstance(u, dict) and _is_excluded(u.get("id")))]
+            if len(ua_new) != len(ua_orig):
+                _mcopy()
+                meta_new["untrusted_among"] = ua_new
+        if extra_priv_dropped:
+            _mcopy()
+            meta_new["private_domain_excluded"] = (
+                int(meta_new.get("private_domain_excluded") or 0) + extra_priv_dropped)
+        if extra_untr_dropped:
+            _mcopy()
+            meta_new["untrusted_excluded"] = (
+                int(meta_new.get("untrusted_excluded") or 0) + extra_untr_dropped)
+        if meta_mod:
+            _ensure_copy()
+            out["meta"] = meta_new
+    elif extra_priv_dropped or extra_untr_dropped:
+        _ensure_copy()
+        meta_new = {}
+        if extra_priv_dropped:
+            meta_new["private_domain_excluded"] = extra_priv_dropped
+        if extra_untr_dropped:
+            meta_new["untrusted_excluded"] = extra_untr_dropped
+        out["meta"] = meta_new
+
+    if extra_dropped_tok and isinstance(out.get("tokens_used"), (int, float)):
+        _ensure_copy()
+        out["tokens_used"] = max(0, int(out["tokens_used"]) - extra_dropped_tok)
+    if (pack_changed or skipped_changed or extra_dropped_tok) and isinstance(out.get("pack"), list):
+        q_eff = query if query is not None else ((a or {}).get("query") or (a or {}).get("intent"))
+        if "coverage_gaps" in out or "coverage_certified" in out:
+            try:
+                from . import coverage as _cov  # noqa: PLC0415
+                from .mdcos import RRF_K as _RRF_K  # noqa: PLC0415
+                _g, _c = _cov.gaps(out.get("pack"), out.get("skipped"),
+                                   out.get("tokens_used"), out.get("budget"),
+                                   query=q_eff, baseline=1.0 / (_RRF_K + 1))
+                _ensure_copy()
+                out["coverage_gaps"], out["coverage_certified"] = _g, _c
+            except Exception:  # noqa: BLE001 —— 不拖崩召回面
+                pass
+        if "miss_slots" in out:
+            try:
+                from . import coverage as _cov  # noqa: PLC0415
+                _ensure_copy()
+                out["miss_slots"] = _cov.slot_gaps(out.get("pack"), q_eff)
+            except Exception:  # noqa: BLE001
+                pass
+    return out
+
+
+# 生效条件：读面出口统一走这里——先摘私密域并同步清理辅助视图，再按 detail 瘦身（slim=False 时不瘦身）。
+def _final_out(out, cg, a, slim=False, *,
+               drop_untrusted=False, excluded_ids=None,
+               dropped_tokens=0, pack_changed=False, query=None):
+    drop_priv = not _private_domain_allowed(a)
+    excl = {str(x) for x in (excluded_ids or ()) if x is not None and str(x) != ""}
+    tok_drop = int(dropped_tokens or 0)
+    pk_changed = bool(pack_changed)
     if isinstance(out, dict):
+        priv_dropped_total = 0
         for key in ("pack", "results"):
             items = out.get(key)
             if not isinstance(items, list):
                 continue
             keep, dropped = drop_private_domain(items, lambda it: _item_tags(cg, it),
-                                                enabled=not include)
+                                                enabled=drop_priv)
             if dropped:
+                kept_objs = {id(x) for x in keep}
+                for orig in items:
+                    if id(orig) not in kept_objs:
+                        nid = _item_id(orig)
+                        if nid:
+                            excl.add(nid)
+                        if key == "pack" and isinstance(orig, dict):
+                            try:
+                                tok_drop += max(0, int(orig.get("tokens") or 0))
+                            except (TypeError, ValueError):
+                                pass
                 out = dict(out)
                 out[key] = keep
-                meta = dict(out.get("meta") or {})
-                meta["private_domain_excluded"] = dropped
-                out["meta"] = meta
+                priv_dropped_total += dropped
+                if key == "pack":
+                    pk_changed = True
+        if priv_dropped_total:
+            meta = dict(out.get("meta") or {})
+            meta["private_domain_excluded"] = (
+                int(meta.get("private_domain_excluded") or 0) + priv_dropped_total)
+            out["meta"] = meta
+        out = _prune_recall_aux(
+            out, cg, a, excluded_ids=excl,
+            drop_private=drop_priv, drop_untrusted=drop_untrusted,
+            dropped_tokens=tok_drop, pack_changed=pk_changed, query=query)
     # issue #1010：瘦身只对**声明了可摘遥测的读面**（read）生效。recall / search 的契约里
     # 点名要 `meta.bm25`、`provenance`、逐条 id/正文/untrusted/引用字段——把它们的返回体
     # 也过一遍 keep-list，等于让契约与实现各说一套（test_bm25 / test_p2_mcp 红）。
     if not slim:
         return out
     return _slim_read_out(out, (a or {}).get("detail"))
+
+
+# 生效条件：out 为 recall 返回体（mdcg_recall 或 cg(op="read", budget_tokens=...)）；依次执行 untrusted 强制闸、exclude_doc、可选标签过滤、私密域剔除与全辅助视图同步清理，再按 slim 决定是否瘦身。
+def _sanitize_recall_out(out, cg, a, *, slim=False, query=None,
+                         include_tags=(), exclude_tags=()):
+    if not isinstance(out, dict):
+        return _final_out(out, cg, a, slim=slim, query=query)
+    excl = set()
+    tok_drop = 0
+    pk_changed = False
+
+    def _record_dropped(orig_items, kept_items):
+        nonlocal tok_drop
+        kept_objs = {id(x) for x in kept_items}
+        for orig in orig_items:
+            if id(orig) not in kept_objs:
+                nid = _item_id(orig)
+                if nid:
+                    excl.add(nid)
+                if isinstance(orig, dict):
+                    try:
+                        tok_drop += max(0, int(orig.get("tokens") or 0))
+                    except (TypeError, ValueError):
+                        pass
+
+    # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
+    # mdcg_recall 与 cg(op="read", budget_tokens=...) 都是进上下文的召回通路，
+    # 必须统一把 untrusted 条目剔出 pack 及全部辅助视图并记数；检索面仍可查见。
+    items = out.get("pack")
+    if isinstance(items, list):
+        kept_u, drop_u, ids_u, tok_u = _filter_untrusted_pack(items, cg)
+        if drop_u:
+            out = dict(out)
+            out["pack"] = kept_u
+            meta = dict(out.get("meta") or {})
+            meta["untrusted_excluded"] = int(meta.get("untrusted_excluded") or 0) + drop_u
+            out["meta"] = meta
+            excl.update(ids_u)
+            tok_drop += tok_u
+            pk_changed = True
+
+    # issue #653：exclude_doc
+    items = out.get("pack")
+    if isinstance(items, list):
+        kept_d, drop_d = drop_doc_nodes(
+            items, lambda it: (it or {}).get("id"),
+            (a or {}).get("exclude_doc", False), allow=doc_allow_ids(cg))
+        if drop_d:
+            _record_dropped(items, kept_d)
+            out = dict(out)
+            out["pack"] = kept_d
+            out["meta"] = _note_doc_filter(out.get("meta"), drop_d,
+                                           (a or {}).get("exclude_doc", False))
+            pk_changed = True
+
+    # issue #721：标签过滤（recall 路径）
+    if include_tags or exclude_tags:
+        items = out.get("pack")
+        if isinstance(items, list):
+            kept_t, drop_t = filter_by_tags(
+                items, lambda it: tags_of_item(cg, it),
+                include_tags=include_tags, exclude_tags=exclude_tags)
+            if drop_t:
+                _record_dropped(items, kept_t)
+                pk_changed = True
+            out = dict(out)
+            out["pack"] = kept_t
+            out["meta"] = _note_tag_filter(out.get("meta"), drop_t,
+                                           include_tags, exclude_tags)
+
+    return _final_out(
+        out, cg, a, slim=slim,
+        drop_untrusted=True, excluded_ids=excl,
+        dropped_tokens=tok_drop, pack_changed=pk_changed, query=query)
 
 
 def drop_doc_nodes(items, id_of, enabled=False, allow=None):
@@ -3829,29 +4449,15 @@ def _cg_dispatch(cg, a):
                              session=a.get("session"),
                              validity=a.get("validity"),
                              **({"paths": ("bm25",)} if a.get("bm25", True) and hasattr(cg, "search_rrf") else {}), **_tkw)
-            # issue #653：budget 早退分支此前在过滤之前 return，exclude_doc 静默忽略。
-            if isinstance(_out, dict):
-                _pack2, _drop2 = drop_doc_nodes(
-                    _out.get("pack") or [], lambda it: (it or {}).get("id"),
-                    a.get("exclude_doc", False), allow=doc_allow_ids(cg))
-                if _drop2:
-                    _out = dict(_out)
-                    _out["pack"] = _pack2
-                    _out["meta"] = _note_doc_filter(_out.get("meta"), _drop2,
-                                                    a.get("exclude_doc", False))
-                # issue #721：标签过滤（recall 路径）。与 search 路径同一判据函数。
-                if _tag_on:
-                    _pack3, _drop3 = filter_by_tags(
-                        _out.get("pack") or [], lambda it: tags_of_item(cg, it),
-                        include_tags=_inc_tags, exclude_tags=_exc_tags)
-                    _out = dict(_out)
-                    _out["pack"] = _pack3
-                    _out["meta"] = _note_tag_filter(_out.get("meta"), _drop3,
-                                                    _inc_tags, _exc_tags)
+            # issue #653/#721 + A1-02：budget 召回出口统一经 _sanitize_recall_out 过
+            # untrusted 强制闸、exclude_doc、标签过滤、私密域剔除与全辅助视图同步清理。
             if _kwarn and isinstance(_out, dict):
                 _out = dict(_out)
                 _out["warning"] = _kwarn
-            return _final_out(_out, cg, a, slim=True)
+            return _sanitize_recall_out(
+                _out, cg, a, slim=True, query=q,
+                include_tags=_inc_tags if _tag_on else (),
+                exclude_tags=_exc_tags if _tag_on else ())
         from . import refindex
         # issue #659 F26-11：过滤发生在 k 截断**之后**，当 top-k 全被 doc_ 占满时
         # 结果直接空掉（配额被吃光）。开启过滤时按 k 的若干倍超取，过滤后再截回 k。
@@ -5169,30 +5775,44 @@ def _ref_call(cg, a):
             return {"ok": False, "error": f"节点不存在：{nid}"}
     ref = a.get("ref") if isinstance(a.get("ref"), dict) else None
     ref_kind = "ref"
+    node_ref_kind, node_ref = refindex.ref_of(node) if node is not None else ("", None)
     if ref is None and node is not None:
-        ref_kind, ref = refindex.ref_of(node)
+        ref_kind, ref = node_ref_kind, node_ref
     if not ref:
         return {"ok": False,
                 "error": "该节点没有 code_ref/doc_ref（不是索引节点）"}
-    # P1-X（两份独立报告合并）：ref 回读是任意文件读原语——
+    # P1-X（两份独立报告合并）+ SEC-A2-02：ref 回读是任意文件读原语——
     # 自报 root、inline ref 自带的 root/path 均模型可控，probe_ref 直接
-    # os.path.join 后 open 全文回读（绝对 path 丢弃 root、'..' 上跳同漏）。
-    # 按最终将打开的完整路径过根白名单（2026-10-10 设计者裁定 dsh #85 选 A：
-    # 未配置**不再放开**，走三级回落链——env 已配置用它；未配置回落 mdcg 实际
-    # 配置库根；连库根也无则取工作区并把它配置下来；判据真源 =
-    # security._whitelist_roots 与其 P1-4 注释块）；越界一律拒（fail-closed），
-    # 上跳与绝对路径在 realpath 归一后自然涵盖。
+    # os.path.join 后 open 全文回读（绝对 path 丢弃 root、'..' 上跳、符号链接逃逸同漏）。
+    # 必须先判定实际执行分支，再按**实际将被打开的 root 与目标路径**过 MDCG_INGEST_ROOT
+    # 根白名单（2026-10-10 设计者裁定 dsh #85 选 A：未配置走三级回落链、越界 fail-closed）：
+    # 当走 logref.read_index_node(node) 分支时，read_index_node 会忽略调用方自报的
+    # a["root"] 与 inline ref、始终读取节点自身 frontmatter ref["root"]+ref["path"]，
+    # 故必须校验实际生效的 node_ref["root"] 与目标文件真实路径，绝不能只校验 a["root"]。
     from .security import check_path_root
-    check_path_root(
-        os.path.join(a.get("root") or ref.get("root") or "",
-                     ref.get("path") or ""),
-        "MDCG_INGEST_ROOT", "ref")
     from . import logref
-    if node is not None and isinstance(ref.get("src"), dict) and ref["src"]:
+    _is_log_node = (
+        node is not None
+        and isinstance(ref.get("src"), dict) and bool(ref["src"])
+        and isinstance(node_ref, dict) and bool(node_ref)
+    )
+    if _is_log_node:
+        _eff_root = node_ref.get("root") or ""
+        _eff_path = node_ref.get("path") or ""
+    else:
+        _eff_root = a.get("root") or ref.get("root") or ""
+        _eff_path = ref.get("path") or ""
+    if not isinstance(_eff_root, str) or not isinstance(_eff_path, str):
+        raise PermissionError("ref 路径类型非法，拒绝访问（fail-closed）")
+    if _eff_root:
+        check_path_root(_eff_root, "MDCG_INGEST_ROOT", "ref")
+    check_path_root(
+        os.path.join(_eff_root, _eff_path),
+        "MDCG_INGEST_ROOT", "ref")
+    if _is_log_node:
         # P2：检索命中 → 区间回读。**区间文本仍由 refindex.read_ref 取**（logref.
-        # read_index_node 内部就是它，本分支不另写读取与哈希）；相对此前的差别只有一
-        # 点：日志节点的 root 一律取 **ref 自带的转写根**（path 是相对根写死的，用调用
-        # 方自报的 root 拼会读到别的文件——上面那道 check_path_root 也按同一路径判）。
+        # read_index_node 内部就是它，且同步对实际 ref["root"]/目标路径做纵深白名单校验）；
+        # 日志节点的 root 一律取 **node 自身 ref 自带的转写根**，上面已按同一路径判。
         # 另带 span 状态机与再生指路：stale ⇒ 重跑落库、不自动覆写；dangling ⇒ 转写被
         # 清理，指路离线 `--repair 1`（服务态零写临时目录）。
         out = logref.read_index_node(node, with_src=bool(a.get("with_src")))
@@ -6043,51 +6663,10 @@ def _dispatch(cg, name, args):
             if isinstance(_pack2, dict) and (_pack2.get("pack") or []):
                 _pack = _pack2
                 _pack.setdefault("meta", {})["bm25_fallback"] = "lexical"
-        # 注入面强制闸（使用者裁定 2026-10-21「未验证、未信任的信息本来就不应该执行」）：
-        # recall 是进上下文的通路，故把带 untrusted 标记的条目剔出 pack 并记数；
-        # 检索面（mdcg_search）仍可查见——查得到，但不进提示词。
-        try:
-            _items = _pack.get("pack") if isinstance(_pack, dict) else None
-            if isinstance(_items, list):
-                _kept, _drop = [], 0
-                for _it in _items:
-                    _fm = {}
-                    if isinstance(_it, dict):
-                        _node = _it.get("node") if isinstance(_it.get("node"), dict) else _it
-                        _fm = _node.get("frontmatter") or {}
-                    if _fm.get("untrusted"):
-                        _drop += 1
-                        continue
-                    _kept.append(_it)
-                if _drop:
-                    _pack["pack"] = _kept
-                    _pack.setdefault("meta", {})["untrusted_excluded"] = _drop
-                    # issue #1005 ②：剔除后覆盖缺口必须重算——原话轮次若正因
-                    # untrusted 被剔走，「raw_not_included」就是此刻的真话。
-                    try:
-                        from . import coverage as _cov    # noqa: PLC0415
-                        from .mdcos import RRF_K as _RRF_K    # noqa: PLC0415
-                        _g, _c = _cov.gaps(_kept, _pack.get("skipped"),
-                                           _pack.get("tokens_used"),
-                                           _pack.get("budget"),
-                                           query=a.get("query"),
-                                           baseline=1.0 / (_RRF_K + 1))
-                        _pack["coverage_gaps"], _pack["coverage_certified"] = _g, _c
-                    except Exception:            # noqa: BLE001 —— 不拖崩召回面
-                        pass
-        except Exception:
-            pass
-        # issue #653：recall 面此前完全不读 exclude_doc（schema 挂在它身上却不生效）。
-        if isinstance(_pack, dict):
-            _pk, _pk_drop = drop_doc_nodes(
-                _pack.get("pack") or [], lambda it: (it or {}).get("id"),
-                a.get("exclude_doc", False), allow=doc_allow_ids(cg))
-            if _pk_drop:
-                _pack = dict(_pack)
-                _pack["pack"] = _pk
-                _pack["meta"] = _note_doc_filter(_pack.get("meta"), _pk_drop,
-                                                 a.get("exclude_doc", False))
-        return _final_out(_pack, cg, a, slim=False)
+        # 注入面强制闸（使用者裁定 2026-10-21）+ issue #653 + A1-02：
+        # 统一经 _sanitize_recall_out 剔除 untrusted、exclude_doc 与 域:私密，
+        # 并同步清理 timeline / timeline_groups / aggregates / recent / skipped / meta.provenance。
+        return _sanitize_recall_out(_pack, cg, a, slim=False, query=a.get("query"))
 
     if name == "mdcg_search":
         # ---- 异步检索（2026-10-21）：把「怕超时」变成「先拿工单，过几秒来取」----

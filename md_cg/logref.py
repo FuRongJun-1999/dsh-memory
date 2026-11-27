@@ -248,8 +248,21 @@ def _is_enc(level) -> bool:
     return crypto.is_encrypted_level(level)
 
 
+# 生效条件：ref 为 doc_ref/code_ref dict 时按实际将读取的 ref["root"] 与 os.path.join(root, path) 过 MDCG_INGEST_ROOT 白名单；类型非法、越界或符号链接逃逸时抛 PermissionError（fail-closed）。
+def _check_ref_path_whitelist(ref: dict) -> None:
+    ref_root = (ref or {}).get("root") or ""
+    ref_path = (ref or {}).get("path") or ""
+    if not isinstance(ref_root, str) or not isinstance(ref_path, str):
+        raise PermissionError("ref 路径类型非法，拒绝访问（fail-closed）")
+    from .security import check_path_root
+    if ref_root:
+        check_path_root(ref_root, "MDCG_INGEST_ROOT", "ref")
+    check_path_root(os.path.join(ref_root, ref_path), "MDCG_INGEST_ROOT", "ref")
+
+
 # 生效条件：node 为 cg.get 取回的节点 dict（其余按无 ref 处理）；with_src 缺省 False。
-# 返回 {ok, status, text/hash_match, src_verified, ...}；真源块仅在 with_src 为真时给出。
+# 先对实际落盘的 ref["root"] 与目标文件路径执行 MDCG_INGEST_ROOT 白名单校验（越界/符号链接逃逸抛 PermissionError），
+# 再返回 {ok, status, text/hash_match, src_verified, ...}；真源块仅在 with_src 为真时给出。
 def read_index_node(node, *, with_src: bool = False, verify: str = "hash") -> dict:
     """节点 → 两层回读结果（区间层恒做，真源身份层按 `with_src` 显式开）。
 
@@ -264,6 +277,7 @@ def read_index_node(node, *, with_src: bool = False, verify: str = "hash") -> di
     kind, ref = refindex.ref_of(node)
     if not ref:
         return {"ok": False, "error": "该节点没有 code_ref/doc_ref（不是索引节点）"}
+    _check_ref_path_whitelist(ref)
     out = refindex.read_ref(ref, ref_kind=kind)
     # read_ref 的非 ok 只有 dangling/unresolved/error，且**仅 dangling** 置 stale=True
     # （refindex.py:474-478）——故用 stale 位区分 dangling 与 unresolved，不猜。
