@@ -323,7 +323,7 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
         if not _sec.node_visible(cg, nid):
             return {"root": nid, "nodes": [], "paths": {}, "edges": [],
                     "n_nodes": 0, "n_edges": 0, "truncated": False}
-    cmap = children_index(cg)
+    cmap = None
     seen, edges, truncated = {}, [], False
     seen_edges = set()
     queue = deque([(nid, 0, nid)])
@@ -335,6 +335,8 @@ def expand(cg, nid, max_depth=None, max_nodes=MAX_NODES_DEFAULT):
             truncated = True
             break
         seen[cur] = path
+        if cmap is None:
+            cmap = children_index(cg)
         adjacency = cmap.get(cur) or ()
         if max_depth is not None and depth >= max_depth:
             if adjacency:
